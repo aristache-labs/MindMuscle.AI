@@ -1,0 +1,140 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id              String            @id @default(uuid())
+  email           String            @unique
+  name            String
+  avatar          String?
+  hashedPassword  String
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  preferences     UserPreferences?
+  stats           UserStats?
+  workouts        WorkoutProgress[]
+  customExercises Exercise[]        @relation("UserExercises")
+  achievements    Achievement[]
+}
+
+model UserPreferences {
+  id                String   @id @default(uuid())
+  userId           String   @unique
+  theme            String   @default("light")
+  notifications    Boolean  @default(true)
+  units            String   @default("metric")
+  workoutReminders Boolean  @default(true)
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserStats {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  totalWorkouts    Int      @default(0)
+  totalTime        Int      @default(0)
+  streakDays       Int      @default(0)
+  lastWorkoutDate  DateTime?
+  level            Int      @default(1)
+  experience       Int      @default(0)
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Achievement {
+  id          String   @id @default(uuid())
+  name        String
+  description String
+  type        String   // workout, streak, weight, etc.
+  createdAt   DateTime @default(now())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+model Exercise {
+  id            String   @id @default(uuid())
+  name          String
+  description   String
+  type          String   // strength, cardio, flexibility, custom
+  difficulty    String   // beginner, intermediate, advanced
+  muscleGroups  String   // JSON string of muscle groups
+  equipment     String   // JSON string of equipment
+  instructions  String   // JSON string of instructions
+  videoUrl      String?
+  thumbnailUrl  String?
+  isCustom      Boolean  @default(false)
+  createdBy     String?
+  user          User?    @relation("UserExercises", fields: [createdBy], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  workouts      WorkoutExercise[]
+}
+
+model Workout {
+  id          String            @id @default(uuid())
+  name        String
+  description String
+  type        String           // strength, cardio, custom
+  difficulty  String           // beginner, intermediate, advanced
+  duration    Int              // in minutes
+  calories    Int
+  isCustom    Boolean          @default(false)
+  createdBy   String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  exercises   WorkoutExercise[]
+  progress    WorkoutProgress[]
+}
+
+model WorkoutExercise {
+  id         String   @id @default(uuid())
+  workoutId  String
+  exerciseId String
+  sets       Int
+  reps       Int?
+  duration   Int?     // in seconds, for timed exercises
+  weight     Float?   // in kg
+  order      Int
+  workout    Workout  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  exercise   Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+  progress   WorkoutExerciseProgress[]
+}
+
+model WorkoutProgress {
+  id        String                    @id @default(uuid())
+  workoutId String
+  userId    String
+  startTime DateTime
+  endTime   DateTime?
+  status    String                    // in_progress, completed, abandoned
+  workout   Workout                   @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  user      User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exercises WorkoutExerciseProgress[]
+}
+
+model WorkoutExerciseProgress {
+  id               String         @id @default(uuid())
+  workoutProgressId String
+  exerciseId       String
+  workoutExerciseId String
+  sets             WorkoutSet[]
+  notes            String?
+  workoutProgress  WorkoutProgress @relation(fields: [workoutProgressId], references: [id], onDelete: Cascade)
+  workoutExercise  WorkoutExercise @relation(fields: [workoutExerciseId], references: [id], onDelete: Cascade)
+}
+
+model WorkoutSet {
+  id                        String                  @id @default(uuid())
+  workoutExerciseProgressId String
+  reps                      Int?
+  weight                    Float?                  // in kg
+  duration                  Int?                    // in seconds
+  completed                 Boolean                 @default(false)
+  workoutExerciseProgress   WorkoutExerciseProgress @relation(fields: [workoutExerciseProgressId], references: [id], onDelete: Cascade)
+} 

@@ -3,18 +3,24 @@ import { StyleSheet, View } from 'react-native';
 import { Redirect } from 'expo-router';
 import { ActivityIndicator } from 'react-native-paper';
 import { COLORS } from './constants/theme';
+import { useAuth } from './store/AuthContext';
 
 export default function Index() {
-  // Here we'll add authentication check logic later
-  const isAuthenticated = false;
+  const { user, isLoading } = useAuth();
 
-  // Show loading indicator while checking auth status
-  return (
-    <View style={styles.container}>
-      <ActivityIndicator size="large" color={COLORS.primary} />
-      {!isAuthenticated && <Redirect href="/(auth)/login" />}
-    </View>
-  );
+  if (isLoading) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </View>
+    );
+  }
+
+  if (!user) {
+    return <Redirect href="/(auth)/login" />;
+  }
+
+  return <Redirect href="/(app)/home" />;
 }
 
 const styles = StyleSheet.create({

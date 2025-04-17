@@ -4,8 +4,9 @@ import { TextInput, Button, Card, Text, ActivityIndicator, Chip, Portal, Modal, 
 import { useCoaching } from '../store/CoachingContext';
 import { format } from 'date-fns';
 import { Rating } from 'react-native-ratings';
+import { CoachingSession } from '@services/aiCoaching';
 
-export const CoachingInterface: React.FC = () => {
+const CoachingInterface: React.FC = () => {
   const [prompt, setPrompt] = useState('');
   const [selectedType, setSelectedType] = useState<'workout' | 'nutrition' | 'mindset'>('workout');
   const [selectedSession, setSelectedSession] = useState<CoachingSession | null>(null);
@@ -295,4 +296,6 @@ const styles = StyleSheet.create({
   feedbackInput: {
     marginVertical: 16,
   },
-}); 
+});
+
+export default CoachingInterface; 

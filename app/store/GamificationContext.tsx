@@ -222,4 +222,6 @@ export const GamificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   );
 };
 
-export const useGamification = () => useContext(GamificationContext); 
+export const useGamification = () => useContext(GamificationContext);
+
+export default GamificationProvider; 

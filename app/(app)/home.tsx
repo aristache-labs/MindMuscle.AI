@@ -1,102 +1,87 @@
 import React from 'react';
 import { StyleSheet, View, ScrollView } from 'react-native';
-import { Text, Card, Button, Avatar, ProgressBar } from 'react-native-paper';
+import { Text, Card, ProgressBar, Button } from 'react-native-paper';
+import { useProgress } from '../store/ProgressContext';
+import { useProfile } from '../store/ProfileContext';
 import { COLORS, SPACING } from '../constants/theme';
 
 export default function HomeScreen() {
-  // Mock data - replace with real data later
-  const user = {
-    name: 'John',
-    streakDays: 5,
-    todaysProgress: 0.6,
-    nextWorkout: {
-      name: 'Full Body Workout',
-      duration: '45 min',
-      difficulty: 'Intermediate',
-    },
-  };
-
-  const featuredWorkouts = [
-    {
-      id: '1',
-      name: 'Morning HIIT',
-      duration: '30 min',
-      difficulty: 'Advanced',
-      image: 'https://example.com/workout1.jpg',
-    },
-    {
-      id: '2',
-      name: 'Core Strength',
-      duration: '20 min',
-      difficulty: 'Intermediate',
-      image: 'https://example.com/workout2.jpg',
-    },
-  ];
+  const { metrics } = useProgress();
+  const { profile } = useProfile();
 
   return (
     <ScrollView style={styles.container}>
-      {/* Welcome Section */}
       <View style={styles.header}>
         <View style={styles.welcomeContainer}>
-          <Text variant="headlineSmall" style={styles.welcomeText}>
-            Welcome back, {user.name}! 👋
+          <Text variant="headlineMedium" style={styles.welcomeText}>
+            Welcome, {profile?.name || 'User'}
           </Text>
-          <Avatar.Icon size={40} icon="bell" style={styles.notificationIcon} />
+          <Button
+            icon="bell"
+            mode="contained"
+            style={styles.notificationIcon}
+            onPress={() => {}}
+          />
         </View>
-        <Text variant="bodyLarge" style={styles.streakText}>
-          🔥 {user.streakDays} day streak
+        <Text style={styles.streakText}>
+          {metrics.streak} day streak! Keep it up!
         </Text>
       </View>
 
-      {/* Today's Progress */}
       <Card style={styles.progressCard}>
         <Card.Content>
-          <Text variant="titleMedium">Today's Progress</Text>
+          <Text variant="titleMedium">Your Progress</Text>
           <ProgressBar
-            progress={user.todaysProgress}
+            progress={0.7}
             color={COLORS.primary}
             style={styles.progressBar}
           />
-          <Text variant="bodyMedium" style={styles.progressText}>
-            {Math.round(user.todaysProgress * 100)}% of daily goal completed
+          <Text style={styles.progressText}>
+            {metrics.totalWorkouts} workouts completed
           </Text>
         </Card.Content>
       </Card>
 
-      {/* Next Workout */}
       <Card style={styles.workoutCard}>
         <Card.Content>
-          <Text variant="titleMedium">Next Workout</Text>
+          <Text variant="titleMedium">Today's Workout</Text>
           <View style={styles.workoutInfo}>
-            <View>
-              <Text variant="bodyLarge">{user.nextWorkout.name}</Text>
-              <Text variant="bodyMedium" style={styles.workoutMeta}>
-                {user.nextWorkout.duration} • {user.nextWorkout.difficulty}
-              </Text>
-            </View>
-            <Button mode="contained">Start</Button>
+            <Text variant="bodyLarge">Full Body Strength</Text>
+            <Text variant="bodyMedium">45 min</Text>
           </View>
+          <Text style={styles.workoutMeta}>
+            8 exercises • 3 sets each
+          </Text>
+          <Button
+            mode="contained"
+            style={{ marginTop: SPACING.md }}
+            onPress={() => {}}
+          >
+            Start Workout
+          </Button>
         </Card.Content>
       </Card>
 
-      {/* Featured Workouts */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Text variant="titleMedium">Featured Workouts</Text>
+          <Text variant="titleLarge">Featured Workouts</Text>
           <Button mode="text">See All</Button>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {featuredWorkouts.map((workout) => (
-            <Card key={workout.id} style={styles.featuredCard}>
-              <Card.Cover source={{ uri: workout.image }} />
-              <Card.Content>
-                <Text variant="titleMedium">{workout.name}</Text>
-                <Text variant="bodyMedium" style={styles.workoutMeta}>
-                  {workout.duration} • {workout.difficulty}
-                </Text>
-              </Card.Content>
-            </Card>
-          ))}
+          <Card style={styles.featuredCard}>
+            <Card.Cover source={{ uri: 'https://picsum.photos/700' }} />
+            <Card.Content>
+              <Text variant="titleMedium">Upper Body Blast</Text>
+              <Text variant="bodyMedium">30 min • Intermediate</Text>
+            </Card.Content>
+          </Card>
+          <Card style={styles.featuredCard}>
+            <Card.Cover source={{ uri: 'https://picsum.photos/700' }} />
+            <Card.Content>
+              <Text variant="titleMedium">Core Crusher</Text>
+              <Text variant="bodyMedium">20 min • Beginner</Text>
+            </Card.Content>
+          </Card>
         </ScrollView>
       </View>
     </ScrollView>

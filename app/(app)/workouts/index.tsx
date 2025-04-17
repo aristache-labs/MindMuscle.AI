@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { format } from 'date-fns';
 import { Workout } from '../../types/workout';
 import { workoutService } from '../../services/workoutService';
+import { COLORS, SPACING } from '../../constants/theme';
 
 const WorkoutsScreen = () => {
   const theme = useTheme();
@@ -116,35 +117,38 @@ const WorkoutsScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.background,
   },
   header: {
-    padding: 16,
+    padding: SPACING.lg,
   },
   title: {
-    marginBottom: 16,
+    marginBottom: SPACING.md,
   },
   listContainer: {
-    padding: 16,
+    padding: SPACING.lg,
   },
   card: {
-    marginBottom: 12,
+    marginBottom: SPACING.md,
+    backgroundColor: COLORS.surface,
   },
   date: {
-    marginTop: 4,
-    color: '#666',
+    marginTop: SPACING.xs,
+    color: COLORS.text,
+    opacity: 0.7,
   },
   statsContainer: {
     flexDirection: 'row',
-    marginTop: 8,
-    gap: 16,
+    marginTop: SPACING.sm,
+    gap: SPACING.md,
   },
   stat: {
-    color: '#666',
+    color: COLORS.text,
+    opacity: 0.7,
   },
   fab: {
     position: 'absolute',
-    margin: 16,
+    margin: SPACING.lg,
     right: 0,
     bottom: 0,
   },
@@ -157,12 +161,13 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
+    padding: SPACING.lg,
   },
   emptyText: {
-    marginTop: 8,
+    marginTop: SPACING.sm,
     textAlign: 'center',
-    color: '#666',
+    color: COLORS.text,
+    opacity: 0.7,
   },
 });
 

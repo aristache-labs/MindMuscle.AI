@@ -213,4 +213,6 @@ export const ProgressProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   );
 };
 
-export const useProgress = () => useContext(ProgressContext); 
+export const useProgress = () => useContext(ProgressContext);
+
+export default ProgressProvider; 

@@ -1,123 +1,143 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import { TextInput, Button, Text } from 'react-native-paper';
-import { Link } from 'expo-router';
-import { COLORS, SPACING } from '../constants/theme';
+import { StyleSheet, View, KeyboardAvoidingView, Platform, Pressable, TouchableWithoutFeedback, Keyboard } from 'react-native';
+import { TextInput, Text, Checkbox } from 'react-native-paper';
+import { Link, router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
+import { useAuth } from '../store/AuthContext';
 
 export default function RegisterScreen() {
-  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+  const { signUp, isLoading } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const handleRegister = async () => {
-    setIsLoading(true);
-    // TODO: Implement registration logic
-    setIsLoading(false);
+    try {
+      await signUp(email, password, '');
+    } catch (err) {
+      console.error('Registration error:', err);
+    }
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
-    >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.container}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
         <View style={styles.content}>
-          <Text variant="headlineMedium" style={styles.title}>
-            Create Account
+          <Pressable onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="chevron-back" size={24} color="white" />
+          </Pressable>
+
+          <Text variant="displaySmall" style={styles.title}>
+            Create your{'\n'}Account
           </Text>
-          <Text variant="bodyLarge" style={styles.subtitle}>
-            Start your fitness journey today
-          </Text>
 
-          <TextInput
-            mode="outlined"
-            label="Full Name"
-            value={name}
-            onChangeText={setName}
-            style={styles.input}
-          />
-
-          <TextInput
-            mode="outlined"
-            label="Email"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            style={styles.input}
-          />
-
-          <TextInput
-            mode="outlined"
-            label="Password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry={!showPassword}
-            right={
-              <TextInput.Icon
-                icon={showPassword ? 'eye-off' : 'eye'}
-                onPress={() => setShowPassword(!showPassword)}
+          <View style={styles.form}>
+            <View style={styles.inputContainer}>
+              <TextInput
+                mode="flat"
+                placeholder="Email"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                style={styles.input}
+                placeholderTextColor="#666"
+                textColor="white"
+                underlineColor="transparent"
+                activeUnderlineColor="transparent"
+                left={<TextInput.Icon icon="email" color="#666" />}
+                theme={{
+                  colors: {
+                    background: '#1A1A1A',
+                  },
+                }}
               />
-            }
-            style={styles.input}
-          />
+            </View>
 
-          <TextInput
-            mode="outlined"
-            label="Confirm Password"
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            secureTextEntry={!showConfirmPassword}
-            right={
-              <TextInput.Icon
-                icon={showConfirmPassword ? 'eye-off' : 'eye'}
-                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+            <View style={styles.inputContainer}>
+              <TextInput
+                mode="flat"
+                placeholder="Password"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                style={styles.input}
+                placeholderTextColor="#666"
+                textColor="white"
+                underlineColor="transparent"
+                activeUnderlineColor="transparent"
+                left={<TextInput.Icon icon="lock" color="#666" />}
+                right={
+                  <TextInput.Icon
+                    icon={showPassword ? 'eye-off' : 'eye'}
+                    color="#666"
+                    onPress={() => setShowPassword(!showPassword)}
+                  />
+                }
+                theme={{
+                  colors: {
+                    background: '#1A1A1A',
+                  },
+                }}
               />
-            }
-            style={styles.input}
-          />
+            </View>
 
-          <Button
-            mode="contained"
-            onPress={handleRegister}
-            loading={isLoading}
-            style={styles.button}
-          >
-            Sign Up
-          </Button>
+            <View style={styles.rememberContainer}>
+              <View style={styles.checkboxContainer}>
+                <Checkbox.Android
+                  status={rememberMe ? 'checked' : 'unchecked'}
+                  onPress={() => setRememberMe(!rememberMe)}
+                  color={COLORS.primary}
+                  uncheckedColor="#6c47ff"
+                />
+                <Text style={styles.rememberText}>Remember me</Text>
+              </View>
+            </View>
 
-          <View style={styles.socialButtons}>
-            <Button
-              mode="outlined"
-              icon="google"
-              onPress={() => {}}
-              style={styles.socialButton}
+            <Pressable
+              style={[styles.signUpButton, isLoading && styles.signUpButtonDisabled]}
+              onPress={handleRegister}
+              disabled={isLoading}
             >
-              Google
-            </Button>
-            <Button
-              mode="outlined"
-              icon="apple"
-              onPress={() => {}}
-              style={styles.socialButton}
-            >
-              Apple
-            </Button>
-          </View>
+              <Text style={styles.signUpButtonText}>Sign up</Text>
+            </Pressable>
 
-          <View style={styles.footer}>
-            <Text variant="bodyMedium">Already have an account? </Text>
-            <Link href="/(auth)/login" asChild>
-              <Text style={styles.link}>Login</Text>
-            </Link>
+            <View style={styles.dividerContainer}>
+              <View style={styles.divider} />
+              <Text style={styles.dividerText}>or continue with</Text>
+              <View style={styles.divider} />
+            </View>
+
+            <View style={styles.socialButtons}>
+              <Pressable style={styles.socialButton}>
+                <Ionicons name="logo-facebook" size={24} color="white" />
+              </Pressable>
+              <Pressable style={styles.socialButton}>
+                <Ionicons name="logo-google" size={24} color="white" />
+              </Pressable>
+              <Pressable style={styles.socialButton}>
+                <Ionicons name="logo-apple" size={24} color="white" />
+              </Pressable>
+            </View>
+
+            <View style={styles.footer}>
+              <Text style={styles.footerText}>Already have an account? </Text>
+              <Link href="/(auth)/login" asChild>
+                <Pressable>
+                  <Text style={styles.signInText}>Sign in</Text>
+                </Pressable>
+              </Link>
+            </View>
           </View>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </TouchableWithoutFeedback>
   );
 }
 
@@ -126,48 +146,106 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  scrollContent: {
-    flexGrow: 1,
-  },
   content: {
     flex: 1,
-    padding: SPACING.lg,
+    padding: SPACING.xxl,
+    paddingTop: SPACING.xxl * 2,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
     justifyContent: 'center',
+    marginBottom: SPACING.md * 4,
   },
   title: {
     color: COLORS.text,
-    textAlign: 'center',
-    marginBottom: SPACING.sm,
+    marginBottom: SPACING.xxl,
+    fontWeight: 'bold',
   },
-  subtitle: {
-    color: COLORS.text,
-    textAlign: 'center',
-    marginBottom: SPACING.xl,
-    opacity: 0.7,
+  form: {
+    flex: 1,
+  },
+  inputContainer: {
+    marginBottom: SPACING.lg,
+    borderRadius: BORDER_RADIUS.lg,
+    overflow: 'hidden',
+    backgroundColor: '#1A1A1A',
   },
   input: {
-    marginBottom: SPACING.md,
+    backgroundColor: '#1A1A1A',
+    height: 56,
   },
-  button: {
-    marginTop: SPACING.md,
-    paddingVertical: SPACING.xs,
+  rememberContainer: {
+    marginBottom: SPACING.xl,
+    alignItems: 'center',
+  },
+  checkboxContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  rememberText: {
+    color: COLORS.text,
+    marginLeft: SPACING.xs,
+
+  },
+  signUpButton: {
+    backgroundColor: COLORS.primary,
+    height: 56,
+    borderRadius: BORDER_RADIUS.lg,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SPACING.xl,
+  },
+  signUpButtonDisabled: {
+    opacity: 0.7,
+  },
+  signUpButtonText: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: SPACING.xl,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#333333',
+  },
+  dividerText: {
+    color: COLORS.text,
+    marginHorizontal: SPACING.md,
+    opacity: 0.7,
   },
   socialButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: SPACING.xl,
+    justifyContent: 'center',
+    gap: SPACING.lg,
+    marginBottom: SPACING.xl,
   },
   socialButton: {
-    flex: 1,
-    marginHorizontal: SPACING.xs,
+    width: 56,
+    height: 56,
+    backgroundColor: '#1A1A1A',
+    borderRadius: BORDER_RADIUS.lg,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: SPACING.xl,
+    paddingTop: SPACING.xxl,
   },
-  link: {
+  footerText: {
+    color: COLORS.text,
+    opacity: 0.7,
+    marginRight: SPACING.xs,
+  },
+  signInText: {
     color: COLORS.primary,
+    fontWeight: '600',
   },
 }); 

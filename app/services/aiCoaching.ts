@@ -1,7 +1,7 @@
-import { AsyncStorage } from '@react-native-async-storage/async-storage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { format } from 'date-fns';
 import OpenAI from 'openai';
-import { getAuth } from './auth';
+import { getAuth } from '@services/auth';
 
 export interface CoachingSession {
   id: string;
@@ -157,7 +157,7 @@ class AICoachingService {
         this.coachingHistory = JSON.parse(history);
         // Filter sessions for the current user
         this.coachingHistory = this.coachingHistory.filter(
-          session => session.userId === auth.user.id
+          session => session.userId === auth.user?.id
         );
       }
       return this.coachingHistory;

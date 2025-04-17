@@ -1,7 +1,20 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Workout, WorkoutExercise, WorkoutSet } from '../types/workout';
+import { useState, useEffect } from 'react';
+import { supabase } from './supabase';
 
 const WORKOUTS_STORAGE_KEY = '@workouts';
+
+export interface WorkoutProgress {
+  id: string;
+  user_id: string;
+  workout_id: string;
+  duration: number;
+  completed_at: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
 
 export const workoutService = {
   async getAllWorkouts(): Promise<Workout[]> {
@@ -202,4 +215,123 @@ export const workoutService = {
       throw error;
     }
   },
-}; 
+
+  async getWorkoutProgress(userId: string): Promise<WorkoutProgress[]> {
+    const { data, error } = await supabase
+      .from('workout_progress')
+      .select('*')
+      .eq('user_id', userId)
+      .order('completed_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching workout progress:', error);
+      throw error;
+    }
+
+    return data || [];
+  },
+
+  async addWorkoutProgress(
+    userId: string,
+    workoutId: string,
+    duration: number,
+    notes?: string
+  ): Promise<WorkoutProgress> {
+    const { data, error } = await supabase
+      .from('workout_progress')
+      .insert([
+        {
+          user_id: userId,
+          workout_id: workoutId,
+          duration,
+          notes,
+        }
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error adding workout progress:', error);
+      throw error;
+    }
+
+    return data;
+  },
+
+  async updateWorkoutProgress(
+    progressId: string,
+    updates: Partial<WorkoutProgress>
+  ): Promise<WorkoutProgress> {
+    const { data, error } = await supabase
+      .from('workout_progress')
+      .update(updates)
+      .eq('id', progressId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating workout progress:', error);
+      throw error;
+    }
+
+    return data;
+  },
+
+  async deleteWorkoutProgress(progressId: string): Promise<void> {
+    const { error } = await supabase
+      .from('workout_progress')
+      .delete()
+      .eq('id', progressId);
+
+    if (error) {
+      console.error('Error deleting workout progress:', error);
+      throw error;
+    }
+  }
+};
+
+export const useWorkoutService = () => {
+  const [workouts, setWorkouts] = useState<Workout[]>([]);
+
+  useEffect(() => {
+    const loadWorkouts = async () => {
+      try {
+        const loadedWorkouts = await workoutService.getAllWorkouts();
+        setWorkouts(loadedWorkouts);
+      } catch (error) {
+        console.error('Error loading workouts:', error);
+      }
+    };
+    loadWorkouts();
+  }, []);
+
+  return {
+    workouts,
+    getAllWorkouts: workoutService.getAllWorkouts,
+    getWorkoutById: workoutService.getWorkoutById,
+    createWorkout: async (workout: Omit<Workout, 'id' | 'createdAt' | 'updatedAt'>) => {
+      const newWorkout = await workoutService.createWorkout(workout);
+      setWorkouts(prev => [...prev, newWorkout]);
+      return newWorkout;
+    },
+    updateWorkout: async (id: string, workout: Partial<Workout>) => {
+      const updatedWorkout = await workoutService.updateWorkout(id, workout);
+      setWorkouts(prev => prev.map(w => w.id === id ? updatedWorkout : w));
+      return updatedWorkout;
+    },
+    deleteWorkout: async (id: string) => {
+      await workoutService.deleteWorkout(id);
+      setWorkouts(prev => prev.filter(w => w.id !== id));
+    },
+    addExerciseToWorkout: workoutService.addExerciseToWorkout,
+    addSetToExercise: workoutService.addSetToExercise,
+    getWorkoutsByDateRange: workoutService.getWorkoutsByDateRange,
+    updateSet: workoutService.updateSet,
+    getWorkoutProgress: workoutService.getWorkoutProgress,
+    addWorkoutProgress: workoutService.addWorkoutProgress,
+    updateWorkoutProgress: workoutService.updateWorkoutProgress,
+    deleteWorkoutProgress: workoutService.deleteWorkoutProgress,
+  };
+};
+
+export default useWorkoutService; 

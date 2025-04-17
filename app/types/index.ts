@@ -1,3 +1,13 @@
+import Exercise from './exercise';
+import Workout from './workout';
+
+export { Exercise, Workout };
+
+export default {
+  Exercise,
+  Workout,
+};
+
 export interface User {
   id: string;
   email: string;

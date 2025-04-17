@@ -4,6 +4,7 @@ import { Text, TextInput, Button, Chip, useTheme, Snackbar, ActivityIndicator } 
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { exerciseService } from '../../services/exerciseService';
+import { COLORS, SPACING } from '../../constants/theme';
 
 const NewExerciseScreen = () => {
   const theme = useTheme();
@@ -247,38 +248,39 @@ const NewExerciseScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.background,
   },
   content: {
-    padding: 16,
+    padding: SPACING.lg,
   },
   title: {
-    marginBottom: 24,
+    marginBottom: SPACING.lg,
   },
   input: {
-    marginBottom: 16,
+    marginBottom: SPACING.md,
   },
   sectionTitle: {
-    marginTop: 24,
-    marginBottom: 16,
+    marginTop: SPACING.lg,
+    marginBottom: SPACING.md,
   },
   addButton: {
-    marginBottom: 24,
+    marginBottom: SPACING.lg,
   },
   musclesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 16,
+    gap: SPACING.sm,
+    marginBottom: SPACING.md,
   },
   muscleChip: {
-    marginRight: 8,
-    marginBottom: 8,
+    marginRight: SPACING.sm,
+    marginBottom: SPACING.sm,
+    backgroundColor: COLORS.surface,
   },
   addMuscleContainer: {
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 24,
+    gap: SPACING.sm,
+    marginBottom: SPACING.lg,
   },
   muscleInput: {
     flex: 1,
@@ -287,9 +289,9 @@ const styles = StyleSheet.create({
     minWidth: 80,
   },
   footer: {
-    padding: 16,
+    padding: SPACING.lg,
     borderTopWidth: 1,
-    borderTopColor: '#eee',
+    borderTopColor: COLORS.surface,
   },
   submitButton: {
     width: '100%',
@@ -300,7 +302,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: 16,
+    marginTop: SPACING.md,
+    color: COLORS.text,
   },
 });
 

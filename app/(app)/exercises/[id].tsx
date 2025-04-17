@@ -5,6 +5,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Exercise } from '../../types/exercise';
 import { exerciseService } from '../../services/exerciseService';
+import { COLORS, SPACING } from '../../constants/theme';
 
 const ExerciseDetailScreen = () => {
   const theme = useTheme();
@@ -134,7 +135,7 @@ const ExerciseDetailScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.background,
   },
   loadingContainer: {
     flex: 1,
@@ -146,53 +147,58 @@ const styles = StyleSheet.create({
     height: 250,
   },
   content: {
-    padding: 16,
+    padding: SPACING.lg,
   },
   title: {
-    marginBottom: 16,
+    marginBottom: SPACING.md,
   },
   chipsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 24,
+    gap: SPACING.sm,
+    marginBottom: SPACING.lg,
   },
   chip: {
-    marginRight: 8,
+    marginRight: SPACING.sm,
+    backgroundColor: COLORS.surface,
   },
   sectionTitle: {
-    marginTop: 24,
-    marginBottom: 12,
+    marginTop: SPACING.lg,
+    marginBottom: SPACING.md,
   },
   description: {
-    marginBottom: 16,
+    marginBottom: SPACING.md,
     lineHeight: 24,
+    color: COLORS.text,
   },
   instructionItem: {
     flexDirection: 'row',
-    marginBottom: 12,
+    marginBottom: SPACING.md,
   },
   instructionNumber: {
-    marginRight: 8,
-    color: '#666',
+    marginRight: SPACING.sm,
+    color: COLORS.text,
+    opacity: 0.7,
   },
   instructionText: {
     flex: 1,
     lineHeight: 24,
+    color: COLORS.text,
   },
   musclesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: SPACING.sm,
   },
   muscleChip: {
-    marginRight: 8,
-    marginBottom: 8,
+    marginRight: SPACING.sm,
+    marginBottom: SPACING.sm,
+    backgroundColor: COLORS.surface,
   },
   footer: {
-    padding: 16,
+    padding: SPACING.lg,
     borderTopWidth: 1,
-    borderTopColor: '#eee',
+    borderTopColor: COLORS.surface,
   },
   addButton: {
     width: '100%',

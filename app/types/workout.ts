@@ -1,3 +1,18 @@
+import { ExerciseInWorkout } from './exercise';
+
+export interface Workout {
+  id: string;
+  name: string;
+  date: string;
+  duration?: number;
+  notes?: string;
+  exercises: ExerciseInWorkout[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export default Workout;
+
 export type WorkoutSet = {
   id: string;
   exerciseId: string;
@@ -11,15 +26,4 @@ export type WorkoutExercise = {
   exerciseId: string;
   sets: WorkoutSet[];
   notes?: string;
-};
-
-export type Workout = {
-  id: string;
-  name: string;
-  date: string;
-  exercises: WorkoutExercise[];
-  notes?: string;
-  duration?: number; // in minutes
-  createdAt: string;
-  updatedAt: string;
 }; 

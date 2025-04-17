@@ -27,6 +27,7 @@ const NewWorkoutScreen = () => {
 
   const loadInitialExercise = async () => {
     try {
+      if (!exerciseId) return;
       const exercise = await exerciseService.getExerciseById(exerciseId);
       if (exercise) {
         setInitialExercise(exercise);
@@ -65,6 +66,7 @@ const NewWorkoutScreen = () => {
         duration: duration ? parseInt(duration, 10) : undefined,
         notes: notes.trim() || undefined,
         exercises: initialExercise ? [{
+          id: crypto.randomUUID(),
           exerciseId: initialExercise.id,
           sets: [],
         }] : [],

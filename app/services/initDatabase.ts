@@ -1,6 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
+import { useState, useEffect } from 'react';
 
 const DB_NAME = 'mindmuscle.db';
 
@@ -31,35 +32,85 @@ async function openDatabase() {
     }
   }
 
-  return SQLite.openDatabase(DB_NAME);
+  return SQLite.openDatabaseSync(DB_NAME);
 }
 
-export async function initDatabase() {
-  try {
-    const db = await openDatabase();
-    
-    // Run migrations if needed
-    db.transaction(tx => {
-      // Create tables if they don't exist
-      tx.executeSql(
-        `CREATE TABLE IF NOT EXISTS migrations (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
-          executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );`
-      );
+export const initDatabase = async () => {
+  const db = SQLite.openDatabaseSync(DB_NAME);
 
-      // Add more migration checks and table creation here
-    });
+  return new Promise<void>((resolve, reject) => {
+    // Execute each SQL statement separately
+    db.execAsync(`CREATE TABLE IF NOT EXISTS exercises (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      type TEXT,
+      difficulty TEXT,
+      muscle_groups TEXT,
+      equipment TEXT,
+      instructions TEXT,
+      video_url TEXT,
+      thumbnail_url TEXT,
+      is_custom INTEGER DEFAULT 0,
+      created_by TEXT
+    );`)
+    .then(() => db.execAsync(`CREATE TABLE IF NOT EXISTS workouts (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      type TEXT,
+      difficulty TEXT,
+      duration INTEGER,
+      exercises TEXT,
+      created_at TEXT,
+      updated_at TEXT
+    );`))
+    .then(() => db.execAsync(`CREATE TABLE IF NOT EXISTS workout_progress (
+      id TEXT PRIMARY KEY,
+      workout_id TEXT,
+      user_id TEXT,
+      start_time TEXT,
+      end_time TEXT,
+      status TEXT,
+      completed_exercises TEXT,
+      FOREIGN KEY (workout_id) REFERENCES workouts (id)
+    );`))
+    .then(resolve)
+    .catch(reject);
+  });
+};
 
-    return db;
-  } catch (error) {
-    console.error('Error initializing database:', error);
-    throw error;
-  }
-}
+export const getDatabase = () => {
+  return SQLite.openDatabaseSync(DB_NAME);
+};
 
 export async function closeDatabase() {
-  const db = SQLite.openDatabase(DB_NAME);
-  db.closeAsync();
-} 
+  const db = SQLite.openDatabaseSync(DB_NAME);
+  await db.closeAsync();
+}
+
+export const useDatabase = () => {
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    const initialize = async () => {
+      try {
+        await initDatabase();
+        setIsInitialized(true);
+      } catch (err) {
+        setError(err as Error);
+      }
+    };
+    initialize();
+  }, []);
+
+  return {
+    isInitialized,
+    error,
+    getDatabase,
+    closeDatabase,
+  };
+};
+
+export default useDatabase; 

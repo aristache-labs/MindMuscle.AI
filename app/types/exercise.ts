@@ -1,4 +1,4 @@
-export type Exercise = {
+export interface Exercise {
   id: string;
   name: string;
   category: string;
@@ -10,4 +10,21 @@ export type Exercise = {
   imageUrl?: string;
   createdAt: string;
   updatedAt: string;
-}; 
+}
+
+export interface ExerciseSet {
+  id: string;
+  reps: number;
+  weight: number;
+  notes?: string;
+}
+
+export interface ExerciseInWorkout {
+  id: string;
+  exerciseId: string;
+  name: string;
+  sets: ExerciseSet[];
+  notes?: string;
+}
+
+export default Exercise; 

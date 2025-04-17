@@ -1,95 +1,131 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, KeyboardAvoidingView, Platform } from 'react-native';
-import { TextInput, Button, Text } from 'react-native-paper';
+import { StyleSheet, View, KeyboardAvoidingView, Platform, Pressable, TouchableWithoutFeedback, Keyboard } from 'react-native';
+import { TextInput, Text, Checkbox } from 'react-native-paper';
 import { Link } from 'expo-router';
-import { COLORS, SPACING } from '../constants/theme';
+import { Ionicons } from '@expo/vector-icons';
+import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
+import { useAuth } from '../store/AuthContext';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+  const { signIn, isLoading } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = async () => {
-    setIsLoading(true);
-    // TODO: Implement login logic
-    setIsLoading(false);
+    try {
+      await signIn(email, password);
+    } catch (err) {
+      console.error('Login error:', err);
+    }
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
-    >
-      <View style={styles.content}>
-        <Text variant="headlineMedium" style={styles.title}>
-          Welcome Back
-        </Text>
-        <Text variant="bodyLarge" style={styles.subtitle}>
-          Login to continue your fitness journey
-        </Text>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.container}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        <View style={styles.content}>
+          <Text variant="displaySmall" style={styles.title}>
+            Login to your{'\n'}Account
+          </Text>
 
-        <TextInput
-          mode="outlined"
-          label="Email"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          style={styles.input}
-        />
+          <View style={styles.form}>
+            <View style={styles.inputContainer}>
+              <TextInput
+                mode="flat"
+                placeholder="Email"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                style={styles.input}
+                placeholderTextColor="#666"
+                textColor="white"
+                underlineColor="transparent"
+                activeUnderlineColor="transparent"
+                left={<TextInput.Icon icon="email" color="#666" />}
+                theme={{
+                  colors: {
+                    background: '#1A1A1A',
+                  },
+                }}
+              />
+            </View>
 
-        <TextInput
-          mode="outlined"
-          label="Password"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry={!showPassword}
-          right={
-            <TextInput.Icon
-              icon={showPassword ? 'eye-off' : 'eye'}
-              onPress={() => setShowPassword(!showPassword)}
-            />
-          }
-          style={styles.input}
-        />
+            <View style={styles.inputContainer}>
+              <TextInput
+                mode="flat"
+                placeholder="Password"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                style={styles.input}
+                placeholderTextColor="#666"
+                textColor="white"
+                underlineColor="transparent"
+                activeUnderlineColor="transparent"
+                left={<TextInput.Icon icon="lock" color="#666" />}
+                right={
+                  <TextInput.Icon
+                    icon={showPassword ? 'eye-off' : 'eye'}
+                    color="#666"
+                    onPress={() => setShowPassword(!showPassword)}
+                  />
+                }
+                theme={{
+                  colors: {
+                    background: '#1A1A1A',
+                  },
+                }}
+              />
+            </View>
 
-        <Button
-          mode="contained"
-          onPress={handleLogin}
-          loading={isLoading}
-          style={styles.button}
-        >
-          Login
-        </Button>
+            <View style={styles.rememberContainer}>
+              <View style={styles.checkboxContainer}>
+                <Checkbox.Android
+                  status={rememberMe ? 'checked' : 'unchecked'}
+                  onPress={() => setRememberMe(!rememberMe)}
+                  color={COLORS.primary}
+                  uncheckedColor="#6c47ff"
+                />
+                <Text style={styles.rememberText}>Remember me</Text>
+              </View>
+            </View>
 
-        <View style={styles.socialButtons}>
-          <Button
-            mode="outlined"
-            icon="google"
-            onPress={() => {}}
-            style={styles.socialButton}
-          >
-            Google
-          </Button>
-          <Button
-            mode="outlined"
-            icon="apple"
-            onPress={() => {}}
-            style={styles.socialButton}
-          >
-            Apple
-          </Button>
+            <View style={styles.dividerContainer}>
+              <View style={styles.divider} />
+              <Text style={styles.dividerText}>or continue with</Text>
+              <View style={styles.divider} />
+            </View>
+
+            <View style={styles.socialButtons}>
+              <Pressable style={styles.socialButton}>
+                <Ionicons name="logo-facebook" size={24} color="white" />
+              </Pressable>
+              <Pressable style={styles.socialButton}>
+                <Ionicons name="logo-google" size={24} color="white" />
+              </Pressable>
+              <Pressable style={styles.socialButton}>
+                <Ionicons name="logo-apple" size={24} color="white" />
+              </Pressable>
+            </View>
+
+            <View style={styles.footer}>
+              <Text style={styles.footerText}>Don't have an account? </Text>
+              <Link href="/(auth)/register" asChild>
+                <Pressable>
+                  <Text style={styles.signUpText}>Sign Up</Text>
+                </Pressable>
+              </Link>
+            </View>
+          </View>
         </View>
-
-        <View style={styles.footer}>
-          <Text variant="bodyMedium">Don't have an account? </Text>
-          <Link href="/(auth)/register" asChild>
-            <Text style={styles.link}>Sign up</Text>
-          </Link>
-        </View>
-      </View>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </TouchableWithoutFeedback>
   );
 }
 
@@ -100,43 +136,119 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    padding: SPACING.lg,
-    justifyContent: 'center',
+    padding: SPACING.xxl,
+    paddingTop: SPACING.xxl * 5,
   },
   title: {
     color: COLORS.text,
-    textAlign: 'center',
-    marginBottom: SPACING.sm,
+    marginBottom: SPACING.xxl,
+    fontWeight: 'bold',
   },
-  subtitle: {
-    color: COLORS.text,
-    textAlign: 'center',
-    marginBottom: SPACING.xl,
-    opacity: 0.7,
+  form: {
+    flex: 1,
+  },
+  inputContainer: {
+    marginBottom: SPACING.lg,
+    borderRadius: BORDER_RADIUS.lg,
+    overflow: 'hidden',
+    backgroundColor: '#1A1A1A',
   },
   input: {
-    marginBottom: SPACING.md,
+    backgroundColor: '#1A1A1A',
+    height: 56,
   },
-  button: {
-    marginTop: SPACING.md,
-    paddingVertical: SPACING.xs,
+  rememberContainer: {
+    marginBottom: SPACING.xl,
+    alignItems: 'center',
+  },
+  checkboxContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rememberText: {
+    color: COLORS.text,
+    marginLeft: SPACING.xs,
+  },
+
+  signUpButtonDisabled: {
+    opacity: 0.7,
+  },
+  signUpButtonText: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  signUpButton: {
+    backgroundColor: COLORS.primary,
+    height: 56,
+    borderRadius: BORDER_RADIUS.lg,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SPACING.xl,
+  },
+  signInButtonDisabled: {
+    opacity: 0.7,
+  },
+  signInButtonText: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  forgotPassword: {
+    color: COLORS.primary,
+    textAlign: 'center',
+    marginBottom: SPACING.xl,
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: SPACING.xl,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#333333',
+  },
+  dividerText: {
+    color: COLORS.text,
+    marginHorizontal: SPACING.md,
+    opacity: 0.7,
   },
   socialButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: SPACING.xl,
+    justifyContent: 'center',
+    gap: SPACING.md,
+    marginBottom: SPACING.xl,
   },
   socialButton: {
-    flex: 1,
-    marginHorizontal: SPACING.xs,
+    width: 60,
+    height: 60,
+    backgroundColor: '#1E1E1E',
+    borderRadius: BORDER_RADIUS.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#333333',
+  },
+  socialButtonText: {
+    color: COLORS.text,
+    fontSize: 20,
   },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: SPACING.xl,
+    paddingTop: SPACING.xxl,
+
   },
-  link: {
+  footerText: {
+    color: COLORS.text,
+    opacity: 0.7,
+    marginRight: SPACING.xs,
+  },
+  signUpText: {
     color: COLORS.primary,
+    fontWeight: '600',
   },
 }); 

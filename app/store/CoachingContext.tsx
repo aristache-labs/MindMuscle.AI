@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AICoachingService, { CoachingSession, CoachingContext } from '../services/aiCoaching';
 import { useAuth } from './AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -16,6 +16,8 @@ interface CoachingContextType extends CoachingState {
   clearError: () => void;
   saveFeedback: (sessionId: string, feedback: string, rating: number) => Promise<void>;
   updateUserProfile: (profile: Partial<CoachingContext['userProfile']>) => void;
+  isCoachingEnabled: boolean;
+  toggleCoaching: () => void;
 }
 
 const defaultContext: CoachingContext = {
@@ -32,9 +34,9 @@ const defaultContext: CoachingContext = {
   }
 };
 
-const CoachingContext = createContext<CoachingContextType | undefined>(undefined);
+const CoachingContextInstance = createContext<CoachingContextType | undefined>(undefined);
 
-export const CoachingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const CoachingProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
   const [state, setState] = useState<CoachingState>({
     sessions: [],
@@ -42,6 +44,7 @@ export const CoachingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     isLoading: false,
     error: null
   });
+  const [isCoachingEnabled, setIsCoachingEnabled] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -127,26 +130,34 @@ export const CoachingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setState(prev => ({ ...prev, error: null }));
   };
 
+  const toggleCoaching = () => {
+    setIsCoachingEnabled(!isCoachingEnabled);
+  };
+
   return (
-    <CoachingContext.Provider
+    <CoachingContextInstance.Provider
       value={{
         ...state,
         getCoachingResponse,
         updateContext,
         updateUserProfile,
         saveFeedback,
-        clearError
+        clearError,
+        isCoachingEnabled,
+        toggleCoaching
       }}
     >
       {children}
-    </CoachingContext.Provider>
+    </CoachingContextInstance.Provider>
   );
 };
 
 export const useCoaching = () => {
-  const context = useContext(CoachingContext);
+  const context = useContext(CoachingContextInstance);
   if (context === undefined) {
     throw new Error('useCoaching must be used within a CoachingProvider');
   }
   return context;
-}; 
+};
+
+export default CoachingProvider; 

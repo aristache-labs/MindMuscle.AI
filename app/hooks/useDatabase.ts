@@ -24,4 +24,6 @@ export function useDatabase() {
     isReady,
     error,
   };
-} 
+}
+
+export default useDatabase; 

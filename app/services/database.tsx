@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import React, { createContext, useContext } from 'react';
 
 const prisma = new PrismaClient();
 
@@ -48,29 +49,33 @@ export const db = {
     description: string;
     type: string;
     difficulty: string;
-    muscleGroups: string[];
-    equipment: string[];
-    instructions: string[];
+    muscleGroups: string;
+    equipment: string;
+    instructions: string;
     videoUrl?: string;
     thumbnailUrl?: string;
     isCustom?: boolean;
-    createdBy?: string;
   }) => {
     return prisma.exercise.create({
-      data,
+      data: {
+        ...data,
+        createdBy: undefined,
+      },
     });
   },
 
   getExercises: async (filters?: {
     type?: string;
     difficulty?: string;
-    muscleGroups?: string[];
-    equipment?: string[];
+    muscleGroups?: string;
+    equipment?: string;
     isCustom?: boolean;
-    createdBy?: string;
   }) => {
     return prisma.exercise.findMany({
-      where: filters,
+      where: filters ? {
+        ...filters,
+        createdBy: undefined,
+      } : undefined,
     });
   },
 
@@ -138,6 +143,8 @@ export const db = {
       data: {
         workoutId: data.workoutId,
         userId: data.userId,
+        startTime: new Date(),
+        status: 'IN_PROGRESS',
       },
       include: {
         workout: {
@@ -157,7 +164,7 @@ export const db = {
     return prisma.workoutProgress.update({
       where: { id },
       data: {
-        completedAt: new Date(),
+        status: 'COMPLETED',
       },
     });
   },
@@ -168,11 +175,12 @@ export const db = {
     description: string;
     icon: string;
     userStatsId: string;
+    type: string;
+    user: { connect: { id: string } };
   }) => {
     return prisma.achievement.create({
       data: {
         ...data,
-        unlockedAt: new Date(),
       },
     });
   },
@@ -192,4 +200,26 @@ export const db = {
       data,
     });
   },
-}; 
+};
+
+type DatabaseContextType = typeof db;
+
+const DatabaseContext = createContext<DatabaseContextType | null>(null);
+
+export const DatabaseProvider = ({ children }: { children: React.ReactNode }) => {
+  return (
+    <DatabaseContext.Provider value={db}>
+      {children}
+    </DatabaseContext.Provider>
+  );
+};
+
+export const useDatabase = () => {
+  const context = useContext(DatabaseContext);
+  if (!context) {
+    throw new Error('useDatabase must be used within a DatabaseProvider');
+  }
+  return context;
+};
+
+export default DatabaseProvider; 

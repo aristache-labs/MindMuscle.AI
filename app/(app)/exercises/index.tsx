@@ -3,8 +3,9 @@ import { View, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
 import { Text, Searchbar, Card, FAB, useTheme, Snackbar } from 'react-native-paper';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Exercise } from '../../types/exercise';
+import { Exercise as ExerciseType } from '../../types/exercise';
 import { exerciseService } from '../../services/exerciseService';
+import { COLORS, SPACING } from '../../constants/theme';
 
 // TODO: Replace with actual exercise type
 type Exercise = {
@@ -143,41 +144,43 @@ const ExercisesScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.background,
   },
   header: {
-    padding: 16,
+    padding: SPACING.lg,
   },
   title: {
-    marginBottom: 16,
+    marginBottom: SPACING.md,
   },
   searchBar: {
-    marginBottom: 8,
+    marginBottom: SPACING.sm,
   },
   listContainer: {
-    padding: 16,
+    padding: SPACING.lg,
   },
   card: {
-    marginBottom: 12,
+    marginBottom: SPACING.md,
+    backgroundColor: COLORS.surface,
   },
   category: {
-    marginTop: 4,
-    color: '#666',
+    marginTop: SPACING.xs,
+    color: COLORS.text,
+    opacity: 0.7,
   },
   tagsContainer: {
     flexDirection: 'row',
-    marginTop: 8,
-    gap: 8,
+    marginTop: SPACING.sm,
+    gap: SPACING.sm,
   },
   tag: {
-    backgroundColor: '#f0f0f0',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    borderRadius: SPACING.xs,
   },
   fab: {
     position: 'absolute',
-    margin: 16,
+    margin: SPACING.lg,
     right: 0,
     bottom: 0,
   },

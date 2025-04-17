@@ -12,17 +12,34 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.mindmuscle.ai"
+      "bundleIdentifier": "com.mindmuscle.ai",
+      "associatedDomains": [
+        "applinks:mindmuscle.app"
+      ]
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
       },
-      "package": "com.mindmuscle.ai"
+      "package": "com.mindmuscle.ai",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "mindmuscle",
+              "host": "reset-password"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
     },
     "plugins": [
       "expo-router",

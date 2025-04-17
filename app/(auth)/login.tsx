@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, KeyboardAvoidingView, Platform, Pressable, TouchableWithoutFeedback, Keyboard } from 'react-native';
-import { TextInput, Text, Checkbox } from 'react-native-paper';
-import { Link } from 'expo-router';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, View, KeyboardAvoidingView, Platform, Pressable, TouchableWithoutFeedback, Keyboard, ActivityIndicator } from 'react-native';
+import { TextInput, Text, Checkbox, HelperText } from 'react-native-paper';
+import { Link, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { useAuth } from '../store/AuthContext';
@@ -10,13 +10,50 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
-  const { signIn, isLoading } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
+  const [focusedInput, setFocusedInput] = useState('');
+  const [validationError, setValidationError] = useState('');
+  
+  const { signIn, isLoading, error, clearError, session } = useAuth();
+
+  // Clear any errors when inputs change
+  useEffect(() => {
+    if (error) {
+      clearError();
+    }
+    setValidationError('');
+  }, [email, password]);
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (session) {
+      router.replace('/(app)/home');
+    }
+  }, [session]);
+
+  const validateInputs = () => {
+    if (!email.trim()) {
+      setValidationError('Email is required');
+      return false;
+    }
+    if (!password.trim()) {
+      setValidationError('Password is required');
+      return false;
+    }
+    if (!/\S+@\S+\.\S+/.test(email)) {
+      setValidationError('Please enter a valid email address');
+      return false;
+    }
+    return true;
+  };
 
   const handleLogin = async () => {
+    if (!validateInputs()) return;
+
     try {
       await signIn(email, password);
     } catch (err) {
+      // Error is handled by AuthContext
       console.error('Login error:', err);
     }
   };
@@ -34,7 +71,7 @@ export default function LoginScreen() {
           </Text>
 
           <View style={styles.form}>
-            <View style={styles.inputContainer}>
+            <View style={[styles.inputContainer, focusedInput === 'email' && styles.inputContainerFocused]}>
               <TextInput
                 mode="flat"
                 placeholder="Email"
@@ -44,45 +81,66 @@ export default function LoginScreen() {
                 autoCapitalize="none"
                 style={styles.input}
                 placeholderTextColor="#666"
-                textColor="white"
+                textColor={focusedInput === 'email' ? '#fff' : '#666'}
+                cursorColor="#6c47ff"
                 underlineColor="transparent"
-                activeUnderlineColor="transparent"
-                left={<TextInput.Icon icon="email" color="#666" />}
+                activeUnderlineColor="#6c47ff"
+                selectionColor="rgba(108, 71, 255, 0.3)"
+                left={<TextInput.Icon icon="email" color={focusedInput === 'email' ? '#6c47ff' : '#666'} />}
                 theme={{
                   colors: {
                     background: '#1A1A1A',
+                    primary: '#6c47ff',
                   },
                 }}
+                onFocus={() => setFocusedInput('email')}
+                onBlur={() => setFocusedInput('')}
+                error={!!error || !!validationError}
+                disabled={isLoading}
               />
             </View>
 
-            <View style={styles.inputContainer}>
+            <View style={[styles.inputContainer, focusedInput === 'password' && styles.inputContainerFocused]}>
               <TextInput
                 mode="flat"
                 placeholder="Password"
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
+                textContentType="oneTimeCode"
                 style={styles.input}
                 placeholderTextColor="#666"
-                textColor="white"
+                textColor={focusedInput === 'password' ? '#fff' : '#666'}
+                cursorColor="#6c47ff"
                 underlineColor="transparent"
-                activeUnderlineColor="transparent"
-                left={<TextInput.Icon icon="lock" color="#666" />}
+                activeUnderlineColor="#6c47ff"
+                selectionColor="rgba(108, 71, 255, 0.3)"
+                left={<TextInput.Icon icon="lock" color={focusedInput === 'password' ? '#6c47ff' : '#666'} />}
                 right={
                   <TextInput.Icon
                     icon={showPassword ? 'eye-off' : 'eye'}
-                    color="#666"
+                    color={focusedInput === 'password' ? '#6c47ff' : '#666'}
                     onPress={() => setShowPassword(!showPassword)}
                   />
                 }
                 theme={{
                   colors: {
                     background: '#1A1A1A',
+                    primary: '#6c47ff',
                   },
                 }}
+                onFocus={() => setFocusedInput('password')}
+                onBlur={() => setFocusedInput('')}
+                error={!!error || !!validationError}
+                disabled={isLoading}
               />
             </View>
+
+            {(error || validationError) && (
+              <HelperText type="error" style={styles.errorText}>
+                {error || validationError}
+              </HelperText>
+            )}
 
             <View style={styles.rememberContainer}>
               <View style={styles.checkboxContainer}>
@@ -91,10 +149,27 @@ export default function LoginScreen() {
                   onPress={() => setRememberMe(!rememberMe)}
                   color={COLORS.primary}
                   uncheckedColor="#6c47ff"
+                  disabled={isLoading}
                 />
                 <Text style={styles.rememberText}>Remember me</Text>
               </View>
             </View>
+
+            <Pressable
+              style={[styles.signInButton, isLoading && styles.signInButtonDisabled]}
+              onPress={handleLogin}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.signInButtonText}>Sign in</Text>
+              )}
+            </Pressable>
+
+            <Pressable onPress={() => router.push('/(auth)/forgot-password')} disabled={isLoading}>
+              <Text style={styles.forgotPassword}>Forgot the password?</Text>
+            </Pressable>
 
             <View style={styles.dividerContainer}>
               <View style={styles.divider} />
@@ -103,13 +178,13 @@ export default function LoginScreen() {
             </View>
 
             <View style={styles.socialButtons}>
-              <Pressable style={styles.socialButton}>
+              <Pressable style={styles.socialButton} disabled={isLoading}>
                 <Ionicons name="logo-facebook" size={24} color="white" />
               </Pressable>
-              <Pressable style={styles.socialButton}>
+              <Pressable style={styles.socialButton} disabled={isLoading}>
                 <Ionicons name="logo-google" size={24} color="white" />
               </Pressable>
-              <Pressable style={styles.socialButton}>
+              <Pressable style={styles.socialButton} disabled={isLoading}>
                 <Ionicons name="logo-apple" size={24} color="white" />
               </Pressable>
             </View>
@@ -117,7 +192,7 @@ export default function LoginScreen() {
             <View style={styles.footer}>
               <Text style={styles.footerText}>Don't have an account? </Text>
               <Link href="/(auth)/register" asChild>
-                <Pressable>
+                <Pressable disabled={isLoading}>
                   <Text style={styles.signUpText}>Sign Up</Text>
                 </Pressable>
               </Link>
@@ -143,6 +218,7 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     marginBottom: SPACING.xxl,
     fontWeight: 'bold',
+    textAlign: 'center',
   },
   form: {
     flex: 1,
@@ -152,10 +228,21 @@ const styles = StyleSheet.create({
     borderRadius: BORDER_RADIUS.lg,
     overflow: 'hidden',
     backgroundColor: '#1A1A1A',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  inputContainerFocused: {
+    borderColor: '#6c47ff',
+    borderWidth: 1,
   },
   input: {
     backgroundColor: '#1A1A1A',
     height: 56,
+  },
+  errorText: {
+    color: '#ff4444',
+    marginBottom: SPACING.md,
+    marginTop: -SPACING.sm,
   },
   rememberContainer: {
     marginBottom: SPACING.xl,
@@ -170,16 +257,7 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     marginLeft: SPACING.xs,
   },
-
-  signUpButtonDisabled: {
-    opacity: 0.7,
-  },
-  signUpButtonText: {
-    color: COLORS.text,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  signUpButton: {
+  signInButton: {
     backgroundColor: COLORS.primary,
     height: 56,
     borderRadius: BORDER_RADIUS.lg,
@@ -231,16 +309,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#333333',
   },
-  socialButtonText: {
-    color: COLORS.text,
-    fontSize: 20,
-  },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: SPACING.xxl,
-
+    paddingTop: SPACING.xxl * 1,
   },
   footerText: {
     color: COLORS.text,

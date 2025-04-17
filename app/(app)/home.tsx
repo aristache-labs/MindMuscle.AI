@@ -1,13 +1,25 @@
 import React from 'react';
 import { StyleSheet, View, ScrollView } from 'react-native';
-import { Text, Card, ProgressBar, Button } from 'react-native-paper';
+import { Text, Card, ProgressBar, Button, IconButton } from 'react-native-paper';
 import { useProgress } from '../store/ProgressContext';
 import { useProfile } from '../store/ProfileContext';
+import { useAuth } from '../store/AuthContext';
 import { COLORS, SPACING } from '../constants/theme';
+import { router } from 'expo-router';
 
 export default function HomeScreen() {
   const { metrics } = useProgress();
   const { profile } = useProfile();
+  const { signOut } = useAuth();
+
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      router.replace('/(auth)/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
 
   return (
     <ScrollView style={styles.container}>
@@ -16,12 +28,26 @@ export default function HomeScreen() {
           <Text variant="headlineMedium" style={styles.welcomeText}>
             Welcome, {profile?.name || 'User'}
           </Text>
-          <Button
-            icon="bell"
-            mode="contained"
-            style={styles.notificationIcon}
-            onPress={() => {}}
-          />
+          <View style={styles.headerButtons}>
+            <IconButton
+              icon="bell"
+              mode="contained"
+              containerColor={COLORS.surface}
+              iconColor={COLORS.text}
+              size={24}
+              onPress={() => {}}
+              style={styles.headerButton}
+            />
+            <IconButton
+              icon="logout"
+              mode="contained"
+              containerColor={COLORS.surface}
+              iconColor={COLORS.error}
+              size={24}
+              onPress={handleLogout}
+              style={styles.headerButton}
+            />
+          </View>
         </View>
         <Text style={styles.streakText}>
           {metrics.streak} day streak! Keep it up!
@@ -104,9 +130,14 @@ const styles = StyleSheet.create({
   },
   welcomeText: {
     color: COLORS.text,
+    flex: 1,
   },
-  notificationIcon: {
-    backgroundColor: COLORS.surface,
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerButton: {
+    marginLeft: SPACING.xs,
   },
   streakText: {
     color: COLORS.text,

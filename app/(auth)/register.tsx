@@ -9,13 +9,19 @@ import { useAuth } from '../store/AuthContext';
 export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const { signUp, isLoading } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  
+  // Add focus states for each input
+  const [focusedInput, setFocusedInput] = useState('');
 
   const handleRegister = async () => {
     try {
-      await signUp(email, password, '');
+      await signUp(email, password, fullName);
     } catch (err) {
       console.error('Registration error:', err);
     }
@@ -30,7 +36,7 @@ export default function RegisterScreen() {
       >
         <View style={styles.content}>
           <Pressable onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="chevron-back" size={24} color="white" />
+            <Ionicons name="arrow-back-circle-sharp" size={50} color="white" />
           </Pressable>
 
           <Text variant="displaySmall" style={styles.title}>
@@ -38,7 +44,34 @@ export default function RegisterScreen() {
           </Text>
 
           <View style={styles.form}>
-            <View style={styles.inputContainer}>
+            <View style={[styles.inputContainer, focusedInput === 'fullName' && styles.inputContainerFocused]}>
+              <TextInput
+                mode="flat"
+                placeholder="Full Name"
+                value={fullName}
+                onChangeText={setFullName}
+                autoCapitalize="words"
+                style={styles.input}
+                contentStyle={{ backgroundColor: '#1A1A1A' }}
+                theme={{ 
+                  colors: { 
+                    background: '#1A1A1A',
+                    primary: '#6c47ff',
+                  } 
+                }}
+                placeholderTextColor="#666"
+                textColor={focusedInput === 'fullName' ? '#fff' : '#666'}
+                cursorColor="#6c47ff"
+                underlineColor="transparent"
+                activeUnderlineColor="#6c47ff"
+                selectionColor="rgba(108, 71, 255, 0.3)"
+                left={<TextInput.Icon icon="account" color={focusedInput === 'fullName' ? '#6c47ff' : '#666'} />}
+                onFocus={() => setFocusedInput('fullName')}
+                onBlur={() => setFocusedInput('')}
+              />
+            </View>
+
+            <View style={[styles.inputContainer, focusedInput === 'email' && styles.inputContainerFocused]}>
               <TextInput
                 mode="flat"
                 placeholder="Email"
@@ -48,43 +81,88 @@ export default function RegisterScreen() {
                 autoCapitalize="none"
                 style={styles.input}
                 placeholderTextColor="#666"
-                textColor="white"
+                textColor={focusedInput === 'email' ? '#fff' : '#666'}
+                cursorColor="#6c47ff"
                 underlineColor="transparent"
-                activeUnderlineColor="transparent"
-                left={<TextInput.Icon icon="email" color="#666" />}
+                activeUnderlineColor="#6c47ff"
+                selectionColor="rgba(108, 71, 255, 0.3)"
+                left={<TextInput.Icon icon="email" color={focusedInput === 'email' ? '#6c47ff' : '#666'} />}
                 theme={{
                   colors: {
                     background: '#1A1A1A',
+                    primary: '#6c47ff',
                   },
                 }}
+                onFocus={() => setFocusedInput('email')}
+                onBlur={() => setFocusedInput('')}
               />
             </View>
 
-            <View style={styles.inputContainer}>
+            <View style={[styles.inputContainer, focusedInput === 'password' && styles.inputContainerFocused]}>
               <TextInput
                 mode="flat"
                 placeholder="Password"
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
+                textContentType="oneTimeCode"
                 style={styles.input}
                 placeholderTextColor="#666"
-                textColor="white"
+                textColor={focusedInput === 'password' ? '#fff' : '#666'}
+                cursorColor="#6c47ff"
                 underlineColor="transparent"
-                activeUnderlineColor="transparent"
-                left={<TextInput.Icon icon="lock" color="#666" />}
+                activeUnderlineColor="#6c47ff"
+                selectionColor="rgba(108, 71, 255, 0.3)"
+                left={<TextInput.Icon icon="lock" color={focusedInput === 'password' ? '#6c47ff' : '#666'} />}
                 right={
                   <TextInput.Icon
                     icon={showPassword ? 'eye-off' : 'eye'}
-                    color="#666"
+                    color={focusedInput === 'password' ? '#6c47ff' : '#666'}
                     onPress={() => setShowPassword(!showPassword)}
                   />
                 }
                 theme={{
                   colors: {
                     background: '#1A1A1A',
+                    primary: '#6c47ff',
                   },
                 }}
+                onFocus={() => setFocusedInput('password')}
+                onBlur={() => setFocusedInput('')}
+              />
+            </View>
+
+            <View style={[styles.inputContainer, focusedInput === 'confirmPassword' && styles.inputContainerFocused]}>
+              <TextInput
+                mode="flat"
+                placeholder="Confirm Password"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry={!showConfirmPassword}
+                textContentType="none"
+                style={styles.input}
+                placeholderTextColor="#666"
+                textColor={focusedInput === 'confirmPassword' ? '#fff' : '#666'}
+                cursorColor="#6c47ff"
+                underlineColor="transparent"
+                activeUnderlineColor="#6c47ff"
+                selectionColor="rgba(108, 71, 255, 0.3)"
+                left={<TextInput.Icon icon="lock-check" color={focusedInput === 'confirmPassword' ? '#6c47ff' : '#666'} />}
+                right={
+                  <TextInput.Icon
+                    icon={showConfirmPassword ? 'eye-off' : 'eye'}
+                    color={focusedInput === 'confirmPassword' ? '#6c47ff' : '#666'}
+                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                  />
+                }
+                theme={{
+                  colors: {
+                    background: '#1A1A1A',
+                    primary: '#6c47ff',
+                  },
+                }}
+                onFocus={() => setFocusedInput('confirmPassword')}
+                onBlur={() => setFocusedInput('')}
               />
             </View>
 
@@ -152,15 +230,15 @@ const styles = StyleSheet.create({
     paddingTop: SPACING.xxl * 2,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    marginBottom: SPACING.md * 4,
+    width: 70,
+    height: 70,
+    alignItems: 'flex-start',
   },
   title: {
     color: COLORS.text,
-    marginBottom: SPACING.xxl,
+    marginBottom: SPACING.xl,
     fontWeight: 'bold',
+    textAlign: 'center',
   },
   form: {
     flex: 1,
@@ -170,9 +248,16 @@ const styles = StyleSheet.create({
     borderRadius: BORDER_RADIUS.lg,
     overflow: 'hidden',
     backgroundColor: '#1A1A1A',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  inputContainerFocused: {
+    borderColor: '#6c47ff',
+    borderWidth: 1,
   },
   input: {
     backgroundColor: '#1A1A1A',
+    overflow: "hidden",
     height: 56,
   },
   rememberContainer: {
@@ -186,7 +271,6 @@ const styles = StyleSheet.create({
   rememberText: {
     color: COLORS.text,
     marginLeft: SPACING.xs,
-
   },
   signUpButton: {
     backgroundColor: COLORS.primary,
@@ -223,7 +307,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     gap: SPACING.lg,
-    marginBottom: SPACING.xl,
+    marginBottom: 20,
   },
   socialButton: {
     width: 56,
@@ -237,7 +321,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: SPACING.xxl,
+
   },
   footerText: {
     color: COLORS.text,

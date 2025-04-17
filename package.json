@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "expo-router/entry",
   "scripts": {
-    "start": "cross-env npx expo start --host lan",
+    "start": "npx expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
@@ -50,7 +50,8 @@
     "react-native-sqlite-storage": "^6.0.1",
     "react-native-svg": "^15.8.0",
     "react-native-vector-icons": "^10.0.3",
-    "victory-native": "^36.7.0"
+    "victory-native": "^36.7.0",
+    "expo-linear-gradient": "~14.0.2"
   },
   "devDependencies": {
     "@babel/core": "^7.23.9",

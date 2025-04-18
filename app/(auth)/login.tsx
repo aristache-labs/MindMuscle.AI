@@ -27,7 +27,7 @@ export default function LoginScreen() {
   // Redirect if already authenticated
   useEffect(() => {
     if (session) {
-      router.replace('/(app)/home');
+      router.replace('/');
     }
   }, [session]);
 

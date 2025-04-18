@@ -2,7 +2,7 @@ import { View, StyleSheet } from 'react-native';
 import { ActivityIndicator, useTheme } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
-export const LoadingScreen = () => {
+const LoadingScreen = () => {
   const theme = useTheme();
 
   return (
@@ -30,4 +30,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 40,
   },
-}); 
+});
+
+export default LoadingScreen; 

@@ -1,3 +1,4 @@
+import React from 'react';
 import { ExerciseInWorkout } from './exercise';
 
 export interface Workout {
@@ -10,8 +11,6 @@ export interface Workout {
   createdAt: string;
   updatedAt: string;
 }
-
-export default Workout;
 
 export type WorkoutSet = {
   id: string;
@@ -26,4 +25,8 @@ export type WorkoutExercise = {
   exerciseId: string;
   sets: WorkoutSet[];
   notes?: string;
-}; 
+};
+
+// Dummy component to satisfy Expo Router's requirements
+const WorkoutTypes = () => null;
+export default WorkoutTypes; 

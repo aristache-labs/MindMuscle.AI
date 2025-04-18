@@ -7,7 +7,7 @@ import { AuthProvider } from './store/AuthContext';
 import { ProfileProvider } from './store/ProfileContext';
 import { ProgressProvider } from './store/ProgressContext';
 import { GamificationProvider } from './store/GamificationContext';
-import { LoadingScreen } from './components/LoadingScreen';
+import LoadingScreen from './components/LoadingScreen';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function RootLayout() {

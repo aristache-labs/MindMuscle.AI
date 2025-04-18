@@ -5,7 +5,7 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
-import { supabase } from '../services/supabase';
+import supabase from '../services/supabase';
 
 export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState('');

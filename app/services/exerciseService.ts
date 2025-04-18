@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import supabase from './supabase';
 
 export interface Exercise {
   id: string;
@@ -11,7 +11,7 @@ export interface Exercise {
   updated_at: string;
 }
 
-export const exerciseService = {
+const exerciseService = {
   async getAllExercises(): Promise<Exercise[]> {
     const { data, error } = await supabase
       .from('exercises')
@@ -98,4 +98,6 @@ export const exerciseService = {
       throw error;
     }
   }
-}; 
+};
+
+export default exerciseService; 

@@ -154,46 +154,47 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <View style={styles.logoContainer}>
-            <View style={styles.logoWrapper}>
-              <Text style={styles.logoText}>AI</Text>
-            </View>
-            <Text style={styles.appName}>MindMuscle</Text>
+      <View style={styles.floatingHeader}>
+        <View style={styles.logoContainer}>
+          <View style={styles.logoWrapper}>
+            <Text style={styles.logoText}>AI</Text>
           </View>
-          <View style={styles.headerButtons}>
-            <IconButton
-              icon="bell-outline"
-              mode="contained"
-              containerColor="transparent"
-              iconColor='#6B4EFF'
-              size={28}
-              onPress={() => {}}
-              style={styles.headerButton}
-            />
-            <IconButton
-              icon="bookmark-outline"
-              mode="contained"
-              containerColor="transparent"
-              iconColor='#6B4EFF'
-              size={28}
-              onPress={() => {}}
-              style={styles.headerButton}
-            />
-            <IconButton
-              icon="logout"
-              mode="contained"
-              containerColor="transparent"
-              iconColor='#6B4EFF'
-              size={28}
-              onPress={handleLogout}
-              style={styles.headerButton}
-            />
-          </View>
-          
+          <Text style={styles.appName}>MindMuscle</Text>
         </View>
-
+        <View style={styles.headerButtons}>
+          <IconButton
+            icon="bell-outline"
+            mode="contained"
+            containerColor="transparent"
+            iconColor='#6B4EFF'
+            size={28}
+            onPress={() => {}}
+            style={styles.headerButton}
+          />
+          <IconButton
+            icon="bookmark-outline"
+            mode="contained"
+            containerColor="transparent"
+            iconColor='#6B4EFF'
+            size={28}
+            onPress={() => {}}
+            style={styles.headerButton}
+          />
+          <IconButton
+            icon="logout"
+            mode="contained"
+            containerColor="transparent"
+            iconColor='#6B4EFF'
+            size={28}
+            onPress={handleLogout}
+            style={styles.headerButton}
+          />
+        </View>
+      </View>
+      
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        <View style={styles.headerSpacer} />
+        
         <View style={styles.welcomeSection}>
           <Text variant="headlineMedium" style={styles.welcomeText}>
             {greeting}, {fullName}!
@@ -219,27 +220,29 @@ export default function HomeScreen() {
             <Text variant="titleMedium" style={styles.sectionTitle}>Workout Levels</Text>
             <Text style={styles.seeAllText}>See All</Text>
           </View>
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.levelsContainer}>
-            {workoutLevels.map((level) => (
-              <Chip
-                key={level}
-                selected={selectedLevel === level}
-                onPress={() => setSelectedLevel(level)}
-                style={[
-                  styles.levelChip,
-                  selectedLevel === level && styles.selectedLevelChip
-                ]}
-                textStyle={[
-                  styles.levelChipText,
-                  selectedLevel === level && styles.selectedLevelChipText
-                ]}>
-                {level}
-              </Chip>
-            ))}
-          </ScrollView>
+          <View style={styles.filtersWrapper}>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.levelsContainer}>
+              {workoutLevels.map((level) => (
+                <Chip
+                  key={level}
+                  selected={selectedLevel === level}
+                  onPress={() => setSelectedLevel(level)}
+                  style={[
+                    styles.filterChip,
+                    selectedLevel === level && styles.filterChipSelected
+                  ]}
+                  textStyle={[
+                    styles.filterChipText,
+                    selectedLevel === level && styles.filterChipTextSelected
+                  ]}>
+                  {level}
+                </Chip>
+              ))}
+            </ScrollView>
+          </View>
         </View>
 
         <View style={styles.levelCardsSection}>
@@ -254,6 +257,23 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
+  },
+  floatingHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 80,
+    paddingBottom: 16,
+    zIndex: 10,
+    backgroundColor: COLORS.background,
+  },
+  headerSpacer: {
+    height: 150, // Height to account for the floating header
   },
   scrollView: {
     flex: 1,
@@ -335,7 +355,7 @@ const styles = StyleSheet.create({
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
     marginRight: 16,
-    borderRadius: 16,
+    borderRadius: 20,
     overflow: 'hidden',
     backgroundColor: '#1A1A1A',
   },
@@ -379,34 +399,39 @@ const styles = StyleSheet.create({
     margin: 0,
     backgroundColor: '#6B4EFF',
   },
+  filtersWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   levelsContainer: {
     paddingVertical: 8,
+    flexDirection: 'row',
+    justifyContent: 'center',
   },
-  levelChip: {
+  filterChip: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#6B4EFF',
     marginRight: 8,
-    backgroundColor: '#1A1A1A',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
   },
-  selectedLevelChip: {
+  filterChipSelected: {
     backgroundColor: '#6B4EFF',
   },
-  levelChipText: {
-    color: '#FFFFFF',
+  filterChipText: {
+    color: '#6B4EFF',
   },
-  selectedLevelChipText: {
-    color: '#FFFFFF',
+  filterChipTextSelected: {
+    color: 'white',
   },
   levelCardsSection: {
-    paddingHorizontal: 16,
-    marginTop: 16,
+    padding: 16,
     gap: 16,
+    paddingBottom: 100,
   },
   levelCard: {
     width: '100%',
     height: 200,
-    borderRadius: 16,
+    borderRadius: 20,
     overflow: 'hidden',
     backgroundColor: '#1A1A1A',
     marginBottom: 16,
@@ -452,6 +477,6 @@ const styles = StyleSheet.create({
   levelCardBookmark: {
     margin: 0,
     backgroundColor: '#6c47ff',
-    borderRadius: 12,
+    borderRadius: 20,
   },
 }); 

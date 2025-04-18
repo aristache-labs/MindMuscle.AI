@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Workout, WorkoutExercise, WorkoutSet } from '../types/workout';
 import { useState, useEffect } from 'react';
-import { supabase } from './supabase';
+import supabase from './supabase';
 
 const WORKOUTS_STORAGE_KEY = '@workouts';
 

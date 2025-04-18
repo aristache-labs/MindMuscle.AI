@@ -5,7 +5,7 @@ import React from 'react';
 export const COLORS = {
   primary: '#6B4EFF',
   secondary: '#1A1B1E',
-  background: '#121212',
+  background: '#181a20',
   surface: '#1E1E1E',
   error: '#FF4B4B',
   text: '#FFFFFF',

@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import supabase from './supabase';
 import { User } from '@supabase/supabase-js';
 
 export interface Profile {
@@ -9,7 +9,7 @@ export interface Profile {
   updated_at: string;
 }
 
-export const profileService = {
+const profileService = {
   async getProfile(userId: string): Promise<Profile | null> {
     const { data, error } = await supabase
       .from('profiles')
@@ -61,4 +61,6 @@ export const profileService = {
 
     return data;
   }
-}; 
+};
+
+export default profileService; 

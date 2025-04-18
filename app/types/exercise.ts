@@ -1,3 +1,5 @@
+import React from 'react';
+
 export interface Exercise {
   id: string;
   name: string;
@@ -27,4 +29,6 @@ export interface ExerciseInWorkout {
   notes?: string;
 }
 
-export default Exercise; 
+// Dummy component to satisfy Expo Router's requirements
+const ExerciseTypes = () => null;
+export default ExerciseTypes; 

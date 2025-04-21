@@ -9,12 +9,15 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Image,
+  ImageSourcePropType
 } from 'react-native';
 import { Text, IconButton, Portal, Provider } from 'react-native-paper';
 import Slider from '@react-native-community/slider';
 import { MeasurementCategory, measurementService, Measurement } from '../services/measurements';
 import MeasurementHistory from './MeasurementHistory';
+import OptimizedImage from './OptimizedImage';
 
 interface Props {
   visible: boolean;
@@ -29,6 +32,46 @@ interface Props {
 
 const MAX_VALUE = 200;
 const STEP = 0.1;
+
+interface CategoryIcon {
+  type: 'material' | 'image';
+  source: string | ImageSourcePropType;
+}
+
+const CATEGORY_ICONS: Record<MeasurementCategory, CategoryIcon> = {
+  WEIGHT: {
+    type: 'image',
+    source: require('../../assets/measurements/instructions/weight-instruction.png')
+  },
+  BICEPS: {
+    type: 'image',
+    source: require('../../assets/measurements/instructions/biceps-instruction.png')
+  },
+  ABS: {
+    type: 'image',
+    source: require('../../assets/measurements/instructions/abs-instruction.png')
+  },
+  WAIST: {
+    type: 'image',
+    source: require('../../assets/measurements/instructions/waist-instruction.png')
+  },
+  CHEST: {
+    type: 'image',
+    source: require('../../assets/measurements/instructions/chest-instruction.png')
+  },
+  SHLDRS: {
+    type: 'image',
+    source: require('../../assets/measurements/instructions/shoulders-instruction.png')
+  },
+  THIGH: {
+    type: 'image',
+    source: require('../../assets/measurements/instructions/thigh-instruction.png')
+  },
+  CALF: {
+    type: 'image',
+    source: require('../../assets/measurements/instructions/calf-instruction.png')
+  }
+};
 
 export default function MeasurementModal({ 
   visible, 
@@ -141,26 +184,7 @@ export default function MeasurementModal({
   if (!visible) return null;
 
   const getCategoryIcon = (category: MeasurementCategory) => {
-    switch (category) {
-      case 'WEIGHT':
-        return 'weight';
-      case 'BICEPS':
-        return 'arm-flex-outline';
-      case 'ABS':
-        return 'human-male';
-      case 'WAIST':
-        return 'human-male';
-      case 'CHEST':
-        return 'human-male';
-      case 'SHLDRS':
-        return 'human-male';
-      case 'THIGH':
-        return 'human-male';
-      case 'CALF':
-        return 'human-male';
-      default:
-        return 'ruler';
-    }
+    return CATEGORY_ICONS[category] || { type: 'material', source: 'ruler' };
   };
 
   return (
@@ -194,11 +218,11 @@ export default function MeasurementModal({
                       </View>
 
                       <View style={styles.bodyContainer}>
-                        <View style={styles.measurementIcon}>
-                          <IconButton
-                            icon={getCategoryIcon(category)}
-                            size={40}
-                            iconColor="#FFE600"
+                        <View style={styles.measurementImageContainer}>
+                          <Image
+                            source={getCategoryIcon(category).source as ImageSourcePropType}
+                            style={styles.measurementImage}
+                            resizeMode="contain"
                           />
                         </View>
                         
@@ -343,14 +367,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 24,
   },
-  measurementIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#6B4EFF',
+  measurementImageContainer: {
+    width: 200,
+    height: 120,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 24,
+    borderRadius: 12,
+    padding: 16,
+  },
+  measurementImage: {
+    width: '100%',
+    height: '100%',
   },
   lastMeasurement: {
     fontSize: 16,

@@ -18,6 +18,9 @@ import measurementService, {
 } from '../services/measurements';
 import MeasurementModal from '../components/MeasurementModal';
 import MeasurementsGraph from '../components/MeasurementsGraph';
+import HowToMeasureModal from '../components/HowToMeasureModal';
+import OptimizedImage from '../components/OptimizedImage';
+import { useImagePreloader } from '../hooks/useImagePreloader';
 
 const TIME_FILTERS = [
   { label: '1W', value: '1w' },
@@ -46,6 +49,7 @@ export default function InsightsScreen() {
   const [selectedMeasurement, setSelectedMeasurement] = useState<MeasurementCategory | null>(null);
   const [measurementsLoading, setMeasurementsLoading] = useState(true);
   const [measurementHistory, setMeasurementHistory] = useState<Measurement[]>([]);
+  const [showHowToMeasure, setShowHowToMeasure] = useState(false);
 
   // Load saved photos, achievements, and measurements on component mount
   useEffect(() => {
@@ -204,31 +208,18 @@ export default function InsightsScreen() {
   };
 
   const handleMeasurementPress = async (category: MeasurementCategory) => {
-    console.log('InsightsScreen: handleMeasurementPress called with category:', category);
-    if (!user?.id) {
-      console.log('InsightsScreen: No user ID found');
-      return;
-    }
+    if (!user?.id) return;
     
     try {
-      console.log('InsightsScreen: Fetching measurement history...');
       const history = await measurementService.getMeasurementHistory(user.id, category);
-      console.log('InsightsScreen: Measurement history fetched:', history);
       setMeasurementHistory(history);
       setSelectedMeasurement(category);
-      console.log('InsightsScreen: Selected measurement set to:', category);
     } catch (error) {
-      console.error('InsightsScreen: Error loading measurement history:', error);
-      setMeasurementHistory([]); // Initialize with empty array on error
+      console.error('Error loading measurement history:', error);
+      setMeasurementHistory([]);
       setSelectedMeasurement(category);
-      console.log('InsightsScreen: Selected measurement set to (after error):', category);
     }
   };
-
-  // Add a useEffect to track measurementHistory changes
-  useEffect(() => {
-    console.log('InsightsScreen: measurementHistory changed:', measurementHistory);
-  }, [measurementHistory]);
 
   const handleSaveMeasurement = async (value: number) => {
     if (!user?.id || !selectedMeasurement) return;
@@ -252,6 +243,14 @@ export default function InsightsScreen() {
       await loadMeasurements();
     }
   };
+
+  // Preload images when they're available
+  const imagesToPreload = [
+    beforePhoto?.photo_url,
+    afterPhoto?.photo_url
+  ].filter(Boolean) as string[];
+  
+  const { loaded: imagesPreloaded } = useImagePreloader(imagesToPreload);
 
   return (
     <Provider>
@@ -402,13 +401,10 @@ export default function InsightsScreen() {
                   style={styles.photoFrame}
                 >
                   {beforePhoto ? (
-                    <Image 
-                      source={{ 
-                        uri: beforePhoto.photo_url,
-                        headers: { Accept: 'image/jpeg' },
-                        cache: 'reload'
-                      }} 
-                      style={styles.photo}
+                    <OptimizedImage 
+                      source={beforePhoto.photo_url}
+                      style={styles.photoFrame}
+                      imageStyle={styles.photo}
                       onError={() => {
                         console.error('Error loading before photo:', beforePhoto.photo_url);
                         setImageLoadError(prev => ({ ...prev, before: true }));
@@ -449,13 +445,10 @@ export default function InsightsScreen() {
                   style={styles.photoFrame}
                 >
                   {afterPhoto ? (
-                    <Image 
-                      source={{ 
-                        uri: afterPhoto.photo_url,
-                        headers: { Accept: 'image/jpeg' },
-                        cache: 'reload'
-                      }} 
-                      style={styles.photo}
+                    <OptimizedImage 
+                      source={afterPhoto.photo_url}
+                      style={styles.photoFrame}
+                      imageStyle={styles.photo}
                       onError={() => {
                         console.error('Error loading after photo:', afterPhoto.photo_url);
                         setImageLoadError(prev => ({ ...prev, after: true }));
@@ -565,15 +558,15 @@ export default function InsightsScreen() {
               <View style={styles.headerSide} />
               <View style={styles.titleContainer}>
                 <Text style={styles.sectionTitle}>MEASUREMENTS</Text>
-              </View>
-              <View style={styles.headerSide}>
                 <IconButton
                   icon="information"
                   iconColor="#fff"
                   size={20}
-                  onPress={() => {}}
+                  onPress={() => setShowHowToMeasure(true)}
+                  style={styles.infoIcon}
                 />
               </View>
+              <View style={styles.headerSide} />
             </View>
 
             {measurementsLoading ? (
@@ -656,6 +649,11 @@ export default function InsightsScreen() {
           onSave={handleSaveMeasurement}
           userId={user?.id || ''}
           onMeasurementsChange={handleMeasurementsChange}
+        />
+
+        <HowToMeasureModal
+          visible={showHowToMeasure}
+          onClose={() => setShowHowToMeasure(false)}
         />
       </View>
     </Provider>
@@ -982,6 +980,7 @@ const styles = StyleSheet.create({
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 8,
   },
   headerSide: {
@@ -989,8 +988,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   titleContainer: {
-    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
   },
   moreButton: {
     marginRight: -8,
@@ -1110,5 +1111,10 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#666',
     textAlign: 'center',
+  },
+  infoIcon: {
+    margin: 0,
+    marginLeft: 0,
+    marginBottom: 10,
   },
 }); 

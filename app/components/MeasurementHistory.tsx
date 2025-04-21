@@ -9,7 +9,7 @@ interface Props {
   measurements: Array<Measurement>;
   onAddMeasurement: () => void;
   onClose: () => void;
-  onDeleteMeasurement?: (measurementId: string) => void;
+  onDeleteMeasurement: (measurementId: string) => Promise<void>;
 }
 
 export default function MeasurementHistory({ 
@@ -17,7 +17,7 @@ export default function MeasurementHistory({
   measurements, 
   onAddMeasurement, 
   onClose,
-  onDeleteMeasurement 
+  onDeleteMeasurement,
 }: Props) {
   // Sort measurements by date and get first and latest
   const sortedMeasurements = [...measurements].sort((a, b) => 

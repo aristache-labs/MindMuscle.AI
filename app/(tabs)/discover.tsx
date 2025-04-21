@@ -4,6 +4,8 @@ import { Text, Chip, IconButton, Surface } from 'react-native-paper';
 import { COLORS } from '../constants/theme';
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
+import OptimizedImage from '../components/OptimizedImage';
+import { useImagePreloader } from '../hooks/useImagePreloader';
 
 interface ExerciseCard {
   id: string;
@@ -58,11 +60,13 @@ const ExerciseCard = ({ title, duration, level, image }: ExerciseCard) => {
   return (
     <Surface style={styles.card} elevation={2}>
       <View style={styles.cardOverflowContainer}>
-        <ImageBackground 
-          source={image}
-          style={styles.cardImage} 
-          imageStyle={[styles.cardImageStyle, styles.cardImageOverlay]}
-        >
+        <View style={styles.cardImageContainer}>
+          <OptimizedImage 
+            source={image}
+            style={styles.cardImageContainer}
+            imageStyle={styles.cardImage}
+            contentFit="cover"
+          />
           <View style={styles.cardContent}>
             <Text variant="titleMedium" style={styles.cardTitle}>{title}</Text>
             <View style={styles.cardMeta}>
@@ -77,7 +81,7 @@ const ExerciseCard = ({ title, duration, level, image }: ExerciseCard) => {
               onPress={() => {}}
             />
           </View>
-        </ImageBackground>
+        </View>
       </View>
     </Surface>
   );
@@ -85,6 +89,10 @@ const ExerciseCard = ({ title, duration, level, image }: ExerciseCard) => {
 
 export default function DiscoverScreen() {
   const [selectedFilter, setSelectedFilter] = React.useState('Intermediate');
+
+  // Preload all exercise images
+  const imagesToPreload = exerciseData.map(exercise => exercise.image);
+  const { loaded: imagesPreloaded } = useImagePreloader(imagesToPreload);
 
   return (
     <View style={styles.container}>
@@ -196,11 +204,14 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     overflow: 'hidden',
   },
-  cardImage: {
-    flex: 1,
+  cardImageContainer: {
+    width: '100%',
+    height: '100%',
+    position: 'relative',
   },
-  cardImageStyle: {
-    opacity: 0.7,
+  cardImage: {
+    width: '100%',
+    height: '100%',
   },
   cardContent: {
     flex: 1,
@@ -224,9 +235,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 8,
     right: 8,
-  },
-  cardImageOverlay: {
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
   },
   filterChip: {
     backgroundColor: '#1f222a',

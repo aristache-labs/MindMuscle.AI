@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useColorScheme } from 'react-native';
 import { Stack, Tabs } from 'expo-router';
 import { useFonts } from 'expo-font';
@@ -7,18 +7,35 @@ import { AuthProvider } from './store/AuthContext';
 import { ProfileProvider } from './store/ProfileContext';
 import { ProgressProvider } from './store/ProgressContext';
 import { GamificationProvider } from './store/GamificationContext';
-import LoadingScreen from './components/LoadingScreen';
+import { ProgressPhotosProvider } from './store/ProgressPhotosContext';
+import InitialLoadingScreen from './components/InitialLoadingScreen';
 import { Ionicons } from '@expo/vector-icons';
+import { preloadStaticImages } from './utils/imagePreloader';
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const [isImagesLoaded, setImagesLoaded] = useState(false);
   
   const [fontsLoaded] = useFonts({
     // Add any custom fonts here if needed
   });
 
-  if (!fontsLoaded) {
-    return <LoadingScreen />;
+  useEffect(() => {
+    async function loadImages() {
+      try {
+        await preloadStaticImages();
+        setImagesLoaded(true);
+      } catch (error) {
+        console.error('Failed to preload images:', error);
+        // Still set as loaded to not block the app
+        setImagesLoaded(true);
+      }
+    }
+    loadImages();
+  }, []);
+
+  if (!fontsLoaded || !isImagesLoaded) {
+    return <InitialLoadingScreen showProgress={false} message="Loading resources..." />;
   }
 
   return (
@@ -27,54 +44,56 @@ export default function RootLayout() {
         <ProfileProvider>
           <ProgressProvider>
             <GamificationProvider>
-              <Stack
-                screenOptions={{
-                  headerStyle: {
-                    backgroundColor: colorScheme === 'dark' ? '#181a20' : '#FFFFFF',
-                  },
-                  headerTintColor: colorScheme === 'dark' ? '#FFFFFF' : '#181a20',
-                  headerTitleStyle: {
-                    fontWeight: 'bold',
-                  },
-                }}
-              >
-                <Stack.Screen
-                  name="(tabs)"
-                  options={{
-                    headerShown: false,
+              <ProgressPhotosProvider>
+                <Stack
+                  screenOptions={{
+                    headerStyle: {
+                      backgroundColor: colorScheme === 'dark' ? '#181a20' : '#FFFFFF',
+                    },
+                    headerTintColor: colorScheme === 'dark' ? '#FFFFFF' : '#181a20',
+                    headerTitleStyle: {
+                      fontWeight: 'bold',
+                    },
                   }}
-                />
+                >
                   <Stack.Screen
-                  name="index"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="(auth)/login"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="(auth)/register"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="(auth)/reset-password"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="(auth)/forgot-password"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-              </Stack>
+                    name="(tabs)"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen
+                    name="index"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen
+                    name="(auth)/login"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen
+                    name="(auth)/register"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen
+                    name="(auth)/reset-password"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                  <Stack.Screen
+                    name="(auth)/forgot-password"
+                    options={{
+                      headerShown: false,
+                    }}
+                  />
+                </Stack>
+              </ProgressPhotosProvider>
             </GamificationProvider>
           </ProgressProvider>
         </ProfileProvider>

@@ -6,7 +6,7 @@ import { COLORS } from '../constants/theme';
 import { format } from 'date-fns';
 import { achievementService, Achievement, UserAchievement } from '../services/achievements';
 import { useAuth } from '../store/AuthContext';
-import { ActivityIndicator } from 'react-native-paper';
+import InitialLoadingScreen from './InitialLoadingScreen';
 
 export default function Achievements() {
   const theme = useTheme();
@@ -49,7 +49,7 @@ export default function Achievements() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <InitialLoadingScreen showProgress={false} message="Loading achievements..." />
       </View>
     );
   }

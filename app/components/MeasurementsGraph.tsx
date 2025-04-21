@@ -62,7 +62,6 @@ export default function MeasurementsGraph({ measurements, onMeasurementPress }: 
       <Pressable 
         style={styles.weightContainer}
         onPress={() => {
-          console.log('MeasurementsGraph: Weight pressed');
           onMeasurementPress('WEIGHT');
         }}
       >
@@ -92,10 +91,7 @@ export default function MeasurementsGraph({ measurements, onMeasurementPress }: 
                 <Pressable
                   key={category}
                   style={styles.barContainer}
-                  onPress={() => {
-                    console.log('MeasurementsGraph: Bar pressed for category:', category);
-                    onMeasurementPress(category as MeasurementCategory);
-                  }}
+                  onPress={() => onMeasurementPress(category as MeasurementCategory)}
                 >
                   {/* Floating value container */}
                   <View style={[

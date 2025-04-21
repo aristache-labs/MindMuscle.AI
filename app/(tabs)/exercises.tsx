@@ -3,6 +3,8 @@ import { StyleSheet, View, Image, TouchableOpacity, SafeAreaView, StatusBar, Vie
 import { Text, IconButton, Surface } from 'react-native-paper';
 import { COLORS } from '../constants/theme';
 import Timer from '../components/timer';
+import OptimizedImage from '../components/OptimizedImage';
+import { useImagePreloader } from '../hooks/useImagePreloader';
 
 interface MuscleGroup {
   id: number;
@@ -148,6 +150,13 @@ export default function ExercisesScreen() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [isTransitioning, setIsTransitioning] = useState(false);
 
+  // Preload body model images
+  const bodyModelImages = [
+    require('../../assets/body-model_front.png'),
+    require('../../assets/body-model_back.png')
+  ];
+  const { loaded: imagesPreloaded } = useImagePreloader(bodyModelImages);
+
   useEffect(() => {
     if (isImageLoaded) {
       Animated.timing(fadeAnim, {
@@ -256,7 +265,7 @@ export default function ExercisesScreen() {
       >
         <Animated.View style={[styles.modelContainer, { opacity: fadeAnim }]}>
           <View style={styles.imagesContainer}>
-            <Animated.Image
+            <OptimizedImage
               source={require('../../assets/body-model_front.png')}
               style={[
                 styles.bodyModel,
@@ -265,10 +274,12 @@ export default function ExercisesScreen() {
                   position: 'absolute',
                 }
               ]}
-              resizeMode="contain"
+              imageStyle={styles.bodyModel}
+              contentFit="contain"
               onLoad={() => setIsImageLoaded(true)}
+              transparent
             />
-            <Animated.Image
+            <OptimizedImage
               source={require('../../assets/body-model_back.png')}
               style={[
                 styles.bodyModel,
@@ -277,8 +288,10 @@ export default function ExercisesScreen() {
                   position: 'absolute',
                 }
               ]}
-              resizeMode="contain"
+              imageStyle={styles.bodyModel}
+              contentFit="contain"
               onLoad={() => setIsImageLoaded(true)}
+              transparent
             />
           </View>
           

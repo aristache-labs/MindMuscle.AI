@@ -219,15 +219,16 @@ export default function InsightsScreen() {
       console.log('InsightsScreen: Selected measurement set to:', category);
     } catch (error) {
       console.error('InsightsScreen: Error loading measurement history:', error);
+      setMeasurementHistory([]); // Initialize with empty array on error
       setSelectedMeasurement(category);
       console.log('InsightsScreen: Selected measurement set to (after error):', category);
     }
   };
 
-  // Add a useEffect to track selectedMeasurement changes
+  // Add a useEffect to track measurementHistory changes
   useEffect(() => {
-    console.log('InsightsScreen: selectedMeasurement changed to:', selectedMeasurement);
-  }, [selectedMeasurement]);
+    console.log('InsightsScreen: measurementHistory changed:', measurementHistory);
+  }, [measurementHistory]);
 
   const handleSaveMeasurement = async (value: number) => {
     if (!user?.id || !selectedMeasurement) return;
@@ -568,7 +569,7 @@ export default function InsightsScreen() {
               <View style={styles.headerSide}>
                 <IconButton
                   icon="information"
-                  iconColor="#666"
+                  iconColor="#fff"
                   size={20}
                   onPress={() => {}}
                 />
@@ -647,14 +648,11 @@ export default function InsightsScreen() {
 
         {/* Measurement Modal */}
         <MeasurementModal
-          visible={!!selectedMeasurement}
+          visible={selectedMeasurement !== null}
           category={selectedMeasurement || 'WEIGHT'}
-          lastValue={selectedMeasurement ? measurements[selectedMeasurement]?.value : undefined}
+          lastValue={measurements[selectedMeasurement || 'WEIGHT']?.value}
           measurements={measurementHistory}
-          onClose={() => {
-            console.log('InsightsScreen: Modal onClose called');
-            setSelectedMeasurement(null);
-          }}
+          onClose={() => setSelectedMeasurement(null)}
           onSave={handleSaveMeasurement}
           userId={user?.id || ''}
           onMeasurementsChange={handleMeasurementsChange}

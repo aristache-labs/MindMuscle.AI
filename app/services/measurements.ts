@@ -95,13 +95,10 @@ export const measurementService = {
     // We need to reverse the order to show oldest first in the UI
     const sortedMeasurements = [...data].reverse();
     
-    // Now the first item in sortedMeasurements is the actual first measurement
-    // and the last item is the most recent measurement
-    
     return sortedMeasurements;
   },
 
-  // Add a new measurement
+  // Add a new measurement and clean up old ones
   async addMeasurement(
     userId: string,
     category: MeasurementCategory,
@@ -109,7 +106,18 @@ export const measurementService = {
     unit: string,
     measured_at?: string
   ): Promise<Measurement> {
-    const { data, error } = await supabase
+    // First, get all measurements for this category
+    const { data: existingMeasurements, error: fetchError } = await supabase
+      .from('measurements')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('category', category)
+      .order('created_at', { ascending: true });
+
+    if (fetchError) throw fetchError;
+
+    // Add the new measurement
+    const { data: newMeasurement, error: insertError } = await supabase
       .from('measurements')
       .insert([{
         user_id: userId,
@@ -121,8 +129,29 @@ export const measurementService = {
       .select()
       .single();
 
-    if (error) throw error;
-    return data;
+    if (insertError) throw insertError;
+
+    // If we have more than 3 measurements (first + last 2), delete the extras
+    if (existingMeasurements && existingMeasurements.length > 2) {
+      // Keep the first measurement
+      const firstMeasurement = existingMeasurements[0];
+      
+      // Get IDs of measurements to delete (excluding first measurement and last measurement)
+      const measurementsToDelete = existingMeasurements
+        .slice(1, -1) // Exclude first and last measurement
+        .map(m => m.id);
+
+      if (measurementsToDelete.length > 0) {
+        const { error: deleteError } = await supabase
+          .from('measurements')
+          .delete()
+          .in('id', measurementsToDelete);
+
+        if (deleteError) throw deleteError;
+      }
+    }
+
+    return newMeasurement;
   },
 
   // Update a measurement

@@ -24,6 +24,7 @@
     "@supabase/supabase-js": "^2.49.4",
     "@types/date-fns": "^2.5.3",
     "@types/node": "^22.14.1",
+    "buffer": "^6.0.3",
     "cross-env": "^7.0.3",
     "date-fns": "^3.6.0",
     "expo": "~52.0.0",

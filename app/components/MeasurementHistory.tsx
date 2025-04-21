@@ -19,6 +19,33 @@ export default function MeasurementHistory({
   onClose,
   onDeleteMeasurement 
 }: Props) {
+  // Sort measurements by date and get first and latest
+  const sortedMeasurements = [...measurements].sort((a, b) => 
+    new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  );
+  
+  // First measurement is the earliest one chronologically
+  const firstMeasurement = sortedMeasurements.length > 0 ? sortedMeasurements[0] : null;
+  // Latest measurement is the most recent one
+  const latestMeasurement = sortedMeasurements.length > 0 ? sortedMeasurements[sortedMeasurements.length - 1] : null;
+  // Previous measurement (second to last)
+  const previousMeasurement = sortedMeasurements.length > 1 ? sortedMeasurements[sortedMeasurements.length - 2] : null;
+
+  // Calculate difference if we have both measurements
+  const getDifferenceDisplay = () => {
+    if (!previousMeasurement || !latestMeasurement) return null;
+    
+    const difference = latestMeasurement.value - previousMeasurement.value;
+    const isIncrease = difference > 0;
+    
+    return {
+      value: Math.abs(difference).toFixed(1),
+      isIncrease
+    };
+  };
+
+  const difference = getDifferenceDisplay();
+
   return (
     <Pressable style={styles.overlay} onPress={onClose}>
       <Pressable style={styles.container} onPress={(e) => e.stopPropagation()}>
@@ -35,44 +62,75 @@ export default function MeasurementHistory({
 
         <ScrollView style={styles.historyContainer}>
           {measurements.length > 0 ? (
-            measurements.map((measurement, index) => (
-              <View key={measurement.id} style={styles.historyItem}>
+            <>
+              {/* Latest Measurement */}
+              <View style={styles.historyItem}>
                 <View style={styles.dateContainer}>
                   <Text style={styles.date}>
-                    {format(new Date(measurement.created_at), 'MMMM dd, yyyy')}
+                    {format(new Date(latestMeasurement!.created_at), 'MMMM dd, yyyy')}
                   </Text>
-                  {index === measurements.length - 1 && (
-                    <Text style={styles.firstMeasurement}>1st Measurement</Text>
-                  )}
                 </View>
                 <View style={styles.measurementRow}>
-                  <Text style={styles.measurementValue}>
-                    {measurement.value.toFixed(1)} <Text style={styles.unit}>{measurement.unit}</Text>
-                  </Text>
-                  {onDeleteMeasurement && (
+                  <View style={styles.measurementContent}>
+                    <Text style={styles.measurementValue}>
+                      {previousMeasurement ? previousMeasurement.value.toFixed(1) : latestMeasurement!.value.toFixed(1)}
+                    </Text>
+                    <Text style={styles.unit}>{latestMeasurement!.unit}</Text>
+                    {measurements.length > 1 && (
+                      <View style={styles.progressIndicator}>
+                        <Text style={styles.arrow}> → </Text>
+                        <Text style={styles.measurementValue}>
+                          {latestMeasurement!.value.toFixed(1)}
+                        </Text>
+                        <Text style={styles.unit}>{latestMeasurement!.unit}</Text>
+                        {difference && (
+                          <View style={styles.differenceContainer}>
+                            <IconButton
+                              icon={difference.isIncrease ? 'arrow-up' : 'arrow-down'}
+                              iconColor={difference.isIncrease ? '#4CAF50' : '#F44336'}
+                              size={16}
+                              style={styles.differenceArrow}
+                            />
+                            <Text style={[
+                              styles.differenceValue,
+                              { color: difference.isIncrease ? '#4CAF50' : '#F44336' }
+                            ]}>
+                              {difference.value} {latestMeasurement!.unit}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                  {onDeleteMeasurement && latestMeasurement!.id !== firstMeasurement!.id && (
                     <IconButton
                       icon="delete"
                       iconColor="#FF4444"
                       size={20}
-                      onPress={() => onDeleteMeasurement(measurement.id)}
+                      onPress={() => onDeleteMeasurement(latestMeasurement!.id)}
                     />
                   )}
                 </View>
-                {index < measurements.length - 1 && (
-                  <View style={styles.progressIndicator}>
-                    <Text style={styles.progressValue}>
-                      {(measurements[index + 1].value - measurement.value > 0 ? '+' : '') + 
-                       (measurements[index + 1].value - measurement.value).toFixed(1)} {measurement.unit}
-                    </Text>
-                    <IconButton
-                      icon={measurements[index + 1].value - measurement.value > 0 ? 'arrow-up' : 'arrow-down'}
-                      iconColor={measurements[index + 1].value - measurement.value > 0 ? '#4CAF50' : '#F44336'}
-                      size={20}
-                    />
-                  </View>
-                )}
               </View>
-            ))
+
+              {/* First Measurement */}
+              <View style={[styles.historyItem, styles.firstMeasurementItem]}>
+                <View style={styles.dateContainer}>
+                  <Text style={styles.date}>
+                    {format(new Date(firstMeasurement!.created_at), 'MMMM dd, yyyy')}
+                  </Text>
+                  <Text style={styles.firstMeasurementLabel}>1st Measurement</Text>
+                </View>
+                <View style={styles.measurementRow}>
+                  <View style={styles.measurementContent}>
+                    <Text style={styles.measurementValue}>
+                      {firstMeasurement!.value.toFixed(1)}
+                    </Text>
+                    <Text style={styles.unit}>{firstMeasurement!.unit}</Text>
+                  </View>
+                </View>
+              </View>
+            </>
           ) : (
             <View style={styles.emptyState}>
               <Text style={styles.emptyStateText}>No measurements recorded yet</Text>
@@ -97,19 +155,29 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'flex-end',
-    width: SCREEN_WIDTH,
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'transparent',
     height: SCREEN_HEIGHT,
+    justifyContent: 'flex-end',
   },
   container: {
     width: '100%',
-    height: '85%',
+    height: '60%',
     backgroundColor: '#1E1E1E',
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: -2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   header: {
     flexDirection: 'row',
@@ -139,6 +207,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
   },
+  firstMeasurementItem: {
+    opacity: 0.8,
+  },
   dateContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -149,7 +220,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#888',
   },
-  firstMeasurement: {
+  firstMeasurementLabel: {
     fontSize: 12,
     color: '#FFE600',
     fontWeight: 'bold',
@@ -159,6 +230,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  measurementContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
   measurementValue: {
     fontSize: 24,
     fontWeight: 'bold',
@@ -167,25 +243,43 @@ const styles = StyleSheet.create({
   unit: {
     fontSize: 16,
     color: '#888',
+    marginLeft: 4,
   },
   progressIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4,
+    marginLeft: 8,
   },
-  progressValue: {
-    fontSize: 14,
+  arrow: {
+    fontSize: 24,
     color: '#888',
+    marginHorizontal: 8,
+  },
+  differenceContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  differenceArrow: {
+    margin: 0,
+    marginRight: -8,
+    height: 24,
+    alignSelf: 'center',
+  },
+  differenceValue: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginLeft: 4,
   },
   addButton: {
-    margin: 16,
-    backgroundColor: '#FFE600',
-    borderRadius: 25,
+    margin: 46,
+    backgroundColor: '#6B4EFF',
+    borderRadius: 45,
   },
   addButtonLabel: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#000',
+    color: '#fff',
   },
   emptyState: {
     flex: 1,

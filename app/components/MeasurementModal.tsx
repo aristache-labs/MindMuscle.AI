@@ -49,20 +49,23 @@ export default function MeasurementModal({
     setMeasurements(initialMeasurements);
   }, [initialMeasurements]);
 
+  useEffect(() => {
+    if (visible && lastValue) {
+      setValue(lastValue.toString());
+      setSliderValue(lastValue);
+    }
+  }, [visible, lastValue]);
+
   const handleAddMeasurement = () => {
-    console.log('MeasurementModal: handleAddMeasurement called');
     setValue(lastValue?.toString() || '0.0');
     setSliderValue(lastValue || 0);
     setShowInput(true);
   };
 
   const handleSave = async (value: number) => {
-    console.log('MeasurementModal: handleSave called with value:', value);
     try {
-      // Ensure the value is a number and not NaN
-      const numericValue = isNaN(value) ? 0 : value;
+      const numericValue = isNaN(value) ? 0 : parseFloat(value.toFixed(1));
       await onSave(numericValue);
-      // Refresh measurements after saving
       const updatedMeasurements = await measurementService.getMeasurementHistory(userId, category);
       setMeasurements(updatedMeasurements);
       onMeasurementsChange?.();
@@ -73,24 +76,20 @@ export default function MeasurementModal({
   };
 
   const handleClose = () => {
-    console.log('MeasurementModal: handleClose called');
     Keyboard.dismiss();
     setShowInput(false);
-    setValue('');
-    setSliderValue(0);
+    setValue(lastValue?.toString() || '0.0');
+    setSliderValue(lastValue || 0);
     onClose();
   };
 
   const handleDeleteMeasurement = async (measurementId: string) => {
     try {
       await measurementService.deleteMeasurement(measurementId);
-      
-      // Refresh measurements after deletion
       const updatedMeasurements = await measurementService.getMeasurementHistory(userId, category);
       setMeasurements(updatedMeasurements);
       onMeasurementsChange?.();
 
-      // If we deleted all measurements or the most recent one, update the input values
       if (updatedMeasurements.length === 0) {
         setValue('0.0');
         setSliderValue(0);
@@ -105,41 +104,37 @@ export default function MeasurementModal({
   };
 
   const handleValueChange = (text: string) => {
-    // Remove any non-numeric characters except decimal point
     const sanitizedText = text.replace(/[^0-9.]/g, '');
     
-    // Check if the text contains a decimal point
     if (sanitizedText.includes('.')) {
-      // If it has a decimal point, parse it as a float
       const numValue = parseFloat(sanitizedText);
       
       if (!isNaN(numValue) && numValue <= MAX_VALUE) {
         setValue(numValue.toFixed(1));
         setSliderValue(numValue);
-      } else {
-        setValue(sanitizedText);
       }
     } else {
-      // If it doesn't have a decimal point, just use the sanitized text
-      // This allows for whole numbers like "80" without forcing a decimal
       const numValue = parseInt(sanitizedText, 10);
       
       if (!isNaN(numValue) && numValue <= MAX_VALUE) {
         setValue(numValue.toString());
         setSliderValue(numValue);
-      } else {
-        setValue(sanitizedText);
       }
     }
   };
 
   const handleSliderChange = (newValue: number) => {
-    // Only use toFixed(1) if the value has a decimal part
-    const formattedValue = Number.isInteger(newValue) 
-      ? newValue.toString() 
-      : newValue.toFixed(1);
-    
+    const formattedValue = newValue.toFixed(1);
     setValue(formattedValue);
+    setSliderValue(newValue);
+  };
+
+  const adjustValue = (increment: boolean) => {
+    const current = parseFloat(value) || 0;
+    const newValue = increment 
+      ? Math.min(MAX_VALUE, current + STEP)
+      : Math.max(0, current - STEP);
+    setValue(newValue.toFixed(1));
     setSliderValue(newValue);
   };
 
@@ -208,21 +203,21 @@ export default function MeasurementModal({
                         </View>
                         
                         <Text style={styles.lastMeasurement}>
-                          Last: {lastValue?.toFixed(1)} {category === 'WEIGHT' ? 'kg' : 'cm'}
+                          Last: {lastValue?.toFixed(1) || '0.0'} {category === 'WEIGHT' ? 'kg' : 'cm'}
                         </Text>
 
                         <View style={styles.inputRow}>
-                          <IconButton
-                            icon="minus"
-                            size={24}
-                            iconColor="#fff"
-                            onPress={() => {
-                              const current = parseFloat(value) || 0;
-                              const newValue = Math.max(0, current - STEP).toFixed(1);
-                              setValue(newValue);
-                              setSliderValue(parseFloat(newValue));
-                            }}
-                          />
+                          <Pressable 
+                            style={styles.adjustButton} 
+                            onPress={() => adjustValue(false)}
+                          >
+                            <IconButton
+                              icon="minus"
+                              size={24}
+                              iconColor="#fff"
+                            />
+                          </Pressable>
+                          
                           <View style={styles.valueContainer}>
                             <TextInput
                               style={styles.valueInput}
@@ -237,17 +232,17 @@ export default function MeasurementModal({
                             />
                             <Text style={styles.unit}>{category === 'WEIGHT' ? 'kg' : 'cm'}</Text>
                           </View>
-                          <IconButton
-                            icon="plus"
-                            size={24}
-                            iconColor="#fff"
-                            onPress={() => {
-                              const current = parseFloat(value) || 0;
-                              const newValue = Math.min(MAX_VALUE, current + STEP).toFixed(1);
-                              setValue(newValue);
-                              setSliderValue(parseFloat(newValue));
-                            }}
-                          />
+
+                          <Pressable 
+                            style={styles.adjustButton} 
+                            onPress={() => adjustValue(true)}
+                          >
+                            <IconButton
+                              icon="plus"
+                              size={24}
+                              iconColor="#fff"
+                            />
+                          </Pressable>
                         </View>
 
                         <View style={styles.sliderContainer}>
@@ -257,9 +252,9 @@ export default function MeasurementModal({
                             minimumValue={0}
                             maximumValue={MAX_VALUE}
                             step={STEP}
-                            minimumTrackTintColor="#FFE600"
+                            minimumTrackTintColor="#6B4EFF"
                             maximumTrackTintColor="#333"
-                            thumbTintColor="#FFE600"
+                            thumbTintColor="#6B4EFF"
                             style={styles.slider}
                           />
                           <View style={styles.sliderLabels}>
@@ -314,10 +309,10 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     width: '100%',
-    height: '85%',
+    height: '60%',
     backgroundColor: '#1E1E1E',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     overflow: 'hidden',
   },
   container: {
@@ -337,7 +332,7 @@ const styles = StyleSheet.create({
   },
   title: {
     flex: 1,
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#fff',
     textAlign: 'center',
@@ -352,25 +347,37 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: 'rgba(255, 230, 0, 0.1)',
+    backgroundColor: '#6B4EFF',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 24,
   },
   lastMeasurement: {
-    fontSize: 14,
+    fontSize: 16,
     color: '#888',
     marginBottom: 32,
   },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    paddingHorizontal: 16,
     marginBottom: 32,
+  },
+  adjustButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#6B4EFF',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   valueContainer: {
     flexDirection: 'row',
     alignItems: 'baseline',
+    justifyContent: 'center',
+    flex: 1,
     marginHorizontal: 16,
   },
   valueInput: {
@@ -383,12 +390,13 @@ const styles = StyleSheet.create({
   },
   unit: {
     fontSize: 24,
-    color: '#888',
-    marginLeft: 8,
+    color: '#fff',
+    marginLeft: -10,
   },
   sliderContainer: {
     width: '100%',
     marginBottom: 32,
+    paddingHorizontal: 16,
   },
   slider: {
     width: '100%',
@@ -401,26 +409,28 @@ const styles = StyleSheet.create({
   },
   sliderLabel: {
     fontSize: 12,
-    color: '#888',
+    color: '#fff',
   },
   saveButton: {
-    backgroundColor: '#FFE600',
-    paddingVertical: 12,
+    backgroundColor: '#6B4EFF',
+    paddingVertical: 16,
     paddingHorizontal: 32,
-    borderRadius: 25,
-    marginBottom: 12,
+    borderRadius: 30,
+    marginBottom: 16,
+    width: '100%',
+    alignItems: 'center',
   },
   saveButtonText: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
-    color: '#000',
+    color: '#fff',
   },
   historyButton: {
     paddingVertical: 8,
   },
   historyButtonText: {
-    fontSize: 14,
-    color: '#FFE600',
+    fontSize: 16,
+    color: '#fff',
     textDecorationLine: 'underline',
   },
 }); 

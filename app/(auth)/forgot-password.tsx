@@ -195,7 +195,7 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.lg,
     borderRadius: BORDER_RADIUS.lg,
     overflow: 'hidden',
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#1f222a',
     borderWidth: 1,
     borderColor: 'transparent',
   },
@@ -204,7 +204,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   input: {
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#1f222a',
     height: 56,
   },
   errorText: {

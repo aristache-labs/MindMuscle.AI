@@ -52,7 +52,7 @@ export default function RegisterScreen() {
                 onChangeText={setFullName}
                 autoCapitalize="words"
                 style={styles.input}
-                contentStyle={{ backgroundColor: '#1A1A1A' }}
+                contentStyle={{ backgroundColor: '#1f222a' }}
                 theme={{ 
                   colors: { 
                     background: '#1A1A1A',
@@ -247,7 +247,7 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.lg,
     borderRadius: BORDER_RADIUS.lg,
     overflow: 'hidden',
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#1f222a',
     borderWidth: 1,
     borderColor: 'transparent',
   },
@@ -256,7 +256,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   input: {
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#1f222a',
     overflow: "hidden",
     height: 56,
   },
@@ -312,7 +312,7 @@ const styles = StyleSheet.create({
   socialButton: {
     width: 56,
     height: 56,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#1f222a',
     borderRadius: BORDER_RADIUS.lg,
     justifyContent: 'center',
     alignItems: 'center',

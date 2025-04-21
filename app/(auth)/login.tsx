@@ -227,7 +227,7 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.lg,
     borderRadius: BORDER_RADIUS.lg,
     overflow: 'hidden',
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#1f222a',
     borderWidth: 1,
     borderColor: 'transparent',
   },
@@ -236,7 +236,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   input: {
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#1f222a',
     height: 56,
   },
   errorText: {
@@ -302,7 +302,7 @@ const styles = StyleSheet.create({
   socialButton: {
     width: 60,
     height: 60,
-    backgroundColor: '#1E1E1E',
+    backgroundColor: '#1f222a',
     borderRadius: BORDER_RADIUS.md,
     justifyContent: 'center',
     alignItems: 'center',

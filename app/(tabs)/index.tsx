@@ -409,7 +409,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   filterChip: {
-    backgroundColor: 'transparent',
+    backgroundColor: '#1f222a',
     borderWidth: 1,
     borderColor: '#6B4EFF',
     marginRight: 8,

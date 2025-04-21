@@ -57,26 +57,28 @@ const exerciseData: ExerciseCard[] = [
 const ExerciseCard = ({ title, duration, level, image }: ExerciseCard) => {
   return (
     <Surface style={styles.card} elevation={2}>
-      <ImageBackground 
-        source={image}
-        style={styles.cardImage} 
-        imageStyle={[styles.cardImageStyle, styles.cardImageOverlay]}
-      >
-        <View style={styles.cardContent}>
-          <Text variant="titleMedium" style={styles.cardTitle}>{title}</Text>
-          <View style={styles.cardMeta}>
-            <Text variant="bodySmall" style={styles.cardMetaText}>{duration}</Text>
-            <Text variant="bodySmall" style={styles.cardMetaText}>{level}</Text>
+      <View style={styles.cardOverflowContainer}>
+        <ImageBackground 
+          source={image}
+          style={styles.cardImage} 
+          imageStyle={[styles.cardImageStyle, styles.cardImageOverlay]}
+        >
+          <View style={styles.cardContent}>
+            <Text variant="titleMedium" style={styles.cardTitle}>{title}</Text>
+            <View style={styles.cardMeta}>
+              <Text variant="bodySmall" style={styles.cardMetaText}>{duration}</Text>
+              <Text variant="bodySmall" style={styles.cardMetaText}>{level}</Text>
+            </View>
+            <IconButton
+              icon="bookmark-outline"
+              iconColor="white"
+              size={24}
+              style={styles.bookmarkIcon}
+              onPress={() => {}}
+            />
           </View>
-          <IconButton
-            icon="bookmark-outline"
-            iconColor="white"
-            size={24}
-            style={styles.bookmarkIcon}
-            onPress={() => {}}
-          />
-        </View>
-      </ImageBackground>
+        </ImageBackground>
+      </View>
     </Surface>
   );
 };
@@ -84,37 +86,20 @@ const ExerciseCard = ({ title, duration, level, image }: ExerciseCard) => {
 export default function DiscoverScreen() {
   const [selectedFilter, setSelectedFilter] = React.useState('Intermediate');
 
-  const handleBackPress = () => {
-    router.back();
-  };
-
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
       <View style={styles.headerContainer}>
-        <View style={styles.topBar}>
-          <IconButton
-            icon="arrow-left"
-            iconColor="white"
-            size={24}
-            onPress={handleBackPress}
-          />
-          <IconButton
-            icon="magnify"
-            iconColor="white"
-            size={24}
-            onPress={() => {}}
-          />
-        </View>
         <View style={styles.titleContainer}>
           <IconButton
-            icon="dumbbell"
+            icon="library"
             iconColor="white"
             size={24}
             style={styles.dumbbellIcon}
           />
-          <Text variant="headlineMedium" style={styles.headerTitle}>Discover</Text>
+          <Text variant="headlineSmall" style={styles.headerTitle}>Discover</Text>
         </View>
+        <View style={styles.separator} />
       </View>
 
       <View style={styles.filtersContainer}>
@@ -156,21 +141,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#181a20',
   },
   headerContainer: {
-    paddingTop: 60,
+    paddingTop: 80,
     paddingBottom: 0,
     gap: 8,
     zIndex: 2,
-  },
-  topBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingRight: 16,
   },
   titleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingLeft: 16,
+    paddingBottom: 5,
   },
   dumbbellIcon: {
     margin: 0,
@@ -181,9 +161,14 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: 'bold',
   },
+  separator: {
+    height: 1,
+    backgroundColor: '#2C2C2E',
+    width: '100%',
+  },
   filtersContainer: {
     position: 'absolute',
-    top: 170,
+    top: 140,
     left: 0,
     right: 0,
     zIndex: 1,
@@ -204,8 +189,12 @@ const styles = StyleSheet.create({
   card: {
     height: 160,
     borderRadius: 25,
-    overflow: 'hidden',
     backgroundColor: '#1C1C1E',
+  },
+  cardOverflowContainer: {
+    flex: 1,
+    borderRadius: 25,
+    overflow: 'hidden',
   },
   cardImage: {
     flex: 1,
@@ -240,7 +229,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
   },
   filterChip: {
-    backgroundColor: 'transparent',
+    backgroundColor: '#1f222a',
     borderWidth: 1,
     borderColor: '#6B4EFF',
   },

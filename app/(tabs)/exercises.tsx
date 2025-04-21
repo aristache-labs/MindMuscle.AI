@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { StyleSheet, View, Image, TouchableOpacity, SafeAreaView, StatusBar, ViewStyle, GestureResponderEvent, Animated } from 'react-native';
-import { Text, IconButton } from 'react-native-paper';
+import { StyleSheet, View, Image, TouchableOpacity, SafeAreaView, StatusBar, ViewStyle, GestureResponderEvent, Animated, Modal, Pressable } from 'react-native';
+import { Text, IconButton, Surface } from 'react-native-paper';
 import { COLORS } from '../constants/theme';
+import Timer from '../components/timer';
 
 interface MuscleGroup {
   id: number;
@@ -24,114 +25,114 @@ const muscleGroups: MuscleGroup[] = [
   { 
     id: 1, 
     name: 'Shoulders', 
-    dotPosition: { top: '22%', left: '30%' },
-    textPosition: { top: '20%', left: '1%' },
+    dotPosition: { top: '24%', left: '30%' },
+    textPosition: { top: '22%', left: '1%' },
     view: 'front' 
   },
   { 
     id: 2, 
     name: 'Chest', 
-    dotPosition: { top: '28%', left: '40%' },
+    dotPosition: { top: '30%', left: '40%' },
     textPosition: { top: '28%', left: '1%' },
     view: 'front' 
   },
   { 
     id: 3, 
     name: 'Biceps', 
-    dotPosition: { top: '31%', right: '32%' },
-    textPosition: { top: '31%', right: '1%' },
+    dotPosition: { top: '34%', right: '30%' },
+    textPosition: { top: '32%', right: '1%' },
     view: 'front' 
   },
   { 
     id: 4, 
     name: 'Forearms', 
     dotPosition: { top: '42%', left: '24%' },
-    textPosition: { top: '41%', left: '1%' },
+    textPosition: { top: '40%', left: '1%' },
     view: 'front' 
   },
   { 
     id: 5, 
     name: 'Abs', 
     dotPosition: { top: '40%', right: '47%' },
-    textPosition: { top: '39%', right: '1%' },
+    textPosition: { top: '38%', right: '1%' },
     view: 'front' 
   },
   { 
     id: 6, 
     name: 'Obliques', 
-    dotPosition: { top: '43%', left: '37%' },
-    textPosition: { top: '48%', left: '1%' },
+    dotPosition: { top: '48%', left: '33%' },
+    textPosition: { top: '46%', left: '1%' },
     view: 'front' 
   },
   { 
     id: 7, 
     name: 'Quads', 
-    dotPosition: { top: '55%', left: '39%' },
-    textPosition: { top: '55%', left: '1%' },
+    dotPosition: { top: '58%', left: '39%' },
+    textPosition: { top: '56%', left: '1%' },
     view: 'front' 
   },
   { 
     id: 8, 
     name: 'Adductors', 
     dotPosition: { top: '60%', right: '47%' },
-    textPosition: { top: '60%', right: '1%' },
+    textPosition: { top: '58%', right: '1%' },
     view: 'front' 
   },
   // Back view muscles
   { 
     id: 9, 
     name: 'Traps', 
-    dotPosition: { top: '20%', left: '43%' },
-    textPosition: { top: '20%', left: '1%' },
+    dotPosition: { top: '23%', left: '43%' },
+    textPosition: { top: '21%', left: '1%' },
     view: 'back' 
   },
   { 
     id: 10, 
     name: 'Triceps', 
-    dotPosition: { top: '30%', left: '28%' },
-    textPosition: { top: '28%', left: '1%' },
+    dotPosition: { top: '34%', left: '28%' },
+    textPosition: { top: '32%', left: '1%' },
     view: 'back' 
   },
   { 
     id: 11, 
     name: 'Abductors', 
     dotPosition: { top: '43%', left: '35%' },
-    textPosition: { top: '42%', left: '1%' },
+    textPosition: { top: '41%', left: '1%' },
     view: 'back' 
   },
   { 
     id: 12, 
     name: 'Lats', 
     dotPosition: { top: '30%', right: '40%' },
-    textPosition: { top: '30%', right: '1%' },
+    textPosition: { top: '28%', right: '1%' },
     view: 'back' 
   },
   { 
     id: 13, 
     name: 'Lower back', 
     dotPosition: { top: '40%', right: '45%' },
-    textPosition: { top: '40%', right: '1%' },
+    textPosition: { top: '38%', right: '1%' },
     view: 'back' 
   },
   { 
     id: 14, 
     name: 'Glutes', 
     dotPosition: { top: '50%', right: '45%' },
-    textPosition: { top: '50%', right: '1%' },
+    textPosition: { top: '48%', right: '1%' },
     view: 'back' 
   },
   { 
     id: 15, 
     name: 'Hamstrings', 
     dotPosition: { top: '60%', left: '38%' },
-    textPosition: { top: '60%', left: '1%' },
+    textPosition: { top: '58%', left: '1%' },
     view: 'back' 
   },
   { 
     id: 16, 
     name: 'Calves', 
     dotPosition: { top: '75%', left: '35%' },
-    textPosition: { top: '74%', left: '1%' },
+    textPosition: { top: '73%', left: '1%' },
     view: 'back' 
   }
 ];
@@ -139,11 +140,23 @@ const muscleGroups: MuscleGroup[] = [
 export default function ExercisesScreen() {
   const [currentView, setCurrentView] = useState<'front' | 'back'>('front');
   const [touchStart, setTouchStart] = useState(0);
+  const [isImageLoaded, setIsImageLoaded] = useState(false);
+  const [showTimer, setShowTimer] = useState(false);
   const SWIPE_THRESHOLD = 50;
 
   // Animation values
-  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
   const [isTransitioning, setIsTransitioning] = useState(false);
+
+  useEffect(() => {
+    if (isImageLoaded) {
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [isImageLoaded]);
 
   const handleViewChange = (newView: 'front' | 'back') => {
     if (isTransitioning || newView === currentView) return;
@@ -189,18 +202,51 @@ export default function ExercisesScreen() {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
       
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Exercises</Text>
-        <View style={styles.headerRight}>
-          <IconButton
-            icon="star-outline"
-            iconColor="white"
-            size={24}
-            onPress={() => {}}
-          />
+      {/* Timer Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={showTimer}
+        onRequestClose={() => setShowTimer(false)}
+      >
+        <View style={styles.modalContainer}>
+          <Timer onClose={() => setShowTimer(false)} />
         </View>
-      </View>
+      </Modal>
+
+      {/* Header */}
+      <Surface style={styles.headerSurface}>
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <IconButton
+              icon="dumbbell"
+              iconColor="white"
+              size={24}
+              style={styles.headerIcon}
+            />
+            <Text variant="headlineSmall" style={styles.headerTitle}>Exercises</Text>
+          </View>
+          <View style={styles.headerRight}>
+            <IconButton
+              icon="star-outline"
+              iconColor="#f9e009"
+              size={34}
+              onPress={() => {}}
+              style={styles.starIcon}
+            />
+            <Pressable style={styles.premiumButton} onPress={() => {}}>
+              <IconButton
+                icon="crown"
+                iconColor="#f9e009"
+                size={26}
+                style={styles.premiumIcon}
+              />
+              <Text style={styles.premiumText}>PREMIUM</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Surface>
+      <View style={styles.separator} />
 
       {/* Body Model Container */}
       <View 
@@ -220,6 +266,7 @@ export default function ExercisesScreen() {
                 }
               ]}
               resizeMode="contain"
+              onLoad={() => setIsImageLoaded(true)}
             />
             <Animated.Image
               source={require('../../assets/body-model_back.png')}
@@ -231,11 +278,21 @@ export default function ExercisesScreen() {
                 }
               ]}
               resizeMode="contain"
+              onLoad={() => setIsImageLoaded(true)}
             />
           </View>
           
+          {/* Timer Icon */}
+          <IconButton
+            icon="timer-outline"
+            iconColor="white"
+            size={38}
+            style={styles.timerIcon}
+            onPress={() => setShowTimer(true)}
+          />
+
           {/* Muscle Group Markers */}
-          {filteredMuscles.map((muscle) => (
+          {isImageLoaded && filteredMuscles.map((muscle) => (
             <React.Fragment key={muscle.id}>
               <View
                 style={[
@@ -254,34 +311,38 @@ export default function ExercisesScreen() {
               >
                 <Text style={styles.markerText}>{muscle.name}</Text>
               </View>
+              {/* Dotted line connecting dot to text */}
+              <View
+                style={[
+                  styles.dottedLine,
+                  {
+                    width: `${Math.abs(
+                      parseFloat((muscle.textPosition.right ? (100 - parseFloat(muscle.textPosition.right)) : muscle.textPosition.left || '0').toString()) -
+                      parseFloat((muscle.dotPosition.right ? (100 - parseFloat(muscle.dotPosition.right)) : muscle.dotPosition.left || '0').toString())
+                    )}%`,
+                    left: `${
+                      muscle.textPosition.right 
+                        ? (100 - Math.max(
+                            parseFloat(muscle.textPosition.right),
+                            parseFloat(muscle.dotPosition.right || '0')
+                          ))
+                        : Math.min(
+                            parseFloat(muscle.dotPosition.left || '100'),
+                            parseFloat(muscle.textPosition.left || '100')
+                          )
+                    }%`,
+                    top: `${parseFloat(muscle.dotPosition.top) + 0.5}%`,
+                  } as ViewStyle
+                ]}
+              />
             </React.Fragment>
           ))}
+
+          <View style={styles.viewIndicator}>
+            <View style={[styles.dot, currentView === 'front' && styles.activeDot]} />
+            <View style={[styles.dot, currentView === 'back' && styles.activeDot]} />
+          </View>
         </Animated.View>
-
-        {/* View Indicator */}
-        <View style={styles.viewIndicator}>
-          <View style={[styles.dot, currentView === 'front' && styles.activeDot]} />
-          <View style={[styles.dot, currentView === 'back' && styles.activeDot]} />
-        </View>
-      </View>
-
-      {/* Bottom Icons */}
-      <View style={styles.bottomIcons}>
-        <IconButton
-          icon="sync"
-          iconColor="white"
-          size={24}
-          style={styles.bottomIcon}
-          onPress={() => handleViewChange(currentView === 'front' ? 'back' : 'front')}
-          disabled={isTransitioning}
-        />
-        <IconButton
-          icon="timer-outline"
-          iconColor="white"
-          size={24}
-          style={styles.bottomIcon}
-          onPress={() => {}}
-        />
       </View>
     </SafeAreaView>
   );
@@ -292,21 +353,45 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#1A1F25',
   },
+  headerSurface: {
+    backgroundColor: '#1A1F25',
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingTop: 16,
+    paddingBottom: 5,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerIcon: {
+    margin: 0,
+    marginRight: 10,
+    backgroundColor: '#6B4EFF',
   },
   headerTitle: {
-    fontSize: 24,
     fontWeight: 'bold',
     color: 'white',
+  },
+  separator: {
+    height: 1,
+    backgroundColor: '#2C2C2E',
+    width: '100%',
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
+  },
+  starIcon: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 10,
+    color: '#f9e009',
   },
   bodyModelContainer: {
     flex: 1,
@@ -341,7 +426,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#FFD700',
+    backgroundColor: '#6c47ff',
   },
   textContainer: {
     position: 'absolute',
@@ -361,18 +446,15 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 8,
   },
-  bottomIcons: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingBottom: 20,
-  },
-  bottomIcon: {
-    backgroundColor: '#2A2F35',
-    borderRadius: 30,
+  dottedLine: {
+    position: 'absolute',
+    borderStyle: 'dotted',
+    borderWidth: 1,
+    borderColor: '#6c47ff',
   },
   viewIndicator: {
     position: 'absolute',
-    bottom: 20,
+    bottom: 0,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
@@ -382,9 +464,41 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: 'rgba(224, 15, 15, 0.3)',
   },
   activeDot: {
     backgroundColor: 'white',
+  },
+  timerIcon: {
+    position: 'absolute',
+    right: 20,
+    bottom: '10%',
+    backgroundColor: '#2A2F35',
+    borderRadius: 40,
+    width: 56,
+    height: 56,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#181a20',
+  },
+  premiumButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 20,
+    paddingBottom: 8,
+    paddingHorizontal: 8,
+    marginRight: -4,
+  },
+  premiumIcon: {
+    margin: 0,
+    marginTop: 8,
+    marginLeft: -4,
+  },
+  premiumText: {
+    color: '#f9e009',
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginTop: -8,
   },
 }); 

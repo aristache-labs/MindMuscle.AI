@@ -10,22 +10,47 @@ A React Native Expo application for AI-powered fitness coaching and progress tra
   - Mindset coaching
   - Feedback system
   - Session history
+  - AI-powered insights and recommendations
+
+- 🎯 Discover & Exercises
+  - Curated exercise library
+  - Exercise timer with customizable intervals
+  - Exercise categories and filters
+  - Detailed exercise instructions
+  - Progress tracking per exercise
+  - Favorite exercises system
 
 - 📊 Progress Tracking
   - Workout logging
   - Performance metrics
   - Progress visualization
+  - Detailed workout history
+  - Exercise-specific progress tracking
+  - Performance analytics
+
+- 🧠 Insights
+  - AI-generated workout insights
+  - Performance trends analysis
+  - Personalized recommendations
+  - Progress milestones
+  - Achievement tracking
+  - Weekly/monthly summaries
 
 - 🎮 Gamification
   - Achievement system
   - Progress rewards
   - Motivation features
+  - Streak tracking
+  - Level progression
+  - Badge collection
 
 - 👤 User Profile
   - Personal information
   - Fitness goals
   - Medical conditions
   - Preferences
+  - Workout preferences
+  - Exercise history
 
 ## Project Structure
 

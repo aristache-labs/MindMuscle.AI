@@ -1,13 +1,25 @@
 {
-    "mcpServers": {
-      "supabase": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@supabase/mcp-server-supabase@latest",
-          "--access-token",
-          "sbp_7bd0847cacf70e8803840e4d675ddd6c9fd0f699"
-        ]
-      }
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--access-token",
+        "sbp_7bd0847cacf70e8803840e4d675ddd6c9fd0f699"
+      ]
+    },
+    "sentry": {
+      "command": "uvx",
+      "args": [
+        "mcp-sentry",
+        "--auth-token",
+        "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",
+        "--project-slug",
+        "mind-muscle-ai",
+        "--organization-slug",
+        "mindmuscleai"
+      ]
     }
   }
+}

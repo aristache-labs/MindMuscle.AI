@@ -11,12 +11,12 @@ interface InitialLoadingScreenProps {
   showProgress?: boolean;
 }
 
-const InitialLoadingScreen: React.FC<InitialLoadingScreenProps> = ({
+export default function InitialLoadingScreen({
   onFinish,
-  duration = 10000,
+  duration = 30000,
   message,
   showProgress = true,
-}) => {
+}: InitialLoadingScreenProps) {
   const outerSpinValue = useRef(new Animated.Value(0)).current;
   const innerSpinValue = useRef(new Animated.Value(0)).current;
   const dumbbellSpinValue = useRef(new Animated.Value(0)).current;
@@ -138,7 +138,7 @@ const InitialLoadingScreen: React.FC<InitialLoadingScreenProps> = ({
           duration: 500,
           useNativeDriver: true,
         }).start(() => {
-          onFinish?.();
+          if (onFinish) onFinish();
         });
       }, duration - 500);
 
@@ -147,9 +147,6 @@ const InitialLoadingScreen: React.FC<InitialLoadingScreenProps> = ({
         clearInterval(messageInterval);
         clearTimeout(navigationTimeout);
       };
-    } else if (onFinish) {
-      // If no progress shown, just call onFinish immediately
-      onFinish();
     }
   }, [duration, message, onFinish, showProgress]);
 
@@ -221,7 +218,7 @@ const InitialLoadingScreen: React.FC<InitialLoadingScreenProps> = ({
       </Animated.View>
     </LinearGradient>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
@@ -290,6 +287,4 @@ const styles = StyleSheet.create({
     bottom: 0,
     borderRadius: 10,
   },
-});
-
-export default InitialLoadingScreen; 
+}); 

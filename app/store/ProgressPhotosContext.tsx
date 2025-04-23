@@ -87,4 +87,6 @@ export const ProgressPhotosProvider: React.FC<{ children: React.ReactNode }> = (
   );
 };
 
-export const useProgressPhotos = () => useContext(ProgressPhotosContext); 
+export const useProgressPhotos = () => useContext(ProgressPhotosContext);
+
+export default ProgressPhotosProvider; 

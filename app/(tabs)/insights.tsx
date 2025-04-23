@@ -21,6 +21,8 @@ import MeasurementsGraph from '../components/MeasurementsGraph';
 import HowToMeasureModal from '../components/HowToMeasureModal';
 import OptimizedImage from '../components/OptimizedImage';
 import { useImagePreloader } from '../hooks/useImagePreloader';
+import ExerciseGraphs, { ExerciseData } from '../components/ExerciseGraphs';
+import ExerciseGraphModal from '../components/ExerciseGraphModal';
 
 const TIME_FILTERS = [
   { label: '1W', value: '1w' },
@@ -28,6 +30,31 @@ const TIME_FILTERS = [
   { label: '6M', value: '6m' },
   { label: '1Y', value: '1y' },
   { label: 'All', value: 'all' },
+];
+
+const SAMPLE_EXERCISES: ExerciseData[] = [
+  {
+    id: '1',
+    name: 'Dumbbell Bench Press',
+    unit: 'kg',
+    data: [
+      { date: '08.02', value: 8 },
+      { date: '02.11', value: 15 },
+      { date: '27.07', value: 28 },
+      { date: '21.04', value: 36 },
+    ]
+  },
+  {
+    id: '2',
+    name: 'Seated Dumbbell Overhead Press',
+    unit: 'kg',
+    data: [
+      { date: '07.02', value: 8 },
+      { date: '02.11', value: 16 },
+      { date: '27.07', value: 24 },
+      { date: '21.04', value: 26 },
+    ]
+  }
 ];
 
 export default function InsightsScreen() {
@@ -50,6 +77,9 @@ export default function InsightsScreen() {
   const [measurementsLoading, setMeasurementsLoading] = useState(true);
   const [measurementHistory, setMeasurementHistory] = useState<Measurement[]>([]);
   const [showHowToMeasure, setShowHowToMeasure] = useState(false);
+  const [exercises, setExercises] = useState<ExerciseData[]>(SAMPLE_EXERCISES);
+  const [selectedExercise, setSelectedExercise] = useState<ExerciseData | undefined>();
+  const [showExerciseModal, setShowExerciseModal] = useState(false);
 
   // Load saved photos, achievements, and measurements on component mount
   useEffect(() => {
@@ -251,6 +281,48 @@ export default function InsightsScreen() {
   ].filter(Boolean) as string[];
   
   const { loaded: imagesPreloaded } = useImagePreloader(imagesToPreload);
+
+  const handleAddExercise = () => {
+    setSelectedExercise(undefined);
+    setShowExerciseModal(true);
+  };
+
+  const handleExercisePress = (exerciseId: string) => {
+    const exercise = exercises.find(e => e.id === exerciseId);
+    if (exercise) {
+      setSelectedExercise(exercise);
+      setShowExerciseModal(true);
+    }
+  };
+
+  const handleSaveExercise = (exerciseData: Partial<ExerciseData>) => {
+    if (exerciseData.id) {
+      // Update existing exercise
+      setExercises(prev => prev.map(e => 
+        e.id === exerciseData.id 
+          ? { ...e, ...exerciseData } 
+          : e
+      ));
+    } else {
+      // Add new exercise
+      const newExercise: ExerciseData = {
+        id: Date.now().toString(),
+        name: exerciseData.name!,
+        data: exerciseData.data!,
+        unit: exerciseData.unit,
+      };
+      setExercises(prev => [...prev, newExercise]);
+    }
+  };
+
+  const handleDeleteExercise = (exerciseId: string) => {
+    setExercises(prev => prev.filter(e => e.id !== exerciseId));
+  };
+
+  const handleSetGoal = (exerciseId: string) => {
+    // TODO: Implement goal setting functionality
+    console.log('Set goal for exercise:', exerciseId);
+  };
 
   return (
     <Provider>
@@ -486,7 +558,7 @@ export default function InsightsScreen() {
                   textColor="#6B4EFF"
                   style={styles.moreButton}
                   labelStyle={styles.moreButtonLabel}
-                  onPress={() => router.push('/components/Achievements')}
+                  onPress={() => router.push('/achievements')}
                 >
                   More
                 </Button>
@@ -579,6 +651,15 @@ export default function InsightsScreen() {
             )}
           </Surface>
 
+          {/* Exercise Graphs Section */}
+          <ExerciseGraphs
+            exercises={exercises}
+            onAddExercise={handleAddExercise}
+            onExercisePress={handleExercisePress}
+            onSetGoal={handleSetGoal}
+            onDeleteExercise={handleDeleteExercise}
+          />
+
           {/* Achievement Modal */}
           <Modal
             visible={!!selectedAchievement}
@@ -654,6 +735,14 @@ export default function InsightsScreen() {
         <HowToMeasureModal
           visible={showHowToMeasure}
           onClose={() => setShowHowToMeasure(false)}
+        />
+
+        {/* Exercise Graph Modal */}
+        <ExerciseGraphModal
+          visible={showExerciseModal}
+          onClose={() => setShowExerciseModal(false)}
+          onSave={handleSaveExercise}
+          exercise={selectedExercise}
         />
       </View>
     </Provider>

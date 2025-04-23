@@ -3,103 +3,228 @@ description:
 globs: 
 alwaysApply: true
 ---
-You are an expert in TypeScript, React Native, Expo, and Mobile UI development.
+---
+description: Cursor rules for MindMuscle.AI project including Supabase and Sentry MPC
+globs:
+  - "**/*"
+alwaysApply: true
+---
+// Filename: .cursorrules.mdc
+// React Native Expo Cursor Rules for MindMuscle.AI
 
-  Code Style and Structure
-  - Write concise, technical TypeScript code with accurate examples.
-  - Use functional and declarative programming patterns; avoid classes.
-  - Prefer iteration and modularization over code duplication.
-  - Use descriptive variable names with auxiliary verbs (e.g., isLoading, hasError).
-  - Structure files: exported component, subcomponents, helpers, static content, types.
-  - Follow Expo's official documentation for setting up and configuring your projects: https://docs.expo.dev/
+// Project Context
+const projectContext = {
+  framework: "React Native with Expo",
+  navigation: "Expo Router (file-based routing)",
+  ui: "React Native Paper",
+  stateManagement: "React Context API",
+  persistence: "AsyncStorage",
+  dateUtilities: "date-fns",
+  database: "Supabase",
+  secureComputation: ["Supabase MPC", "Sentry.io MPC"],
+  language: "TypeScript",
+  componentStyle: "Functional components with hooks",
+  platform: "Mobile-first",
+  typeSafety: "TypeScript type safety"
+};
 
-  Naming Conventions
-  - Use lowercase with dashes for directories (e.g., components/auth-wizard).
-  - Favor named exports for components.
+// React Native Expo Best Practices
+const reactNativeExpoBestPractices = [
+  "Use functional components with hooks",
+  "Utilize Expo SDK features and APIs",
+  "Implement proper navigation using Expo Router",
+  "Use Expo's asset system for images and fonts",
+  "Implement proper error handling and crash reporting",
+  "Utilize Expo's push notification system",
+  "Use React Native Paper components for UI",
+  "Implement proper offline support",
+  "Use Expo's OTA updates for quick deployments",
+  "Follow Expo Router conventions for file-based routing"
+];
 
-  TypeScript Usage
-  - Use TypeScript for all code; prefer interfaces over types.
-  - Avoid enums; use maps instead.
-  - Use functional components with TypeScript interfaces.
-  - Use strict mode in TypeScript for better type safety.
+// Expert Guidelines: TypeScript, React Native, Expo, Mobile UI Development
+const expertGuidelines = {
+  codeStyleAndStructure: [
+    "Write concise, technical TypeScript code with accurate examples",
+    "Use functional and declarative programming patterns; avoid classes",
+    "Prefer iteration and modularization over code duplication",
+    "Use descriptive variable names with auxiliary verbs (e.g., isLoading, hasError)",
+    "Structure files: exported component, subcomponents, helpers, static content, types",
+    "Follow Expo's official documentation for setup and configuration: https://docs.expo.dev/"
+  ],
+  namingConventions: [
+    "Use lowercase with dashes for directories (e.g., components/auth-wizard)",
+    "Favor named exports for components"
+  ],
+  typescriptUsage: [
+    "Use TypeScript for all code; prefer interfaces over types",
+    "Avoid enums; use maps instead",
+    "Use functional components with TypeScript interfaces",
+    "Enable strict mode in tsconfig for type safety"
+  ],
+  syntaxAndFormatting: [
+    "Use the \"function\" keyword for pure functions",
+    "Avoid unnecessary curly braces in conditionals; use concise syntax for simple statements",
+    "Use declarative JSX",
+    "Use Prettier for consistent code formatting"
+  ],
+  uiAndStyling: [
+    "Use Expo's built-in components for common UI patterns and layouts",
+    "Implement responsive design with Flexbox and useWindowDimensions",
+    "Use styled-components or Tailwind CSS for styling",
+    "Implement dark mode support using useColorScheme",
+    "Ensure high accessibility using ARIA roles and native accessibility props",
+    "Leverage react-native-reanimated and react-native-gesture-handler for animations and gestures"
+  ],
+  safeAreaManagement: [
+    "Use SafeAreaProvider from react-native-safe-area-context globally",
+    "Wrap top-level components with SafeAreaView",
+    "Use SafeAreaScrollView for scrollable content",
+    "Avoid hardcoding padding/margins for safe areas"
+  ],
+  performanceOptimization: [
+    "Minimize useState/useEffect; prefer context and reducers",
+    "Use AppLoading and SplashScreen for optimized startup",
+    "Optimize images: WebP format, include size data, lazy-load with expo-image",
+    "Implement code splitting and lazy loading with Suspense and dynamic imports",
+    "Profile and monitor performance using RN tools and Expo debugging",
+    "Avoid unnecessary re-renders by memoizing with useMemo/useCallback"
+  ],
+  navigation: [
+    "Use react-navigation for routing; follow stack, tab, drawer best practices",
+    "Leverage deep linking and universal links",
+    "Use dynamic routes with expo-router"
+  ],
+  stateManagement: [
+    "Use React Context and useReducer for global state",
+    "Leverage react-query for data fetching and caching",
+    "For complex state, consider Zustand or Redux Toolkit",
+    "Handle URL search parameters with expo-linking"
+  ],
+  backendIntegration: [
+    "Use Supabase as the primary database",
+    "Implement Supabase MPC for secure serverless functions",
+    "Use Sentry.io MPC for secure error monitoring"
+  ],
+  errorHandlingAndValidation: [
+    "Use Zod for runtime validation and error handling",
+    "Implement error logging with Sentry or expo-error-reporter",
+    "Use early returns and global error boundaries",
+    "Handle errors at function start; avoid deep nesting"
+  ],
+  testing: [
+    "Write unit tests with Jest and React Native Testing Library",
+    "Implement integration tests with Detox",
+    "Use Expo's testing tools across environments",
+    "Consider snapshot testing for UI consistency"
+  ],
+  security: [
+    "Sanitize user inputs to prevent XSS",
+    "Use react-native-encrypted-storage for sensitive data",
+    "Ensure secure API communication with HTTPS and auth",
+    "Follow Expo's security guidelines: https://docs.expo.dev/guides/security/"
+  ],
+  internationalization: [
+    "Use expo-localization or react-native-i18n",
+    "Support multiple languages and RTL layouts",
+    "Ensure text scaling for accessibility"
+  ],
+  keyConventions: [
+    "Rely on Expo's managed workflow",
+    "Prioritize Mobile Web Vitals (load time, jank, responsiveness)",
+    "Use expo-constants for env and configuration",
+    "Use expo-permissions for device permissions",
+    "Implement expo-updates for OTA updates",
+    "Test compatibility on iOS and Android"
+  ],
+  apiDocumentation: [
+    "Refer to Expo's docs for Views, Blueprints, Extensions: https://docs.expo.dev/"
+  ]
+};
 
-  Syntax and Formatting
-  - Use the "function" keyword for pure functions.
-  - Avoid unnecessary curly braces in conditionals; use concise syntax for simple statements.
-  - Use declarative JSX.
-  - Use Prettier for consistent code formatting.
+// Folder Structure
+const folderStructure = `
+Root Directory
+├── android/                        # Android-specific configuration and build files for the React Native app
+├── .git/                           # Git repository data
+├── metro.config.js                 # Configuration for Metro bundler (React Native's JavaScript bundler)
+├── package-lock.json               # Auto-generated file for npm dependency versions
+├── node_modules/                   # Third-party dependencies installed via npm/yarn
+├── package.json                    # Project configuration with dependencies, scripts, and metadata
+├── app.json                        # Expo configuration file defining app settings and capabilities
+├── .gitignore                      # Specifies files to be ignored by Git
+├── .expo/                          # Expo-specific configuration and cache files
+├── README.md                       # Project documentation
+├── tsconfig.json                   # TypeScript configuration
+├── .cursorrules.mdc                # Cursor IDE configuration
+└── app/                            # Main application code using Expo Router for file-based navigation
+    ├── _layout.tsx                 # Root layout component that sets up providers, navigation structure, and theme
+    ├── index.tsx                   # Entry point/landing page of the application
+    ├── (auth)/                     # Authentication-related screens and components
+    │   ├── login.tsx               # User login screen
+    │   ├── register.tsx            # User registration screen
+    │   ├── edit-profile.tsx        # Profile editing screen
+    │   ├── forgot-password.tsx     # Password recovery screen
+    │   └── reset-password.tsx      # Password reset screen
+    ├── (tabs)/                     # Main tab-based navigation screens
+    │   ├── _layout.tsx             # Layout configuration for the tab navigation
+    │   ├── index.tsx               # Home tab screen
+    │   ├── discover.tsx            # Discover/explore workouts screen
+    │   ├── exercises.tsx           # Exercise library and management
+    │   ├── insights.tsx            # Progress tracking and analytics dashboard
+    │   └── profile.tsx             # User profile management screen
+    ├── components/                 # Reusable UI components
+    │   ├── InitialLoadingScreen.tsx# Loading screen shown during app initialization
+    │   ├── ThemedDatePicker.tsx    # Date picker with theme support
+    │   ├── ThemedNumberPicker.tsx  # Number picker with theme support
+    │   ├── OptimizedImage.tsx      # Performance-optimized image component
+    │   ├── ExerciseGraphs.tsx      # Visualization components for exercise progress
+    │   ├── ExerciseGraphModal.tsx  # Modal for displaying exercise stats
+    │   ├── Achievements.tsx        # Displays user achievements and badges
+    │   ├── HowToMeasureModal.tsx   # Educational modal for body measurements
+    │   ├── MeasurementModal.tsx    # Modal for adding/editing body measurements
+    │   ├── MeasurementsGraph.tsx   # Visualizations for body measurement progress
+    │   ├── MeasurementHistory.tsx  # History view of body measurements
+    │   ├── timer.tsx               # Workout timer component
+    │   └── CoachingInterface.tsx   # AI coaching interface component
+    ├── store/                      # State management using React Context API
+    │   ├── AuthContext.tsx         # Authentication state management
+    │   ├── ProfileContext.tsx      # User profile data management
+    │   ├── ProgressContext.tsx     # Workout and fitness progress tracking
+    │   ├── GamificationContext.tsx # Achievement and gamification features
+    │   ├── TaskContext.tsx         # Workout and task scheduling
+    │   ├── ProgressPhotosContext.tsx# Management of progress photos
+    │   └── CoachingContext.tsx     # AI coaching system state management
+    ├── services/                   # Backend services integration (API clients, Supabase, etc.)
+    ├── utils/                      # Utility functions and helpers
+    ├── hooks/                      # Custom React hooks
+    ├── constants/                  # Application constants and configuration
+    └── coaching/                   # AI coaching feature implementation
 
-  UI and Styling
-  - Use Expo's built-in components for common UI patterns and layouts.
-  - Implement responsive design with Flexbox and Expo's useWindowDimensions for screen size adjustments.
-  - Use styled-components or Tailwind CSS for component styling.
-  - Implement dark mode support using Expo's useColorScheme.
-  - Ensure high accessibility (a11y) standards using ARIA roles and native accessibility props.
-  - Leverage react-native-reanimated and react-native-gesture-handler for performant animations and gestures.
+assets/                              # Static assets for the application
+└── images/                          # Image assets including:
+    ├── body-model_front.png         # Front view reference for body measurements
+    ├── body-model_back.png          # Back view reference for body measurements
+    ├── icon.png                     # App icon
+    ├── adaptive-icon.png            # Adaptive app icon for Android
+    ├── placeholder.jpg              # Placeholder image
+    ├── measurements/                # Body measurement reference images
+    └── exercises/                   # Exercise demonstration images
 
-  Safe Area Management
-  - Use SafeAreaProvider from react-native-safe-area-context to manage safe areas globally in your app.
-  - Wrap top-level components with SafeAreaView to handle notches, status bars, and other screen insets on both iOS and Android.
-  - Use SafeAreaScrollView for scrollable content to ensure it respects safe area boundaries.
-  - Avoid hardcoding padding or margins for safe areas; rely on SafeAreaView and context hooks.
+prisma/                              # Database schema and migration management
+├── schema.prisma                    # Database schema definition with models for: User accounts, preferences, workout data, exercises, achievements, measurements
+└── dev.db                            # SQLite development database
 
-  Performance Optimization
-  - Minimize the use of useState and useEffect; prefer context and reducers for state management.
-  - Use Expo's AppLoading and SplashScreen for optimized app startup experience.
-  - Optimize images: use WebP format where supported, include size data, implement lazy loading with expo-image.
-  - Implement code splitting and lazy loading for non-critical components with React's Suspense and dynamic imports.
-  - Profile and monitor performance using React Native's built-in tools and Expo's debugging features.
-  - Avoid unnecessary re-renders by memoizing components and using useMemo and useCallback hooks appropriately.
+supabase/                            # Supabase (backend as a service) configuration
 
-  Navigation
-  - Use react-navigation for routing and navigation; follow its best practices for stack, tab, and drawer navigators.
-  - Leverage deep linking and universal links for better user engagement and navigation flow.
-  - Use dynamic routes with expo-router for better navigation handling.
+// Tool Usage and Additional Instructions unchanged
 
-  State Management
-  - Use React Context and useReducer for managing global state.
-  - Leverage react-query for data fetching and caching; avoid excessive API calls.
-  - For complex state management, consider using Zustand or Redux Toolkit.
-  - Handle URL search parameters using libraries like expo-linking.
-
-  Error Handling and Validation
-  - Use Zod for runtime validation and error handling.
-  - Implement proper error logging using Sentry or a similar service.
-  - Prioritize error handling and edge cases:
-    - Handle errors at the beginning of functions.
-    - Use early returns for error conditions to avoid deeply nested if statements.
-    - Avoid unnecessary else statements; use if-return pattern instead.
-    - Implement global error boundaries to catch and handle unexpected errors.
-  - Use expo-error-reporter for logging and reporting errors in production.
-
-  Testing
-  - Write unit tests using Jest and React Native Testing Library.
-  - Implement integration tests for critical user flows using Detox.
-  - Use Expo's testing tools for running tests in different environments.
-  - Consider snapshot testing for components to ensure UI consistency.
-
-  Security
-  - Sanitize user inputs to prevent XSS attacks.
-  - Use react-native-encrypted-storage for secure storage of sensitive data.
-  - Ensure secure communication with APIs using HTTPS and proper authentication.
-  - Use Expo's Security guidelines to protect your app: https://docs.expo.dev/guides/security/
-
-  Internationalization (i18n)
-  - Use react-native-i18n or expo-localization for internationalization and localization.
-  - Support multiple languages and RTL layouts.
-  - Ensure text scaling and font adjustments for accessibility.
-
-  Key Conventions
-  1. Rely on Expo's managed workflow for streamlined development and deployment.
-  2. Prioritize Mobile Web Vitals (Load Time, Jank, and Responsiveness).
-  3. Use expo-constants for managing environment variables and configuration.
-  4. Use expo-permissions to handle device permissions gracefully.
-  5. Implement expo-updates for over-the-air (OTA) updates.
-  6. Follow Expo's best practices for app deployment and publishing: https://docs.expo.dev/distribution/introduction/
-  7. Ensure compatibility with iOS and Android by testing extensively on both platforms.
-
-  API Documentation
-  - Use Expo's official documentation for setting up and configuring your projects: https://docs.expo.dev/
-
-  Refer to Expo's documentation for detailed information on Views, Blueprints, and Extensions for best practices.
-
+module.exports = {
+  projectContext,
+  reactNativeExpoBestPractices,
+  expertGuidelines,
+  folderStructure,
+  codeChangeGuidelines,
+  toolUsageGuidelines,
+  additionalInstructions
+};

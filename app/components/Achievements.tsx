@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Pressable, Modal } from 'react-native';
-import { Text, useTheme, IconButton, Button, Surface } from 'react-native-paper';
+import React, { useState, useEffect, useRef } from 'react';
+import { StyleSheet, View, ScrollView, Pressable, Modal, ActivityIndicator, Alert } from 'react-native';
+import { Text, useTheme, IconButton, Button, Surface, Divider } from 'react-native-paper';
 import { Stack, router } from 'expo-router';
 import { COLORS } from '../constants/theme';
 import { format } from 'date-fns';
@@ -14,9 +14,33 @@ export default function Achievements() {
   const [selectedAchievement, setSelectedAchievement] = useState<Achievement | null>(null);
   const [achievements, setAchievements] = useState<UserAchievement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showFullLoadingScreen, setShowFullLoadingScreen] = useState(false);
+  const loadingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Simple function to handle back navigation
+  const handleGoBack = () => {
+    try {
+      router.push('/(tabs)/insights');
+    } catch (error) {
+      console.error('Error during back navigation:', error);
+      // Try once more after a short delay
+      setTimeout(() => {
+        try {
+          router.push('/(tabs)/insights');
+        } catch (secondError) {
+          console.error('Second attempt failed:', secondError);
+        }
+      }, 100);
+    }
+  };
 
   useEffect(() => {
     loadAchievements();
+    return () => {
+      if (loadingTimerRef.current) {
+        clearTimeout(loadingTimerRef.current);
+      }
+    };
   }, [user]);
 
   const loadAchievements = async () => {
@@ -24,11 +48,23 @@ export default function Achievements() {
     
     try {
       setLoading(true);
+      
+      // Only show the full loading screen if loading takes more than 500ms
+      loadingTimerRef.current = setTimeout(() => {
+        setShowFullLoadingScreen(true);
+      }, 500);
+      
       const userAchievements = await achievementService.getUserAchievements(user.id);
       setAchievements(userAchievements);
     } catch (error) {
       console.error('Error loading achievements:', error);
+      Alert.alert('Error', 'Failed to load achievements. Please try again.');
     } finally {
+      if (loadingTimerRef.current) {
+        clearTimeout(loadingTimerRef.current);
+        loadingTimerRef.current = null;
+      }
+      setShowFullLoadingScreen(false);
       setLoading(false);
     }
   };
@@ -46,7 +82,8 @@ export default function Achievements() {
     );
   };
 
-  if (loading) {
+  // If we need to show the full loading screen
+  if (loading && showFullLoadingScreen) {
     return (
       <View style={styles.loadingContainer}>
         <InitialLoadingScreen showProgress={false} message="Loading achievements..." />
@@ -56,72 +93,71 @@ export default function Achievements() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen
-        options={{
-          title: 'ACHIEVEMENTS',
-          headerStyle: {
-            backgroundColor: COLORS.background,
-          },
-          headerTintColor: '#fff',
-          headerTitleStyle: {
-            fontWeight: 'bold',
-          },
-          headerTitleAlign: 'center',
-          headerShadowVisible: false,
-          headerLeft: () => (
-            <IconButton
-              icon="arrow-left"
-              iconColor="#fff"
-              size={24}
-              onPress={() => router.back()}
-            />
-          ),
-        }}
-      />
+      {/* Custom Header */}
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <IconButton
+            icon="arrow-left"
+            iconColor="#fff"
+            size={24}
+            onPress={handleGoBack}
+            style={styles.backButton}
+          />
+        </View>
+        <Text style={styles.headerTitle}>ACHIEVEMENTS</Text>
+        <View style={styles.headerRight} />
+      </View>
+      <Divider style={styles.divider} />
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.achievementsGrid}>
-          {achievements.map((userAchievement) => (
-            <Pressable
-              key={userAchievement.id}
-              style={styles.achievementCard}
-              onPress={() => handleAchievementPress(userAchievement)}
-            >
-              <Surface style={[
-                styles.achievementSurface,
-                !userAchievement.is_completed && styles.achievementLocked
-              ]} elevation={2}>
-                <View style={styles.achievementOverflow}>
-                  <View style={styles.achievementContent}>
-                    <View style={[
-                      styles.achievementIconContainer,
-                      !userAchievement.is_completed && styles.achievementIconLocked
-                    ]}>
-                      <IconButton
-                        icon={userAchievement.achievement?.icon || 'trophy'}
-                        size={28}
-                        iconColor={userAchievement.is_completed ? "#f9e009" : "#666"}
-                      />
+        {loading ? (
+          <View style={styles.simpleLoadingContainer}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+          </View>
+        ) : (
+          <View style={styles.achievementsGrid}>
+            {achievements.map((userAchievement) => (
+              <Pressable
+                key={userAchievement.id}
+                style={styles.achievementCard}
+                onPress={() => handleAchievementPress(userAchievement)}
+              >
+                <Surface style={[
+                  styles.achievementSurface,
+                  !userAchievement.is_completed && styles.achievementLocked
+                ]} elevation={2}>
+                  <View style={styles.achievementOverflow}>
+                    <View style={styles.achievementContent}>
+                      <View style={[
+                        styles.achievementIconContainer,
+                        !userAchievement.is_completed && styles.achievementIconLocked
+                      ]}>
+                        <IconButton
+                          icon={userAchievement.achievement?.icon || 'trophy'}
+                          size={28}
+                          iconColor={userAchievement.is_completed ? "#f9e009" : "#666"}
+                        />
+                      </View>
+                      <Text style={[
+                        styles.achievementTitle,
+                        !userAchievement.is_completed && styles.achievementTextLocked
+                      ]}>
+                        {userAchievement.achievement?.title}
+                      </Text>
+                      <Text style={[
+                        styles.achievementSubtitle,
+                        !userAchievement.is_completed && styles.achievementTextLocked
+                      ]}>
+                        {userAchievement.achievement?.subtitle}
+                      </Text>
+                      {renderProgress(userAchievement)}
                     </View>
-                    <Text style={[
-                      styles.achievementTitle,
-                      !userAchievement.is_completed && styles.achievementTextLocked
-                    ]}>
-                      {userAchievement.achievement?.title}
-                    </Text>
-                    <Text style={[
-                      styles.achievementSubtitle,
-                      !userAchievement.is_completed && styles.achievementTextLocked
-                    ]}>
-                      {userAchievement.achievement?.subtitle}
-                    </Text>
-                    {renderProgress(userAchievement)}
                   </View>
-                </View>
-              </Surface>
-            </Pressable>
-          ))}
-        </View>
+                </Surface>
+              </Pressable>
+            ))}
+          </View>
+        )}
       </ScrollView>
 
       {/* Achievement Modal */}
@@ -136,7 +172,7 @@ export default function Achievements() {
           onPress={() => setSelectedAchievement(null)}
         >
           <View style={styles.modalContainer}>
-            <Pressable style={styles.modalContent}>
+            <Pressable style={styles.modalContent} onPress={e => e.stopPropagation()}>
               <View style={styles.modalHeader}>
                 <IconButton
                   icon="close"
@@ -151,7 +187,7 @@ export default function Achievements() {
                 <View style={styles.achievementDetail}>
                   <View style={[
                     styles.achievementIconLarge,
-                    { backgroundColor: selectedAchievement.icon_background_color }
+                    { backgroundColor: selectedAchievement.icon_background_color || '#f9e009' }
                   ]}>
                     <IconButton
                       icon={selectedAchievement.icon}
@@ -196,8 +232,39 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 50,
+    paddingBottom: 16,
+    backgroundColor: COLORS.background,
+  },
+  headerLeft: {
+    width: 60,
+    alignItems: 'flex-start',
+  },
+  headerRight: {
+    width: 60,
+  },
+  backButton: {
+    margin: 0,
+  },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+    textAlign: 'center',
+  },
+  divider: {
+    backgroundColor: '#333',
+    height: 1,
+  },
   scrollContent: {
     padding: 12,
+    paddingTop: 16,
+    paddingBottom: 40,
+    flexGrow: 1,
   },
   achievementsGrid: {
     flexDirection: 'row',
@@ -349,5 +416,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  simpleLoadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 40,
   },
 }); 

@@ -2,10 +2,37 @@ import { Tabs } from 'expo-router';
 import { useColorScheme, View, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import { useAuth } from '../store/AuthContext';
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { logger } from '../utils/logger';
 
 export default function TabsLayout() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
+  const router = useRouter();
+  const { session, loading } = useAuth();
+  const [navigated, setNavigated] = useState(false);
+
+  // Check authentication and navigate if needed
+  useEffect(() => {
+    if (!loading && !session && !navigated) {
+      logger.info('User not authenticated in tabs layout, redirecting to login');
+      
+      // Add a short delay to ensure layout mounting is complete
+      const timer = setTimeout(() => {
+        setNavigated(true);
+        router.replace('/(auth)/login');
+      }, 100);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [loading, session, router, navigated]);
+
+  // Show a blank View while determining auth state to avoid flash
+  if (loading || (!session && !navigated)) {
+    return <View style={{ flex: 1 }} />;
+  }
 
   return (
     <Tabs

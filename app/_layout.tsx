@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { useColorScheme } from 'react-native';
-import { Stack, Tabs } from 'expo-router';
+import { useEffect, useState, useCallback } from 'react';
+import { useColorScheme, View } from 'react-native';
+import { Slot } from 'expo-router';
 import { useFonts } from 'expo-font';
 import { ThemeProvider } from './constants/theme';
 import { AuthProvider } from './store/AuthContext';
@@ -9,158 +9,127 @@ import { ProgressProvider } from './store/ProgressContext';
 import { GamificationProvider } from './store/GamificationContext';
 import { ProgressPhotosProvider } from './store/ProgressPhotosContext';
 import InitialLoadingScreen from './components/InitialLoadingScreen';
-import { Ionicons } from '@expo/vector-icons';
+import AuthGuard from './components/AuthGuard';
+import { GlobalGestureHandler } from './components/GlobalGestureHandler';
+import * as SplashScreen from 'expo-splash-screen';
 import { preloadStaticImages } from './utils/imagePreloader';
+import * as Sentry from '@sentry/react-native';
+import { initializeSentry } from './services/sentry';
+import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 
-export default function RootLayout() {
+// Handle splash screen errors in Expo Go
+if (Constants.appOwnership === 'expo') {
+  try {
+    // Direct patching of the SplashModule that expo-router tries to access
+    // This prevents the unhandled rejections in Expo Go
+    const globalAny = global as any;
+    
+    // First try native module global path (used by expo-router)
+    if (!globalAny.SplashModule) {
+      globalAny.SplashModule = {
+        internalPreventAutoHideAsync: () => Promise.resolve(true),
+        internalMaybeHideAsync: () => Promise.resolve(true)
+      };
+    }
+
+    // Also patch the NativeModules.SplashScreen path for older code
+    if (Platform.OS === 'ios' || Platform.OS === 'android') {
+      const ReactNative = require('react-native');
+      if (!ReactNative.NativeModules.SplashScreen) {
+        ReactNative.NativeModules.SplashScreen = {
+          preventAutoHide: () => {},
+          hide: () => {}
+        };
+      }
+    }
+
+    console.log('Splash screen modules patched for Expo Go');
+  } catch (e) {
+    console.warn('Failed to patch splash screen modules:', e);
+  }
+}
+
+// Prevent the splash screen from auto-hiding until we're ready
+SplashScreen.preventAutoHideAsync().catch(e => {
+  console.warn('Error preventing splash screen auto-hide:', e);
+});
+
+// Initialize Sentry as early as possible
+initializeSentry();
+
+function RootLayout() {
   const colorScheme = useColorScheme();
   const [isImagesLoaded, setImagesLoaded] = useState(false);
+  const [appIsReady, setAppIsReady] = useState(false);
   
   const [fontsLoaded] = useFonts({
     // Add any custom fonts here if needed
   });
 
   useEffect(() => {
-    async function loadImages() {
+    async function prepare() {
       try {
-        await preloadStaticImages();
-        setImagesLoaded(true);
-      } catch (error) {
-        console.error('Failed to preload images:', error);
-        // Still set as loaded to not block the app
-        setImagesLoaded(true);
+        // Load fonts and images in parallel
+        await Promise.all([
+          new Promise((resolve) => {
+            // Monitor font loading
+            if (fontsLoaded) resolve(true);
+          }),
+          (async () => {
+            try {
+              await preloadStaticImages();
+              setImagesLoaded(true);
+            } catch (e) {
+              console.warn('Failed to preload images:', e);
+              // We still continue if image loading fails
+              setImagesLoaded(true);
+            }
+          })()
+        ]);
+      } catch (e) {
+        console.warn('Error preparing app:', e);
+      } finally {
+        setAppIsReady(true);
       }
     }
-    loadImages();
-  }, []);
 
-  if (!fontsLoaded || !isImagesLoaded) {
+    prepare();
+  }, [fontsLoaded]);
+
+  useEffect(() => {
+    if (appIsReady) {
+      // Once everything is ready, hide the splash screen
+      SplashScreen.hideAsync().catch(e => {
+        console.warn('Error hiding splash screen:', e);
+      });
+    }
+  }, [appIsReady]);
+
+  if (!appIsReady) {
     return <InitialLoadingScreen showProgress={false} message="Loading resources..." />;
   }
 
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <ProfileProvider>
-          <ProgressProvider>
-            <GamificationProvider>
-              <ProgressPhotosProvider>
-                <Stack
-                  screenOptions={{
-                    headerStyle: {
-                      backgroundColor: colorScheme === 'dark' ? '#181a20' : '#FFFFFF',
-                    },
-                    headerTintColor: colorScheme === 'dark' ? '#FFFFFF' : '#181a20',
-                    headerTitleStyle: {
-                      fontWeight: 'bold',
-                    },
-                  }}
-                >
-                  <Stack.Screen
-                    name="(tabs)"
-                    options={{
-                      headerShown: false,
-                    }}
-                  />
-                  <Stack.Screen
-                    name="index"
-                    options={{
-                      headerShown: false,
-                    }}
-                  />
-                  <Stack.Screen
-                    name="(auth)/login"
-                    options={{
-                      headerShown: false,
-                    }}
-                  />
-                  <Stack.Screen
-                    name="(auth)/register"
-                    options={{
-                      headerShown: false,
-                    }}
-                  />
-                  <Stack.Screen
-                    name="(auth)/reset-password"
-                    options={{
-                      headerShown: false,
-                    }}
-                  />
-                  <Stack.Screen
-                    name="(auth)/forgot-password"
-                    options={{
-                      headerShown: false,
-                    }}
-                  />
-                </Stack>
-              </ProgressPhotosProvider>
-            </GamificationProvider>
-          </ProgressProvider>
-        </ProfileProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <GlobalGestureHandler>
+      <ThemeProvider>
+        <AuthProvider>
+          <ProfileProvider>
+            <ProgressProvider>
+              <GamificationProvider>
+                <ProgressPhotosProvider>
+                  <AuthGuard>
+                    <Slot />
+                  </AuthGuard>
+                </ProgressPhotosProvider>
+              </GamificationProvider>
+            </ProgressProvider>
+          </ProfileProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </GlobalGestureHandler>
   );
 }
 
-export function TabsLayout() {
-  const colorScheme = useColorScheme();
-
-  return (
-    <Tabs
-      screenOptions={{
-        tabBarStyle: {
-          backgroundColor: colorScheme === 'dark' ? '#181a20' : '#FFFFFF',
-          borderTopColor: colorScheme === 'dark' ? '#2c2c2c' : '#e0e0e0',
-          borderTopWidth: 1,
-          paddingBottom: 8,
-          paddingTop: 8,
-          height: 60,
-        },
-        tabBarActiveTintColor: '#6c47ff',
-        tabBarInactiveTintColor: colorScheme === 'dark' ? '#666666' : '#999999',
-        headerShown: false,
-        tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '500',
-        },
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home-outline" size={24} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="discover"
-        options={{
-          title: 'Discover',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="compass-outline" size={24} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="insights"
-        options={{
-          title: 'Insights',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="bar-chart-outline" size={24} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: 'Profile',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-outline" size={24} color={color} />
-          ),
-        }}
-      />
-    </Tabs>
-  );
-} 
+// Export with Sentry.wrap
+export default Sentry.wrap(RootLayout); 

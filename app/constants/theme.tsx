@@ -3,10 +3,11 @@ import { useColorScheme } from 'react-native';
 import React from 'react';
 
 export const COLORS = {
-  primary: '#6B4EFF',
+  primary: '#8B6DFF',
   secondary: '#1A1B1E',
-  background: '#181a20',
-  surface: '#1E1E1E',
+  background: '#181A20',
+  surface: '#262A34',
+  surfaceLight: '#363A47',
   error: '#FF4B4B',
   text: '#FFFFFF',
   onSurface: '#FFFFFF',
@@ -17,6 +18,8 @@ export const COLORS = {
   success: '#4CAF50',
   warning: '#FFC107',
   info: '#2196F3',
+  gradientStart: '#8B6DFF',
+  gradientEnd: '#7048E8',
 };
 
 export const SPACING = {

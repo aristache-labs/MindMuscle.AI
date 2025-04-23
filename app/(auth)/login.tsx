@@ -51,11 +51,18 @@ export default function LoginScreen() {
     if (!validateInputs()) return;
 
     try {
-      await signIn(email, password);
+      await signIn(email, password, rememberMe);
     } catch (err) {
       // Error is handled by AuthContext
       console.error('Login error:', err);
     }
+  };
+
+  // Helper function to get error message
+  const getErrorMessage = () => {
+    if (validationError) return validationError;
+    if (error?.message) return error.message;
+    return '';
   };
 
   return (
@@ -138,7 +145,7 @@ export default function LoginScreen() {
 
             {(error || validationError) && (
               <HelperText type="error" style={styles.errorText}>
-                {error || validationError}
+                {getErrorMessage()}
               </HelperText>
             )}
 

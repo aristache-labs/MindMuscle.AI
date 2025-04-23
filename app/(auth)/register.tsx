@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, KeyboardAvoidingView, Platform, Pressable, TouchableWithoutFeedback, Keyboard } from 'react-native';
-import { TextInput, Text, Checkbox } from 'react-native-paper';
+import { StyleSheet, View, KeyboardAvoidingView, Platform, Pressable, TouchableWithoutFeedback, Keyboard, ActivityIndicator } from 'react-native';
+import { TextInput, Text, Checkbox, HelperText } from 'react-native-paper';
 import { Link, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
@@ -12,19 +12,53 @@ export default function RegisterScreen() {
   const [fullName, setFullName] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
-  const { signUp, isLoading } = useAuth();
+  const { signUp, isLoading, error, clearError } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [validationError, setValidationError] = useState('');
   
   // Add focus states for each input
   const [focusedInput, setFocusedInput] = useState('');
 
+  const validateInputs = () => {
+    if (!fullName.trim()) {
+      setValidationError('Full name is required');
+      return false;
+    }
+    if (!email.trim()) {
+      setValidationError('Email is required');
+      return false;
+    }
+    if (!password.trim()) {
+      setValidationError('Password is required');
+      return false;
+    }
+    if (password !== confirmPassword) {
+      setValidationError('Passwords do not match');
+      return false;
+    }
+    if (!/\S+@\S+\.\S+/.test(email)) {
+      setValidationError('Please enter a valid email address');
+      return false;
+    }
+    return true;
+  };
+
   const handleRegister = async () => {
+    if (!validateInputs()) return;
+
     try {
-      await signUp(email, password, fullName);
+      await signUp(email, password, fullName, rememberMe);
     } catch (err) {
       console.error('Registration error:', err);
     }
+  };
+
+  // Helper function to get error message
+  const getErrorMessage = () => {
+    if (validationError) return validationError;
+    if (error?.message) return error.message;
+    return '';
   };
 
   return (
@@ -68,8 +102,16 @@ export default function RegisterScreen() {
                 left={<TextInput.Icon icon="account" color={focusedInput === 'fullName' ? '#6c47ff' : '#666'} />}
                 onFocus={() => setFocusedInput('fullName')}
                 onBlur={() => setFocusedInput('')}
+                error={!!error || !!validationError}
+                disabled={isLoading}
               />
             </View>
+
+            {(error || validationError) && (
+              <HelperText type="error" style={styles.errorText}>
+                {getErrorMessage()}
+              </HelperText>
+            )}
 
             <View style={[styles.inputContainer, focusedInput === 'email' && styles.inputContainerFocused]}>
               <TextInput
@@ -331,5 +373,8 @@ const styles = StyleSheet.create({
   signInText: {
     color: COLORS.primary,
     fontWeight: '600',
+  },
+  errorText: {
+    marginBottom: SPACING.xs,
   },
 }); 

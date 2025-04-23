@@ -1,5 +1,6 @@
 {
   "expo": {
+    "sdkVersion": "52.0.0",             // ← explicitly declare your SDK
     "name": "MindMuscle.AI",
     "slug": "mindmuscle-ai",
     "version": "1.0.0",
@@ -11,12 +12,15 @@
       "**/*",
       "assets/measurements/instructions/*"
     ],
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#151515"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.mindmuscle.ai",
-      "associatedDomains": [
-        "applinks:mindmuscle.app"
-      ]
+      "associatedDomains": ["applinks:mindmuscle.app"]
     },
     "android": {
       "adaptiveIcon": {
@@ -28,18 +32,12 @@
         {
           "action": "VIEW",
           "autoVerify": true,
-          "data": [
-            {
-              "scheme": "mindmuscle",
-              "host": "reset-password"
-            }
-          ],
+          "data": [{ "scheme": "mindmuscle", "host": "reset-password" }],
           "category": ["BROWSABLE", "DEFAULT"]
         }
       ]
     },
     "web": {
-      "favicon": "./assets/favicon.png",
       "bundler": "metro"
     },
     "plugins": [
@@ -55,8 +53,23 @@
         {
           "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera."
         }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "organization": "mindmuscleai",
+          "project": "mindmuscle-ai"
+        }
       ]
     ],
-    "scheme": "mindmuscle"
+    "scheme": "mindmuscle",
+    "extra": {
+      "sentryDsn": "https://95ca621b3a918874f6289b653a3e3f6a@o4509201331978240.ingest.de.sentry.io/4509201333092432",
+      "environment": "development",
+      "eas": {
+        "projectId": "4509201333092432"
+      }
+    }
   }
-} 
+}

@@ -39,4 +39,6 @@ export function useImagePreloader(imageSources: (string | ImageSourcePropType)[]
   }, [imageSources]);
 
   return { loaded, error };
-} 
+}
+
+export default useImagePreloader; 

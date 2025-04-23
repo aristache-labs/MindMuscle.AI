@@ -1,0 +1,225 @@
+---
+description: Cursor rules for MindMuscle.AI project including Supabase and Sentry MPC
+globs:
+  - "**/*"
+alwaysApply: true
+---
+// Filename: .cursorrules.mdc
+// React Native Expo Cursor Rules for MindMuscle.AI
+
+// Project Context
+const projectContext = {
+  framework: "React Native with Expo",
+  navigation: "Expo Router (file-based routing)",
+  ui: "React Native Paper",
+  stateManagement: "React Context API",
+  persistence: "AsyncStorage",
+  dateUtilities: "date-fns",
+  database: "Supabase",
+  secureComputation: ["Supabase MPC", "Sentry.io MPC"],
+  language: "TypeScript",
+  componentStyle: "Functional components with hooks",
+  platform: "Mobile-first",
+  typeSafety: "TypeScript type safety"
+};
+
+// React Native Expo Best Practices
+const reactNativeExpoBestPractices = [
+  "Use functional components with hooks",
+  "Utilize Expo SDK features and APIs",
+  "Implement proper navigation using Expo Router",
+  "Use Expo's asset system for images and fonts",
+  "Implement proper error handling and crash reporting",
+  "Utilize Expo's push notification system",
+  "Use React Native Paper components for UI",
+  "Implement proper offline support",
+  "Use Expo's OTA updates for quick deployments",
+  "Follow Expo Router conventions for file-based routing"
+];
+
+// Expert Guidelines: TypeScript, React Native, Expo, Mobile UI Development
+const expertGuidelines = {
+  codeStyleAndStructure: [
+    "Write concise, technical TypeScript code with accurate examples",
+    "Use functional and declarative programming patterns; avoid classes",
+    "Prefer iteration and modularization over code duplication",
+    "Use descriptive variable names with auxiliary verbs (e.g., isLoading, hasError)",
+    "Structure files: exported component, subcomponents, helpers, static content, types",
+    "Follow Expo's official documentation for setup and configuration: https://docs.expo.dev/"
+  ],
+  namingConventions: [
+    "Use lowercase with dashes for directories (e.g., components/auth-wizard)",
+    "Favor named exports for components"
+  ],
+  typescriptUsage: [
+    "Use TypeScript for all code; prefer interfaces over types",
+    "Avoid enums; use maps instead",
+    "Use functional components with TypeScript interfaces",
+    "Enable strict mode in tsconfig for type safety"
+  ],
+  syntaxAndFormatting: [
+    "Use the \"function\" keyword for pure functions",
+    "Avoid unnecessary curly braces in conditionals; use concise syntax for simple statements",
+    "Use declarative JSX",
+    "Use Prettier for consistent code formatting"
+  ],
+  uiAndStyling: [
+    "Use Expo's built-in components for common UI patterns and layouts",
+    "Implement responsive design with Flexbox and useWindowDimensions",
+    "Use styled-components or Tailwind CSS for styling",
+    "Implement dark mode support using useColorScheme",
+    "Ensure high accessibility using ARIA roles and native accessibility props",
+    "Leverage react-native-reanimated and react-native-gesture-handler for animations and gestures"
+  ],
+  safeAreaManagement: [
+    "Use SafeAreaProvider from react-native-safe-area-context globally",
+    "Wrap top-level components with SafeAreaView",
+    "Use SafeAreaScrollView for scrollable content",
+    "Avoid hardcoding padding/margins for safe areas"
+  ],
+  performanceOptimization: [
+    "Minimize useState/useEffect; prefer context and reducers",
+    "Use AppLoading and SplashScreen for optimized startup",
+    "Optimize images: WebP format, include size data, lazy-load with expo-image",
+    "Implement code splitting and lazy loading with Suspense and dynamic imports",
+    "Profile and monitor performance using RN tools and Expo debugging",
+    "Avoid unnecessary re-renders by memoizing with useMemo/useCallback"
+  ],
+  navigation: [
+    "Use react-navigation for routing; follow stack, tab, drawer best practices",
+    "Leverage deep linking and universal links",
+    "Use dynamic routes with expo-router"
+  ],
+  stateManagement: [
+    "Use React Context and useReducer for global state",
+    "Leverage react-query for data fetching and caching",
+    "For complex state, consider Zustand or Redux Toolkit",
+    "Handle URL search parameters with expo-linking"
+  ],
+  backendIntegration: [
+    "Use Supabase as the primary database",
+    "Implement Supabase MPC for secure serverless functions",
+    "Use Sentry.io MPC for secure error monitoring"
+  ],
+  errorHandlingAndValidation: [
+    "Use Zod for runtime validation and error handling",
+    "Implement error logging with Sentry or expo-error-reporter",
+    "Use early returns and global error boundaries",
+    "Handle errors at function start; avoid deep nesting"
+  ],
+  testing: [
+    "Write unit tests with Jest and React Native Testing Library",
+    "Implement integration tests with Detox",
+    "Use Expo's testing tools across environments",
+    "Consider snapshot testing for UI consistency"
+  ],
+  security: [
+    "Sanitize user inputs to prevent XSS",
+    "Use react-native-encrypted-storage for sensitive data",
+    "Ensure secure API communication with HTTPS and auth",
+    "Follow Expo's security guidelines: https://docs.expo.dev/guides/security/"
+  ],
+  internationalization: [
+    "Use expo-localization or react-native-i18n",
+    "Support multiple languages and RTL layouts",
+    "Ensure text scaling for accessibility"
+  ],
+  keyConventions: [
+    "Rely on Expo's managed workflow",
+    "Prioritize Mobile Web Vitals (load time, jank, responsiveness)",
+    "Use expo-constants for env and configuration",
+    "Use expo-permissions for device permissions",
+    "Implement expo-updates for OTA updates",
+    "Test compatibility on iOS and Android"
+  ],
+  apiDocumentation: [
+    "Refer to Expo's docs for Views, Blueprints, Extensions: https://docs.expo.dev/"
+  ]
+};
+
+// Folder Structure
+const folderStructure = `
+Root Directory
+├── android/                        # Android-specific configuration and build files for the React Native app
+├── .git/                           # Git repository data
+├── metro.config.js                 # Configuration for Metro bundler (React Native's JavaScript bundler)
+├── package-lock.json               # Auto-generated file for npm dependency versions
+├── node_modules/                   # Third-party dependencies installed via npm/yarn
+├── package.json                    # Project configuration with dependencies, scripts, and metadata
+├── app.json                        # Expo configuration file defining app settings and capabilities
+├── .gitignore                      # Specifies files to be ignored by Git
+├── .expo/                          # Expo-specific configuration and cache files
+├── README.md                       # Project documentation
+├── tsconfig.json                   # TypeScript configuration
+├── .cursorrules.mdc                # Cursor IDE configuration
+└── app/                            # Main application code using Expo Router for file-based navigation
+    ├── _layout.tsx                 # Root layout component that sets up providers, navigation structure, and theme
+    ├── index.tsx                   # Entry point/landing page of the application
+    ├── (auth)/                     # Authentication-related screens and components
+    │   ├── login.tsx               # User login screen
+    │   ├── register.tsx            # User registration screen
+    │   ├── edit-profile.tsx        # Profile editing screen
+    │   ├── forgot-password.tsx     # Password recovery screen
+    │   └── reset-password.tsx      # Password reset screen
+    ├── (tabs)/                     # Main tab-based navigation screens
+    │   ├── _layout.tsx             # Layout configuration for the tab navigation
+    │   ├── index.tsx               # Home tab screen
+    │   ├── discover.tsx            # Discover/explore workouts screen
+    │   ├── exercises.tsx           # Exercise library and management
+    │   ├── insights.tsx            # Progress tracking and analytics dashboard
+    │   └── profile.tsx             # User profile management screen
+    ├── components/                 # Reusable UI components
+    │   ├── InitialLoadingScreen.tsx# Loading screen shown during app initialization
+    │   ├── ThemedDatePicker.tsx    # Date picker with theme support
+    │   ├── ThemedNumberPicker.tsx  # Number picker with theme support
+    │   ├── OptimizedImage.tsx      # Performance-optimized image component
+    │   ├── ExerciseGraphs.tsx      # Visualization components for exercise progress
+    │   ├── ExerciseGraphModal.tsx  # Modal for displaying exercise stats
+    │   ├── Achievements.tsx        # Displays user achievements and badges
+    │   ├── HowToMeasureModal.tsx   # Educational modal for body measurements
+    │   ├── MeasurementModal.tsx    # Modal for adding/editing body measurements
+    │   ├── MeasurementsGraph.tsx   # Visualizations for body measurement progress
+    │   ├── MeasurementHistory.tsx  # History view of body measurements
+    │   ├── timer.tsx               # Workout timer component
+    │   └── CoachingInterface.tsx   # AI coaching interface component
+    ├── store/                      # State management using React Context API
+    │   ├── AuthContext.tsx         # Authentication state management
+    │   ├── ProfileContext.tsx      # User profile data management
+    │   ├── ProgressContext.tsx     # Workout and fitness progress tracking
+    │   ├── GamificationContext.tsx # Achievement and gamification features
+    │   ├── TaskContext.tsx         # Workout and task scheduling
+    │   ├── ProgressPhotosContext.tsx# Management of progress photos
+    │   └── CoachingContext.tsx     # AI coaching system state management
+    ├── services/                   # Backend services integration (API clients, Supabase, etc.)
+    ├── utils/                      # Utility functions and helpers
+    ├── hooks/                      # Custom React hooks
+    ├── constants/                  # Application constants and configuration
+    └── coaching/                   # AI coaching feature implementation
+
+assets/                              # Static assets for the application
+└── images/                          # Image assets including:
+    ├── body-model_front.png         # Front view reference for body measurements
+    ├── body-model_back.png          # Back view reference for body measurements
+    ├── icon.png                     # App icon
+    ├── adaptive-icon.png            # Adaptive app icon for Android
+    ├── placeholder.jpg              # Placeholder image
+    ├── measurements/                # Body measurement reference images
+    └── exercises/                   # Exercise demonstration images
+
+prisma/                              # Database schema and migration management
+├── schema.prisma                    # Database schema definition with models for: User accounts, preferences, workout data, exercises, achievements, measurements
+└── dev.db                            # SQLite development database
+
+supabase/                            # Supabase (backend as a service) configuration
+
+// Tool Usage and Additional Instructions unchanged
+
+module.exports = {
+  projectContext,
+  reactNativeExpoBestPractices,
+  expertGuidelines,
+  folderStructure,
+  codeChangeGuidelines,
+  toolUsageGuidelines,
+  additionalInstructions
+};

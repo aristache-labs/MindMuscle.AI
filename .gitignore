@@ -9,7 +9,5 @@ npm-debug.*
 *.mobileprovision
 *.orig.*
 web-build/
-.env
-.env.*
 !.env.example
 *.mjs

@@ -41,4 +41,6 @@ export async function preloadStaticImages(): Promise<void> {
     console.error('❌ Failed to preload static images:', error);
     throw error; // Re-throw to handle it in the app initialization
   }
-} 
+}
+
+export default { preloadStaticImages, STATIC_IMAGES }; 

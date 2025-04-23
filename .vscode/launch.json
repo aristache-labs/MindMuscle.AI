@@ -1,0 +1,21 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        
+      {
+        "name": "Debug Android (Expo)",
+        "type": "expo",
+        "request": "launch",
+        "platform": "android",
+
+      },
+      {
+        "name": "Debug iOS (Expo)",
+        "type": "expo",
+        "request": "launch",
+        "platform": "ios",
+
+      }
+    ]
+  }
+  

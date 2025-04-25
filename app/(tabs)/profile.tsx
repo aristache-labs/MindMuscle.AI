@@ -16,30 +16,41 @@ interface MenuItemProps {
   title: string;
   onPress?: () => void;
   rightElement?: React.ReactNode;
+  isLast?: boolean;
 }
 
-const MenuItem = ({ icon, title, onPress, rightElement }: MenuItemProps) => (
-  <Pressable onPress={onPress} style={styles.menuItem}>
-    <View style={styles.menuItemLeft}>
-      <MaterialCommunityIcons 
-        name={icon as any} 
-        size={24} 
-        color={title === 'Logout' ? COLORS.error : COLORS.text}
-        style={styles.menuIcon}
+const MenuItem = ({ icon, title, onPress, rightElement, isLast }: MenuItemProps) => (
+  <View>
+    <Pressable onPress={onPress} style={styles.menuItem}>
+      <View style={styles.menuItemLeft}>
+        <MaterialCommunityIcons 
+          name={icon as any} 
+          size={24} 
+          color={title === 'Logout' ? COLORS.error : COLORS.text}
+          style={styles.menuIcon}
+        />
+        <Text 
+          variant="bodyLarge" 
+          style={[styles.menuText, { color: title === 'Logout' ? COLORS.error : COLORS.text }]}
+        >
+          {title}
+        </Text>
+      </View>
+      {rightElement}
+    </Pressable>
+    {!isLast && (
+      <LinearGradient
+        colors={['transparent', 'rgba(108, 71, 255, 0.3)', 'rgba(108, 71, 255, 0.3)', 'rgba(108, 71, 255, 0.3)', 'transparent']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        locations={[0, 0.1, 0.5, 0.9, 1]}
+        style={styles.menuItemBorder}
       />
-      <Text 
-        variant="bodyLarge" 
-        style={[styles.menuText, { color: title === 'Logout' ? COLORS.error : COLORS.text }]}
-      >
-        {title}
-      </Text>
-    </View>
-    {rightElement}
-  </Pressable>
+    )}
+  </View>
 );
 
 export default function ProfileScreen() {
-  const [isDarkTheme, setIsDarkTheme] = React.useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -196,14 +207,24 @@ export default function ProfileScreen() {
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <IconButton
-              icon="account-plus"
+              icon="account"
               size={24}
               style={styles.headerIcon}
-              iconColor="white"
+              iconColor={COLORS.text}
             />
-            <Text variant="headlineSmall" style={[styles.headerTitle, { color: '#fff' }]}>Profile</Text>
+            <Text variant="headlineSmall" style={[styles.headerTitle, { color: COLORS.text }]}>Profile</Text>
           </View>
-          
+          <View style={styles.headerRight}>
+            <Pressable style={styles.premiumButton} onPress={() => {}}>
+              <IconButton
+                icon="crown"
+                iconColor="#f9e009"
+                size={26}
+                style={styles.premiumIcon}
+              />
+              <Text style={styles.premiumText}>PREMIUM</Text>
+            </Pressable>
+          </View>
         </View>
         <Divider style={styles.divider} />
       </View>
@@ -212,7 +233,10 @@ export default function ProfileScreen() {
       <ScrollView 
         style={styles.scrollView} 
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingTop: 100 }} // Add space for fixed header
+        contentContainerStyle={{ 
+          paddingTop: 100,
+          paddingBottom: 100
+        }}
       >
         {/* Profile Section */}
         <View style={styles.profileSection}>
@@ -233,7 +257,7 @@ export default function ProfileScreen() {
                 size={100} 
                 icon="account"
                 style={[styles.avatar, styles.avatarPlaceholder]}
-                color="#666"
+                color={COLORS.disabled}
               />
             )}
             <View style={styles.editIcon}>
@@ -255,7 +279,7 @@ export default function ProfileScreen() {
                   <View style={styles.premiumTitleContainer}>
                     <MaterialCommunityIcons 
                       name="crown" 
-                      size={20} 
+                      size={26} 
                       color="#FFD700" 
                       style={styles.crownIcon}
                     />
@@ -270,7 +294,6 @@ export default function ProfileScreen() {
                   iconColor="#7E4AFA"
                   size={16}
                   style={styles.arrowButton}
-                  onPress={() => {}}
                 />
               </View>
             </LinearGradient>
@@ -283,19 +306,14 @@ export default function ProfileScreen() {
             title="Edit Profile" 
             onPress={() => router.push('/(auth)/edit-profile')}
           />
-          <MenuItem icon="bell-outline" title="Notifications" />
-          <MenuItem icon="shield-outline" title="Security" />
-          <MenuItem icon="help-circle-outline" title="Help" />
           <MenuItem 
-            icon="theme-light-dark" 
-            title="Dark Theme" 
-            rightElement={
-              <Switch 
-                value={isDarkTheme} 
-                onValueChange={setIsDarkTheme}
-                color={COLORS.primary}
-              />
-            }
+            icon="cog" 
+            title="Settings" 
+            onPress={() => router.push('/(stack)/settings')}
+          />
+          <MenuItem 
+            icon="crown" 
+            title="Subscription Membership" 
           />
           <MenuItem 
             icon="logout" 
@@ -309,10 +327,38 @@ export default function ProfileScreen() {
                 alert('Failed to sign out. Please try again.');
               }
             }}
+            isLast
+          />
+        </View>
+
+        <View style={[styles.menuSection, styles.secondMenuSection]}>
+          <MenuItem 
+            icon="help-circle" 
+            title="Help" 
+          />
+          <MenuItem 
+            icon="new-box" 
+            title="What's New" 
+          />
+          <MenuItem 
+            icon="star" 
+            title="Rate the App" 
+          />
+          <MenuItem 
+            icon="facebook" 
+            title="Our Facebook" 
+          />
+          <MenuItem 
+            icon="instagram" 
+            title="Our Instagram" 
+          />
+          <MenuItem 
+            icon="share-variant" 
+            title="Share with Friends" 
+            isLast
           />
         </View>
       </ScrollView>
-      {/* ... bottom navigation ... */}
     </View>
   );
 }
@@ -320,8 +366,8 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    paddingTop: 20,
     backgroundColor: COLORS.background,
-    paddingTop: 5,
   },
   headerContainer: {
     position: 'absolute',
@@ -332,13 +378,13 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     ...Platform.select({
       ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.15,
-        shadowRadius: 4,
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.3,
+        shadowRadius: 10,
       },
       android: {
-        elevation: 4,
+        elevation: 10,
       },
     }),
   },
@@ -361,8 +407,12 @@ const styles = StyleSheet.create({
     marginLeft: SPACING.sm,
     fontWeight: '600',
   },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   divider: {
-    backgroundColor: COLORS.surface,
+    backgroundColor: '#333',
     height: 1,
   },
   scrollView: {
@@ -371,6 +421,7 @@ const styles = StyleSheet.create({
   profileSection: {
     alignItems: 'center',
     paddingTop: SPACING.md,
+    paddingHorizontal: SPACING.md,
   },
   avatarContainer: {
     position: 'relative',
@@ -378,13 +429,13 @@ const styles = StyleSheet.create({
     marginTop: SPACING.md,
   },
   avatar: {
-    backgroundColor: COLORS.surface,
+    backgroundColor: '#2A2A2A',
   },
   avatarPlaceholder: {
-    backgroundColor: '#1f222a',
+    backgroundColor: '#2A2A2A',
   },
   avatarLoading: {
-    backgroundColor: '#1f222a',
+    backgroundColor: '#2A2A2A',
     justifyContent: 'center',
     alignItems: 'center',
     width: 100,
@@ -410,20 +461,32 @@ const styles = StyleSheet.create({
   },
   email: {
     color: COLORS.disabled,
-    marginBottom: SPACING.xl,
+    marginBottom: SPACING.xs,
     fontSize: 14,
   },
   premiumCard: {
-    width: '90%',
+    width: '100%',
     marginVertical: SPACING.md,
     borderRadius: BORDER_RADIUS.lg,
     overflow: 'hidden',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    alignSelf: 'center',
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 10,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    ...Platform.select({
+      ios: {
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.3,
+        shadowRadius: 10,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
   },
   premiumGradient: {
     width: '100%',
@@ -433,16 +496,14 @@ const styles = StyleSheet.create({
   premiumContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
   },
   premiumLeft: {
     flex: 1,
-    alignItems: 'center',
   },
   premiumTitleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     marginBottom: 4,
   },
   crownIcon: {
@@ -456,22 +517,43 @@ const styles = StyleSheet.create({
   premiumDescription: {
     color: 'rgba(255, 255, 255, 0.8)',
     fontSize: 14,
-    textAlign: 'center',
   },
   arrowButton: {
     margin: 0,
     opacity: 0.8,
-    backgroundColor: 'white',
-    marginLeft: SPACING.xs,
+    backgroundColor: COLORS.text,
   },
   menuSection: {
-    paddingHorizontal: SPACING.md,
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    marginHorizontal: SPACING.md,
+    marginBottom: SPACING.md,
+    overflow: 'hidden',
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(108, 71, 255, 0.3)',
+    ...Platform.select({
+      ios: {
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.3,
+        shadowRadius: 10,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.md,
   },
   menuItemLeft: {
     flexDirection: 'row',
@@ -482,5 +564,32 @@ const styles = StyleSheet.create({
   },
   menuText: {
     color: COLORS.text,
+    fontSize: 16,
+  },
+  chevron: {
+    marginLeft: SPACING.md,
+  },
+  secondMenuSection: {
+    marginTop: 0,
+  },
+  menuItemBorder: {
+    height: 1,
+    marginHorizontal: 8,
+  },
+  premiumButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 20,
+  },
+  premiumIcon: {
+    margin: 0,
+    marginTop: 0,
+    marginLeft: 0,
+  },
+  premiumText: {
+    color: '#f9e009',
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginTop: -10,
   },
 }); 

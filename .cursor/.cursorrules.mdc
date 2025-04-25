@@ -1,8 +1,7 @@
 ---
-description: Cursor rules for MindMuscle.AI project including Supabase and Sentry MPC
-globs:
-  - "**/*"
-alwaysApply: true
+description: 
+globs: 
+alwaysApply: false
 ---
 // Filename: .cursorrules.mdc
 // React Native Expo Cursor Rules for MindMuscle.AI
@@ -139,78 +138,59 @@ const expertGuidelines = {
 
 // Folder Structure
 const folderStructure = `
-Root Directory
-├── android/                        # Android-specific configuration and build files for the React Native app
-├── .git/                           # Git repository data
-├── metro.config.js                 # Configuration for Metro bundler (React Native's JavaScript bundler)
-├── package-lock.json               # Auto-generated file for npm dependency versions
-├── node_modules/                   # Third-party dependencies installed via npm/yarn
-├── package.json                    # Project configuration with dependencies, scripts, and metadata
-├── app.json                        # Expo configuration file defining app settings and capabilities
-├── .gitignore                      # Specifies files to be ignored by Git
-├── .expo/                          # Expo-specific configuration and cache files
-├── README.md                       # Project documentation
-├── tsconfig.json                   # TypeScript configuration
-├── .cursorrules.mdc                # Cursor IDE configuration
-└── app/                            # Main application code using Expo Router for file-based navigation
-    ├── _layout.tsx                 # Root layout component that sets up providers, navigation structure, and theme
-    ├── index.tsx                   # Entry point/landing page of the application
-    ├── (auth)/                     # Authentication-related screens and components
-    │   ├── login.tsx               # User login screen
-    │   ├── register.tsx            # User registration screen
-    │   ├── edit-profile.tsx        # Profile editing screen
-    │   ├── forgot-password.tsx     # Password recovery screen
-    │   └── reset-password.tsx      # Password reset screen
-    ├── (tabs)/                     # Main tab-based navigation screens
-    │   ├── _layout.tsx             # Layout configuration for the tab navigation
-    │   ├── index.tsx               # Home tab screen
-    │   ├── discover.tsx            # Discover/explore workouts screen
-    │   ├── exercises.tsx           # Exercise library and management
-    │   ├── insights.tsx            # Progress tracking and analytics dashboard
-    │   └── profile.tsx             # User profile management screen
-    ├── components/                 # Reusable UI components
-    │   ├── InitialLoadingScreen.tsx# Loading screen shown during app initialization
-    │   ├── ThemedDatePicker.tsx    # Date picker with theme support
-    │   ├── ThemedNumberPicker.tsx  # Number picker with theme support
-    │   ├── OptimizedImage.tsx      # Performance-optimized image component
-    │   ├── ExerciseGraphs.tsx      # Visualization components for exercise progress
-    │   ├── ExerciseGraphModal.tsx  # Modal for displaying exercise stats
-    │   ├── Achievements.tsx        # Displays user achievements and badges
-    │   ├── HowToMeasureModal.tsx   # Educational modal for body measurements
-    │   ├── MeasurementModal.tsx    # Modal for adding/editing body measurements
-    │   ├── MeasurementsGraph.tsx   # Visualizations for body measurement progress
-    │   ├── MeasurementHistory.tsx  # History view of body measurements
-    │   ├── timer.tsx               # Workout timer component
-    │   └── CoachingInterface.tsx   # AI coaching interface component
-    ├── store/                      # State management using React Context API
-    │   ├── AuthContext.tsx         # Authentication state management
-    │   ├── ProfileContext.tsx      # User profile data management
-    │   ├── ProgressContext.tsx     # Workout and fitness progress tracking
-    │   ├── GamificationContext.tsx # Achievement and gamification features
-    │   ├── TaskContext.tsx         # Workout and task scheduling
-    │   ├── ProgressPhotosContext.tsx# Management of progress photos
-    │   └── CoachingContext.tsx     # AI coaching system state management
-    ├── services/                   # Backend services integration (API clients, Supabase, etc.)
-    ├── utils/                      # Utility functions and helpers
-    ├── hooks/                      # Custom React hooks
-    ├── constants/                  # Application constants and configuration
-    └── coaching/                   # AI coaching feature implementation
-
-assets/                              # Static assets for the application
-└── images/                          # Image assets including:
-    ├── body-model_front.png         # Front view reference for body measurements
-    ├── body-model_back.png          # Back view reference for body measurements
-    ├── icon.png                     # App icon
-    ├── adaptive-icon.png            # Adaptive app icon for Android
-    ├── placeholder.jpg              # Placeholder image
-    ├── measurements/                # Body measurement reference images
-    └── exercises/                   # Exercise demonstration images
-
-prisma/                              # Database schema and migration management
-├── schema.prisma                    # Database schema definition with models for: User accounts, preferences, workout data, exercises, achievements, measurements
-└── dev.db                            # SQLite development database
-
-supabase/                            # Supabase (backend as a service) configuration
+mindmuscle-ai/
+├── app/                           # Main application code
+│   ├── _layout.tsx               # Root layout with providers and navigation
+│   ├── index.tsx                 # Entry point
+│   ├── achievements.tsx          # Achievements system implementation
+│   ├── (auth)/                   # Authentication routes and screens
+│   ├── (stack)/                  # Stack-based navigation screens
+│   ├── (tabs)/                   # Tab-based navigation screens
+│   ├── coaching/                 # AI coaching implementation
+│   ├── components/               # Reusable components
+│   │   ├── Achievements.tsx      # Achievement display and management
+│   │   ├── AuthGuard.tsx        # Authentication protection
+│   │   ├── CoachingInterface.tsx # AI coaching interface
+│   │   ├── ExerciseGraphs.tsx   # Exercise progress visualization
+│   │   ├── ExerciseGraphModal.tsx# Detailed exercise statistics
+│   │   ├── GlobalGestureHandler  # Gesture management
+│   │   ├── HowToMeasureModal    # Measurement instructions
+│   │   ├── InitialLoadingScreen # App initialization
+│   │   ├── MeasurementHistory   # Body measurements history
+│   │   ├── MeasurementModal     # Body measurements input
+│   │   ├── MeasurementsGraph    # Measurements visualization
+│   │   ├── OptimizedImage       # Performance-optimized images
+│   │   ├── SplashScreenManager  # Splash screen handling
+│   │   ├── SwipeBackHandler     # Navigation gestures
+│   │   ├── ThemedDatePicker     # Themed date selection
+│   │   ├── ThemedNumberPicker   # Themed number input
+│   │   └── timer.tsx            # Workout timer
+│   ├── constants/               # Application constants
+│   ├── docs/                   # Documentation
+│   ├── hooks/                  # Custom React hooks
+│   ├── services/               # API and service integrations
+│   ├── store/                  # State management
+│   │   ├── AuthContext        # Authentication state
+│   │   ├── CoachingContext   # AI coaching state
+│   │   ├── GamificationContext# Achievements state
+│   │   ├── ProfileContext    # User profile state
+│   │   ├── ProgressContext   # Progress tracking state
+│   │   ├── ProgressPhotosContext# Photos management
+│   │   └── TaskContext       # Workout scheduling
+│   ├── types/                 # TypeScript definitions
+│   └── utils/                 # Utility functions
+├── assets/                    # Static assets
+│   ├── exercises/            # Exercise images
+│   └── measurements/         # Measurement reference images
+├── prisma/                   # Database schema and migrations
+├── supabase/                 # Supabase configuration
+│   └── migrations/          # Database migrations
+├── android/                  # Android specific configuration
+├── .env                     # Environment variables
+├── .env.example            # Environment template
+├── app.json                # Expo configuration
+├── package.json            # Dependencies and scripts
+└── tsconfig.json           # TypeScript configuration
 
 // Tool Usage and Additional Instructions unchanged
 

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, Pressable, Alert } from 'react-native';
+import { StyleSheet, View, Pressable, Alert, Platform } from 'react-native';
 import { Text, IconButton, Surface, useTheme, Button, Portal, Dialog } from 'react-native-paper';
 import { LineChart } from 'react-native-chart-kit';
 import { Dimensions } from 'react-native';
+import { COLORS } from '../constants/theme';
 
 export interface ExerciseData {
   id: string;
@@ -31,13 +32,13 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
 }) => {
   const [exerciseToDelete, setExerciseToDelete] = useState<string | null>(null);
   const theme = useTheme();
-  const screenWidth = Dimensions.get('window').width - 32; // Account for container padding
+  const screenWidth = Dimensions.get('window').width - 32; // Account for outer container margins only
 
   const chartConfig = {
-    backgroundGradientFrom: '#2A2A2A',
-    backgroundGradientTo: '#2A2A2A',
-    backgroundGradientFromOpacity: 1,
-    backgroundGradientToOpacity: 1,
+    backgroundGradientFrom: 'transparent',
+    backgroundGradientTo: 'transparent',
+    backgroundGradientFromOpacity: 0,
+    backgroundGradientToOpacity: 0,
     fillShadowGradient: '#F9E009',
     fillShadowGradientOpacity: 0.3,
     fillShadowGradientFrom: '#F9E009',
@@ -56,11 +57,11 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
     },
     propsForLabels: {
       fontSize: 10,
-      color: '#666'
+      color: COLORS.text
     },
     propsForVerticalLabels: {
       fontSize: 10,
-      color: '#666'
+      color: COLORS.text
     },
     decimalPlaces: 0,
   };
@@ -97,9 +98,9 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
         <Button
           mode="contained"
           onPress={onAddExercise}
-          icon="plus"
           style={styles.trackButton}
           labelStyle={styles.buttonLabel}
+          contentStyle={{ flexDirection: 'row', alignItems: 'center' }}
         >
           Track Exercise
         </Button>
@@ -137,7 +138,7 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
                       strokeWidth: 2,
                     }]
                   }}
-                  width={screenWidth - 32}
+                  width={screenWidth}
                   height={180}
                   chartConfig={chartConfig}
                   bezier
@@ -159,11 +160,11 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
                   <IconButton
                     icon="flag"
                     mode="contained"
-                    iconColor="#000"
+                    iconColor={COLORS.text}
                     size={16}
                     onPress={() => onSetGoal?.(exercise.id)}
                     style={styles.goalButton}
-                    containerColor="#6842ff"
+                    containerColor={COLORS.primary}
                   />
                   <Text style={styles.buttonText}>Set Goal</Text>
                 </View>
@@ -171,11 +172,11 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
                   <IconButton
                     icon="delete"
                     mode="contained"
-                    iconColor="#000"
+                    iconColor={COLORS.text}
                     size={16}
                     onPress={() => handleDeletePress(exercise.id)}
                     style={styles.deleteButton}
-                    containerColor="#6842ff"
+                    containerColor={COLORS.primary}
                   />
                   <Text style={styles.buttonText}>Delete Exercise</Text>
                 </View>
@@ -192,9 +193,22 @@ const styles = StyleSheet.create({
   container: {
     marginHorizontal: 16,
     marginTop: 16,
+    padding: 16,
     borderRadius: 12,
-    backgroundColor: '#1E1E1E',
-    paddingVertical: 16,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: 'rgba(108, 71, 255, 0.3)',
+    ...Platform.select({
+      ios: {
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
   },
   header: {
     alignItems: 'center',
@@ -204,7 +218,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#fff',
+    color: COLORS.text,
     marginBottom: 4,
   },
   subtitle: {
@@ -213,37 +227,44 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   addExerciseButton: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 10,
     marginBottom: 16,
+    alignItems: 'center',
   },
   trackButton: {
-    backgroundColor: '#6842FF',
+    backgroundColor: COLORS.primary,
+    height: 40,
+    width: '55%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   buttonLabel: {
     fontSize: 14,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: '700',
+    color: COLORS.text,
+    textAlignVertical: 'center',
   },
   graphsContainer: {
-    paddingHorizontal: 0,
+    marginHorizontal: -25, // Negative margin to allow graph to extend to edges
   },
   graphCard: {
     marginBottom: 16,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: 'transparent',
     borderRadius: 12,
-    padding: 16,
+    padding: 0,
     paddingBottom: 32,
   },
   exerciseName: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#fff',
+    color: COLORS.text,
+    marginLeft: 20,
     marginBottom: 8,
   },
   graphWrapper: {
     position: 'relative',
     height: 180,
-    marginBottom: 24,
+    marginBottom: 5,
   },
   valueContainer: {
     position: 'absolute',
@@ -264,7 +285,7 @@ const styles = StyleSheet.create({
   },
   maxLabel: {
     fontSize: 12,
-    color: '#fff',
+    color: COLORS.text,
     marginTop: 2,
   },
   prLabel: {
@@ -275,17 +296,20 @@ const styles = StyleSheet.create({
   chart: {
     borderRadius: 12,
     marginLeft: -16,
+    marginRight: -16,
     paddingBottom: 16,
   },
   buttonContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 20,
+    marginTop: 10,
   },
   buttonGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 8,
   },
   goalButton: {
     margin: 0,
@@ -300,11 +324,12 @@ const styles = StyleSheet.create({
     height: 28,
   },
   buttonText: {
-    fontSize: 12,
-    color: '#fff',
+    fontSize: 11,
+    color: COLORS.text,
+    marginLeft: 4,
   },
   deleteText: {
-    color: '#F9E009',
+    color: COLORS.text,
   },
   emptyState: {
     width: '100%',
@@ -318,12 +343,12 @@ const styles = StyleSheet.create({
   emptyStateText: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#fff',
+    color: COLORS.text,
     marginBottom: 8,
   },
   emptyStateSubtext: {
     fontSize: 14,
-    color: '#666',
+    color: COLORS.text,
     textAlign: 'center',
   },
 });

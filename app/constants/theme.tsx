@@ -3,8 +3,8 @@ import { useColorScheme } from 'react-native';
 import React from 'react';
 
 export const COLORS = {
-  primary: '#8B6DFF',
-  secondary: '#1A1B1E',
+  primary: '#6c47ff',
+  secondary: '#6d77ff',
   background: '#181A20',
   surface: '#262A34',
   surfaceLight: '#363A47',

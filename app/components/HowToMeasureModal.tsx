@@ -15,6 +15,7 @@ import { GestureHandlerRootView, ScrollView } from 'react-native-gesture-handler
 import { MeasurementCategory } from '../services/measurements';
 import OptimizedImage from './OptimizedImage';
 import { STATIC_IMAGES } from '../utils/imagePreloader';
+import { COLORS } from '../constants/theme';
 
 interface MeasurementInstruction {
   category: MeasurementCategory;
@@ -170,7 +171,7 @@ const styles = StyleSheet.create({
   modalContainer: {
     width: '100%',
     height: '80%',
-    backgroundColor: '#1E1E1E',
+    backgroundColor: COLORS.background,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     overflow: 'hidden',
@@ -192,7 +193,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#333',
-    backgroundColor: '#1E1E1E',
+    backgroundColor: COLORS.background,
     zIndex: 1,
   },
   closeButton: {
@@ -215,9 +216,27 @@ const styles = StyleSheet.create({
   },
   instructionCard: {
     marginBottom: 16,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: COLORS.surface,
     borderRadius: 12,
     padding: 16,
+    shadowColor: '#6c47ff',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(108, 71, 255, 0.3)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#6c47ff',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
   },
   firstCard: {
     marginTop: 8,
@@ -234,7 +253,7 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: 12,
     overflow: 'hidden',
-    backgroundColor: '#2A2A2A',
+    backgroundColor: 'transparent',
   },
   instructionImage: {
     width: '100%',

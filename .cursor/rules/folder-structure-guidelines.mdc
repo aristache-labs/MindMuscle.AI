@@ -1,0 +1,94 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+---
+description: "Maintain and update the MindMuscle.AI project folder structure to prevent duplication of files and folders."
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+## Project Folder Structure
+
+Regularly update this folder structure each time you create, modify, or delete a file or folder:
+
+```
+mindmuscle-ai/
+├── app/
+│   ├── _layout.tsx
+│   ├── index.tsx
+│   ├── achievements.tsx
+│   ├── (auth)/
+│   ├── (stack)/
+│   ├── (tabs)/
+│   ├── coaching/
+│   ├── components/
+│   │   ├── Achievements.tsx
+│   │   ├── AuthGuard.tsx
+│   │   ├── CoachingInterface.tsx
+│   │   ├── ExerciseGraphs.tsx
+│   │   ├── ExerciseGraphModal.tsx
+│   │   ├── GlobalGestureHandler
+│   │   ├── HowToMeasureModal
+│   │   ├── InitialLoadingScreen
+│   │   ├── MeasurementHistory
+│   │   ├── MeasurementModal
+│   │   ├── MeasurementsGraph
+│   │   ├── OptimizedImage
+│   │   ├── SplashScreenManager
+│   │   ├── SwipeBackHandler
+│   │   ├── ThemedDatePicker
+│   │   ├── ThemedNumberPicker
+│   │   └── timer.tsx
+│   ├── constants/
+│   ├── docs/
+│   ├── hooks/
+│   ├── services/
+│   ├── store/
+│   │   ├── AuthContext
+│   │   ├── CoachingContext
+│   │   ├── GamificationContext
+│   │   ├── ProfileContext
+│   │   ├── ProgressContext
+│   │   ├── ProgressPhotosContext
+│   │   └── TaskContext
+│   ├── types/
+│   └── utils/
+├── assets/
+│   ├── exercises/
+│   └── measurements/
+├── prisma/
+├── supabase/
+│   └── migrations/
+├── android/
+├── .env
+├── .env.example
+├── app.json
+├── package.json
+└── tsconfig.json
+```
+
+### Guidelines
+
+- Always reference the folder structure above before creating a new file or folder.
+- Update the folder structure immediately after creating, deleting, or moving files.
+- Ensure consistency with naming conventions (PascalCase for components, camelCase for services and utilities, kebab-case for directories).
+- Avoid duplicating existing files or folders by checking the structure carefully.
+
+---
+
+// Tool Usage and Additional Instructions unchanged
+
+module.exports = {
+  projectContext,
+  reactNativeExpoBestPractices,
+  expertGuidelines,
+  folderStructure,
+  codeChangeGuidelines,
+  toolUsageGuidelines,
+  additionalInstructions
+
+
+};

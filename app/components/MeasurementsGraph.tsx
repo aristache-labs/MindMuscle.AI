@@ -2,13 +2,14 @@ import React from 'react';
 import { StyleSheet, View, Pressable } from 'react-native';
 import { Text, IconButton } from 'react-native-paper';
 import { MeasurementCategory, Measurement } from '../services/measurements';
+import { COLORS } from '../constants/theme';
 
 interface Props {
   measurements: Record<MeasurementCategory, Measurement | null>;
   onMeasurementPress: (category: MeasurementCategory) => void;
 }
 
-const PURPLE_COLOR = '#6B4EFF';
+const PURPLE_COLOR = '#6c47ff';
 const FADED_PURPLE = 'rgba(107, 78, 255, 0.15)';
 
 const getCategoryColor = (category: string): string => {
@@ -160,7 +161,7 @@ const styles = StyleSheet.create({
   },
   weightLabel: {
     fontSize: 12,
-    color: '#FFE600',
+    color: COLORS.text,
   },
   graphWrapper: {
     height: 250,
@@ -214,7 +215,7 @@ const styles = StyleSheet.create({
   },
   unitLabel: {
     fontSize: 10,
-    color: '#666',
+    color: COLORS.text,
     marginBottom: 2,
   },
   measurementLabel: {

@@ -1,7 +1,7 @@
 ---
 description: 
 globs: 
-alwaysApply: true
+alwaysApply: false
 ---
 ---
 description: Cursor rules for MindMuscle.AI project including Supabase and Sentry MPC

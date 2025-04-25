@@ -1,9 +1,9 @@
 import React from 'react';
-import { StyleSheet, View, ScrollView, Dimensions, Pressable } from 'react-native';
+import { StyleSheet, View, ScrollView, Dimensions, Pressable, Platform } from 'react-native';
 import { Text, Button, IconButton } from 'react-native-paper';
 import { format } from 'date-fns';
 import { MeasurementCategory, Measurement } from '../services/measurements';
-
+import { COLORS } from '../constants/theme';
 interface Props {
   category: MeasurementCategory;
   measurements: Array<Measurement>;
@@ -49,10 +49,12 @@ export default function MeasurementHistory({
   return (
     <Pressable style={styles.overlay} onPress={onClose}>
       <Pressable style={styles.container} onPress={(e) => e.stopPropagation()}>
+        <View style={styles.topGlowLeft} />
+        <View style={styles.topGlowRight} />
         <View style={styles.header}>
           <IconButton
             icon="close"
-            iconColor="#fff"
+            iconColor={COLORS.text}
             size={24}
             style={styles.closeButton}
             onPress={onClose}
@@ -155,36 +157,83 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   overlay: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'transparent',
-    height: SCREEN_HEIGHT,
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
   container: {
     width: '100%',
-    height: '60%',
-    backgroundColor: '#1E1E1E',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    height: '100%',
+    backgroundColor: COLORS.background,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
     overflow: 'hidden',
-    shadowColor: '#000',
+    shadowColor: COLORS.primary,
     shadowOffset: {
       width: 0,
-      height: -2,
+      height: 0,
     },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    shadowOpacity: 1,
+    shadowRadius: 10,
+    elevation: 10,
+    borderWidth: 0,
+    borderTopWidth: 0.9,
+    borderColor: COLORS.primary,
+    ...Platform.select({
+      ios: {
+        shadowColor: COLORS.primary,
+        shadowOffset: { 
+          width: 10, 
+          height: 0,
+        },
+        shadowOpacity: 1,
+        shadowRadius: 10,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
+  },
+  topGlowLeft: {
+    position: 'absolute',
+    top: -0.7,
+    left: -0.2,
+    width: 13,
+    height: 13,
+    borderTopLeftRadius: 12,
+    backgroundColor: 'transparent',
+    borderLeftWidth: 0.9,
+    borderTopWidth: 0.9,
+    borderColor: COLORS.primary,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 10,
+    elevation: 15,
+  },
+  topGlowRight: {
+    position: 'absolute',
+    top: -0.7,
+    right: -0.2,
+    width: 13,
+    height: 13,
+    borderTopRightRadius: 12,
+    backgroundColor: 'transparent',
+    borderRightWidth: 0.9,
+    borderTopWidth: 0.9,
+    borderColor: COLORS.primary,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 20,
+    elevation: 15,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    borderBottomWidth: 0.2,
+    borderBottomColor: COLORS.primary,
   },
   closeButton: {
     margin: 0,
@@ -193,19 +242,38 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#fff',
+    color: COLORS.text,
     textAlign: 'center',
     marginRight: 40,
   },
   historyContainer: {
     flex: 1,
     padding: 16,
+
   },
   historyItem: {
     marginBottom: 24,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: COLORS.surface,
     borderRadius: 12,
     padding: 16,
+    shadowColor: '#6c47ff',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(108, 71, 255, 0.3)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#6c47ff',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
   },
   firstMeasurementItem: {
     opacity: 0.8,
@@ -218,7 +286,7 @@ const styles = StyleSheet.create({
   },
   date: {
     fontSize: 14,
-    color: '#888',
+    color: COLORS.text,
   },
   firstMeasurementLabel: {
     fontSize: 12,
@@ -238,11 +306,11 @@ const styles = StyleSheet.create({
   measurementValue: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#fff',
+    color: COLORS.text,
   },
   unit: {
     fontSize: 16,
-    color: '#888',
+    color: COLORS.text,
     marginLeft: 4,
   },
   progressIndicator: {
@@ -272,14 +340,18 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   addButton: {
-    margin: 46,
-    backgroundColor: '#6B4EFF',
+    margin: 80,
+    marginBottom: 32,
+    backgroundColor: COLORS.primary,
     borderRadius: 45,
+    height: 56,
+    justifyContent: 'center',
   },
   addButtonLabel: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#fff',
+    color: COLORS.text,
+    paddingVertical: 8,
   },
   emptyState: {
     flex: 1,

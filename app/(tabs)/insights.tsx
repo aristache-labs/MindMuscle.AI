@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Dimensions, Pressable, Image, Modal, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, ScrollView, Dimensions, Pressable, Image, Modal, ActivityIndicator, Platform } from 'react-native';
 import { Text, Surface, Chip, useTheme, Divider, IconButton, Button, Provider } from 'react-native-paper';
 import { useProgress } from '../store/ProgressContext';
 import { Calendar } from 'react-native-calendars';
 import { format, addMonths, subMonths } from 'date-fns';
-import { COLORS } from '../constants/theme';
+import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -23,6 +23,7 @@ import OptimizedImage from '../components/OptimizedImage';
 import { useImagePreloader } from '../hooks/useImagePreloader';
 import ExerciseGraphs, { ExerciseData } from '../components/ExerciseGraphs';
 import ExerciseGraphModal from '../components/ExerciseGraphModal';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const TIME_FILTERS = [
   { label: '1W', value: '1w' },
@@ -60,6 +61,7 @@ const SAMPLE_EXERCISES: ExerciseData[] = [
 export default function InsightsScreen() {
   const theme = useTheme();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
   const { metrics, loading: progressLoading } = useProgress();
   const [selectedFilter, setSelectedFilter] = useState('1w');
   const [calendarDate, setCalendarDate] = useState(new Date());
@@ -333,66 +335,82 @@ export default function InsightsScreen() {
           }}
         />
         
-        {/* Custom Header */}
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <IconButton
-              icon="chart-bar"
-              size={24}
-              style={styles.headerIcon}
-              iconColor="white"
-            />
-            <Text variant="headlineSmall" style={[styles.headerTitle, { color: '#fff' }]}>Progress</Text>
+        {/* Fixed Header */}
+        <View style={[styles.headerContainer, { paddingTop: insets.top }]}>
+          <View style={styles.header}>
+            <View style={styles.headerLeft}>
+              <IconButton
+                icon="chart-box"
+                size={24}
+                style={styles.headerIcon}
+                iconColor={COLORS.text}
+              />
+              <Text variant="headlineSmall" style={[styles.headerTitle, { color: COLORS.text }]}>Insights</Text>
+            </View>
+            <View style={styles.headerRight}>
+              <Pressable style={styles.premiumButton} onPress={() => {}}>
+                <IconButton
+                  icon="crown"
+                  iconColor="#f9e009"
+                  size={26}
+                  style={styles.premiumIcon}
+                />
+                <Text style={styles.premiumText}>PREMIUM</Text>
+              </Pressable>
+            </View>
           </View>
-          <Pressable style={styles.premiumButton} onPress={() => {}}>
-            <IconButton
-              icon="crown"
-              iconColor="#f9e009"
-              size={26}
-              style={styles.premiumIcon}
-            />
-            <Text style={styles.premiumText}>PREMIUM</Text>
-          </Pressable>
+          <Divider style={styles.divider} />
         </View>
-        <Divider style={styles.divider} />
 
-        <ScrollView contentContainerStyle={styles.contentContainer}>
-          {/* Time Period Filter */}
-          <Surface style={styles.filterContainer} elevation={2}>
-            {TIME_FILTERS.map((filter) => (
-              <Chip
-                key={filter.value}
-                selected={selectedFilter === filter.value}
-                onPress={() => setSelectedFilter(filter.value)}
-                style={[
-                  styles.filterChip,
-                  selectedFilter === filter.value && { backgroundColor: theme.colors.primary }
-                ]}
-                textStyle={[
-                  styles.filterChipText,
-                  selectedFilter === filter.value && { color: '#fff' }
-                ]}
-              >
-                {filter.label}
-              </Chip>
-            ))}
-          </Surface>
+        <ScrollView 
+          style={styles.scrollView} 
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ 
+            paddingTop: 100,
+            paddingBottom: 100
+          }}
+        >
+          {/* Time Period Filter and Stats Overview */}
+          <Surface style={styles.combinedStatsContainer} elevation={2}>
+            {/* Time Filters */}
+            <View style={styles.filterContainer}>
+              {TIME_FILTERS.map((filter) => (
+                <Chip
+                  key={filter.value}
+                  selected={selectedFilter === filter.value}
+                  onPress={() => setSelectedFilter(filter.value)}
+                  style={[
+                    styles.filterChip,
+                    selectedFilter === filter.value && { backgroundColor: theme.colors.primary }
+                  ]}
+                  textStyle={[
+                    styles.filterChipText,
+                    selectedFilter === filter.value && { color: '#fff' }
+                  ]}
+                >
+                  {filter.label}
+                </Chip>
+              ))}
+            </View>
 
-          {/* Stats Overview */}
-          <Surface style={styles.statsContainer} elevation={2}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>12</Text>
-              <Text style={styles.statLabel}>Number of{'\n'}Workouts</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>11</Text>
-              <Text style={styles.statLabel}>Hours at{'\n'}the Gym</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>32.9K</Text>
-              <Text style={styles.statLabel}>Total Weight{'\n'}Lifted (kg)</Text>
+            <View style={styles.statsDivider} />
+
+            {/* Stats Overview */}
+            <View style={styles.statsOverview}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>12</Text>
+                <Text style={styles.statLabel}>Number of{'\n'}Workouts</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>11</Text>
+                <Text style={styles.statLabel}>Hours at{'\n'}the Gym</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>32.9K</Text>
+                <Text style={styles.statLabel}>Total Weight{'\n'}Lifted (kg)</Text>
+              </View>
             </View>
           </Surface>
 
@@ -410,7 +428,7 @@ export default function InsightsScreen() {
                   <Text style={styles.todayButton}>Today</Text>
                 </Pressable>
               </View>
-              <Text style={[styles.sectionTitle, { flex: 1, textAlign: 'center' }]}>YOUR WORKOUTS</Text>
+              <Text style={[styles.sectionTitle, {flex: 1, paddingRight: '20%',}]}>YOUR WORKOUTS</Text>
               <View style={styles.headerRight} />
             </View>
             <Calendar
@@ -431,7 +449,7 @@ export default function InsightsScreen() {
                     text: {
                       fontSize: 20,
                       fontWeight: '700',
-                      color: theme.colors.primary,
+                      color: COLORS.primary,
                     }
                   }
                 }
@@ -443,21 +461,21 @@ export default function InsightsScreen() {
               theme={{
                 backgroundColor: 'transparent',
                 calendarBackground: 'transparent',
-                textSectionTitleColor: theme.colors.onSurface,
-                selectedDayBackgroundColor: theme.colors.primary,
+                textSectionTitleColor: COLORS.onSurface,
+                selectedDayBackgroundColor: COLORS.primary,
                 selectedDayTextColor: '#fff',
-                todayTextColor: theme.colors.primary,
-                dayTextColor: theme.colors.onSurface,
-                textDisabledColor: theme.colors.onSurfaceDisabled,
-                dotColor: theme.colors.primary,
-                monthTextColor: theme.colors.onSurface,
+                todayTextColor: COLORS.primary,
+                dayTextColor: COLORS.onSurface,
+                textDisabledColor: COLORS.disabled,
+                dotColor: COLORS.primary,
+                monthTextColor: COLORS.onSurface,
                 textDayFontSize: 16,
                 textMonthFontSize: 18,
                 textDayHeaderFontSize: 14,
                 todayTextFontFamily: 'System',
                 todayFontWeight: '400',
                 todayTextFontSize: 24,
-                arrowColor: theme.colors.primary,
+                arrowColor: COLORS.primary,
               }}
             />
           </Surface>
@@ -775,55 +793,57 @@ const getMeasurementIcon = (category: MeasurementCategory): string => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    paddingTop: 30,
     backgroundColor: COLORS.background,
-    paddingBottom: 60,
+  },
+  headerContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    backgroundColor: COLORS.background,
+    ...Platform.select({
+      ios: {
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.3,
+        shadowRadius: 10,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 60,
-    paddingBottom: 16,
-    backgroundColor: COLORS.background,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   headerIcon: {
+    backgroundColor: COLORS.primary,
     margin: 0,
-    marginRight: 10,
-    backgroundColor: '#6B4EFF',
   },
   headerTitle: {
-    fontWeight: 'bold',
+    marginLeft: SPACING.sm,
+    fontWeight: '600',
   },
-  premiumButton: {
+  headerRight: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 20,
-    paddingBottom: 8,
-    paddingHorizontal: 8,
-    marginRight: -4,
-  },
-  premiumIcon: {
-    margin: 0,
-    marginTop: 8,
-    marginLeft: -4,
-  },
-  premiumText: {
-    color: '#f9e009',
-    fontSize: 10,
-    fontWeight: 'bold',
-    marginTop: -8,
   },
   divider: {
     backgroundColor: '#333',
     height: 1,
   },
-  contentContainer: {
-    paddingBottom: 24,
+  scrollView: {
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
@@ -831,15 +851,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: COLORS.background,
   },
+  combinedStatsContainer: {
+    marginHorizontal: 16,
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: 'rgba(108, 71, 255, 0.3)',
+    ...Platform.select({
+      ios: {
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
+  },
   filterContainer: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    padding: 16,
-    marginHorizontal: 16,
-    marginTop: 16,
-    borderRadius: 12,
-    backgroundColor: '#1E1E1E',
+  },
+  statsDivider: {
+    height: 1,
+    backgroundColor: '#333',
+    marginVertical: 16,
+  },
+  statsOverview: {
+    flexDirection: 'row',
   },
   filterChip: {
     backgroundColor: 'transparent',
@@ -850,14 +893,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
   },
-  statsContainer: {
-    flexDirection: 'row',
-    marginHorizontal: 16,
-    marginTop: 16,
-    padding: 16,
-    borderRadius: 12,
-    backgroundColor: '#1E1E1E',
-  },
   statItem: {
     flex: 1,
     alignItems: 'center',
@@ -865,12 +900,12 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#fff',
+    color: COLORS.text,
     marginBottom: 4,
   },
   statLabel: {
     fontSize: 12,
-    color: '#888',
+    color: COLORS.text,
     textAlign: 'center',
   },
   statDivider: {
@@ -883,19 +918,32 @@ const styles = StyleSheet.create({
     marginTop: 16,
     padding: 16,
     borderRadius: 12,
-    backgroundColor: '#1E1E1E',
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: 'rgba(108, 71, 255, 0.3)',
+    ...Platform.select({
+      ios: {
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
   },
   sectionTitle: {
     fontSize: 14,
     fontWeight: 'bold',
-    color: '#fff',
+    color: COLORS.text,
     marginBottom: 8,
     textAlign: 'center',
   },
   monthYear: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#fff',
+    color: COLORS.text,
     marginBottom: 16,
     textAlign: 'center',
   },
@@ -904,7 +952,20 @@ const styles = StyleSheet.create({
     marginTop: 16,
     padding: 16,
     borderRadius: 12,
-    backgroundColor: '#1E1E1E',
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: 'rgba(108, 71, 255, 0.3)',
+    ...Platform.select({
+      ios: {
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
   },
   photoComparisonContainer: {
     flexDirection: 'row',
@@ -920,12 +981,12 @@ const styles = StyleSheet.create({
   photoLabel: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: '#fff',
+    color: COLORS.text,
     marginTop: 8,
   },
   photoDate: {
     fontSize: 10,
-    color: '#fff',
+    color: COLORS.text,
     marginTop: 2,
   },
   photoFrame: {
@@ -933,7 +994,7 @@ const styles = StyleSheet.create({
     aspectRatio: 3/4,
     borderRadius: 12,
     overflow: 'hidden',
-    backgroundColor: '#2A2A2A',
+    backgroundColor: COLORS.surface,
   },
   photo: {
     width: '100%',
@@ -946,7 +1007,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: 'rgba(107, 78, 255, 0.1)',
     borderWidth: 2,
-    borderColor: '#6B4EFF',
+    borderColor: COLORS.primary,
     borderStyle: 'dashed',
     justifyContent: 'center',
     alignItems: 'center',
@@ -965,7 +1026,7 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   dateText: {
-    color: 'white',
+    color: COLORS.text,
     fontSize: 12,
     textAlign: 'center',
   },
@@ -973,9 +1034,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 8,
-  },
-  headerRight: {
-    width: 50,
   },
   todayButtonContainer: {
     paddingHorizontal: 12,
@@ -986,7 +1044,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(107, 78, 255, 0.1)',
   },
   todayButton: {
-    color: '#6B4EFF',
+    color: COLORS.primary,
     fontSize: 14,
     fontWeight: 'bold',
   },
@@ -1003,7 +1061,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#6B4EFF',
+    backgroundColor: COLORS.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1012,7 +1070,20 @@ const styles = StyleSheet.create({
     marginTop: 16,
     padding: 16,
     borderRadius: 12,
-    backgroundColor: '#1E1E1E',
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: 'rgba(108, 71, 255, 0.3)',
+    ...Platform.select({
+      ios: {
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
   },
   achievementsGrid: {
     flexDirection: 'row',
@@ -1024,6 +1095,18 @@ const styles = StyleSheet.create({
     width: '31%',
     aspectRatio: 0.85,
     marginBottom: 4,
+    borderRadius: 12,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#6B4EFF',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.5,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
   },
   achievementContent: {
     flex: 1,
@@ -1043,26 +1126,26 @@ const styles = StyleSheet.create({
   achievementLabel: {
     fontSize: 13,
     fontWeight: 'bold',
-    color: '#fff',
+    color: COLORS.text,
     textAlign: 'center',
     marginBottom: 4,
   },
   achievementTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#fff',
+    color: COLORS.text,
     marginBottom: 8,
   },
   achievementDescription: {
     fontSize: 16,
-    color: '#fff',
+    color: COLORS.text,
     opacity: 0.7,
     textAlign: 'center',
     marginBottom: 16,
   },
   achievementDate: {
     fontSize: 10,
-    color: '#fff',
+    color: COLORS.text,
     opacity: 0.7,
     textAlign: 'center',
   },
@@ -1100,7 +1183,7 @@ const styles = StyleSheet.create({
     maxWidth: 340,
   },
   modalContent: {
-    backgroundColor: '#1E1E1E',
+    backgroundColor: COLORS.surface,
     borderRadius: 16,
     padding: 24,
     alignItems: 'center',
@@ -1122,13 +1205,13 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#f9e009',
+    backgroundColor: COLORS.primary,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 24,
   },
   shareButton: {
-    backgroundColor: '#FFE600',
+    backgroundColor: COLORS.primary,
     borderRadius: 25,
     paddingHorizontal: 48,
     marginTop: 8,
@@ -1136,10 +1219,10 @@ const styles = StyleSheet.create({
   shareButtonLabel: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#000',
+    color: COLORS.text,
   },
   noAchievementsText: {
-    color: '#666',
+    color: COLORS.text,
     textAlign: 'center',
     width: '100%',
     marginTop: 16,
@@ -1156,14 +1239,27 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(102, 102, 102, 0.2)',
   },
   achievementTextLocked: {
-    color: '#666',
+    color: COLORS.text,
   },
   measurementsContainer: {
     marginHorizontal: 16,
     marginTop: 16,
     borderRadius: 12,
-    backgroundColor: '#1E1E1E',
+    backgroundColor: COLORS.surface,
     paddingVertical: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(108, 71, 255, 0.3)',
+    ...Platform.select({
+      ios: {
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
   },
   measurementsGrid: {
     flexDirection: 'row',
@@ -1175,11 +1271,16 @@ const styles = StyleSheet.create({
   measurementCard: {
     width: '23%',
     aspectRatio: 0.85,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: COLORS.surface,
     borderRadius: 12,
     padding: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
   measurementIconContainer: {
     width: 40,
@@ -1193,17 +1294,33 @@ const styles = StyleSheet.create({
   measurementValue: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#fff',
+    color: COLORS.text,
     marginBottom: 4,
   },
   measurementLabel: {
     fontSize: 10,
-    color: '#666',
+    color: COLORS.text,
     textAlign: 'center',
   },
   infoIcon: {
     margin: 0,
     marginLeft: 0,
     marginBottom: 10,
+  },
+  premiumButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 20,
+  },
+  premiumIcon: {
+    margin: 0,
+    marginTop: 0,
+    marginLeft: 0,
+  },
+  premiumText: {
+    color: '#f9e009',
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginTop: -10,
   },
 }); 

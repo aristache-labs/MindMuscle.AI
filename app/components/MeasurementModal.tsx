@@ -18,7 +18,7 @@ import Slider from '@react-native-community/slider';
 import { MeasurementCategory, measurementService, Measurement } from '../services/measurements';
 import MeasurementHistory from './MeasurementHistory';
 import OptimizedImage from './OptimizedImage';
-
+import { COLORS } from '../constants/theme';
 interface Props {
   visible: boolean;
   category: MeasurementCategory;
@@ -206,10 +206,12 @@ export default function MeasurementModal({
                 {showInput ? (
                   <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
                     <View style={styles.container}>
+                      <View style={styles.topGlowLeft} />
+                      <View style={styles.topGlowRight} />
                       <View style={styles.header}>
                         <IconButton
                           icon="close"
-                          iconColor="#fff"
+                          iconColor={COLORS.text}
                           size={24}
                           style={styles.closeButton}
                           onPress={() => setShowInput(false)}
@@ -238,7 +240,7 @@ export default function MeasurementModal({
                             <IconButton
                               icon="minus"
                               size={24}
-                              iconColor="#fff"
+                              iconColor={COLORS.text}
                             />
                           </Pressable>
                           
@@ -264,7 +266,7 @@ export default function MeasurementModal({
                             <IconButton
                               icon="plus"
                               size={24}
-                              iconColor="#fff"
+                              iconColor={COLORS.text}
                             />
                           </Pressable>
                         </View>
@@ -276,9 +278,9 @@ export default function MeasurementModal({
                             minimumValue={0}
                             maximumValue={MAX_VALUE}
                             step={STEP}
-                            minimumTrackTintColor="#6B4EFF"
+                            minimumTrackTintColor={COLORS.primary}
                             maximumTrackTintColor="#333"
-                            thumbTintColor="#6B4EFF"
+                            thumbTintColor={COLORS.primary}
                             style={styles.slider}
                           />
                           <View style={styles.sliderLabels}>
@@ -326,30 +328,87 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
-    width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT,
   },
   modalContainer: {
     width: '100%',
-    height: '60%',
-    backgroundColor: '#1E1E1E',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    overflow: 'hidden',
+    height: '68%',
+    backgroundColor: COLORS.background,
   },
   container: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#1E1E1E',
+    backgroundColor: COLORS.background,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    overflow: 'hidden',
+    shadowColor: COLORS.primary,
+    shadowOffset: {
+      width: 0,
+      height: 0,
+    },
+    shadowOpacity: 1,
+    shadowRadius: 10,
+    elevation: 10,
+    borderWidth: 0,
+    borderTopWidth: 0.9,
+    borderColor: COLORS.primary,
+    ...Platform.select({
+      ios: {
+        shadowColor: COLORS.primary,
+        shadowOffset: { 
+          width: 10, 
+          height: 0,
+        },
+        shadowOpacity: 1,
+        shadowRadius: 10,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
+  },
+  topGlowLeft: {
+    position: 'absolute',
+    top: -0.7,
+    left: -0.2,
+    width: 13,
+    height: 13,
+    borderTopLeftRadius: 12,
+    backgroundColor: 'transparent',
+    borderLeftWidth: 0.9,
+    borderTopWidth: 0.9,
+    borderColor: COLORS.primary,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 10,
+    elevation: 15,
+  },
+  topGlowRight: {
+    position: 'absolute',
+    top: -0.7,
+    right: -0.2,
+    width: 13,
+    height: 13,
+    borderTopRightRadius: 12,
+    backgroundColor: 'transparent',
+    borderRightWidth: 0.9,
+    borderTopWidth: 0.9,
+    borderColor: COLORS.primary,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 20,
+    elevation: 15,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    borderBottomWidth: 0.2,
+    borderBottomColor: COLORS.primary,
   },
   closeButton: {
     margin: 0,
@@ -358,7 +417,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#fff',
+    color: COLORS.text,
     textAlign: 'center',
     marginRight: 40,
   },
@@ -369,12 +428,10 @@ const styles = StyleSheet.create({
   },
   measurementImageContainer: {
     width: 200,
-    height: 120,
+    height: 160,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 24,
     borderRadius: 12,
-    padding: 16,
   },
   measurementImage: {
     width: '100%',
@@ -397,7 +454,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#6B4EFF',
+    backgroundColor: COLORS.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -411,15 +468,15 @@ const styles = StyleSheet.create({
   valueInput: {
     fontSize: 48,
     fontWeight: 'bold',
-    color: '#fff',
+    color: COLORS.text,
     minWidth: 120,
     textAlign: 'center',
     padding: 0,
   },
   unit: {
     fontSize: 24,
-    color: '#fff',
-    marginLeft: -10,
+    color: COLORS.text,
+    marginLeft: 10,
   },
   sliderContainer: {
     width: '100%',
@@ -437,28 +494,28 @@ const styles = StyleSheet.create({
   },
   sliderLabel: {
     fontSize: 12,
-    color: '#fff',
+    color: COLORS.text,
   },
   saveButton: {
-    backgroundColor: '#6B4EFF',
+    backgroundColor: COLORS.primary,
     paddingVertical: 16,
     paddingHorizontal: 32,
     borderRadius: 30,
-    marginBottom: 16,
-    width: '100%',
+    margin: 10,
+    width: '70%',
     alignItems: 'center',
   },
   saveButtonText: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#fff',
+    color: COLORS.text,
   },
   historyButton: {
     paddingVertical: 8,
   },
   historyButtonText: {
     fontSize: 16,
-    color: '#fff',
+    color: COLORS.text,
     textDecorationLine: 'underline',
   },
 }); 

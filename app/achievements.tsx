@@ -1,3 +1,4 @@
+import React from 'react';
 import Achievements from './components/Achievements';
 import { Stack } from 'expo-router';
 

@@ -70,7 +70,7 @@ export default function RegisterScreen() {
       >
         <View style={styles.content}>
           <Pressable onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back-circle-sharp" size={50} color="white" />
+            <Ionicons name="arrow-back" size={30} color="white" />
           </Pressable>
 
           <Text variant="displaySmall" style={styles.title}>
@@ -90,16 +90,16 @@ export default function RegisterScreen() {
                 theme={{ 
                   colors: { 
                     background: '#1A1A1A',
-                    primary: '#6c47ff',
+                    primary: COLORS.primary,
                   } 
                 }}
-                placeholderTextColor="#666"
+                placeholderTextColor={focusedInput === 'fullName' ? COLORS.primary : '#fff'}
                 textColor={focusedInput === 'fullName' ? '#fff' : '#666'}
-                cursorColor="#6c47ff"
+                cursorColor={COLORS.primary}
                 underlineColor="transparent"
-                activeUnderlineColor="#6c47ff"
+                activeUnderlineColor={COLORS.primary}
                 selectionColor="rgba(108, 71, 255, 0.3)"
-                left={<TextInput.Icon icon="account" color={focusedInput === 'fullName' ? '#6c47ff' : '#666'} />}
+                left={<TextInput.Icon icon="account" color={focusedInput === 'fullName' ? COLORS.primary : '#fff'} />}
                 onFocus={() => setFocusedInput('fullName')}
                 onBlur={() => setFocusedInput('')}
                 error={!!error || !!validationError}
@@ -122,17 +122,17 @@ export default function RegisterScreen() {
                 keyboardType="email-address"
                 autoCapitalize="none"
                 style={styles.input}
-                placeholderTextColor="#666"
+                placeholderTextColor={focusedInput === 'email' ? COLORS.primary : '#fff'}
                 textColor={focusedInput === 'email' ? '#fff' : '#666'}
-                cursorColor="#6c47ff"
+                cursorColor={COLORS.primary}
                 underlineColor="transparent"
-                activeUnderlineColor="#6c47ff"
+                activeUnderlineColor={COLORS.primary}
                 selectionColor="rgba(108, 71, 255, 0.3)"
-                left={<TextInput.Icon icon="email" color={focusedInput === 'email' ? '#6c47ff' : '#666'} />}
+                left={<TextInput.Icon icon="email" color={focusedInput === 'email' ? COLORS.primary : '#fff'} />}
                 theme={{
                   colors: {
                     background: '#1A1A1A',
-                    primary: '#6c47ff',
+                    primary: COLORS.primary,
                   },
                 }}
                 onFocus={() => setFocusedInput('email')}
@@ -149,24 +149,24 @@ export default function RegisterScreen() {
                 secureTextEntry={!showPassword}
                 textContentType="oneTimeCode"
                 style={styles.input}
-                placeholderTextColor="#666"
+                placeholderTextColor={focusedInput === 'password' ? COLORS.primary : '#fff'}
                 textColor={focusedInput === 'password' ? '#fff' : '#666'}
-                cursorColor="#6c47ff"
+                cursorColor={COLORS.primary}
                 underlineColor="transparent"
-                activeUnderlineColor="#6c47ff"
+                activeUnderlineColor={COLORS.primary}
                 selectionColor="rgba(108, 71, 255, 0.3)"
-                left={<TextInput.Icon icon="lock" color={focusedInput === 'password' ? '#6c47ff' : '#666'} />}
+                left={<TextInput.Icon icon="lock" color={focusedInput === 'password' ? COLORS.primary : '#fff'} />}
                 right={
                   <TextInput.Icon
                     icon={showPassword ? 'eye-off' : 'eye'}
-                    color={focusedInput === 'password' ? '#6c47ff' : '#666'}
+                    color={focusedInput === 'password' ? COLORS.primary : '#fff'}
                     onPress={() => setShowPassword(!showPassword)}
                   />
                 }
                 theme={{
                   colors: {
                     background: '#1A1A1A',
-                    primary: '#6c47ff',
+                    primary: COLORS.primary,
                   },
                 }}
                 onFocus={() => setFocusedInput('password')}
@@ -183,24 +183,24 @@ export default function RegisterScreen() {
                 secureTextEntry={!showConfirmPassword}
                 textContentType="none"
                 style={styles.input}
-                placeholderTextColor="#666"
+                placeholderTextColor={focusedInput === 'confirmPassword' ? COLORS.primary : '#fff'}
                 textColor={focusedInput === 'confirmPassword' ? '#fff' : '#666'}
-                cursorColor="#6c47ff"
+                cursorColor={COLORS.primary}
                 underlineColor="transparent"
-                activeUnderlineColor="#6c47ff"
+                activeUnderlineColor={COLORS.primary}
                 selectionColor="rgba(108, 71, 255, 0.3)"
-                left={<TextInput.Icon icon="lock-check" color={focusedInput === 'confirmPassword' ? '#6c47ff' : '#666'} />}
+                left={<TextInput.Icon icon="lock-check" color={focusedInput === 'confirmPassword' ? COLORS.primary : '#fff'} />}
                 right={
                   <TextInput.Icon
                     icon={showConfirmPassword ? 'eye-off' : 'eye'}
-                    color={focusedInput === 'confirmPassword' ? '#6c47ff' : '#666'}
+                    color={focusedInput === 'confirmPassword' ? COLORS.primary : '#fff'}
                     onPress={() => setShowConfirmPassword(!showConfirmPassword)}
                   />
                 }
                 theme={{
                   colors: {
                     background: '#1A1A1A',
-                    primary: '#6c47ff',
+                    primary: COLORS.primary,
                   },
                 }}
                 onFocus={() => setFocusedInput('confirmPassword')}
@@ -214,7 +214,7 @@ export default function RegisterScreen() {
                   status={rememberMe ? 'checked' : 'unchecked'}
                   onPress={() => setRememberMe(!rememberMe)}
                   color={COLORS.primary}
-                  uncheckedColor="#6c47ff"
+                  uncheckedColor={COLORS.primary}
                 />
                 <Text style={styles.rememberText}>Remember me</Text>
               </View>
@@ -272,9 +272,12 @@ const styles = StyleSheet.create({
     paddingTop: SPACING.xxl * 2,
   },
   backButton: {
-    width: 70,
-    height: 70,
-    alignItems: 'flex-start',
+    width: 50,
+    height: 50,
+    backgroundColor: COLORS.primary,
+    borderRadius: BORDER_RADIUS.round,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   title: {
     color: COLORS.text,
@@ -317,16 +320,17 @@ const styles = StyleSheet.create({
   signUpButton: {
     backgroundColor: COLORS.primary,
     height: 56,
-    borderRadius: BORDER_RADIUS.lg,
+    borderRadius: BORDER_RADIUS.round,
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: SPACING.xs,
     marginBottom: SPACING.xl,
   },
   signUpButtonDisabled: {
     opacity: 0.7,
   },
   signUpButtonText: {
-    color: COLORS.text,
+    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },

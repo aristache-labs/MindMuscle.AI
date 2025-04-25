@@ -56,7 +56,7 @@ export default function ForgotPasswordScreen() {
       >
         <View style={styles.content}>
           <Pressable onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back-circle-sharp" size={50} color="white" />
+            <Ionicons name="arrow-back" size={30} color="white" />
           </Pressable>
 
           <Text variant="displaySmall" style={styles.title}>
@@ -82,17 +82,17 @@ export default function ForgotPasswordScreen() {
                     keyboardType="email-address"
                     autoCapitalize="none"
                     style={styles.input}
-                    placeholderTextColor="#666"
+                    placeholderTextColor={focusedInput === 'email' ? COLORS.primary : '#fff'}
                     textColor={focusedInput === 'email' ? '#fff' : '#666'}
-                    cursorColor="#6c47ff"
+                    cursorColor={COLORS.primary}
                     underlineColor="transparent"
-                    activeUnderlineColor="#6c47ff"
+                    activeUnderlineColor={COLORS.primary}
                     selectionColor="rgba(108, 71, 255, 0.3)"
-                    left={<TextInput.Icon icon="email" color={focusedInput === 'email' ? '#6c47ff' : '#666'} />}
+                    left={<TextInput.Icon icon="email" color={focusedInput === 'email' ? COLORS.primary : '#fff'} />}
                     theme={{
                       colors: {
                         background: '#1A1A1A',
-                        primary: '#6c47ff',
+                        primary: COLORS.primary,
                       },
                     }}
                     onFocus={() => setFocusedInput('email')}
@@ -109,22 +109,15 @@ export default function ForgotPasswordScreen() {
                 )}
 
                 <Pressable
-                  style={styles.resetButtonContainer}
+                  style={[styles.resetButtonContainer, styles.resetButton, isLoading && styles.resetButtonDisabled]}
                   onPress={handleResetPassword}
                   disabled={isLoading}
                 >
-                  <LinearGradient
-                    colors={['#6c47ff', '#8469ff']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={[styles.resetButton, isLoading && styles.resetButtonDisabled]}
-                  >
-                    {isLoading ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <Text style={styles.resetButtonText}>Send Reset Link</Text>
-                    )}
-                  </LinearGradient>
+                  {isLoading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.resetButtonText}>Send Reset Link</Text>
+                  )}
                 </Pressable>
               </View>
             </>
@@ -168,10 +161,13 @@ const styles = StyleSheet.create({
 
   },
   backButton: {
-    width: 70,
-    height: 70,
+    width: 50,
+    height: 50,
+    backgroundColor: COLORS.primary,
+    borderRadius: BORDER_RADIUS.round,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 50,
-    alignItems: 'flex-start',
   },
   title: {
     color: COLORS.text,
@@ -200,7 +196,7 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   inputContainerFocused: {
-    borderColor: '#6c47ff',
+    borderColor: COLORS.primary,
     borderWidth: 1,
   },
   input: {
@@ -215,11 +211,11 @@ const styles = StyleSheet.create({
   resetButtonContainer: {
     width: '100%',
     marginTop: SPACING.xl,
-
   },
   resetButton: {
-    height: 48,
-    borderRadius: 24,
+    backgroundColor: COLORS.primary,
+    height: 56,
+    borderRadius: BORDER_RADIUS.round,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: SPACING.xl,
@@ -228,7 +224,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   resetButtonText: {
-    color: COLORS.text,
+    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },

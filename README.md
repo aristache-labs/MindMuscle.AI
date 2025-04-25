@@ -1,81 +1,119 @@
 # MindMuscle.AI
 
-A React Native Expo application for AI-powered fitness coaching and progress tracking.
+A React Native Expo application for AI-powered fitness coaching and progress tracking, featuring secure computation with Supabase MPC and Sentry.io MPC.
 
 ## Features
 
 - 🤖 AI Coaching
-  - Personalized workout advice
-  - Nutrition guidance
-  - Mindset coaching
-  - Feedback system
-  - Session history
+  - Personalized workout advice through OpenAI integration
+  - Real-time coaching feedback
+  - Session history tracking
   - AI-powered insights and recommendations
+  - Secure computation using Supabase MPC
+  - Error monitoring with Sentry.io MPC
 
-- 🎯 Discover & Exercises
-  - Curated exercise library
-  - Exercise timer with customizable intervals
-  - Exercise categories and filters
-  - Detailed exercise instructions
+- 🎯 Exercise Management
+  - Comprehensive exercise library
+  - Advanced exercise timer with customizable intervals
+  - Exercise categorization and filtering
+  - Detailed form instructions
   - Progress tracking per exercise
   - Favorite exercises system
+  - Exercise graphs and statistics
 
 - 📊 Progress Tracking
-  - Workout logging
-  - Performance metrics
-  - Progress visualization
-  - Detailed workout history
-  - Exercise-specific progress tracking
-  - Performance analytics
+  - Detailed workout logging
+  - Performance metrics visualization
+  - Body measurements tracking
+  - Progress photos management
+  - Exercise-specific progress graphs
+  - Performance analytics dashboard
 
-- 🧠 Insights
+- 🧠 Insights & Analytics
   - AI-generated workout insights
-  - Performance trends analysis
+  - Performance trend analysis
   - Personalized recommendations
-  - Progress milestones
-  - Achievement tracking
-  - Weekly/monthly summaries
-
-- 🎮 Gamification
+  - Progress milestones tracking
   - Achievement system
-  - Progress rewards
+  - Weekly/monthly performance summaries
+
+- 🎮 Gamification System
+  - Dynamic achievement system
+  - Progress-based rewards
   - Motivation features
   - Streak tracking
   - Level progression
-  - Badge collection
+  - Badge collection system
 
-- 👤 User Profile
-  - Personal information
-  - Fitness goals
-  - Medical conditions
-  - Preferences
+- 👤 User Profile & Authentication
+  - Secure authentication system
+  - Profile management
+  - Fitness goals tracking
+  - Medical conditions logging
   - Workout preferences
   - Exercise history
+
+- 🔒 Security & Performance
+  - Supabase MPC for secure computations
+  - Sentry.io MPC for secure monitoring
+  - Optimized image loading
+  - Secure data persistence
+  - Type-safe implementations
+  - Performance-optimized components
 
 ## Project Structure
 
 ```
 mindmuscle-ai/
-├── app/                      # Main application code
-│   ├── (app)/               # Protected routes
-│   ├── (auth)/              # Authentication routes
-│   ├── coaching/            # AI coaching feature
-│   ├── components/          # Reusable components
-│   ├── constants/           # App constants
-│   ├── gamification/        # Gamification features
-│   ├── hooks/               # Custom React hooks
-│   ├── profile/             # User profile management
-│   ├── progress/            # Progress tracking
-│   ├── services/            # API and service integrations
-│   ├── store/               # State management
-│   ├── types/               # TypeScript type definitions
-│   ├── utils/               # Utility functions
-│   ├── _layout.tsx          # Root layout
-│   └── index.tsx            # Entry point
-├── assets/                  # Static assets
-├── prisma/                  # Database schema and migrations
+├── app/                           # Main application code
+│   ├── _layout.tsx               # Root layout with providers and navigation
+│   ├── index.tsx                 # Entry point
+│   ├── achievements.tsx          # Achievements system implementation
+│   ├── (auth)/                   # Authentication routes and screens
+│   ├── (stack)/                  # Stack-based navigation screens
+│   ├── (tabs)/                   # Tab-based navigation screens
+│   ├── coaching/                 # AI coaching implementation
+│   ├── components/               # Reusable components
+│   │   ├── Achievements.tsx      # Achievement display and management
+│   │   ├── AuthGuard.tsx        # Authentication protection
+│   │   ├── CoachingInterface.tsx # AI coaching interface
+│   │   ├── ExerciseGraphs.tsx   # Exercise progress visualization
+│   │   ├── ExerciseGraphModal.tsx# Detailed exercise statistics
+│   │   ├── GlobalGestureHandler  # Gesture management
+│   │   ├── HowToMeasureModal    # Measurement instructions
+│   │   ├── InitialLoadingScreen # App initialization
+│   │   ├── MeasurementHistory   # Body measurements history
+│   │   ├── MeasurementModal     # Body measurements input
+│   │   ├── MeasurementsGraph    # Measurements visualization
+│   │   ├── OptimizedImage       # Performance-optimized images
+│   │   ├── SplashScreenManager  # Splash screen handling
+│   │   ├── SwipeBackHandler     # Navigation gestures
+│   │   ├── ThemedDatePicker     # Themed date selection
+│   │   ├── ThemedNumberPicker   # Themed number input
+│   │   └── timer.tsx            # Workout timer
+│   ├── constants/               # Application constants
+│   ├── docs/                   # Documentation
+│   ├── hooks/                  # Custom React hooks
+│   ├── services/               # API and service integrations
+│   ├── store/                  # State management
+│   │   ├── AuthContext        # Authentication state
+│   │   ├── CoachingContext   # AI coaching state
+│   │   ├── GamificationContext# Achievements state
+│   │   ├── ProfileContext    # User profile state
+│   │   ├── ProgressContext   # Progress tracking state
+│   │   ├── ProgressPhotosContext# Photos management
+│   │   └── TaskContext       # Workout scheduling
+│   ├── types/                 # TypeScript definitions
+│   └── utils/                 # Utility functions
+├── assets/                    # Static assets
+│   ├── exercises/            # Exercise images
+│   └── measurements/         # Measurement reference images
+├── prisma/                   # Database schema and migrations
+├── supabase/                 # Supabase configuration
+│   └── migrations/          # Database migrations
+├── android/                  # Android specific configuration
 ├── .env                     # Environment variables
-├── .env.example            # Environment variables template
+├── .env.example            # Environment template
 ├── app.json                # Expo configuration
 ├── package.json            # Dependencies and scripts
 └── tsconfig.json           # TypeScript configuration
@@ -86,13 +124,20 @@ mindmuscle-ai/
 - **Framework**: React Native with Expo
 - **Navigation**: Expo Router (file-based routing)
 - **UI**: React Native Paper
-- **State Management**: React Context API
-- **Database**: Prisma with SQLite
+- **State Management**: React Context API with TypeScript
+- **Database**: Supabase with MPC
 - **AI Integration**: OpenAI API
-- **Authentication**: Custom auth system
-- **Persistence**: AsyncStorage
+- **Authentication**: Supabase Auth
+- **Monitoring**: Sentry.io MPC
+- **Persistence**: AsyncStorage with encryption
 - **Date Handling**: date-fns
 - **Language**: TypeScript
+- **Testing**: Jest and React Native Testing Library
+- **Performance**: 
+  - Optimized image loading
+  - Gesture handling
+  - Memoization
+  - Code splitting
 
 ## Getting Started
 
@@ -104,9 +149,12 @@ mindmuscle-ai/
 
 3. Set up environment variables:
    - Copy `.env.example` to `.env`
-   - Add your OpenAI API key:
+   - Configure required keys:
      ```
      EXPO_PUBLIC_OPENAI_API_KEY=your_api_key_here
+     SUPABASE_URL=your_supabase_url
+     SUPABASE_ANON_KEY=your_supabase_anon_key
+     SENTRY_DSN=your_sentry_dsn
      ```
 
 4. Start the development server:
@@ -121,22 +169,40 @@ mindmuscle-ai/
    npm run web      # For web
    ```
 
-## Development
+## Development Guidelines
 
-- **Code Style**: Follow TypeScript best practices
-- **Components**: Use functional components with hooks
-- **State Management**: Use Context API for global state
-- **Navigation**: Follow Expo Router conventions
-- **Styling**: Use React Native Paper components
-- **Testing**: Jest for unit testing
+- **Code Style**: 
+  - Follow TypeScript strict mode
+  - Use functional components with hooks
+  - Implement proper error boundaries
+  - Follow React Native best practices
 
-## Security
+- **State Management**: 
+  - Use Context API for global state
+  - Implement proper type safety
+  - Follow proper state initialization
+  - Handle loading and error states
 
-- API keys are stored in environment variables
-- User data is persisted securely
-- Authentication is required for protected routes
-- Input validation is implemented
-- Rate limiting is in place for API calls
+- **Navigation**: 
+  - Follow Expo Router conventions
+  - Implement proper deep linking
+  - Handle navigation state
+  - Manage navigation history
+
+- **Security**:
+  - Secure API key storage
+  - Data encryption at rest
+  - Proper authentication flow
+  - Input validation
+  - Rate limiting
+  - Secure computation with MPC
+
+- **Performance**:
+  - Optimize image loading
+  - Implement proper memoization
+  - Handle memory management
+  - Optimize animations
+  - Implement proper error boundaries
 
 ## Contributing
 
@@ -155,4 +221,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - React Native community
 - Expo team
 - React Native Paper contributors
+- Supabase team
+- OpenAI team
 - All contributors to this project 

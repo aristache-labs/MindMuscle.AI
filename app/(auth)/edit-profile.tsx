@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { StyleSheet, View, ScrollView, Platform, Pressable, KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard } from 'react-native';
-import { Text, TextInput, IconButton, Menu } from 'react-native-paper';
+import { Text, TextInput, IconButton, Menu, Divider } from 'react-native-paper';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,7 +10,6 @@ import { Ionicons } from '@expo/vector-icons';
 import supabase from '../services/supabase';
 import { ThemedDatePicker } from '../components/ThemedDatePicker';
 import { ThemedNumberPicker } from '../components/ThemedNumberPicker';
-import { useSwipeNavigation } from '../hooks/useSwipeGesture';
 
 // Define types for form data
 interface FormData {
@@ -67,16 +66,16 @@ function GenderDropdown({
             theme={{ 
               colors: { 
                 background: '#1f222a',
-                primary: '#6c47ff',
+                primary: COLORS.primary,
               } 
             }}
-            placeholderTextColor="#666"
-            textColor={focused ? '#fff' : '#666'}
-            left={<TextInput.Icon icon="gender-male-female" color={focused ? '#6c47ff' : '#666'} />}
+            placeholderTextColor={COLORS.text}
+            textColor={focused ? COLORS.text : COLORS.text}
+            left={<TextInput.Icon icon="gender-male-female" color={focused ? COLORS.primary : COLORS.text} />}
             right={
               <TextInput.Icon 
                 icon="menu-down" 
-                color={focused ? '#6c47ff' : '#666'} 
+                color={focused ? COLORS.primary : COLORS.text} 
                 onPress={handlePress}
                 forceTextInputFocus={false}
               />
@@ -187,16 +186,16 @@ function DOBPicker({
           theme={{ 
             colors: { 
               background: '#1A1A1A',
-              primary: '#6c47ff',
+              primary: COLORS.primary,
             } 
           }}
-          placeholderTextColor="#666"
-          textColor={focused ? '#fff' : '#666'}
-          left={<TextInput.Icon icon="calendar" color={focused ? '#6c47ff' : '#666'} />}
+          placeholderTextColor={COLORS.text}
+          textColor={focused ? COLORS.text : COLORS.text}
+          left={<TextInput.Icon icon="calendar" color={focused ? COLORS.primary : COLORS.text} />}
           right={
             <TextInput.Icon 
               icon="menu-down" 
-              color={focused ? '#6c47ff' : '#666'} 
+              color={focused ? COLORS.primary : COLORS.text} 
               onPress={handlePress}
               forceTextInputFocus={false}
             />
@@ -253,19 +252,8 @@ export default function EditProfileScreen() {
     height: user?.user_metadata?.height?.toString() || ''
   });
 
-  // Setup swipe navigation with the target route
-  const { SwipeBackContainer, goBack } = useSwipeNavigation('/(tabs)/profile');
-  
-  // Add safe back navigation with error handling
   const safeGoBack = () => {
-    try {
-      console.log("Back button pressed manually");
-      goBack();
-    } catch (error) {
-      console.error('Error during back navigation:', error);
-      // Fallback navigation if the swipe gesture fails
-      router.push('/(tabs)/profile');
-    }
+    router.push('/(tabs)/profile');
   };
   
   // Log when component mounts
@@ -384,220 +372,227 @@ export default function EditProfileScreen() {
   };
 
   return (
-    <SwipeBackContainer>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.container}
+    >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.container}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-        >
-          <View style={[styles.content, { paddingTop: insets.top }]}>
-            <Pressable 
-              onPress={safeGoBack} 
-              style={styles.backButton}
-            >
-              <Ionicons name="arrow-back-circle-sharp" size={50} color="white" />
-            </Pressable>
-
-            <Text variant="displaySmall" style={styles.title}>
-              Edit Profile
-            </Text>
-
-            <ScrollView 
-              style={styles.form} 
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="always"
-            >
-              <View style={[styles.inputContainer, focusedInput === 'fullName' && styles.inputContainerFocused]}>
-                <TextInput
-                  mode="flat"
-                  placeholder="Full Name"
-                  value={formData.fullName}
-                  onChangeText={(text) => setFormData(prev => ({ ...prev, fullName: text }))}
-                  style={styles.input}
-                  contentStyle={{ backgroundColor: '#1f222a' }}
-                  theme={{ 
-                    colors: { 
-                      background: '#1A1A1A',
-                      primary: '#6c47ff',
-                    } 
-                  }}
-                  placeholderTextColor="#666"
-                  textColor={focusedInput === 'fullName' ? '#fff' : '#666'}
-                  cursorColor="#6c47ff"
-                  underlineColor="transparent"
-                  activeUnderlineColor="transparent"
-                  selectionColor="rgba(108, 71, 255, 0.3)"
-                  left={<TextInput.Icon icon="account" color={focusedInput === 'fullName' ? '#6c47ff' : '#666'} />}
-                  onFocus={() => setFocusedInput('fullName')}
-                  onBlur={() => setFocusedInput('')}
-                />
-              </View>
-
-              <View style={[styles.inputContainer, focusedInput === 'email' && styles.inputContainerFocused]}>
-                <TextInput
-                  mode="flat"
-                  placeholder="Email"
-                  value={formData.email}
-                  editable={false}
-                  style={styles.input}
-                  contentStyle={{ backgroundColor: '#1f222a' }}
-                  theme={{ 
-                    colors: { 
-                      background: '#1A1A1A',
-                      primary: '#6c47ff',
-                    } 
-                  }}
-                  placeholderTextColor="#666"
-                  textColor="#666"
-                  cursorColor="#6c47ff"
-                  underlineColor="transparent"
-                  activeUnderlineColor="transparent"
-                  selectionColor="rgba(108, 71, 255, 0.3)"
-                  left={<TextInput.Icon icon="email" color="#666" />}
-                />
-              </View>
-
-              <GenderDropdown
-                value={formData.gender}
-                onChange={(value) => setFormData(prev => ({ ...prev, gender: value }))}
-                focused={focusedInput === 'gender'}
-                onFocus={() => setFocusedInput('gender')}
+        <View style={styles.innerContainer}>
+          <View style={[styles.header, { marginTop: insets.top }]}>
+            <View style={styles.headerLeft}>
+              <IconButton
+                icon="arrow-left"
+                size={28}
+                onPress={safeGoBack}
+                iconColor={COLORS.text}
+                style={styles.backButton}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               />
-
-              <View 
-                style={[styles.inputContainer, focusedInput === 'weight' && styles.inputContainerFocused]}
-                onLayout={e => setInputWidth(e.nativeEvent.layout.width)}
-              >
-                <TextInput
-                  mode="flat"
-                  placeholder={`Weight (${weightUnit.toLowerCase()})`}
-                  value={weightUnit === 'KG' ? 
-                    formData.weight ? `${parseFloat(formData.weight).toFixed(1)} kg` : '' : 
-                    formData.weight ? `${kgToLbs(parseFloat(formData.weight)).toFixed(1)} lb` : ''}
-                  editable={false}
-                  style={styles.input}
-                  contentStyle={{ backgroundColor: '#1f222a' }}
-                  theme={{ 
-                    colors: { 
-                      background: '#1A1A1A',
-                      primary: '#6c47ff',
-                    } 
-                  }}
-                  placeholderTextColor="#666"
-                  textColor={focusedInput === 'weight' ? '#fff' : '#666'}
-                  left={<TextInput.Icon icon="weight-kilogram" color={focusedInput === 'weight' ? '#6c47ff' : '#666'} />}
-                  right={
-                    <TextInput.Icon 
-                      icon="menu-down" 
-                      color={focusedInput === 'weight' ? '#6c47ff' : '#666'} 
-                      onPress={() => {
-                        setWeightPickerVisible(true);
-                        setFocusedInput('weight');
-                      }}
-                      forceTextInputFocus={false}
-                    />
-                  }
-                  onPressIn={() => {
-                    setWeightPickerVisible(true);
-                    setFocusedInput('weight');
-                  }}
-                  underlineColor="transparent"
-                  activeUnderlineColor="transparent"
-                />
-
-                <ThemedNumberPicker
-                  visible={weightPickerVisible}
-                  onCancel={() => {
-                    setWeightPickerVisible(false);
-                    setFocusedInput('');
-                  }}
-                  onConfirm={handleWeightChange}
-                  value={parseFloat(formData.weight) || 70}
-                  width={inputWidth}
-                  type="weight"
-                  onUnitChange={(unit) => setWeightUnit(unit as 'KG' | 'LB')}
-                  initialUnit={weightUnit}
-                />
-              </View>
-
-              <View 
-                style={[styles.inputContainer, focusedInput === 'height' && styles.inputContainerFocused]}
-                onLayout={e => setInputWidth(e.nativeEvent.layout.width)}
-              >
-                <TextInput
-                  mode="flat"
-                  placeholder={`Height (${heightUnit.toLowerCase()})`}
-                  value={heightUnit === 'CM' ? 
-                    formData.height ? `${parseFloat(formData.height).toFixed(1)} cm` : '' : 
-                    formData.height ? `${(parseFloat(formData.height) / 2.54).toFixed(1)} in` : ''}
-                  editable={false}
-                  style={styles.input}
-                  contentStyle={{ backgroundColor: '#1f222a' }}
-                  theme={{ 
-                    colors: { 
-                      background: '#1A1A1A',
-                      primary: '#6c47ff',
-                    } 
-                  }}
-                  placeholderTextColor="#666"
-                  textColor={focusedInput === 'height' ? '#fff' : '#666'}
-                  left={<TextInput.Icon icon="human-male-height" color={focusedInput === 'height' ? '#6c47ff' : '#666'} />}
-                  right={
-                    <TextInput.Icon 
-                      icon="menu-down" 
-                      color={focusedInput === 'height' ? '#6c47ff' : '#666'} 
-                      onPress={() => {
-                        setHeightPickerVisible(true);
-                        setFocusedInput('height');
-                      }}
-                      forceTextInputFocus={false}
-                    />
-                  }
-                  onPressIn={() => {
-                    setHeightPickerVisible(true);
-                    setFocusedInput('height');
-                  }}
-                  underlineColor="transparent"
-                  activeUnderlineColor="transparent"
-                />
-
-                <ThemedNumberPicker
-                  visible={heightPickerVisible}
-                  onCancel={() => {
-                    setHeightPickerVisible(false);
-                    setFocusedInput('');
-                  }}
-                  onConfirm={handleHeightChange}
-                  value={parseFloat(formData.height) || 170}
-                  width={inputWidth}
-                  type="height"
-                  onUnitChange={(unit) => setHeightUnit(unit as 'CM' | 'INCH')}
-                  initialUnit={heightUnit}
-                />
-              </View>
-
-              <DOBPicker
-                date={formData.dateOfBirth}
-                onChange={(date) => setFormData(prev => ({ ...prev, dateOfBirth: date }))}
-                focused={focusedInput === 'dateOfBirth'}
-                onFocus={() => setFocusedInput('dateOfBirth')}
-              />
-
-              <Pressable
-                style={[styles.updateButton, isLoading && styles.updateButtonDisabled]}
-                onPress={handleSave}
-                disabled={isLoading}
-              >
-                <Text style={styles.updateButtonText}>
-                  {isLoading ? 'Updating...' : 'Update Profile'}
-                </Text>
-              </Pressable>
-            </ScrollView>
+            </View>
+            <View style={styles.headerCenter}>
+              <Text style={styles.title}>Edit Profile</Text>
+            </View>
+            <View style={styles.headerRight} />
           </View>
-        </KeyboardAvoidingView>
+          <Divider style={styles.divider} />
+          
+          <ScrollView 
+            style={styles.scrollView}
+            contentContainerStyle={[
+              styles.scrollContent,
+              { flexGrow: 1, justifyContent: 'flex-end' }
+            ]}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={[styles.inputContainer, focusedInput === 'fullName' && styles.inputContainerFocused]}>
+              <TextInput
+                mode="flat"
+                placeholder="Full Name"
+                value={formData.fullName}
+                onChangeText={(text) => setFormData(prev => ({ ...prev, fullName: text }))}
+                style={styles.input}
+                contentStyle={{ backgroundColor: '#1f222a' }}
+                theme={{ 
+                  colors: { 
+                    background: '#1A1A1A',
+                    primary: COLORS.primary,
+                  } 
+                }}
+                placeholderTextColor={COLORS.text}
+                textColor={focusedInput === 'fullName' ? COLORS.text : COLORS.text}
+                cursorColor={COLORS.primary}
+                underlineColor="transparent"
+                activeUnderlineColor="transparent"
+                selectionColor="rgba(108, 71, 255, 0.3)"
+                left={<TextInput.Icon icon="account" color={focusedInput === 'fullName' ? COLORS.primary : COLORS.text} />}
+                onFocus={() => setFocusedInput('fullName')}
+                onBlur={() => setFocusedInput('')}
+              />
+            </View>
+
+            <View style={[styles.inputContainer, focusedInput === 'email' && styles.inputContainerFocused]}>
+              <TextInput
+                mode="flat"
+                placeholder="Email"
+                value={formData.email}
+                editable={false}
+                style={styles.input}
+                contentStyle={{ backgroundColor: '#1f222a' }}
+                theme={{ 
+                  colors: { 
+                    background: '#1A1A1A',
+                    primary: COLORS.primary,
+                  } 
+                }}
+                placeholderTextColor={COLORS.text}
+                textColor={COLORS.text}
+                cursorColor={COLORS.primary}
+                underlineColor="transparent"
+                activeUnderlineColor="transparent"
+                selectionColor="rgba(108, 71, 255, 0.3)"
+                left={<TextInput.Icon icon="email" color={COLORS.text} />}
+              />
+            </View>
+
+            <GenderDropdown
+              value={formData.gender}
+              onChange={(value) => setFormData(prev => ({ ...prev, gender: value }))}
+              focused={focusedInput === 'gender'}
+              onFocus={() => setFocusedInput('gender')}
+            />
+
+            <View 
+              style={[styles.inputContainer, focusedInput === 'weight' && styles.inputContainerFocused]}
+              onLayout={e => setInputWidth(e.nativeEvent.layout.width)}
+            >
+              <TextInput
+                mode="flat"
+                placeholder={`Weight (${weightUnit.toLowerCase()})`}
+                value={weightUnit === 'KG' ? 
+                  formData.weight ? `${parseFloat(formData.weight).toFixed(1)} kg` : '' : 
+                  formData.weight ? `${kgToLbs(parseFloat(formData.weight)).toFixed(1)} lb` : ''}
+                editable={false}
+                style={styles.input}
+                contentStyle={{ backgroundColor: '#1f222a' }}
+                theme={{ 
+                  colors: { 
+                    background: '#1A1A1A',
+                    primary: COLORS.primary,
+                  } 
+                }}
+                placeholderTextColor="#fff"
+                textColor={focusedInput === 'weight' ? COLORS.text : COLORS.text}
+                left={<TextInput.Icon icon="weight-kilogram" color={focusedInput === 'weight' ? COLORS.primary : COLORS.text} />}
+                right={
+                  <TextInput.Icon 
+                    icon="menu-down" 
+                    color={focusedInput === 'weight' ? COLORS.primary : COLORS.text} 
+                    onPress={() => {
+                      setWeightPickerVisible(true);
+                      setFocusedInput('weight');
+                    }}
+                    forceTextInputFocus={false}
+                  />
+                }
+                onPressIn={() => {
+                  setWeightPickerVisible(true);
+                  setFocusedInput('weight');
+                }}
+                underlineColor="transparent"
+                activeUnderlineColor="transparent"
+              />
+
+              <ThemedNumberPicker
+                visible={weightPickerVisible}
+                onCancel={() => {
+                  setWeightPickerVisible(false);
+                  setFocusedInput('');
+                }}
+                onConfirm={handleWeightChange}
+                value={parseFloat(formData.weight) || 70}
+                width={inputWidth}
+                type="weight"
+                onUnitChange={(unit) => setWeightUnit(unit as 'KG' | 'LB')}
+                initialUnit={weightUnit}
+              />
+            </View>
+
+            <View 
+              style={[styles.inputContainer, focusedInput === 'height' && styles.inputContainerFocused]}
+              onLayout={e => setInputWidth(e.nativeEvent.layout.width)}
+            >
+              <TextInput
+                mode="flat"
+                placeholder={`Height (${heightUnit.toLowerCase()})`}
+                value={heightUnit === 'CM' ? 
+                  formData.height ? `${parseFloat(formData.height).toFixed(1)} cm` : '' : 
+                  formData.height ? `${(parseFloat(formData.height) / 2.54).toFixed(1)} in` : ''}
+                editable={false}
+                style={styles.input}
+                contentStyle={{ backgroundColor: '#1f222a' }}
+                theme={{ 
+                  colors: { 
+                    background: '#1A1A1A',
+                    primary: '#6c47ff',
+                  } 
+                }}
+                placeholderTextColor="#fff"
+                textColor={focusedInput === 'height' ? COLORS.text : COLORS.text}
+                left={<TextInput.Icon icon="human-male-height" color={focusedInput === 'height' ? COLORS.primary : COLORS.text} />}
+                right={
+                  <TextInput.Icon 
+                    icon="menu-down" 
+                    color={focusedInput === 'height' ? COLORS.primary : COLORS.text} 
+                    onPress={() => {
+                      setHeightPickerVisible(true);
+                      setFocusedInput('height');
+                    }}
+                    forceTextInputFocus={false}
+                  />
+                }
+                onPressIn={() => {
+                  setHeightPickerVisible(true);
+                  setFocusedInput('height');
+                }}
+                underlineColor="transparent"
+                activeUnderlineColor="transparent"
+              />
+
+              <ThemedNumberPicker
+                visible={heightPickerVisible}
+                onCancel={() => {
+                  setHeightPickerVisible(false);
+                  setFocusedInput('');
+                }}
+                onConfirm={handleHeightChange}
+                value={parseFloat(formData.height) || 170}
+                width={inputWidth}
+                type="height"
+                onUnitChange={(unit) => setHeightUnit(unit as 'CM' | 'INCH')}
+                initialUnit={heightUnit}
+              />
+            </View>
+
+            <DOBPicker
+              date={formData.dateOfBirth}
+              onChange={(date) => setFormData(prev => ({ ...prev, dateOfBirth: date }))}
+              focused={focusedInput === 'dateOfBirth'}
+              onFocus={() => setFocusedInput('dateOfBirth')}
+            />
+
+            <Pressable
+              style={[styles.updateButton, isLoading && styles.updateButtonDisabled]}
+              onPress={handleSave}
+              disabled={isLoading}
+            >
+              <Text style={styles.updateButtonText}>
+                {isLoading ? 'Updating...' : 'Update Profile'}
+              </Text>
+            </Pressable>
+          </ScrollView>
+        </View>
       </TouchableWithoutFeedback>
-    </SwipeBackContainer>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -606,159 +601,111 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  content: {
+  innerContainer: {
     flex: 1,
-    paddingHorizontal: SPACING.xl,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 56,
+    paddingHorizontal: SPACING.md,
+  },
+  headerLeft: {
+    flex: 1,
+    alignItems: 'flex-start',
+  },
+  headerCenter: {
+    flex: 2,
+    alignItems: 'center',
+  },
+  headerRight: {
+    flex: 1,
   },
   backButton: {
-    marginTop: SPACING.md,
-    alignSelf: 'flex-start',
+    margin: 0,
   },
   title: {
-    color: '#fff',
-    marginTop: SPACING.xl,
-    marginBottom: SPACING.xl * 1.5,
+    color: COLORS.text,
+    fontSize: 18,
     fontWeight: '600',
+    textAlign: 'center',
   },
-  form: {
+  scrollView: {
     flex: 1,
+  },
+  scrollContent: {
+    padding: SPACING.lg,
+    paddingBottom: SPACING.lg,
   },
   inputContainer: {
     marginBottom: SPACING.lg,
     borderRadius: BORDER_RADIUS.lg,
     overflow: 'hidden',
-    backgroundColor: '#1f222a',
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   inputContainerFocused: {
+    borderColor: COLORS.primary,
     borderWidth: 1,
-    borderColor: '#6c47ff',
   },
   input: {
     backgroundColor: '#1f222a',
+    overflow: "hidden",
     height: 56,
-  },
-  updateButton: {
-    backgroundColor: '#6c47ff',
-    height: 56,
-    borderRadius: BORDER_RADIUS.lg,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: SPACING.xl,
-    marginBottom: SPACING.xl * 2,
-  },
-  updateButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  updateButtonDisabled: {
-    opacity: 0.7,
-  },
-  inputLabel: {
-    color: '#666',
-    marginBottom: SPACING.xs,
-    marginLeft: SPACING.xs,
-  },
-  pickerContainer: {
-    backgroundColor: '#1f222a',
-    borderRadius: BORDER_RADIUS.md,
-    overflow: 'hidden',
-  },
-  picker: {
-    backgroundColor: '#1f222a',
-    color: '#fff',
-    height: 50,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: '#1f222a',
-    borderTopLeftRadius: BORDER_RADIUS.lg,
-    borderTopRightRadius: BORDER_RADIUS.lg,
-    paddingBottom: 20,
-    maxHeight: '50%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  modalTitle: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  genderList: {
-    paddingHorizontal: SPACING.lg,
-  },
-  genderOption: {
-    paddingVertical: SPACING.md,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  genderOptionSelected: {
-    backgroundColor: 'rgba(108, 71, 255, 0.1)',
-  },
-  genderOptionText: {
-    color: '#fff',
-    fontSize: 16,
-  },
-  genderOptionTextSelected: {
-    color: '#6c47ff',
-    fontWeight: '600',
-  },
-  menuWrapper: {
-    marginTop: -SPACING.xs,
   },
   menuContent: {
-    backgroundColor: '#1f222a',
+    backgroundColor: COLORS.surface,
     borderRadius: BORDER_RADIUS.lg,
     marginTop: SPACING.xs,
     paddingVertical: SPACING.xs,
     borderWidth: 1,
     borderColor: 'rgba(108, 71, 255, 0.2)',
     minWidth: 360,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#6c47ff',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 3.84,
-      },
-      android: {
-        elevation: 5,
-      },
-    }),
   },
   menuItem: {
     height: 48,
+    maxWidth: '100%',
     paddingHorizontal: SPACING.lg,
   },
   menuItemSelected: {
-    minWidth: 360,
+    maxWidth: '100%',
     backgroundColor: 'rgba(108, 71, 255, 0.1)',
   },
   menuItemTitle: {
     fontSize: 16,
-    color: '#fff',
+    color: COLORS.text,
     fontWeight: '400',
   },
   menuItemTitleSelected: {
-    color: '#6c47ff',
+    color: COLORS.primary,
     fontWeight: '600',
+  },
+  updateButton: {
+    backgroundColor: COLORS.primary,
+    height: 56,
+    borderRadius: BORDER_RADIUS.round,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: SPACING.xl,
+    marginBottom: SPACING.xl * 2,
+  },
+  updateButtonText: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  updateButtonDisabled: {
+    opacity: 0.7,
   },
   errorText: {
     color: '#ff4d4d',
     fontSize: 12,
-    marginTop: -SPACING.md,
-    marginBottom: SPACING.md,
-    marginLeft: SPACING.sm,
+    marginTop: 4,
+    marginLeft: 4,
+  },
+  divider: {
+    backgroundColor: '#333',
+    height: 1,
   },
 });

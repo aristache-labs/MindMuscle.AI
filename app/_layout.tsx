@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useColorScheme, View } from 'react-native';
+import { useColorScheme } from 'react-native';
 import { Slot } from 'expo-router';
 import { useFonts } from 'expo-font';
 import { ThemeProvider } from './constants/theme';
@@ -10,7 +10,6 @@ import { GamificationProvider } from './store/GamificationContext';
 import { ProgressPhotosProvider } from './store/ProgressPhotosContext';
 import InitialLoadingScreen from './components/InitialLoadingScreen';
 import AuthGuard from './components/AuthGuard';
-import { GlobalGestureHandler } from './components/GlobalGestureHandler';
 import * as SplashScreen from 'expo-splash-screen';
 import { preloadStaticImages } from './utils/imagePreloader';
 import * as Sentry from '@sentry/react-native';
@@ -21,11 +20,8 @@ import { Platform } from 'react-native';
 // Handle splash screen errors in Expo Go
 if (Constants.appOwnership === 'expo') {
   try {
-    // Direct patching of the SplashModule that expo-router tries to access
-    // This prevents the unhandled rejections in Expo Go
     const globalAny = global as any;
     
-    // First try native module global path (used by expo-router)
     if (!globalAny.SplashModule) {
       globalAny.SplashModule = {
         internalPreventAutoHideAsync: () => Promise.resolve(true),
@@ -33,7 +29,6 @@ if (Constants.appOwnership === 'expo') {
       };
     }
 
-    // Also patch the NativeModules.SplashScreen path for older code
     if (Platform.OS === 'ios' || Platform.OS === 'android') {
       const ReactNative = require('react-native');
       if (!ReactNative.NativeModules.SplashScreen) {
@@ -62,6 +57,7 @@ function RootLayout() {
   const colorScheme = useColorScheme();
   const [isImagesLoaded, setImagesLoaded] = useState(false);
   const [appIsReady, setAppIsReady] = useState(false);
+  const [showInitialLoading, setShowInitialLoading] = useState(true);
   
   const [fontsLoaded] = useFonts({
     // Add any custom fonts here if needed
@@ -70,11 +66,11 @@ function RootLayout() {
   useEffect(() => {
     async function prepare() {
       try {
-        // Load fonts and images in parallel
         await Promise.all([
           new Promise((resolve) => {
-            // Monitor font loading
-            if (fontsLoaded) resolve(true);
+            if (fontsLoaded) {
+              resolve(true);
+            }
           }),
           (async () => {
             try {
@@ -82,54 +78,53 @@ function RootLayout() {
               setImagesLoaded(true);
             } catch (e) {
               console.warn('Failed to preload images:', e);
-              // We still continue if image loading fails
               setImagesLoaded(true);
             }
           })()
         ]);
       } catch (e) {
         console.warn('Error preparing app:', e);
+        Sentry.captureException(e);
       } finally {
         setAppIsReady(true);
+        await SplashScreen.hideAsync();
       }
     }
 
     prepare();
   }, [fontsLoaded]);
 
-  useEffect(() => {
-    if (appIsReady) {
-      // Once everything is ready, hide the splash screen
-      SplashScreen.hideAsync().catch(e => {
-        console.warn('Error hiding splash screen:', e);
-      });
-    }
-  }, [appIsReady]);
+  const onInitialLoadingFinish = useCallback(() => {
+    setShowInitialLoading(false);
+  }, []);
 
-  if (!appIsReady) {
-    return <InitialLoadingScreen showProgress={false} message="Loading resources..." />;
+  if (!appIsReady || showInitialLoading) {
+    return (
+      <InitialLoadingScreen
+        onFinish={onInitialLoadingFinish}
+        duration={3000}
+        showProgress={true}
+      />
+    );
   }
 
   return (
-    <GlobalGestureHandler>
-      <ThemeProvider>
-        <AuthProvider>
-          <ProfileProvider>
-            <ProgressProvider>
-              <GamificationProvider>
-                <ProgressPhotosProvider>
-                  <AuthGuard>
-                    <Slot />
-                  </AuthGuard>
-                </ProgressPhotosProvider>
-              </GamificationProvider>
-            </ProgressProvider>
-          </ProfileProvider>
-        </AuthProvider>
-      </ThemeProvider>
-    </GlobalGestureHandler>
+    <ThemeProvider>
+      <AuthProvider>
+        <ProfileProvider>
+          <ProgressProvider>
+            <GamificationProvider>
+              <ProgressPhotosProvider>
+                <AuthGuard>
+                  <Slot />
+                </AuthGuard>
+              </ProgressPhotosProvider>
+            </GamificationProvider>
+          </ProgressProvider>
+        </ProfileProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 
-// Export with Sentry.wrap
 export default Sentry.wrap(RootLayout); 

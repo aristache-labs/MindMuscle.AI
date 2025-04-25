@@ -1,11 +1,12 @@
 import React from 'react';
-import { StyleSheet, View, ScrollView, ImageBackground, ImageSourcePropType } from 'react-native';
-import { Text, Chip, IconButton, Surface } from 'react-native-paper';
-import { COLORS } from '../constants/theme';
+import { StyleSheet, View, ScrollView, ImageBackground, ImageSourcePropType, Platform, Pressable } from 'react-native';
+import { Text, Chip, IconButton, Surface, Divider } from 'react-native-paper';
+import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
 import OptimizedImage from '../components/OptimizedImage';
 import { useImagePreloader } from '../hooks/useImagePreloader';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface ExerciseCard {
   id: string;
@@ -89,6 +90,7 @@ const ExerciseCard = ({ title, duration, level, image }: ExerciseCard) => {
 
 export default function DiscoverScreen() {
   const [selectedFilter, setSelectedFilter] = React.useState('Intermediate');
+  const insets = useSafeAreaInsets();
 
   // Preload all exercise images
   const imagesToPreload = exerciseData.map(exercise => exercise.image);
@@ -97,47 +99,64 @@ export default function DiscoverScreen() {
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-      <View style={styles.headerContainer}>
-        <View style={styles.titleContainer}>
-          <IconButton
-            icon="library"
-            iconColor="white"
-            size={24}
-            style={styles.dumbbellIcon}
-          />
-          <Text variant="headlineSmall" style={styles.headerTitle}>Discover</Text>
+      
+      {/* Fixed Header */}
+      <View style={[styles.headerContainer, { paddingTop: insets.top }]}>
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <IconButton
+              icon="compass"
+              size={24}
+              style={styles.headerIcon}
+              iconColor={COLORS.text}
+            />
+            <Text variant="headlineSmall" style={[styles.headerTitle, { color: COLORS.text }]}>Discover</Text>
+          </View>
+          <View style={styles.headerRight}>
+            <Pressable style={styles.premiumButton} onPress={() => {}}>
+              <IconButton
+                icon="crown"
+                iconColor="#f9e009"
+                size={26}
+                style={styles.premiumIcon}
+              />
+              <Text style={styles.premiumText}>PREMIUM</Text>
+            </Pressable>
+          </View>
         </View>
-        <View style={styles.separator} />
+        <Divider style={styles.divider} />
       </View>
 
-      <View style={styles.filtersContainer}>
-        <View style={styles.filters}>
-          {['Beginner', 'Intermediate', 'Advanced'].map((filter) => (
-            <Chip
-              key={filter}
-              selected={selectedFilter === filter}
-              onPress={() => setSelectedFilter(filter)}
-              style={[
-                styles.filterChip,
-                selectedFilter === filter && styles.filterChipSelected
-              ]}
-              textStyle={[
-                styles.filterChipText,
-                selectedFilter === filter && styles.filterChipTextSelected
-              ]}
-            >
-              {filter}
-            </Chip>
-          ))}
+      <ScrollView 
+        style={styles.content} 
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.exerciseList, { paddingTop: 100 }]}
+      >
+        <View style={styles.filtersContainer}>
+          <View style={styles.filters}>
+            {['Beginner', 'Intermediate', 'Advanced'].map((filter) => (
+              <Chip
+                key={filter}
+                selected={selectedFilter === filter}
+                onPress={() => setSelectedFilter(filter)}
+                style={[
+                  styles.filterChip,
+                  selectedFilter === filter && styles.filterChipSelected
+                ]}
+                textStyle={[
+                  styles.filterChipText,
+                  selectedFilter === filter && styles.filterChipTextSelected
+                ]}
+              >
+                {filter}
+              </Chip>
+            ))}
+          </View>
         </View>
-      </View>
-      
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.exerciseList}>
-          {exerciseData.map((exercise) => (
-            <ExerciseCard key={exercise.id} {...exercise} />
-          ))}
-        </View>
+        
+        {exerciseData.map((exercise) => (
+          <ExerciseCard key={exercise.id} {...exercise} />
+        ))}
       </ScrollView>
     </View>
   );
@@ -146,42 +165,74 @@ export default function DiscoverScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#181a20',
+    backgroundColor: COLORS.background,
+    paddingTop: 50,
   },
   headerContainer: {
-    paddingTop: 80,
-    paddingBottom: 0,
-    gap: 8,
-    zIndex: 2,
-  },
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingLeft: 16,
-    paddingBottom: 5,
-  },
-  dumbbellIcon: {
-    margin: 0,
-    marginRight: 10,
-    backgroundColor: '#6B4EFF',
-  },
-  headerTitle: {
-    color: 'white',
-    fontWeight: 'bold',
-  },
-  separator: {
-    height: 1,
-    backgroundColor: '#2C2C2E',
-    width: '100%',
-  },
-  filtersContainer: {
     position: 'absolute',
-    top: 140,
+    top: 0,
     left: 0,
     right: 0,
-    zIndex: 1,
-    backgroundColor: '#181a20',
-    paddingVertical: 8,
+    zIndex: 100,
+    backgroundColor: COLORS.background,
+    ...Platform.select({
+      ios: {
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.3,
+        shadowRadius: 10,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerIcon: {
+    backgroundColor: COLORS.primary,
+    margin: 0,
+  },
+  headerTitle: {
+    marginLeft: SPACING.sm,
+    fontWeight: '600',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  divider: {
+    backgroundColor: '#333',
+    height: 1,
+  },
+  premiumButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 20,
+  },
+  premiumIcon: {
+    margin: 0,
+    marginTop: 0,
+    marginLeft: 0,
+  },
+  premiumText: {
+    color: '#f9e009',
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginTop: -10,
+  },
+  filtersContainer: {
+    backgroundColor: COLORS.background,
+    paddingVertical: 10,
   },
   filters: {
     flexDirection: 'row',
@@ -192,7 +243,10 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    marginTop: 60,
+  },
+  exerciseList: {
+    padding: 16,
+    gap: 16,
   },
   card: {
     height: 160,
@@ -249,10 +303,5 @@ const styles = StyleSheet.create({
   },
   filterChipTextSelected: {
     color: 'white',
-  },
-  exerciseList: {
-    padding: 16,
-    gap: 16,
-    paddingBottom: 100,
   },
 }); 

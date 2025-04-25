@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { StyleSheet, View, Image, TouchableOpacity, SafeAreaView, StatusBar, ViewStyle, GestureResponderEvent, Animated, Modal, Pressable } from 'react-native';
-import { Text, IconButton, Surface } from 'react-native-paper';
-import { COLORS } from '../constants/theme';
+import { StyleSheet, View, Image, TouchableOpacity, SafeAreaView, StatusBar, ViewStyle, GestureResponderEvent, Animated, Modal, Pressable, Platform } from 'react-native';
+import { Text, IconButton, Surface, Divider } from 'react-native-paper';
+import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import Timer from '../components/timer';
 import OptimizedImage from '../components/OptimizedImage';
 import { useImagePreloader } from '../hooks/useImagePreloader';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface MuscleGroup {
   id: number;
@@ -27,8 +28,8 @@ const muscleGroups: MuscleGroup[] = [
   { 
     id: 1, 
     name: 'Shoulders', 
-    dotPosition: { top: '24%', left: '30%' },
-    textPosition: { top: '22%', left: '1%' },
+    dotPosition: { top: '26%', left: '30%' },
+    textPosition: { top: '24%', left: '1%' },
     view: 'front' 
   },
   { 
@@ -157,6 +158,8 @@ export default function ExercisesScreen() {
   ];
   const { loaded: imagesPreloaded } = useImagePreloader(bodyModelImages);
 
+  const insets = useSafeAreaInsets();
+
   useEffect(() => {
     if (isImageLoaded) {
       Animated.timing(fadeAnim, {
@@ -208,40 +211,28 @@ export default function ExercisesScreen() {
   const filteredMuscles = muscleGroups.filter(muscle => muscle.view === currentView);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" />
       
-      {/* Timer Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={showTimer}
-        onRequestClose={() => setShowTimer(false)}
-      >
-        <View style={styles.modalContainer}>
-          <Timer onClose={() => setShowTimer(false)} />
-        </View>
-      </Modal>
-
-      {/* Header */}
-      <Surface style={styles.headerSurface}>
+      {/* Fixed Header */}
+      <View style={[styles.headerContainer, { paddingTop: insets.top }]}>
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <IconButton
               icon="dumbbell"
-              iconColor="white"
               size={24}
               style={styles.headerIcon}
+              iconColor={COLORS.text}
             />
-            <Text variant="headlineSmall" style={styles.headerTitle}>Exercises</Text>
+            <Text variant="headlineSmall" style={[styles.headerTitle, { color: COLORS.text }]}>Exercises</Text>
           </View>
           <View style={styles.headerRight}>
             <IconButton
               icon="star-outline"
               iconColor="#f9e009"
-              size={34}
-              onPress={() => {}}
+              size={28}
               style={styles.starIcon}
+              onPress={() => {}}
             />
             <Pressable style={styles.premiumButton} onPress={() => {}}>
               <IconButton
@@ -254,12 +245,24 @@ export default function ExercisesScreen() {
             </Pressable>
           </View>
         </View>
-      </Surface>
-      <View style={styles.separator} />
+        <Divider style={styles.divider} />
+      </View>
+
+      {/* Timer Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={showTimer}
+        onRequestClose={() => setShowTimer(false)}
+      >
+        <View style={styles.modalContainer}>
+          <Timer onClose={() => setShowTimer(false)} />
+        </View>
+      </Modal>
 
       {/* Body Model Container */}
       <View 
-        style={styles.bodyModelContainer}
+        style={[styles.bodyModelContainer, { paddingTop: 100 }]}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
@@ -357,59 +360,90 @@ export default function ExercisesScreen() {
           </View>
         </Animated.View>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1A1F25',
+    backgroundColor: COLORS.background,
   },
-  headerSurface: {
-    backgroundColor: '#1A1F25',
+  headerContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    backgroundColor: COLORS.background,
+    ...Platform.select({
+      ios: {
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.3,
+        shadowRadius: 10,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 5,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   headerIcon: {
+    backgroundColor: COLORS.primary,
     margin: 0,
-    marginRight: 10,
-    backgroundColor: '#6B4EFF',
   },
   headerTitle: {
-    fontWeight: 'bold',
-    color: 'white',
-  },
-  separator: {
-    height: 1,
-    backgroundColor: '#2C2C2E',
-    width: '100%',
+    marginLeft: SPACING.sm,
+    fontWeight: '600',
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 4,
+  },
+  divider: {
+    backgroundColor: '#333',
+    height: 1,
   },
   starIcon: {
+    margin: 0,
+    marginRight: 10,
+    paddingTop: 10,
+    transform: [{ scale: 1.3 }],
+  },
+  premiumButton: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 10,
+    borderRadius: 20,
+
+  },
+  premiumIcon: {
+    margin: 0,
+    marginTop: 0,
+    marginLeft: 0,
+  },
+  premiumText: {
     color: '#f9e009',
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginTop: -10,
   },
   bodyModelContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    bottom: 35,
     position: 'relative',
   },
   modelContainer: {
@@ -439,7 +473,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#6c47ff',
+    backgroundColor: COLORS.primary,
   },
   textContainer: {
     position: 'absolute',
@@ -454,7 +488,7 @@ const styles = StyleSheet.create({
   markerText: {
     color: 'white',
     fontSize: 12,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(108, 71, 255, 0.27)',
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 8,
@@ -494,24 +528,5 @@ const styles = StyleSheet.create({
   modalContainer: {
     flex: 1,
     backgroundColor: '#181a20',
-  },
-  premiumButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 20,
-    paddingBottom: 8,
-    paddingHorizontal: 8,
-    marginRight: -4,
-  },
-  premiumIcon: {
-    margin: 0,
-    marginTop: 8,
-    marginLeft: -4,
-  },
-  premiumText: {
-    color: '#f9e009',
-    fontSize: 10,
-    fontWeight: 'bold',
-    marginTop: -8,
   },
 }); 

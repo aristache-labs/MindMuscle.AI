@@ -236,7 +236,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 50,
+    paddingTop: 60,
     paddingBottom: 16,
     backgroundColor: COLORS.background,
   },
@@ -257,8 +257,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   divider: {
-    backgroundColor: '#333',
-    height: 1,
+    backgroundColor: COLORS.primary,
+    height: 0.2,
   },
   scrollContent: {
     padding: 12,

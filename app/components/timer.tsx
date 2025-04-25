@@ -11,6 +11,8 @@ import Animated, {
   cancelAnimation,
 } from 'react-native-reanimated';
 import Svg, { Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
+import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
+
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -121,6 +123,7 @@ export default function Timer({ onClose }: TimerProps) {
               <View style={styles.adjustButtonOverflow}>
                 <Pressable
                   style={[
+                    
                     styles.adjustButton,
                     isActive && styles.adjustButtonDisabled
                   ]}
@@ -240,29 +243,31 @@ export default function Timer({ onClose }: TimerProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#181a20',
+    backgroundColor: COLORS.background,
   },
   safeArea: {
     flex: 1,
-    paddingTop: Platform.OS === 'android' ? RNStatusBar.currentHeight || 24 : 44,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    alignItems: 'flex-end',
+    paddingBottom: 12,
     position: 'relative',
-    height: 80,
+    height: Platform.OS === 'android' ? 70 + (RNStatusBar.currentHeight || 24) : 120,
+    paddingTop: Platform.OS === 'android' ? (RNStatusBar.currentHeight || 24) : 47,
+    backgroundColor: COLORS.background,
+    borderBottomWidth: 0.2,
+    borderBottomColor: COLORS.primary,
+    shadowColor: COLORS.primary,
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
   },
   headerTitleContainer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   headerTitle: {
     fontWeight: 'bold',
@@ -270,19 +275,17 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     zIndex: 1,
+    marginTop: 0,
+    top: 10,
   },
   premiumButton: {
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 20,
-    paddingBottom: 8,
     paddingHorizontal: 8,
-    marginRight: 10,
   },
   premiumIcon: {
     margin: 0,
-    marginTop: 8,
-    marginLeft: -4,
   },
   premiumText: {
     color: '#f9e009',
@@ -291,8 +294,8 @@ const styles = StyleSheet.create({
     marginTop: -8,
   },
   separator: {
-    height: 1,
-    backgroundColor: '#2C2C2E',
+    height: 0,
+    backgroundColor: 'transparent',
     marginTop: 8,
   },
   timerContainer: {
@@ -350,16 +353,16 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: CIRCLE_SIZE / 2,
     borderWidth: STROKE_WIDTH,
-    borderColor: '#6c47ff',
+    borderColor: COLORS.primary,
     opacity: 0.2,
   },
   timerText: {
-    color: '#fff',
+    color: COLORS.text,
     fontSize: 42,
     fontWeight: 'bold',
   },
   tapText: {
-    color: '#6c47ff',
+    color: COLORS.primary,
     marginTop: 8,
   },
   presets: {
@@ -374,23 +377,37 @@ const styles = StyleSheet.create({
   presetButton: {
     width: '30%',
     aspectRatio: 2,
-    backgroundColor: '#1f222a',
+    backgroundColor: COLORS.surface,
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#2C2C2E',
-    padding: 0,
+    shadowColor: COLORS.primary,
+    shadowOffset: {
+      width: 0,
+      height: 0,
+    },
+    borderWidth: 0.2,
+    borderColor: COLORS.primary,
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
   },
   presetButtonSelected: {
-    backgroundColor: '#6c47ff',
-    borderColor: '#6c47ff',
+    backgroundColor: COLORS.gradientEnd,
+    shadowColor: COLORS.gradientEnd,
+    
+    shadowOffset: {
+      width: 0,
+      height: 0,
+    },
+    borderWidth: 1,
+    shadowOpacity: 0.9,
+    shadowRadius: 4,
   },
   presetButtonDisabled: {
     opacity: 0.5,
   },
   presetText: {
-    color: '#6c47ff',
+    color: COLORS.primary,
     fontSize: 18,
     fontWeight: '600',
     textAlign: 'center',
@@ -410,6 +427,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#1f222a',
     width: ADJUST_BUTTON_SIZE,
     height: ADJUST_BUTTON_SIZE,
+    shadowColor: COLORS.primary,
+    shadowOffset: {
+      width: 0,
+      height: 0,
+    },
+    borderWidth: 0.3,
+    borderColor: COLORS.primary,
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
   },
   adjustButtonOverflow: {
     width: '100%',
@@ -427,7 +453,7 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   adjustButtonText: {
-    color: '#6c47ff',
+    color: COLORS.primary,
     fontSize: 20,
     fontWeight: '600',
   },

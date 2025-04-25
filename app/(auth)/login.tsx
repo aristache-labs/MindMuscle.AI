@@ -87,17 +87,17 @@ export default function LoginScreen() {
                 keyboardType="email-address"
                 autoCapitalize="none"
                 style={styles.input}
-                placeholderTextColor="#666"
+                placeholderTextColor={focusedInput === 'email' ? COLORS.primary : '#fff'}
                 textColor={focusedInput === 'email' ? '#fff' : '#666'}
-                cursorColor="#6c47ff"
+                cursorColor={COLORS.primary}
                 underlineColor="transparent"
-                activeUnderlineColor="#6c47ff"
+                activeUnderlineColor={COLORS.primary}
                 selectionColor="rgba(108, 71, 255, 0.3)"
-                left={<TextInput.Icon icon="email" color={focusedInput === 'email' ? '#6c47ff' : '#666'} />}
+                left={<TextInput.Icon icon="email" color={focusedInput === 'email' ? COLORS.primary : '#fff'} />}
                 theme={{
                   colors: {
                     background: '#1A1A1A',
-                    primary: '#6c47ff',
+                    primary: COLORS.primary,
                   },
                 }}
                 onFocus={() => setFocusedInput('email')}
@@ -116,24 +116,24 @@ export default function LoginScreen() {
                 secureTextEntry={!showPassword}
                 textContentType="oneTimeCode"
                 style={styles.input}
-                placeholderTextColor="#666"
+                placeholderTextColor={focusedInput === 'password' ? COLORS.primary : '#fff'}
                 textColor={focusedInput === 'password' ? '#fff' : '#666'}
-                cursorColor="#6c47ff"
+                cursorColor={COLORS.primary}
                 underlineColor="transparent"
-                activeUnderlineColor="#6c47ff"
+                activeUnderlineColor={COLORS.primary}
                 selectionColor="rgba(108, 71, 255, 0.3)"
-                left={<TextInput.Icon icon="lock" color={focusedInput === 'password' ? '#6c47ff' : '#666'} />}
+                left={<TextInput.Icon icon="lock" color={focusedInput === 'password' ? COLORS.primary : '#fff'} />}
                 right={
                   <TextInput.Icon
                     icon={showPassword ? 'eye-off' : 'eye'}
-                    color={focusedInput === 'password' ? '#6c47ff' : '#666'}
+                    color={focusedInput === 'password' ? COLORS.primary : '#fff'}
                     onPress={() => setShowPassword(!showPassword)}
                   />
                 }
                 theme={{
                   colors: {
                     background: '#1A1A1A',
-                    primary: '#6c47ff',
+                    primary: COLORS.primary,
                   },
                 }}
                 onFocus={() => setFocusedInput('password')}
@@ -155,7 +155,7 @@ export default function LoginScreen() {
                   status={rememberMe ? 'checked' : 'unchecked'}
                   onPress={() => setRememberMe(!rememberMe)}
                   color={COLORS.primary}
-                  uncheckedColor="#6c47ff"
+                  uncheckedColor={COLORS.primary}
                   disabled={isLoading}
                 />
                 <Text style={styles.rememberText}>Remember me</Text>
@@ -239,7 +239,7 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   inputContainerFocused: {
-    borderColor: '#6c47ff',
+    borderColor: COLORS.primary,
     borderWidth: 1,
   },
   input: {
@@ -267,16 +267,17 @@ const styles = StyleSheet.create({
   signInButton: {
     backgroundColor: COLORS.primary,
     height: 56,
-    borderRadius: BORDER_RADIUS.lg,
+    borderRadius: BORDER_RADIUS.round,
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: SPACING.xs,
     marginBottom: SPACING.xl,
   },
   signInButtonDisabled: {
     opacity: 0.7,
   },
   signInButtonText: {
-    color: COLORS.text,
+    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },

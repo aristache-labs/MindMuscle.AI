@@ -1,0 +1,110 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+---
+description: "Project context, best practices, and expert guidelines for MindMuscle.AI React Native Expo app."
+globs:
+  - "**/*.ts"
+  - "**/*.tsx"
+alwaysApply: true
+---
+
+## React Native Expo Best Practices
+
+- Use functional components with hooks
+- Utilize Expo SDK features and APIs
+- Implement proper navigation using Expo Router
+- Use Expo's asset system for images and fonts
+- Implement proper error handling and crash reporting
+- Utilize Expo's push notification system
+- Use React Native Paper components for UI
+- Implement proper offline support
+- Use Expo's OTA updates for quick deployments
+- Follow Expo Router conventions for file-based routing
+
+## Expert Guidelines
+
+### Code Style and Structure
+- Write concise, technical TypeScript code with accurate examples
+- Use functional and declarative programming patterns; avoid classes
+- Prefer iteration and modularization over code duplication
+- Use descriptive variable names with auxiliary verbs (e.g., isLoading, hasError)
+- Structure files: exported component, subcomponents, helpers, static content, types
+- Follow Expo's official documentation for setup: https://docs.expo.dev/
+
+### Naming Conventions
+- Use lowercase with dashes for directories (e.g., components/auth-wizard)
+- Favor named exports for components
+
+### TypeScript Usage
+- Use TypeScript for all code; prefer interfaces over types
+- Avoid enums; use maps instead
+- Use functional components with TypeScript interfaces
+- Enable strict mode in tsconfig for type safety
+
+### Syntax and Formatting
+- Use the "function" keyword for pure functions
+- Avoid unnecessary curly braces in conditionals; concise syntax preferred
+- Use declarative JSX
+- Use Prettier for consistent code formatting
+
+### UI and Styling
+- Use Expo's built-in components for common UI patterns
+- Implement responsive design with Flexbox and useWindowDimensions
+- Use styled-components or Tailwind CSS for styling
+- Support dark mode with useColorScheme
+- Ensure accessibility using ARIA roles and native accessibility props
+- Use react-native-reanimated and react-native-gesture-handler for animations
+
+### Safe Area Management
+- Use SafeAreaProvider from react-native-safe-area-context globally
+- Wrap top-level components with SafeAreaView
+- Use SafeAreaScrollView for scrollable content
+- Avoid hardcoded padding/margins for safe areas
+
+### Navigation
+- Use react-navigation best practices (stack, tab, drawer)
+- Leverage deep linking and universal links
+- Use dynamic routes with expo-router
+
+### Backend Integration
+- Use Supabase as the primary database
+- Secure serverless functions with Supabase MPC
+- Use Sentry.io MPC for error monitoring
+
+### Error Handling and Validation
+- Use Zod for runtime validation and error handling
+- Implement error logging with Sentry
+- Use early returns and global error boundaries
+- Handle errors at function start; avoid deep nesting
+
+### Testing
+- Write unit tests with Jest and React Native Testing Library
+- Implement integration tests with Detox
+- Use Expo's testing tools across environments
+- Consider snapshot testing for UI consistency
+
+### Security
+- Sanitize inputs to prevent XSS
+- Use react-native-encrypted-storage for sensitive data
+- Ensure secure API communication with HTTPS
+- Follow Expo's security guidelines: https://docs.expo.dev/guides/security/
+
+### Internationalization
+- Use expo-localization or react-native-i18n
+- Support multiple languages and RTL layouts
+- Ensure text scaling for accessibility
+
+### Key Conventions
+- Use Expo's managed workflow
+- Prioritize Mobile Web Vitals (load time, responsiveness)
+- Use expo-constants for configuration
+- Use expo-permissions for device permissions
+- Implement expo-updates for OTA updates
+- Test compatibility on iOS and Android
+
+### API Documentation
+- Refer to Expo's docs: https://docs.expo.dev/
+

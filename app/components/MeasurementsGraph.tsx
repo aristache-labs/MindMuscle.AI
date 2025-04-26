@@ -46,101 +46,6 @@ const getProgressIndicator = (currentValue: number, previousValue: number | null
   };
 };
 
-export default function MeasurementsGraph({ measurements, onMeasurementPress }: Props) {
-  // Find the maximum value to scale the bars
-  const maxValue = Math.max(
-    ...Object.entries(measurements)
-      .filter(([category]) => category !== 'WEIGHT')
-      .map(([_, measurement]) => measurement?.value || 0)
-  );
-
-  // Calculate the scale factor for the bars (max height 200)
-  const scale = maxValue > 0 ? 200 / maxValue : 1;
-
-  return (
-    <View style={styles.container}>
-      {/* Weight Display */}
-      <Pressable 
-        style={styles.weightContainer}
-        onPress={() => {
-          onMeasurementPress('WEIGHT');
-        }}
-      >
-        <Text style={styles.weightValue}>
-          {measurements.WEIGHT?.value.toFixed(1) || '0.0'}
-          <Text style={styles.weightUnit}> kg</Text>
-        </Text>
-        <Text style={styles.weightLabel}>WEIGHT</Text>
-      </Pressable>
-
-      {/* Graph Container */}
-      <View style={styles.graphWrapper}>
-        {/* Measurements Bars */}
-        <View style={styles.barsContainer}>
-          {Object.entries(measurements)
-            .filter(([category]) => category !== 'WEIGHT')
-            .map(([category, measurement]) => {
-              const value = measurement?.value || 0;
-              const height = value * scale;
-              const categoryColor = getCategoryColor(category);
-              
-              // Get the previous measurement value
-              const previousValue = measurement?.previous_value ?? null;
-              const progress = getProgressIndicator(value, previousValue);
-
-              return (
-                <Pressable
-                  key={category}
-                  style={styles.barContainer}
-                  onPress={() => onMeasurementPress(category as MeasurementCategory)}
-                >
-                  {/* Floating value container */}
-                  <View style={[
-                    styles.floatingValueContainer, 
-                    { 
-                      bottom: `${(height / 200) * 100}%`,
-                      transform: [{ translateY: 0 }] 
-                    }
-                  ]}>
-                    <Text style={[styles.valueText, { color: categoryColor }]}>
-                      {value.toFixed(1)}
-                    </Text>
-                    {progress && (
-                      <IconButton
-                        icon={progress.icon}
-                        iconColor={progress.color}
-                        size={12}
-                        style={styles.arrowIcon}
-                      />
-                    )}
-                  </View>
-
-                  {/* Bar */}
-                  <View style={[styles.barWrapper, { height: 160 }]}>
-                    <View 
-                      style={[
-                        styles.bar, 
-                        { height: `${(height / 200) * 100}%` }
-                      ]} 
-                    />
-                  </View>
-
-                  {/* Labels */}
-                  <View style={styles.labelContainer}>
-                    <Text style={styles.unitLabel}>cm</Text>
-                    <Text style={[styles.measurementLabel, { color: categoryColor }]} numberOfLines={1}>
-                      {category}
-                    </Text>
-                  </View>
-                </Pressable>
-              );
-            })}
-        </View>
-      </View>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   container: {
     padding: 16,
@@ -164,7 +69,7 @@ const styles = StyleSheet.create({
     color: COLORS.text,
   },
   graphWrapper: {
-    height: 250,
+    height: 290,
     position: 'relative',
   },
   barsContainer: {
@@ -172,32 +77,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-end',
     height: '100%',
-    paddingHorizontal: 8,
-    paddingTop: 40,
-    paddingBottom: 40,
+    paddingTop: 0,
   },
   barContainer: {
     alignItems: 'center',
-    width: '13.5%',
+    width: '12%',
     position: 'relative',
-    height: 160,
-  },
-  floatingValueContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    position: 'absolute',
-    width: '100%',
-    justifyContent: 'center',
-    zIndex: 1,
-  },
-  valueText: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  arrowIcon: {
-    margin: 0,
-    marginLeft: -6,
-    marginTop: -2,
+    height: 240,
   },
   barWrapper: {
     width: '100%',
@@ -205,18 +91,18 @@ const styles = StyleSheet.create({
   },
   bar: {
     width: '100%',
-    borderRadius: 4,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
     backgroundColor: FADED_PURPLE,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
   },
   labelContainer: {
     alignItems: 'center',
     marginTop: 4,
     width: '100%',
-  },
-  unitLabel: {
-    fontSize: 10,
-    color: COLORS.text,
-    marginBottom: 2,
   },
   measurementLabel: {
     fontSize: 10,
@@ -224,4 +110,192 @@ const styles = StyleSheet.create({
     width: '100%',
     textAlign: 'center',
   },
-}); 
+  valueAboveBar: {
+    fontSize: 12,
+    fontWeight: '500',
+    textAlign: 'center',
+    backgroundColor: 'transparent',
+    paddingBottom: 4,
+  },
+  arrowIconInBar: {
+    position: 'absolute',
+    top: 0,
+    transform: [{ translateX: '0%' }], // percentage-based centering
+    zIndex: 2,
+    backgroundColor: 'transparent',
+  },
+  unitInsideBarContainer: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingBottom: 4,
+  },
+  unitLabelInsideBar: {
+    fontSize: 10,
+    color: '#fff',
+    fontWeight: 'bold',
+    textShadowColor: 'rgba(0,0,0,0.2)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 1,
+  },
+  placeholderWrapper: {
+    height: 240,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(107, 78, 255, 0.07)',
+    borderRadius: 16,
+    marginTop: 16,
+    marginBottom: 8,
+    padding: 24,
+  },
+  placeholderText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  placeholderSubtext: {
+    fontSize: 14,
+    color: COLORS.text,
+    opacity: 0.7,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  addMeasurementButton: {
+    backgroundColor: '#6c47ff',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#6c47ff',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  addMeasurementButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+});
+
+export default function MeasurementsGraph({ measurements, onMeasurementPress }: Props) {
+  // Find the maximum value to scale the bars
+  const maxValue = Math.max(
+    ...Object.entries(measurements)
+      .filter(([category]) => category !== 'WEIGHT')
+      .map(([_, measurement]) => measurement?.value || 0)
+  );
+
+  // Calculate the scale factor for the bars (max height 240)
+  const MIN_BAR_HEIGHT = 24;
+  const scale = maxValue > 0 ? (240 - MIN_BAR_HEIGHT) / maxValue : 1;
+
+  // Check if all measurement values (excluding WEIGHT) are zero
+  const allZero = Object.entries(measurements)
+    .filter(([category]) => category !== 'WEIGHT')
+    .every(([_, measurement]) => !measurement || !measurement.value || measurement.value === 0);
+
+  // Find the first muscle group category (not WEIGHT) for the add button
+  const firstMuscleGroup = Object.keys(measurements).find((key) => key !== 'WEIGHT') || 'BICEPS';
+
+  return (
+    <View style={styles.container}>
+      {/* Weight Display */}
+      <Pressable 
+        style={styles.weightContainer}
+        onPress={() => {
+          onMeasurementPress('WEIGHT');
+        }}
+      >
+        <Text style={styles.weightValue}>
+          {measurements.WEIGHT?.value.toFixed(1) || '0.0'}
+          <Text style={styles.weightUnit}> kg</Text>
+        </Text>
+        <Text style={styles.weightLabel}>WEIGHT</Text>
+      </Pressable>
+
+      {/* Placeholder if all values are zero */}
+      {allZero ? (
+        <View style={styles.placeholderWrapper}>
+          <Text style={styles.placeholderText}>No measurements yet!</Text>
+          <Text style={styles.placeholderSubtext}>Start tracking your progress by adding your first measurement.</Text>
+          <Pressable style={styles.addMeasurementButton} onPress={() => onMeasurementPress(firstMuscleGroup as MeasurementCategory)}>
+            <Text style={styles.addMeasurementButtonText}>Add Measurement</Text>
+          </Pressable>
+        </View>
+      ) : (
+        // Graph Container
+        <View style={styles.graphWrapper}>
+          {/* Measurements Bars */}
+          <View style={styles.barsContainer}>
+            {Object.entries(measurements)
+              .filter(([category]) => category !== 'WEIGHT')
+              .map(([category, measurement]) => {
+                const value = measurement?.value || 25;
+                const height = allZero ? 0 : (value * scale + MIN_BAR_HEIGHT);
+                const categoryColor = getCategoryColor(category);
+                
+                // Get the previous measurement value
+                const previousValue = measurement?.previous_value ?? null;
+                const progress = getProgressIndicator(value, previousValue);
+
+                return (
+                  <Pressable
+                    key={category}
+                    style={styles.barContainer}
+                    onPress={() => onMeasurementPress(category as MeasurementCategory)}
+                  >
+                    {/* Value above the bar, moving with the bar height */}
+                    <View style={{ position: 'absolute', left: 0, right: 0, bottom: height + 6, alignItems: 'center', zIndex: 5 }} pointerEvents="none">
+                      <Text style={[styles.valueAboveBar, { color: categoryColor }]}> 
+                        {value.toFixed(1)}
+                      </Text>
+                    </View>
+                    {/* Bar */}
+                    <View style={[styles.barWrapper, { height: 230 }]}> 
+                      <View 
+                        style={[
+                          styles.bar, 
+                          { height: `${(height / 240) * 100}%` }
+                        ]}
+                      >
+                        {/* Arrow icon inside the bar, top center, moves with bar height */}
+                        {progress && (
+                          <IconButton
+                            icon={progress.icon}
+                            iconColor={progress.color}
+                            size={14}
+                            style={styles.arrowIconInBar}
+                          />
+                        )}
+                        {/* Unit label inside the bar at the bottom */}
+                        {value > 0 && (
+                          <View style={styles.unitInsideBarContainer} pointerEvents="none">
+                            <Text style={styles.unitLabelInsideBar}>cm</Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+
+                    {/* Labels */}
+                    <View style={styles.labelContainer}>
+                      <Text style={[styles.measurementLabel, { color: categoryColor }]} numberOfLines={1}>
+                        {category}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+          </View>
+        </View>
+      )}
+    </View>
+  );
+} 

@@ -30,7 +30,8 @@ interface Props {
   onMeasurementsChange?: () => void;
 }
 
-const MAX_VALUE = 200;
+const MIN_VALUE = 25;
+const MAX_VALUE = 226;
 const STEP = 0.1;
 
 interface CategoryIcon {
@@ -84,8 +85,8 @@ export default function MeasurementModal({
   onMeasurementsChange
 }: Props) {
   const [showInput, setShowInput] = useState(false);
-  const [value, setValue] = useState(lastValue?.toString() || '0.0');
-  const [sliderValue, setSliderValue] = useState(lastValue || 0);
+  const [value, setValue] = useState(lastValue?.toString() || MIN_VALUE.toString());
+  const [sliderValue, setSliderValue] = useState(lastValue || MIN_VALUE);
   const [measurements, setMeasurements] = useState<Measurement[]>(initialMeasurements);
 
   useEffect(() => {
@@ -96,12 +97,15 @@ export default function MeasurementModal({
     if (visible && lastValue) {
       setValue(lastValue.toString());
       setSliderValue(lastValue);
+    } else if (visible && !lastValue) {
+      setValue(MIN_VALUE.toString());
+      setSliderValue(MIN_VALUE);
     }
   }, [visible, lastValue]);
 
   const handleAddMeasurement = () => {
-    setValue(lastValue?.toString() || '0.0');
-    setSliderValue(lastValue || 0);
+    setValue(lastValue?.toString() || MIN_VALUE.toString());
+    setSliderValue(lastValue || MIN_VALUE);
     setShowInput(true);
   };
 
@@ -121,8 +125,8 @@ export default function MeasurementModal({
   const handleClose = () => {
     Keyboard.dismiss();
     setShowInput(false);
-    setValue(lastValue?.toString() || '0.0');
-    setSliderValue(lastValue || 0);
+    setValue(lastValue?.toString() || MIN_VALUE.toString());
+    setSliderValue(lastValue || MIN_VALUE);
     onClose();
   };
 
@@ -134,8 +138,8 @@ export default function MeasurementModal({
       onMeasurementsChange?.();
 
       if (updatedMeasurements.length === 0) {
-        setValue('0.0');
-        setSliderValue(0);
+        setValue(MIN_VALUE.toString());
+        setSliderValue(MIN_VALUE);
       } else {
         const newLastValue = updatedMeasurements[0].value;
         setValue(newLastValue.toFixed(1));
@@ -147,36 +151,38 @@ export default function MeasurementModal({
   };
 
   const handleValueChange = (text: string) => {
+    // Allow user to type freely, only numbers and dot
     const sanitizedText = text.replace(/[^0-9.]/g, '');
-    
-    if (sanitizedText.includes('.')) {
-      const numValue = parseFloat(sanitizedText);
-      
-      if (!isNaN(numValue) && numValue <= MAX_VALUE) {
-        setValue(numValue.toFixed(1));
-        setSliderValue(numValue);
-      }
-    } else {
-      const numValue = parseInt(sanitizedText, 10);
-      
-      if (!isNaN(numValue) && numValue <= MAX_VALUE) {
-        setValue(numValue.toString());
-        setSliderValue(numValue);
-      }
+    setValue(sanitizedText);
+    // Only update slider if value is within bounds
+    const numValue = parseFloat(sanitizedText);
+    if (!isNaN(numValue) && numValue >= MIN_VALUE && numValue <= MAX_VALUE) {
+      setSliderValue(numValue);
     }
   };
 
+  // Clamp and format value on blur
+  const handleValueBlur = () => {
+    let numValue = parseFloat(value);
+    if (isNaN(numValue)) numValue = MIN_VALUE;
+    if (numValue < MIN_VALUE) numValue = MIN_VALUE;
+    if (numValue > MAX_VALUE) numValue = MAX_VALUE;
+    setValue(numValue.toFixed(1));
+    setSliderValue(numValue);
+  };
+
   const handleSliderChange = (newValue: number) => {
-    const formattedValue = newValue.toFixed(1);
+    let clampedValue = Math.max(MIN_VALUE, Math.min(MAX_VALUE, newValue));
+    const formattedValue = clampedValue.toFixed(1);
     setValue(formattedValue);
-    setSliderValue(newValue);
+    setSliderValue(clampedValue);
   };
 
   const adjustValue = (increment: boolean) => {
-    const current = parseFloat(value) || 0;
-    const newValue = increment 
+    const current = parseFloat(value) || MIN_VALUE;
+    let newValue = increment 
       ? Math.min(MAX_VALUE, current + STEP)
-      : Math.max(0, current - STEP);
+      : Math.max(MIN_VALUE, current - STEP);
     setValue(newValue.toFixed(1));
     setSliderValue(newValue);
   };
@@ -229,7 +235,7 @@ export default function MeasurementModal({
                         </View>
                         
                         <Text style={styles.lastMeasurement}>
-                          Last: {lastValue?.toFixed(1) || '0.0'} {category === 'WEIGHT' ? 'kg' : 'cm'}
+                          Last: {lastValue?.toFixed(1) || MIN_VALUE.toString()} {category === 'WEIGHT' ? 'kg' : 'cm'}
                         </Text>
 
                         <View style={styles.inputRow}>
@@ -249,6 +255,7 @@ export default function MeasurementModal({
                               style={styles.valueInput}
                               value={value}
                               onChangeText={handleValueChange}
+                              onBlur={handleValueBlur}
                               keyboardType="numeric"
                               maxLength={5}
                               selectTextOnFocus
@@ -275,7 +282,7 @@ export default function MeasurementModal({
                           <Slider
                             value={sliderValue}
                             onValueChange={handleSliderChange}
-                            minimumValue={0}
+                            minimumValue={MIN_VALUE}
                             maximumValue={MAX_VALUE}
                             step={STEP}
                             minimumTrackTintColor={COLORS.primary}
@@ -284,7 +291,7 @@ export default function MeasurementModal({
                             style={styles.slider}
                           />
                           <View style={styles.sliderLabels}>
-                            <Text style={styles.sliderLabel}>0</Text>
+                            <Text style={styles.sliderLabel}>{MIN_VALUE}</Text>
                             <Text style={styles.sliderLabel}>{MAX_VALUE}</Text>
                           </View>
                         </View>

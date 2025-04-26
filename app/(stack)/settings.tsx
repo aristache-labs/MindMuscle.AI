@@ -104,8 +104,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.sm,
     height: 56,
     backgroundColor: COLORS.background,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.surface,
+    borderBottomWidth: 0.2,
+    borderBottomColor: COLORS.primary,
   },
   headerLeft: {
     flex: 1,

@@ -16,6 +16,7 @@ import * as Sentry from '@sentry/react-native';
 import { initializeSentry } from './services/sentry';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import { MeasurementsProvider } from './store/MeasurementsContext';
 
 // Handle splash screen errors in Expo Go
 if (Constants.appOwnership === 'expo') {
@@ -111,17 +112,19 @@ function RootLayout() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <ProfileProvider>
-          <ProgressProvider>
-            <GamificationProvider>
-              <ProgressPhotosProvider>
-                <AuthGuard>
-                  <Slot />
-                </AuthGuard>
-              </ProgressPhotosProvider>
-            </GamificationProvider>
-          </ProgressProvider>
-        </ProfileProvider>
+        <MeasurementsProvider>
+          <ProfileProvider>
+            <ProgressProvider>
+              <GamificationProvider>
+                <ProgressPhotosProvider>
+                  <AuthGuard>
+                    <Slot />
+                  </AuthGuard>
+                </ProgressPhotosProvider>
+              </GamificationProvider>
+            </ProgressProvider>
+          </ProfileProvider>
+        </MeasurementsProvider>
       </AuthProvider>
     </ThemeProvider>
   );

@@ -24,6 +24,7 @@ import { useImagePreloader } from '../hooks/useImagePreloader';
 import ExerciseGraphs, { ExerciseData } from '../components/ExerciseGraphs';
 import ExerciseGraphModal from '../components/ExerciseGraphModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useMeasurements } from '../store/MeasurementsContext';
 
 const TIME_FILTERS = [
   { label: '1W', value: '1w' },
@@ -61,6 +62,14 @@ const SAMPLE_EXERCISES: ExerciseData[] = [
 export default function InsightsScreen() {
   const theme = useTheme();
   const { user } = useAuth();
+  const { 
+    measurements, 
+    measurementHistory,
+    loading: measurementsLoading,
+    addMeasurement,
+    deleteMeasurement,
+    refreshMeasurements
+  } = useMeasurements();
   const insets = useSafeAreaInsets();
   const { metrics, loading: progressLoading } = useProgress();
   const [selectedFilter, setSelectedFilter] = useState('1w');
@@ -74,10 +83,7 @@ export default function InsightsScreen() {
   const [completedAchievements, setCompletedAchievements] = useState<UserAchievement[]>([]);
   const [randomAchievements, setRandomAchievements] = useState<Achievement[]>([]);
   const [achievementsLoading, setAchievementsLoading] = useState(true);
-  const [measurements, setMeasurements] = useState<Record<MeasurementCategory, Measurement | null>>({} as Record<MeasurementCategory, Measurement | null>);
   const [selectedMeasurement, setSelectedMeasurement] = useState<MeasurementCategory | null>(null);
-  const [measurementsLoading, setMeasurementsLoading] = useState(true);
-  const [measurementHistory, setMeasurementHistory] = useState<Measurement[]>([]);
   const [showHowToMeasure, setShowHowToMeasure] = useState(false);
   const [exercises, setExercises] = useState<ExerciseData[]>(SAMPLE_EXERCISES);
   const [selectedExercise, setSelectedExercise] = useState<ExerciseData | undefined>();
@@ -88,7 +94,6 @@ export default function InsightsScreen() {
     if (user?.id) {
       loadSavedPhotos();
       loadAchievements();
-      loadMeasurements();
     }
   }, [user?.id]);
 
@@ -129,20 +134,6 @@ export default function InsightsScreen() {
       console.error('Error loading saved photos:', error);
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const loadMeasurements = async () => {
-    if (!user?.id) return;
-    
-    try {
-      setMeasurementsLoading(true);
-      const latestMeasurements = await measurementService.getLatestMeasurements(user.id);
-      setMeasurements(latestMeasurements);
-    } catch (error) {
-      console.error('Error loading measurements:', error);
-    } finally {
-      setMeasurementsLoading(false);
     }
   };
 
@@ -240,39 +231,17 @@ export default function InsightsScreen() {
   };
 
   const handleMeasurementPress = async (category: MeasurementCategory) => {
-    if (!user?.id) return;
-    
-    try {
-      const history = await measurementService.getMeasurementHistory(user.id, category);
-      setMeasurementHistory(history);
-      setSelectedMeasurement(category);
-    } catch (error) {
-      console.error('Error loading measurement history:', error);
-      setMeasurementHistory([]);
-      setSelectedMeasurement(category);
-    }
+    setSelectedMeasurement(category);
   };
 
   const handleSaveMeasurement = async (value: number) => {
     if (!user?.id || !selectedMeasurement) return;
 
     try {
-      await measurementService.addMeasurement(
-        user.id,
-        selectedMeasurement,
-        value,
-        selectedMeasurement === 'WEIGHT' ? 'kg' : 'cm'
-      );
-      await loadMeasurements();
+      await addMeasurement(selectedMeasurement, value, selectedMeasurement === 'WEIGHT' ? 'kg' : 'cm');
       setSelectedMeasurement(null);
     } catch (error) {
       console.error('Error saving measurement:', error);
-    }
-  };
-
-  const handleMeasurementsChange = async () => {
-    if (user?.id) {
-      await loadMeasurements();
     }
   };
 
@@ -743,11 +712,11 @@ export default function InsightsScreen() {
           visible={selectedMeasurement !== null}
           category={selectedMeasurement || 'WEIGHT'}
           lastValue={measurements[selectedMeasurement || 'WEIGHT']?.value}
-          measurements={measurementHistory}
+          measurements={selectedMeasurement ? measurementHistory[selectedMeasurement] : []}
           onClose={() => setSelectedMeasurement(null)}
           onSave={handleSaveMeasurement}
           userId={user?.id || ''}
-          onMeasurementsChange={handleMeasurementsChange}
+          onMeasurementsChange={refreshMeasurements}
         />
 
         <HowToMeasureModal
@@ -1096,17 +1065,8 @@ const styles = StyleSheet.create({
     aspectRatio: 0.85,
     marginBottom: 4,
     borderRadius: 12,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#6B4EFF',
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.5,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 8,
-      },
-    }),
+    backgroundColor: COLORS.background,
+
   },
   achievementContent: {
     flex: 1,
@@ -1187,6 +1147,20 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 24,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(108, 71, 255, 0.3)',
+    ...Platform.select({
+      ios: {
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.3,
+        shadowRadius: 5,
+        elevation: 10,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
   },
   modalHeader: {
     alignSelf: 'stretch',
@@ -1229,11 +1203,12 @@ const styles = StyleSheet.create({
   },
   achievementProgress: {
     fontSize: 14,
-    color: '#f9e009',
+    color: COLORS.warning,
     marginBottom: 8,
   },
   achievementLocked: {
     opacity: 0.7,
+    backgroundColor: COLORS.background,
   },
   achievementIconLocked: {
     backgroundColor: 'rgba(102, 102, 102, 0.2)',

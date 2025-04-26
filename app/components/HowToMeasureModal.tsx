@@ -97,55 +97,58 @@ export default function HowToMeasureModal({ visible, onClose }: Props) {
             <View style={styles.overlay}>
               <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
                 <View style={styles.modalContainer}>
-                  <View style={styles.header}>
-                    <IconButton
-                      icon="close"
-                      iconColor="#fff"
-                      size={24}
-                      style={styles.closeButton}
-                      onPress={onClose}
-                    />
-                    <Text style={styles.title}>HOW TO MEASURE</Text>
-                  </View>
-
-                  <GestureHandlerRootView style={styles.gestureRoot}>
-                    <ScrollView
-                      style={styles.scrollView}
-                      showsVerticalScrollIndicator={false}
-                      contentContainerStyle={styles.scrollViewContent}
-                      bounces={true}
-                      scrollEventThrottle={16}
-                    >
-                      {MEASUREMENT_INSTRUCTIONS.map((instruction, index) => (
-                        <View 
-                          key={instruction.category}
-                          style={[
-                            styles.instructionCard,
-                            index === 0 && styles.firstCard,
-                            index === MEASUREMENT_INSTRUCTIONS.length - 1 && styles.lastCard
-                          ]}
-                        >
-                          <View style={styles.instructionImageContainer}>
-                            <View style={styles.imageWrapper}>
-                              <OptimizedImage 
-                                source={instruction.icon}
-                                style={styles.imageWrapper}
-                                imageStyle={styles.instructionImage}
-                                contentFit="contain"
-                                transparent
-                              />
+                  <View style={styles.container}>
+                    <View style={styles.topGlowLeft} />
+                    <View style={styles.topGlowRight} />
+                    <View style={styles.header}>
+                      <IconButton
+                        icon="close"
+                        iconColor="#fff"
+                        size={24}
+                        style={styles.closeButton}
+                        onPress={onClose}
+                      />
+                      <Text style={styles.title}>HOW TO MEASURE</Text>
+                    </View>
+                    <GestureHandlerRootView style={styles.gestureRoot}>
+                      <ScrollView
+                        style={styles.scrollView}
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={styles.scrollViewContent}
+                        bounces={true}
+                        scrollEventThrottle={16}
+                      >
+                        {MEASUREMENT_INSTRUCTIONS.map((instruction, index) => (
+                          <View 
+                            key={instruction.category}
+                            style={[
+                              styles.instructionCard,
+                              index === 0 && styles.firstCard,
+                              index === MEASUREMENT_INSTRUCTIONS.length - 1 && styles.lastCard
+                            ]}
+                          >
+                            <View style={styles.instructionImageContainer}>
+                              <View style={styles.imageWrapper}>
+                                <OptimizedImage 
+                                  source={instruction.icon}
+                                  style={styles.imageWrapper}
+                                  imageStyle={styles.instructionImage}
+                                  contentFit="contain"
+                                  transparent
+                                />
+                              </View>
                             </View>
+                            <Text style={styles.instructionTitle}>
+                              {instruction.title.toUpperCase()}
+                            </Text>
+                            <Text style={styles.instructionText}>
+                              {instruction.instruction}
+                            </Text>
                           </View>
-                          <Text style={styles.instructionTitle}>
-                            {instruction.title.toUpperCase()}
-                          </Text>
-                          <Text style={styles.instructionText}>
-                            {instruction.instruction}
-                          </Text>
-                        </View>
-                      ))}
-                    </ScrollView>
-                  </GestureHandlerRootView>
+                        ))}
+                      </ScrollView>
+                    </GestureHandlerRootView>
+                  </View>
                 </View>
               </TouchableWithoutFeedback>
             </View>
@@ -171,18 +174,79 @@ const styles = StyleSheet.create({
   modalContainer: {
     width: '100%',
     height: '80%',
-    backgroundColor: COLORS.background,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
     overflow: 'hidden',
-    shadowColor: '#000',
+    backgroundColor: COLORS.background,
+  },
+  container: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: COLORS.background,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    overflow: 'hidden',
+    shadowColor: COLORS.primary,
     shadowOffset: {
       width: 0,
-      height: -2,
+      height: 0,
     },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    shadowOpacity: 1,
+    shadowRadius: 10,
+    elevation: 10,
+    borderWidth: 0,
+    borderTopWidth: 0.9,
+    borderColor: COLORS.primary,
+    ...Platform.select({
+      ios: {
+        shadowColor: COLORS.primary,
+        shadowOffset: { 
+          width: 10, 
+          height: 0,
+        },
+        shadowOpacity: 1,
+        shadowRadius: 10,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
+  },
+  topGlowLeft: {
+    position: 'absolute',
+    top: -0.7,
+    left: -0.2,
+    width: 13,
+    height: 13,
+    borderTopLeftRadius: 12,
+    backgroundColor: 'transparent',
+    borderLeftWidth: 0.9,
+    borderTopWidth: 0.9,
+    borderColor: COLORS.primary,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 10,
+    elevation: 15,
+    zIndex: 1,
+  },
+  topGlowRight: {
+    position: 'absolute',
+    top: -0.7,
+    right: -0.2,
+    width: 13,
+    height: 13,
+    borderTopRightRadius: 12,
+    backgroundColor: 'transparent',
+    borderRightWidth: 0.9,
+    borderTopWidth: 0.9,
+    borderColor: COLORS.primary,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 20,
+    elevation: 15,
+    zIndex: 1,
   },
   gestureRoot: {
     flex: 1,
@@ -191,10 +255,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    borderBottomWidth: 0.2,
+    borderBottomColor: COLORS.primary,
     backgroundColor: COLORS.background,
-    zIndex: 1,
+			  
   },
   closeButton: {
     margin: 0,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, ScrollView, Pressable, Modal, ActivityIndicator, Alert } from 'react-native';
+import { StyleSheet, View, ScrollView, Pressable, Modal, ActivityIndicator, Alert, Platform } from 'react-native';
 import { Text, useTheme, IconButton, Button, Surface, Divider } from 'react-native-paper';
 import { Stack, router } from 'expo-router';
 import { COLORS } from '../constants/theme';
@@ -279,7 +279,7 @@ const styles = StyleSheet.create({
   achievementSurface: {
     height: '100%',
     borderRadius: 12,
-    backgroundColor: '#1E1E1E',
+    backgroundColor: COLORS.surface,
   },
   achievementOverflow: {
     width: '100%',
@@ -334,10 +334,24 @@ const styles = StyleSheet.create({
     maxWidth: 340,
   },
   modalContent: {
-    backgroundColor: '#1E1E1E',
+    backgroundColor: COLORS.surface,
     borderRadius: 16,
     padding: 24,
     alignItems: 'center',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(108, 71, 255, 0.3)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#6B4EFF',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.5,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
   },
   modalHeader: {
     alignSelf: 'stretch',

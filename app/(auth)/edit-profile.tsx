@@ -5,6 +5,7 @@ import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../store/AuthContext';
+import { useMeasurements } from '../store/MeasurementsContext';
 import { format, isValid, subYears, isAfter, isBefore } from 'date-fns';
 import { Ionicons } from '@expo/vector-icons';
 import supabase from '../services/supabase';
@@ -227,6 +228,7 @@ export default function EditProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, updateUserMetadata, refreshUser } = useAuth();
+  const { measurements, addMeasurement } = useMeasurements();
   const [focusedInput, setFocusedInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [weightPickerVisible, setWeightPickerVisible] = useState(false);
@@ -294,6 +296,15 @@ export default function EditProfileScreen() {
     loadUserPreferences();
   }, [user]);
 
+  useEffect(() => {
+    if (measurements.WEIGHT) {
+      setFormData(prev => ({
+        ...prev,
+        weight: measurements.WEIGHT?.value.toString() || ''
+      }));
+    }
+  }, [measurements.WEIGHT]);
+
   const handleSave = async () => {
     try {
       setIsLoading(true);
@@ -353,11 +364,16 @@ export default function EditProfileScreen() {
     }
   };
 
-  const handleWeightChange = (value: number) => {
-    // Value is already in KG from the picker
-    setFormData(prev => ({ ...prev, weight: value.toString() }));
-    setWeightPickerVisible(false);
-    setFocusedInput('');
+  const handleWeightChange = async (value: number) => {
+    try {
+      await addMeasurement('WEIGHT', value, 'kg');
+      setFormData(prev => ({ ...prev, weight: value.toString() }));
+    } catch (error) {
+      console.error('Error updating weight:', error);
+    } finally {
+      setWeightPickerVisible(false);
+      setFocusedInput('');
+    }
   };
 
   const handleHeightChange = (value: number) => {
@@ -705,7 +721,7 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   divider: {
-    backgroundColor: '#333',
-    height: 1,
+    backgroundColor: COLORS.primary,
+    height: 0.2,
   },
 });

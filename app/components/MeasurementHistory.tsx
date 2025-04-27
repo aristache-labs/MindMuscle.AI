@@ -130,6 +130,14 @@ export default function MeasurementHistory({
                     </Text>
                     <Text style={styles.unit}>{firstMeasurement!.unit}</Text>
                   </View>
+                  {onDeleteMeasurement && measurements.length > 1 && (
+                    <IconButton
+                      icon="delete"
+                      iconColor="#FF4444"
+                      size={20}
+                      onPress={() => onDeleteMeasurement(firstMeasurement!.id)}
+                    />
+                  )}
                 </View>
               </View>
             </>

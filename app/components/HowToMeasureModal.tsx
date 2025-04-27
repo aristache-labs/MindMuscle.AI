@@ -8,7 +8,8 @@ import {
   Platform,
   Image,
   KeyboardAvoidingView,
-  ImageSourcePropType
+  ImageSourcePropType,
+  Animated
 } from 'react-native';
 import { Text, IconButton, Portal, Provider } from 'react-native-paper';
 import { GestureHandlerRootView, ScrollView } from 'react-native-gesture-handler';
@@ -78,9 +79,10 @@ const MEASUREMENT_INSTRUCTIONS: MeasurementInstruction[] = [
 interface Props {
   visible: boolean;
   onClose: () => void;
+  modalAnim: Animated.Value;
 }
 
-export default function HowToMeasureModal({ visible, onClose }: Props) {
+export default function HowToMeasureModal({ visible, onClose, modalAnim }: Props) {
   if (!visible) return null;
 
   return (
@@ -89,14 +91,14 @@ export default function HowToMeasureModal({ visible, onClose }: Props) {
         <Modal
           visible={visible}
           transparent={true}
-          animationType="slide"
+          animationType="none"
           onRequestClose={onClose}
           statusBarTranslucent={true}
         >
           <TouchableWithoutFeedback onPress={onClose}>
             <View style={styles.overlay}>
               <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-                <View style={styles.modalContainer}>
+                <Animated.View style={[styles.modalContainer, { transform: [{ translateY: modalAnim }] }]}>
                   <View style={styles.container}>
                     <View style={styles.topGlowLeft} />
                     <View style={styles.topGlowRight} />
@@ -149,7 +151,7 @@ export default function HowToMeasureModal({ visible, onClose }: Props) {
                       </ScrollView>
                     </GestureHandlerRootView>
                   </View>
-                </View>
+                </Animated.View>
               </TouchableWithoutFeedback>
             </View>
           </TouchableWithoutFeedback>
@@ -173,7 +175,7 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     width: '100%',
-    height: '80%',
+    height: '94%',
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
     overflow: 'hidden',

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, ScrollView, Pressable, Platform } from 'react-native';
 import { Text, Switch, Avatar, Button, IconButton, Divider, ActivityIndicator } from 'react-native-paper';
-import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
+import { COLORS, SPACING, BORDER_RADIUS, HEADER_HEIGHT } from '../constants/theme';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Link, useRouter, usePathname } from 'expo-router';
@@ -10,6 +10,7 @@ import { useAuth } from '../store/AuthContext';
 import supabase from '../services/supabase';
 import * as ImagePicker from 'expo-image-picker';
 import { decode } from 'base64-arraybuffer';
+import { GeneralHeader } from '../components/GeneralHeader';
 
 interface MenuItemProps {
   icon: string;
@@ -203,38 +204,31 @@ export default function ProfileScreen() {
   return (
     <View style={styles.container}>
       {/* Fixed Header */}
-      <View style={[styles.headerContainer, { paddingTop: insets.top }]}>
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <IconButton
-              icon="account"
-              size={24}
-              style={styles.headerIcon}
-              iconColor={COLORS.text}
-            />
-            <Text variant="headlineSmall" style={[styles.headerTitle, { color: COLORS.text }]}>Profile</Text>
-          </View>
-          <View style={styles.headerRight}>
+      <GeneralHeader
+        title="Profile"
+        icon={<MaterialCommunityIcons name="account" size={24} color={COLORS.text} />}
+        rightElement={
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <Pressable style={styles.premiumButton} onPress={() => {}}>
-              <IconButton
-                icon="crown"
-                iconColor="#f9e009"
-                size={26}
-                style={styles.premiumIcon}
-              />
-              <Text style={styles.premiumText}>PREMIUM</Text>
+              <View style={styles.premiumIconColumn}>
+                <IconButton
+                  icon="crown"
+                  iconColor="#f9e009"
+                  size={26}
+                  style={styles.premiumIcon}
+                />
+                <Text style={styles.premiumText}>PREMIUM</Text>
+              </View>
             </Pressable>
           </View>
-        </View>
-        <Divider style={styles.divider} />
-      </View>
-
+        }
+      />
       {/* Content */}
       <ScrollView 
         style={styles.scrollView} 
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ 
-          paddingTop: 100,
+          paddingTop: HEADER_HEIGHT,
           paddingBottom: 100
         }}
       >
@@ -412,8 +406,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   divider: {
-    backgroundColor: '#333',
-    height: 1,
+    backgroundColor: COLORS.primary,
+    height: 0.2,
   },
   scrollView: {
     flex: 1,
@@ -591,5 +585,9 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: 'bold',
     marginTop: -10,
+  },
+  premiumIconColumn: {
+    flexDirection: 'column',
+    alignItems: 'center',
   },
 }); 

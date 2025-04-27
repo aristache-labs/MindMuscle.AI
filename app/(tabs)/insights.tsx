@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Dimensions, Pressable, Image, Modal, ActivityIndicator, Platform } from 'react-native';
-import { Text, Surface, Chip, useTheme, Divider, IconButton, Button, Provider } from 'react-native-paper';
+import React, { useState, useEffect, useRef } from 'react';
+import { StyleSheet, View, ScrollView, Dimensions, Pressable, Image, Modal, ActivityIndicator, Platform, Animated, Easing } from 'react-native';
+import { Text, Surface, Chip, useTheme, IconButton, Button, Provider } from 'react-native-paper';
 import { useProgress } from '../store/ProgressContext';
 import { Calendar } from 'react-native-calendars';
 import { format, addMonths, subMonths } from 'date-fns';
-import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
-import { Ionicons } from '@expo/vector-icons';
+import { COLORS, SPACING, BORDER_RADIUS, HEADER_HEIGHT } from '../constants/theme';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { progressPhotoService, ProgressPhoto } from '../services/progressPhotos';
@@ -25,6 +25,7 @@ import ExerciseGraphs, { ExerciseData } from '../components/ExerciseGraphs';
 import ExerciseGraphModal from '../components/ExerciseGraphModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMeasurements } from '../store/MeasurementsContext';
+import { GeneralHeader } from '../components/GeneralHeader';
 
 const TIME_FILTERS = [
   { label: '1W', value: '1w' },
@@ -88,6 +89,46 @@ export default function InsightsScreen() {
   const [exercises, setExercises] = useState<ExerciseData[]>(SAMPLE_EXERCISES);
   const [selectedExercise, setSelectedExercise] = useState<ExerciseData | undefined>();
   const [showExerciseModal, setShowExerciseModal] = useState(false);
+
+  // Animation state for background scale and modal slide
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const modalAnim = useRef(new Animated.Value(Dimensions.get('window').height)).current;
+
+  // Animated modal open/close handlers
+  const openHowToMeasure = () => {
+    setShowHowToMeasure(true);
+    Animated.parallel([
+      Animated.timing(scaleAnim, {
+        toValue: 0.92,
+        duration: 300,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.cubic),
+      }),
+      Animated.timing(modalAnim, {
+        toValue: 0,
+        duration: 350,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.cubic),
+      }),
+    ]).start();
+  };
+
+  const closeHowToMeasure = () => {
+    Animated.parallel([
+      Animated.timing(scaleAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+        easing: Easing.in(Easing.cubic),
+      }),
+      Animated.timing(modalAnim, {
+        toValue: Dimensions.get('window').height,
+        duration: 350,
+        useNativeDriver: true,
+        easing: Easing.in(Easing.cubic),
+      }),
+    ]).start(() => setShowHowToMeasure(false));
+  };
 
   // Load saved photos, achievements, and measurements on component mount
   useEffect(() => {
@@ -304,408 +345,402 @@ export default function InsightsScreen() {
           }}
         />
         
-        {/* Fixed Header */}
-        <View style={[styles.headerContainer, { paddingTop: insets.top }]}>
-          <View style={styles.header}>
-            <View style={styles.headerLeft}>
-              <IconButton
-                icon="chart-box"
-                size={24}
-                style={styles.headerIcon}
-                iconColor={COLORS.text}
-              />
-              <Text variant="headlineSmall" style={[styles.headerTitle, { color: COLORS.text }]}>Insights</Text>
-            </View>
-            <View style={styles.headerRight}>
-              <Pressable style={styles.premiumButton} onPress={() => {}}>
-                <IconButton
-                  icon="crown"
-                  iconColor="#f9e009"
-                  size={26}
-                  style={styles.premiumIcon}
-                />
-                <Text style={styles.premiumText}>PREMIUM</Text>
-              </Pressable>
-            </View>
-          </View>
-          <Divider style={styles.divider} />
-        </View>
-
-        <ScrollView 
-          style={styles.scrollView} 
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ 
-            paddingTop: 100,
-            paddingBottom: 100
-          }}
-        >
-          {/* Time Period Filter and Stats Overview */}
-          <Surface style={styles.combinedStatsContainer} elevation={2}>
-            {/* Time Filters */}
-            <View style={styles.filterContainer}>
-              {TIME_FILTERS.map((filter) => (
-                <Chip
-                  key={filter.value}
-                  selected={selectedFilter === filter.value}
-                  onPress={() => setSelectedFilter(filter.value)}
-                  style={[
-                    styles.filterChip,
-                    selectedFilter === filter.value && { backgroundColor: theme.colors.primary }
-                  ]}
-                  textStyle={[
-                    styles.filterChipText,
-                    selectedFilter === filter.value && { color: '#fff' }
-                  ]}
-                >
-                  {filter.label}
-                </Chip>
-              ))}
-            </View>
-
-            <View style={styles.statsDivider} />
-
-            {/* Stats Overview */}
-            <View style={styles.statsOverview}>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>12</Text>
-                <Text style={styles.statLabel}>Number of{'\n'}Workouts</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>11</Text>
-                <Text style={styles.statLabel}>Hours at{'\n'}the Gym</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>32.9K</Text>
-                <Text style={styles.statLabel}>Total Weight{'\n'}Lifted (kg)</Text>
-              </View>
-            </View>
-          </Surface>
-
-          {/* Calendar */}
-          <Surface style={styles.calendarContainer} elevation={2}>
-            <View style={styles.calendarHeader}>
-              <View style={styles.headerLeft}>
-                <Pressable 
-                  onPress={handleTodayPress}
-                  style={({ pressed }) => [
-                    styles.todayButtonContainer,
-                    pressed && styles.todayButtonPressed
-                  ]}
-                >
-                  <Text style={styles.todayButton}>Today</Text>
-                </Pressable>
-              </View>
-              <Text style={[styles.sectionTitle, {flex: 1, paddingRight: '20%',}]}>YOUR WORKOUTS</Text>
-              <View style={styles.headerRight} />
-            </View>
-            <Calendar
-              markingType="custom"
-              key={key}
-              current={format(calendarDate, 'yyyy-MM-dd')}
-              minDate={minDate}
-              maxDate={maxDate}
-              onMonthChange={handleMonthChange}
-              markedDates={{
-                ...markedDates,
-                [format(new Date(), 'yyyy-MM-dd')]: {
-                  customStyles: {
-                    container: {
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    },
-                    text: {
-                      fontSize: 20,
-                      fontWeight: '700',
-                      color: COLORS.primary,
-                    }
-                  }
-                }
-              }}
-              enableSwipeMonths={true}
-              hideExtraDays={true}
-              onDayPress={(day: { dateString: string }) => {
-              }}
-              theme={{
-                backgroundColor: 'transparent',
-                calendarBackground: 'transparent',
-                textSectionTitleColor: COLORS.onSurface,
-                selectedDayBackgroundColor: COLORS.primary,
-                selectedDayTextColor: '#fff',
-                todayTextColor: COLORS.primary,
-                dayTextColor: COLORS.onSurface,
-                textDisabledColor: COLORS.disabled,
-                dotColor: COLORS.primary,
-                monthTextColor: COLORS.onSurface,
-                textDayFontSize: 16,
-                textMonthFontSize: 18,
-                textDayHeaderFontSize: 14,
-                todayTextFontFamily: 'System',
-                todayFontWeight: '400',
-                todayTextFontSize: 24,
-                arrowColor: COLORS.primary,
-              }}
-            />
-          </Surface>
-
-          {/* Before and After Section */}
-          <Surface style={styles.beforeAfterContainer} elevation={2}>
-            <Text style={styles.sectionTitle}>BEFORE AND AFTER</Text>
-            <View style={styles.photoComparisonContainer}>
-              {/* Before Photo */}
-              <View style={styles.photoColumn}>
-                <Pressable 
-                  onPress={() => handlePhotoPress('before')} 
-                  style={styles.photoFrame}
-                >
-                  {beforePhoto ? (
-                    <OptimizedImage 
-                      source={beforePhoto.photo_url}
-                      style={styles.photoFrame}
-                      imageStyle={styles.photo}
-                      onError={() => {
-                        console.error('Error loading before photo:', beforePhoto.photo_url);
-                        setImageLoadError(prev => ({ ...prev, before: true }));
-                      }}
+        <Animated.View style={{ flex: 1, transform: [{ scale: scaleAnim }] }}>
+          <GeneralHeader
+            title="Insights"
+            icon={<MaterialCommunityIcons name="chart-box" size={24} color={COLORS.text} />}
+            rightElement={
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Pressable style={styles.premiumButton} onPress={() => {}}>
+                  <View style={styles.premiumIconColumn}>
+                    <IconButton
+                      icon="crown"
+                      iconColor="#f9e009"
+                      size={26}
+                      style={styles.premiumIcon}
                     />
-                  ) : (
-                    <View style={[styles.addPhotoButton, isLoading && styles.disabled]}>
-                      <IconButton icon="camera-plus" size={32} iconColor={theme.colors.primary} />
-                      <Text style={[styles.addPhotoText, { color: theme.colors.primary }]}>
-                        Add Photo
-                      </Text>
-                    </View>
-                  )}
+                    <Text style={styles.premiumText}>PREMIUM</Text>
+                  </View>
                 </Pressable>
-                <Text style={styles.photoLabel}>BEFORE</Text>
-                {beforePhoto && (
-                  <Text style={styles.photoDate}>
-                    {format(new Date(beforePhoto.taken_at), 'MMMM, yyyy')}
-                  </Text>
-                )}
+              </View>
+            }
+          />
+          <ScrollView 
+            style={styles.scrollView} 
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ 
+              paddingTop: HEADER_HEIGHT + SPACING.xxl,
+              paddingBottom: 100
+            }}
+          >
+            {/* Time Period Filter and Stats Overview */}
+            <Surface style={styles.combinedStatsContainer} elevation={2}>
+              {/* Time Filters */}
+              <View style={styles.filterContainer}>
+                {TIME_FILTERS.map((filter) => (
+                  <Chip
+                    key={filter.value}
+                    selected={selectedFilter === filter.value}
+                    onPress={() => setSelectedFilter(filter.value)}
+                    style={[
+                      styles.filterChip,
+                      selectedFilter === filter.value && { backgroundColor: theme.colors.primary }
+                    ]}
+                    textStyle={[
+                      styles.filterChipText,
+                      selectedFilter === filter.value && { color: '#fff' }
+                    ]}
+                  >
+                    {filter.label}
+                  </Chip>
+                ))}
               </View>
 
-              {/* Arrow Icon */}
-              <View style={styles.arrowContainer}>
-                <View style={styles.purpleDot}>
-                  <IconButton 
-                    icon="arrow-right" 
-                    iconColor="#fff"
-                    size={20}
-                  />
+              <View style={styles.statsDivider} />
+
+              {/* Stats Overview */}
+              <View style={styles.statsOverview}>
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>12</Text>
+                  <Text style={styles.statLabel}>Number of{'\n'}Workouts</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>11</Text>
+                  <Text style={styles.statLabel}>Hours at{'\n'}the Gym</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>32.9K</Text>
+                  <Text style={styles.statLabel}>Total Weight{'\n'}Lifted (kg)</Text>
                 </View>
               </View>
+            </Surface>
 
-              {/* After Photo */}
-              <View style={styles.photoColumn}>
-                <Pressable 
-                  onPress={() => handlePhotoPress('after')} 
-                  style={styles.photoFrame}
-                >
-                  {afterPhoto ? (
-                    <OptimizedImage 
-                      source={afterPhoto.photo_url}
-                      style={styles.photoFrame}
-                      imageStyle={styles.photo}
-                      onError={() => {
-                        console.error('Error loading after photo:', afterPhoto.photo_url);
-                        setImageLoadError(prev => ({ ...prev, after: true }));
-                      }}
-                    />
-                  ) : (
-                    <View style={[styles.addPhotoButton, isLoading && styles.disabled]}>
-                      <IconButton icon="camera-plus" size={32} iconColor={theme.colors.primary} />
-                      <Text style={[styles.addPhotoText, { color: theme.colors.primary }]}>
-                        Add Photo
-                      </Text>
-                    </View>
-                  )}
-                </Pressable>
-                <Text style={styles.photoLabel}>AFTER</Text>
-                {afterPhoto && (
-                  <Text style={styles.photoDate}>
-                    {format(new Date(afterPhoto.taken_at), 'MMMM, yyyy')}
-                  </Text>
-                )}
+            {/* Calendar */}
+            <Surface style={styles.calendarContainer} elevation={2}>
+              <View style={styles.calendarHeader}>
+                <View style={{ flex: 1 }}>
+                  <Pressable 
+                    onPress={handleTodayPress}
+                    style={({ pressed }) => [
+                      styles.todayButtonContainer,
+                      pressed && styles.todayButtonPressed
+                    ]}
+                  >
+                    <Text style={styles.todayButton}>Today</Text>
+                  </Pressable>
+                </View>
+                <Text style={[styles.sectionTitle, {flex: 1, paddingRight: '20%',}]}>YOUR WORKOUTS</Text>
+                <View style={{ flex: 1 }} />
               </View>
-            </View>
-          </Surface>
-
-          {/* Achievements Section */}
-          <Surface style={styles.achievementsContainer} elevation={2}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.headerSide} />
-              <View style={styles.titleContainer}>
-                <Text style={styles.sectionTitle}>ACHIEVEMENTS</Text>
-              </View>
-              <View style={styles.headerSide}>
-                <Button
-                  mode="text"
-                  textColor="#6B4EFF"
-                  style={styles.moreButton}
-                  labelStyle={styles.moreButtonLabel}
-                  onPress={() => router.push('/achievements')}
-                >
-                  More
-                </Button>
-              </View>
-            </View>
-            <View style={styles.achievementsGrid}>
-              {achievementsLoading ? (
-                <ActivityIndicator size="small" color={theme.colors.primary} />
-              ) : completedAchievements.length > 0 || randomAchievements.length > 0 ? (
-                <>
-                  {completedAchievements.map((userAchievement) => (
-                    <Pressable
-                      key={userAchievement.id}
-                      style={styles.achievementCard}
-                      onPress={() => handleAchievementPress(userAchievement)}
-                    >
-                      <View style={styles.achievementContent}>
-                        <View style={styles.achievementIconContainer}>
-                          <IconButton
-                            icon={userAchievement.achievement?.icon || 'trophy'}
-                            size={24}
-                            iconColor="#f9e009"
-                          />
-                        </View>
-                        <Text style={styles.achievementLabel}>
-                          {userAchievement.achievement?.title}
-                        </Text>
-                        {userAchievement.completed_at && (
-                          <Text style={styles.achievementDate}>
-                            {format(new Date(userAchievement.completed_at), 'MMM dd, yyyy')}
-                          </Text>
-                        )}
-                      </View>
-                    </Pressable>
-                  ))}
-                  {randomAchievements.map((achievement) => (
-                    <Pressable
-                      key={achievement.id}
-                      style={[styles.achievementCard, styles.achievementLocked]}
-                      onPress={() => setSelectedAchievement(achievement)}
-                    >
-                      <View style={styles.achievementContent}>
-                        <View style={[styles.achievementIconContainer, styles.achievementIconLocked]}>
-                          <IconButton
-                            icon={achievement.icon || 'trophy'}
-                            size={24}
-                            iconColor="#666"
-                          />
-                        </View>
-                        <Text style={[styles.achievementLabel, styles.achievementTextLocked]}>
-                          {achievement.title}
-                        </Text>
-                        <Text style={[styles.achievementDate, styles.achievementTextLocked]}>
-                          Not completed yet
-                        </Text>
-                      </View>
-                    </Pressable>
-                  ))}
-                </>
-              ) : (
-                <Text style={styles.noAchievementsText}>No achievements completed yet</Text>
-              )}
-            </View>
-          </Surface>
-
-          {/* Measurements Section */}
-          <Surface style={styles.measurementsContainer} elevation={2}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.headerSide} />
-              <View style={styles.titleContainer}>
-                <Text style={styles.sectionTitle}>MEASUREMENTS</Text>
-                <IconButton
-                  icon="information"
-                  iconColor="#fff"
-                  size={20}
-                  onPress={() => setShowHowToMeasure(true)}
-                  style={styles.infoIcon}
-                />
-              </View>
-              <View style={styles.headerSide} />
-            </View>
-
-            {measurementsLoading ? (
-              <ActivityIndicator size="small" color={theme.colors.primary} />
-            ) : (
-              <MeasurementsGraph
-                measurements={measurements}
-                onMeasurementPress={handleMeasurementPress}
+              <Calendar
+                markingType="custom"
+                key={key}
+                current={format(calendarDate, 'yyyy-MM-dd')}
+                minDate={minDate}
+                maxDate={maxDate}
+                onMonthChange={handleMonthChange}
+                markedDates={{
+                  ...markedDates,
+                  [format(new Date(), 'yyyy-MM-dd')]: {
+                    customStyles: {
+                      container: {
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      },
+                      text: {
+                        fontSize: 20,
+                        fontWeight: '700',
+                        color: COLORS.primary,
+                      }
+                    }
+                  }
+                }}
+                enableSwipeMonths={true}
+                hideExtraDays={true}
+                onDayPress={(day: { dateString: string }) => {
+                }}
+                theme={{
+                  backgroundColor: 'transparent',
+                  calendarBackground: 'transparent',
+                  textSectionTitleColor: COLORS.onSurface,
+                  selectedDayBackgroundColor: COLORS.primary,
+                  selectedDayTextColor: '#fff',
+                  todayTextColor: COLORS.primary,
+                  dayTextColor: COLORS.onSurface,
+                  textDisabledColor: COLORS.disabled,
+                  dotColor: COLORS.primary,
+                  monthTextColor: COLORS.onSurface,
+                  textDayFontSize: 16,
+                  textMonthFontSize: 18,
+                  textDayHeaderFontSize: 14,
+                  todayTextFontFamily: 'System',
+                  todayFontWeight: '400',
+                  todayTextFontSize: 24,
+                  arrowColor: COLORS.primary,
+                }}
               />
-            )}
-          </Surface>
+            </Surface>
 
-          {/* Exercise Graphs Section */}
-          <ExerciseGraphs
-            exercises={exercises}
-            onAddExercise={handleAddExercise}
-            onExercisePress={handleExercisePress}
-            onSetGoal={handleSetGoal}
-            onDeleteExercise={handleDeleteExercise}
-          />
+            {/* Before and After Section */}
+            <Surface style={styles.beforeAfterContainer} elevation={2}>
+              <Text style={styles.sectionTitle}>BEFORE AND AFTER</Text>
+              <View style={styles.photoComparisonContainer}>
+                {/* Before Photo */}
+                <View style={styles.photoColumn}>
+                  <Pressable 
+                    onPress={() => handlePhotoPress('before')} 
+                    style={styles.photoFrame}
+                  >
+                    {beforePhoto ? (
+                      <OptimizedImage 
+                        source={beforePhoto.photo_url}
+                        style={styles.photoFrame}
+                        imageStyle={styles.photo}
+                        onError={() => {
+                          console.error('Error loading before photo:', beforePhoto.photo_url);
+                          setImageLoadError(prev => ({ ...prev, before: true }));
+                        }}
+                      />
+                    ) : (
+                      <View style={[styles.addPhotoButton, isLoading && styles.disabled]}>
+                        <IconButton icon="camera-plus" size={32} iconColor={theme.colors.primary} />
+                        <Text style={[styles.addPhotoText, { color: theme.colors.primary }]}>
+                          Add Photo
+                        </Text>
+                      </View>
+                    )}
+                  </Pressable>
+                  <Text style={styles.photoLabel}>BEFORE</Text>
+                  {beforePhoto && (
+                    <Text style={styles.photoDate}>
+                      {format(new Date(beforePhoto.taken_at), 'MMMM, yyyy')}
+                    </Text>
+                  )}
+                </View>
 
-          {/* Achievement Modal */}
-          <Modal
-            visible={!!selectedAchievement}
-            transparent={true}
-            animationType="fade"
-            onRequestClose={() => setSelectedAchievement(null)}
-          >
-            <Pressable 
-              style={styles.modalOverlay}
-              onPress={() => setSelectedAchievement(null)}
-            >
-              <View style={styles.modalContainer}>
-                <Pressable style={styles.modalContent}>
-                  <View style={styles.modalHeader}>
-                    <IconButton
-                      icon="close"
+                {/* Arrow Icon */}
+                <View style={styles.arrowContainer}>
+                  <View style={styles.purpleDot}>
+                    <IconButton 
+                      icon="arrow-right" 
                       iconColor="#fff"
-                      size={24}
-                      style={styles.closeButton}
-                      onPress={() => setSelectedAchievement(null)}
+                      size={20}
                     />
                   </View>
-                  
-                  {selectedAchievement && (
-                    <View style={styles.achievementDetail}>
-                      <View style={[styles.achievementIconLarge, { backgroundColor: selectedAchievement.icon_background_color }]}>
-                        <IconButton
-                          icon={selectedAchievement.icon}
-                          size={40}
-                          iconColor="#000"
-                        />
+                </View>
+
+                {/* After Photo */}
+                <View style={styles.photoColumn}>
+                  <Pressable 
+                    onPress={() => handlePhotoPress('after')} 
+                    style={styles.photoFrame}
+                  >
+                    {afterPhoto ? (
+                      <OptimizedImage 
+                        source={afterPhoto.photo_url}
+                        style={styles.photoFrame}
+                        imageStyle={styles.photo}
+                        onError={() => {
+                          console.error('Error loading after photo:', afterPhoto.photo_url);
+                          setImageLoadError(prev => ({ ...prev, after: true }));
+                        }}
+                      />
+                    ) : (
+                      <View style={[styles.addPhotoButton, isLoading && styles.disabled]}>
+                        <IconButton icon="camera-plus" size={32} iconColor={theme.colors.primary} />
+                        <Text style={[styles.addPhotoText, { color: theme.colors.primary }]}>
+                          Add Photo
+                        </Text>
                       </View>
-                      <Text style={styles.achievementTitle}>{selectedAchievement.title}</Text>
-                      <Text style={styles.achievementDescription}>{selectedAchievement.description}</Text>
-                      {selectedAchievement.total_progress && (
-                        <Text style={styles.achievementProgress}>
-                          Progress: {completedAchievements.find(a => a.achievement?.id === selectedAchievement.id)?.current_progress || 0}/{selectedAchievement.total_progress}
-                        </Text>
-                      )}
-                      {completedAchievements.find(a => a.achievement?.id === selectedAchievement.id)?.completed_at && (
-                        <Text style={styles.achievementDate}>
-                          Completed on {format(new Date(completedAchievements.find(a => a.achievement?.id === selectedAchievement.id)?.completed_at!), 'MMM dd, yyyy')}
-                        </Text>
-                      )}
-                      <Button
-                        mode="contained"
-                        style={styles.shareButton}
-                        labelStyle={styles.shareButtonLabel}
-                        onPress={() => {}}
-                      >
-                        Share
-                      </Button>
-                    </View>
+                    )}
+                  </Pressable>
+                  <Text style={styles.photoLabel}>AFTER</Text>
+                  {afterPhoto && (
+                    <Text style={styles.photoDate}>
+                      {format(new Date(afterPhoto.taken_at), 'MMMM, yyyy')}
+                    </Text>
                   )}
-                </Pressable>
+                </View>
               </View>
-            </Pressable>
-          </Modal>
-        </ScrollView>
+            </Surface>
+
+            {/* Achievements Section */}
+            <Surface style={styles.achievementsContainer} elevation={2}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.headerSide} />
+                <View style={styles.titleContainer}>
+                  <Text style={styles.sectionTitle}>ACHIEVEMENTS</Text>
+                </View>
+                <View style={styles.headerSide}>
+                  <Button
+                    mode="text"
+                    textColor="#6B4EFF"
+                    style={styles.moreButton}
+                    labelStyle={styles.moreButtonLabel}
+                    onPress={() => router.push('/achievements')}
+                  >
+                    More
+                  </Button>
+                </View>
+              </View>
+              <View style={styles.achievementsGrid}>
+                {achievementsLoading ? (
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                ) : completedAchievements.length > 0 || randomAchievements.length > 0 ? (
+                  <>
+                    {completedAchievements.map((userAchievement) => (
+                      <Pressable
+                        key={userAchievement.id}
+                        style={styles.achievementCard}
+                        onPress={() => handleAchievementPress(userAchievement)}
+                      >
+                        <View style={styles.achievementContent}>
+                          <View style={styles.achievementIconContainer}>
+                            <IconButton
+                              icon={userAchievement.achievement?.icon || 'trophy'}
+                              size={24}
+                              iconColor="#f9e009"
+                            />
+                          </View>
+                          <Text style={styles.achievementLabel}>
+                            {userAchievement.achievement?.title}
+                          </Text>
+                          {userAchievement.completed_at && (
+                            <Text style={styles.achievementDate}>
+                              {format(new Date(userAchievement.completed_at), 'MMM dd, yyyy')}
+                            </Text>
+                          )}
+                        </View>
+                      </Pressable>
+                    ))}
+                    {randomAchievements.map((achievement) => (
+                      <Pressable
+                        key={achievement.id}
+                        style={[styles.achievementCard, styles.achievementLocked]}
+                        onPress={() => setSelectedAchievement(achievement)}
+                      >
+                        <View style={styles.achievementContent}>
+                          <View style={[styles.achievementIconContainer, styles.achievementIconLocked]}>
+                            <IconButton
+                              icon={achievement.icon || 'trophy'}
+                              size={24}
+                              iconColor="#666"
+                            />
+                          </View>
+                          <Text style={[styles.achievementLabel, styles.achievementTextLocked]}>
+                            {achievement.title}
+                          </Text>
+                          <Text style={[styles.achievementDate, styles.achievementTextLocked]}>
+                            Not completed yet
+                          </Text>
+                        </View>
+                      </Pressable>
+                    ))}
+                  </>
+                ) : (
+                  <Text style={styles.noAchievementsText}>No achievements completed yet</Text>
+                )}
+              </View>
+            </Surface>
+
+            {/* Measurements Section */}
+            <Surface style={styles.measurementsContainer} elevation={2}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.headerSide} />
+                <View style={styles.titleContainer}>
+                  <Text style={styles.sectionTitle}>MEASUREMENTS</Text>
+                  <IconButton
+                    icon="information"
+                    iconColor="#fff"
+                    size={20}
+                    onPress={openHowToMeasure}
+                    style={styles.infoIcon}
+                  />
+                </View>
+                <View style={styles.headerSide} />
+              </View>
+
+              {measurementsLoading ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : (
+                <MeasurementsGraph
+                  measurements={measurements}
+                  onMeasurementPress={handleMeasurementPress}
+                />
+              )}
+            </Surface>
+
+            {/* Exercise Graphs Section */}
+            <ExerciseGraphs
+              exercises={exercises}
+              onAddExercise={handleAddExercise}
+              onExercisePress={handleExercisePress}
+              onSetGoal={handleSetGoal}
+              onDeleteExercise={handleDeleteExercise}
+            />
+
+            {/* Achievement Modal */}
+            <Modal
+              visible={!!selectedAchievement}
+              transparent={true}
+              animationType="fade"
+              onRequestClose={() => setSelectedAchievement(null)}
+            >
+              <Pressable 
+                style={styles.modalOverlay}
+                onPress={() => setSelectedAchievement(null)}
+              >
+                <View style={styles.modalContainer}>
+                  <Pressable style={styles.modalContent}>
+                    <View style={styles.modalHeader}>
+                      <IconButton
+                        icon="close"
+                        iconColor="#fff"
+                        size={24}
+                        style={styles.closeButton}
+                        onPress={() => setSelectedAchievement(null)}
+                      />
+                    </View>
+                    
+                    {selectedAchievement && (
+                      <View style={styles.achievementDetail}>
+                        <View style={[styles.achievementIconLarge, { backgroundColor: selectedAchievement.icon_background_color }]}>
+                          <IconButton
+                            icon={selectedAchievement.icon}
+                            size={40}
+                            iconColor="#000"
+                          />
+                        </View>
+                        <Text style={styles.achievementTitle}>{selectedAchievement.title}</Text>
+                        <Text style={styles.achievementDescription}>{selectedAchievement.description}</Text>
+                        {selectedAchievement.total_progress && (
+                          <Text style={styles.achievementProgress}>
+                            Progress: {completedAchievements.find(a => a.achievement?.id === selectedAchievement.id)?.current_progress || 0}/{selectedAchievement.total_progress}
+                          </Text>
+                        )}
+                        {completedAchievements.find(a => a.achievement?.id === selectedAchievement.id)?.completed_at && (
+                          <Text style={styles.achievementDate}>
+                            Completed on {format(new Date(completedAchievements.find(a => a.achievement?.id === selectedAchievement.id)?.completed_at!), 'MMM dd, yyyy')}
+                          </Text>
+                        )}
+                        <Button
+                          mode="contained"
+                          style={styles.shareButton}
+                          labelStyle={styles.shareButtonLabel}
+                          onPress={() => {}}
+                        >
+                          Share
+                        </Button>
+                      </View>
+                    )}
+                  </Pressable>
+                </View>
+              </Pressable>
+            </Modal>
+          </ScrollView>
+        </Animated.View>
 
         {/* Measurement Modal */}
         <MeasurementModal
@@ -721,7 +756,8 @@ export default function InsightsScreen() {
 
         <HowToMeasureModal
           visible={showHowToMeasure}
-          onClose={() => setShowHowToMeasure(false)}
+          onClose={closeHowToMeasure}
+          modalAnim={modalAnim}
         />
 
         {/* Exercise Graph Modal */}
@@ -762,54 +798,7 @@ const getMeasurementIcon = (category: MeasurementCategory): string => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 30,
     backgroundColor: COLORS.background,
-  },
-  headerContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 100,
-    backgroundColor: COLORS.background,
-    ...Platform.select({
-      ios: {
-        shadowColor: COLORS.primary,
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.3,
-        shadowRadius: 10,
-      },
-      android: {
-        elevation: 10,
-      },
-    }),
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.md,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerIcon: {
-    backgroundColor: COLORS.primary,
-    margin: 0,
-  },
-  headerTitle: {
-    marginLeft: SPACING.sm,
-    fontWeight: '600',
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  divider: {
-    backgroundColor: '#333',
-    height: 1,
   },
   scrollView: {
     flex: 1,
@@ -1297,5 +1286,9 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: 'bold',
     marginTop: -10,
+  },
+  premiumIconColumn: {
+    flexDirection: 'column',
+    alignItems: 'center',
   },
 }); 

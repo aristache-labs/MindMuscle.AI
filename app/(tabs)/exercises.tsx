@@ -1,11 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { StyleSheet, View, Image, TouchableOpacity, SafeAreaView, StatusBar, ViewStyle, GestureResponderEvent, Animated, Modal, Pressable, Platform } from 'react-native';
 import { Text, IconButton, Surface, Divider } from 'react-native-paper';
-import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
+import { COLORS, SPACING, BORDER_RADIUS, HEADER_HEIGHT } from '../constants/theme';
 import Timer from '../components/timer';
 import OptimizedImage from '../components/OptimizedImage';
 import { useImagePreloader } from '../hooks/useImagePreloader';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GeneralHeader } from '../components/GeneralHeader';
+import { MaterialIcons } from '@expo/vector-icons';
 
 interface MuscleGroup {
   id: number;
@@ -213,41 +215,26 @@ export default function ExercisesScreen() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
-      
-      {/* Fixed Header */}
-      <View style={[styles.headerContainer, { paddingTop: insets.top }]}>
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <IconButton
-              icon="dumbbell"
-              size={24}
-              style={styles.headerIcon}
-              iconColor={COLORS.text}
-            />
-            <Text variant="headlineSmall" style={[styles.headerTitle, { color: COLORS.text }]}>Exercises</Text>
-          </View>
-          <View style={styles.headerRight}>
-            <IconButton
-              icon="star-outline"
-              iconColor="#f9e009"
-              size={28}
-              style={styles.starIcon}
-              onPress={() => {}}
-            />
+      <GeneralHeader
+        title="Exercises"
+        icon={<MaterialIcons name="fitness-center" size={24} color={COLORS.text} />}
+        rightElement={
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <Pressable style={styles.premiumButton} onPress={() => {}}>
-              <IconButton
-                icon="crown"
-                iconColor="#f9e009"
-                size={26}
-                style={styles.premiumIcon}
-              />
-              <Text style={styles.premiumText}>PREMIUM</Text>
+              <View style={styles.premiumIconColumn}>
+                <IconButton
+                  icon="crown"
+                  iconColor="#f9e009"
+                  size={26}
+                  style={styles.premiumIcon}
+                />
+                <Text style={styles.premiumText}>PREMIUM</Text>
+              </View>
             </Pressable>
           </View>
-        </View>
-        <Divider style={styles.divider} />
-      </View>
-
+        }
+      />
+      
       {/* Timer Modal */}
       <Modal
         animationType="slide"
@@ -262,7 +249,7 @@ export default function ExercisesScreen() {
 
       {/* Body Model Container */}
       <View 
-        style={[styles.bodyModelContainer, { paddingTop: 100 }]}
+        style={[styles.bodyModelContainer, { paddingTop: HEADER_HEIGHT }]}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
@@ -369,76 +356,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  headerContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 100,
-    backgroundColor: COLORS.background,
-    ...Platform.select({
-      ios: {
-        shadowColor: COLORS.primary,
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.3,
-        shadowRadius: 10,
-      },
-      android: {
-        elevation: 10,
-      },
-    }),
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.md,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerIcon: {
-    backgroundColor: COLORS.primary,
-    margin: 0,
-  },
-  headerTitle: {
-    marginLeft: SPACING.sm,
-    fontWeight: '600',
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  divider: {
-    backgroundColor: '#333',
-    height: 1,
-  },
-  starIcon: {
-    margin: 0,
-    marginRight: 10,
-    paddingTop: 10,
-    transform: [{ scale: 1.3 }],
-  },
-  premiumButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 20,
-
-  },
-  premiumIcon: {
-    margin: 0,
-    marginTop: 0,
-    marginLeft: 0,
-  },
-  premiumText: {
-    color: '#f9e009',
-    fontSize: 10,
-    fontWeight: 'bold',
-    marginTop: -10,
-  },
   bodyModelContainer: {
     flex: 1,
     alignItems: 'center',
@@ -528,5 +445,25 @@ const styles = StyleSheet.create({
   modalContainer: {
     flex: 1,
     backgroundColor: '#181a20',
+  },
+  premiumButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 20,
+  },
+  premiumIcon: {
+    margin: 0,
+    marginTop: 0,
+    marginLeft: 0,
+  },
+  premiumIconColumn: {
+    flexDirection: 'column',
+    alignItems: 'center',
+  },
+  premiumText: {
+    color: '#f9e009',
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginTop: -10,
   },
 }); 

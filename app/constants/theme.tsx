@@ -50,6 +50,8 @@ export const BORDER_RADIUS = {
   round: 999,
 };
 
+export const HEADER_HEIGHT = SPACING.xxl * 1.5 + SPACING.xs + 1; // 1 for divider height
+
 const darkTheme = {
   ...MD3DarkTheme,
   colors: {

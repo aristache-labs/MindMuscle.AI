@@ -1,12 +1,14 @@
 import React from 'react';
 import { StyleSheet, View, ScrollView, ImageBackground, ImageSourcePropType, Platform, Pressable } from 'react-native';
 import { Text, Chip, IconButton, Surface, Divider } from 'react-native-paper';
-import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
+import { COLORS, SPACING, BORDER_RADIUS, HEADER_HEIGHT } from '../constants/theme';
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
 import OptimizedImage from '../components/OptimizedImage';
 import { useImagePreloader } from '../hooks/useImagePreloader';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GeneralHeader } from '../components/GeneralHeader';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 interface ExerciseCard {
   id: string;
@@ -99,40 +101,32 @@ export default function DiscoverScreen() {
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-      
-      {/* Fixed Header */}
-      <View style={[styles.headerContainer, { paddingTop: insets.top }]}>
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <IconButton
-              icon="compass"
-              size={24}
-              style={styles.headerIcon}
-              iconColor={COLORS.text}
-            />
-            <Text variant="headlineSmall" style={[styles.headerTitle, { color: COLORS.text }]}>Discover</Text>
-          </View>
-          <View style={styles.headerRight}>
+      <GeneralHeader
+        title="Discover"
+        icon={<MaterialCommunityIcons name="compass" size={24} color={COLORS.text} />}
+        rightElement={
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <Pressable style={styles.premiumButton} onPress={() => {}}>
-              <IconButton
-                icon="crown"
-                iconColor="#f9e009"
-                size={26}
-                style={styles.premiumIcon}
-              />
-              <Text style={styles.premiumText}>PREMIUM</Text>
+              <View style={styles.premiumIconColumn}>
+                <IconButton
+                  icon="crown"
+                  iconColor="#f9e009"
+                  size={26}
+                  style={styles.premiumIcon}
+                />
+                <Text style={styles.premiumText}>PREMIUM</Text>
+              </View>
             </Pressable>
           </View>
-        </View>
-        <Divider style={styles.divider} />
-      </View>
+        }
 
+      />
       <ScrollView 
         style={styles.content} 
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.exerciseList, { paddingTop: 100 }]}
+        contentContainerStyle={[styles.exerciseList, { paddingTop: HEADER_HEIGHT }]}
       >
-        <View style={styles.filtersContainer}>
+        <View style={[styles.filtersContainer, { paddingVertical: 4 }]}>
           <View style={styles.filters}>
             {['Beginner', 'Intermediate', 'Advanced'].map((filter) => (
               <Chip
@@ -153,7 +147,6 @@ export default function DiscoverScreen() {
             ))}
           </View>
         </View>
-        
         {exerciseData.map((exercise) => (
           <ExerciseCard key={exercise.id} {...exercise} />
         ))}
@@ -166,83 +159,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
-    paddingTop: 50,
-  },
-  headerContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 100,
-    backgroundColor: COLORS.background,
-    ...Platform.select({
-      ios: {
-        shadowColor: COLORS.primary,
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.3,
-        shadowRadius: 10,
-      },
-      android: {
-        elevation: 10,
-      },
-    }),
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.md,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerIcon: {
-    backgroundColor: COLORS.primary,
-    margin: 0,
-  },
-  headerTitle: {
-    marginLeft: SPACING.sm,
-    fontWeight: '600',
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  divider: {
-    backgroundColor: '#333',
-    height: 1,
-  },
-  premiumButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 20,
-  },
-  premiumIcon: {
-    margin: 0,
-    marginTop: 0,
-    marginLeft: 0,
-  },
-  premiumText: {
-    color: '#f9e009',
-    fontSize: 10,
-    fontWeight: 'bold',
-    marginTop: -10,
-  },
-  filtersContainer: {
-    backgroundColor: COLORS.background,
-    paddingVertical: 10,
-  },
-  filters: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    gap: 8,
   },
   content: {
     flex: 1,
+    paddingTop: 60,
   },
   exerciseList: {
     padding: 16,
@@ -303,5 +223,39 @@ const styles = StyleSheet.create({
   },
   filterChipTextSelected: {
     color: 'white',
+  },
+  premiumButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 20,
+  },
+  premiumIcon: {
+    margin: 0,
+    marginTop: 0,
+    marginLeft: 0,
+  },
+  premiumText: {
+    color: '#f9e009',
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginTop: -10,
+  },
+  filtersContainer: {
+    backgroundColor: COLORS.background,
+    paddingVertical: 10,
+  },
+  filters: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  premiumIconColumn: {
+    flexDirection: 'column',
+    alignItems: 'center',
+  },
+  starIcon: {
+    marginRight: 8,
   },
 }); 

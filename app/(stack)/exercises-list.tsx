@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
-import { StyleSheet, View, FlatList, TouchableOpacity, TextInput, Animated, TouchableWithoutFeedback, Dimensions, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, FlatList, SectionList, TouchableOpacity, TextInput, Animated, TouchableWithoutFeedback, Dimensions, ActivityIndicator } from 'react-native';
 import { Text, IconButton, Divider } from 'react-native-paper';
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -36,6 +36,28 @@ const CATEGORY_NAMES = {
   'Hamstrings': 'HAMSTRINGS',
   'Calves': 'CALVES',
   'all': 'ALL EXERCISES'
+};
+
+// Interface for section data
+interface ExerciseSection {
+  title: string;
+  data: Exercise[];
+}
+
+// Map of alternative names for muscle groups to support better search
+const MUSCLE_GROUP_ALIASES: Record<string, string[]> = {
+  'Chest': ['pecs', 'pectorals', 'chest muscles'],
+  'Biceps': ['bis', 'guns', 'arms'],
+  'Triceps': ['tris', 'back of arms'],
+  'Abs': ['abdominals', 'six pack', 'core', 'stomach', 'midsection'],
+  'Shoulders': ['delts', 'deltoids'],
+  'Lats': ['latissimus dorsi', 'wings', 'back'],
+  'Quads': ['quadriceps', 'front thighs'],
+  'Hamstrings': ['hammies', 'back thighs'],
+  'Glutes': ['gluteus maximus', 'butt', 'buttocks'],
+  'Calves': ['calf muscles', 'lower legs'],
+  'Forearms': ['lower arms'],
+  'Traps': ['trapezius', 'upper back'],
 };
 
 export default function ExercisesListScreen() {
@@ -92,16 +114,18 @@ export default function ExercisesListScreen() {
         setLoading(true);
         setError(null);
         
-        // Fetch exercises for the current muscle group category
-        const exercisesData = await exerciseService.getExercisesByCategory(currentCategory);
-        setExercises(exercisesData);
+        // Always fetch all exercises for potential search and categorization
+        const allExercisesData = await exerciseService.getExercisesByCategory('all');
+        setAllExercises(allExercisesData);
         
-        // Fetch all exercises for global search
+        // If a specific category is selected, filter the exercises
         if (currentCategory !== 'all') {
-          const allExercisesData = await exerciseService.getExercisesByCategory('all');
-          setAllExercises(allExercisesData);
+          const categoryExercises = allExercisesData.filter(
+            ex => ex.muscle_group === currentCategory
+          );
+          setExercises(categoryExercises);
         } else {
-          setAllExercises(exercisesData);
+          setExercises(allExercisesData);
         }
         
         // Fetch favorite exercises to mark which ones are favorites
@@ -119,9 +143,26 @@ export default function ExercisesListScreen() {
     loadExercises();
   }, [currentCategory]);
   
+  // Check if search query matches a muscle group or its aliases
+  const matchesMuscleGroup = useCallback((exercise: Exercise, query: string): boolean => {
+    // Check direct match with exercise muscle_group (case insensitive)
+    if (exercise.muscle_group && exercise.muscle_group.toLowerCase().includes(query)) {
+      return true;
+    }
+    
+    // Check match through aliases
+    if (exercise.muscle_group) {
+      const aliases = MUSCLE_GROUP_ALIASES[exercise.muscle_group as ExerciseCategory] || [];
+      return aliases.some(alias => alias.toLowerCase().includes(query));
+    }
+    
+    return false;
+  }, []);
+  
   // Filter exercises based on favorite state and search query
   const displayedExercises = useMemo(() => {
     // Determine which set of exercises to use based on search
+    // Always use all exercises when searching
     const exercisesToFilter = searchQuery.trim() ? allExercises : exercises;
     
     // First filter by favorites if needed
@@ -135,12 +176,41 @@ export default function ExercisesListScreen() {
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
       filteredExercises = filteredExercises.filter(ex => 
-        ex.name.toLowerCase().includes(query)
+        // Check if the name includes query
+        ex.name.toLowerCase().includes(query) ||
+        // Check if the muscle group matches query
+        matchesMuscleGroup(ex, query)
       );
     }
     
     return filteredExercises;
-  }, [exercises, allExercises, favoriteIds, showFavoritesOnly, searchQuery]);
+  }, [exercises, allExercises, favoriteIds, showFavoritesOnly, searchQuery, matchesMuscleGroup]);
+
+  // Group exercises by muscle category for section list
+  const exerciseSections = useMemo(() => {
+    // Create a map of categories to exercises
+    const categoryMap: Record<string, Exercise[]> = {};
+    
+    // Group exercises by their muscle groups
+    displayedExercises.forEach(exercise => {
+      const category = exercise.muscle_group || 'Other';
+      if (!categoryMap[category]) {
+        categoryMap[category] = [];
+      }
+      categoryMap[category].push(exercise);
+    });
+    
+    // Convert map to array of sections
+    const sections: ExerciseSection[] = Object.entries(categoryMap)
+      .filter(([_, exercises]) => exercises.length > 0) // Only include non-empty categories
+      .map(([category, exercises]) => ({
+        title: CATEGORY_NAMES[category as ExerciseCategory] || category.toUpperCase(),
+        data: exercises
+      }))
+      .sort((a, b) => a.title.localeCompare(b.title)); // Sort alphabetically by category name
+    
+    return sections;
+  }, [displayedExercises]);
 
   const toggleFavorite = useCallback(async (id: string) => {
     try {
@@ -235,6 +305,40 @@ export default function ExercisesListScreen() {
     router.replace('/(tabs)/exercises');
   };
 
+  // Render a row of two exercise cards for SectionList
+  const renderSectionRow = (items: Exercise[]) => {
+    // Create a row with up to two exercise cards
+    const row = items.map(item => (
+      <ExerciseCard
+        key={item.id}
+        id={item.id}
+        name={item.name}
+        image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE}
+        isFavorite={favoriteIds.has(item.id)}
+        onPress={() => handleExercisePress(item.id)}
+        onToggleFavorite={() => toggleFavorite(item.id)}
+      />
+    ));
+    
+    // If odd number of items, add an empty view to maintain grid layout
+    if (items.length === 1) {
+      row.push(<View key="empty" style={styles.emptyCardSpace} />);
+    }
+    
+    return (
+      <View style={styles.columnWrapper}>
+        {row}
+      </View>
+    );
+  };
+
+  // Render section header for SectionList
+  const renderSectionHeader = ({ section }: { section: ExerciseSection }) => (
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionTitle}>{section.title}</Text>
+    </View>
+  );
+
   const renderContent = () => {
     if (loading) {
       return (
@@ -260,46 +364,91 @@ export default function ExercisesListScreen() {
       );
     }
 
-    return (
-      <Animated.View style={{ paddingTop: contentOffsetAnim }}>
-        <FlatList
-          data={displayedExercises}
-          renderItem={({ item }) => (
-            <ExerciseCard
-              id={item.id}
-              name={item.name}
-              image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE}
-              isFavorite={favoriteIds.has(item.id)}
-              onPress={() => handleExercisePress(item.id)}
-              onToggleFavorite={() => toggleFavorite(item.id)}
-            />
-          )}
-          keyExtractor={item => item.id}
-          numColumns={2}
-          columnWrapperStyle={styles.columnWrapper}
-          contentContainerStyle={styles.listContent}
-          ListHeaderComponent={
-            <View style={styles.categoryTitleContainer}>
-              <Text style={styles.categoryTitle}>
-                {CATEGORY_NAMES[currentCategory] || 'EXERCISES'}
-              </Text>
-            </View>
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <MaterialIcons name="search-off" size={48} color="rgba(255,255,255,0.5)" />
-              <Text style={styles.emptyText}>
-                {searchQuery.trim() 
-                  ? "No exercises match your search" 
-                  : showFavoritesOnly 
-                    ? "No favorite exercises yet" 
-                    : "No exercises available"}
-              </Text>
-            </View>
-          }
-        />
-      </Animated.View>
-    );
+    // Show categorized list for "all" or search, else show flat list
+    if ((currentCategory === 'all' || searchQuery.trim() !== '')) {
+      return (
+        <Animated.View style={{ paddingTop: contentOffsetAnim }}>
+          <SectionList
+            sections={exerciseSections}
+            keyExtractor={(item) => item.id}
+            stickySectionHeadersEnabled={false}
+            renderSectionHeader={renderSectionHeader}
+            contentContainerStyle={styles.listContent}
+            renderItem={({ section, index, item }) => {
+              // Process items in pairs for the two-column layout
+              if (index % 2 === 0) {
+                const nextItem = section.data[index + 1];
+                const rowItems = nextItem ? [item, nextItem] : [item];
+                return renderSectionRow(rowItems);
+              }
+              // Skip odd indices as they're handled with the even indices
+              return null;
+            }}
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <MaterialIcons name="search-off" size={48} color="rgba(255,255,255,0.5)" />
+                <Text style={styles.emptyText}>
+                  {searchQuery.trim() 
+                    ? "No exercises match your search" 
+                    : showFavoritesOnly 
+                      ? "No favorite exercises yet" 
+                      : "No exercises available"}
+                </Text>
+              </View>
+            }
+          />
+        </Animated.View>
+      );
+    } else {
+      // For specific category view, use FlatList
+      return (
+        <Animated.View style={{ paddingTop: contentOffsetAnim }}>
+          <FlatList
+            data={displayedExercises}
+            renderItem={({ item }) => (
+              <ExerciseCard
+                id={item.id}
+                name={item.name}
+                image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE}
+                isFavorite={favoriteIds.has(item.id)}
+                onPress={() => handleExercisePress(item.id)}
+                onToggleFavorite={() => toggleFavorite(item.id)}
+              />
+            )}
+            keyExtractor={item => item.id}
+            numColumns={2}
+            columnWrapperStyle={styles.columnWrapper}
+            contentContainerStyle={styles.listContent}
+            ListHeaderComponent={
+              // Only show category title when not searching
+              !searchQuery.trim() ? (
+                <View style={styles.categoryTitleContainer}>
+                  <Text style={styles.categoryTitle}>
+                    {CATEGORY_NAMES[currentCategory] || 'EXERCISES'}
+                  </Text>
+                </View>
+              ) : searchQuery.trim() ? (
+                <View style={styles.categoryTitleContainer}>
+                  
+                </View>
+              ) : null
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <MaterialIcons name="search-off" size={48} color="rgba(255,255,255,0.5)" />
+                <Text style={styles.emptyText}>
+                  {searchQuery.trim() 
+                    ? "No exercises match your search" 
+                    : showFavoritesOnly 
+                      ? "No favorite exercises yet" 
+                      : "No exercises available"}
+                </Text>
+              </View>
+            }
+          />
+        </Animated.View>
+      );
+    }
   };
 
   return (
@@ -362,7 +511,7 @@ export default function ExercisesListScreen() {
             <TextInput
               ref={searchInputRef}
               style={styles.searchInput}
-              placeholder="Search exercises..."
+              placeholder="Search exercises or muscle groups..."
               placeholderTextColor="rgba(255,255,255,0.5)"
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -429,7 +578,7 @@ const styles = StyleSheet.create({
     left: 16,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgb(70, 70, 70)',
+    backgroundColor: 'rgba(108, 71, 255, 0.3)',
     flexDirection: 'row',
     alignItems: 'center',
     zIndex: 100,
@@ -461,11 +610,13 @@ const styles = StyleSheet.create({
   listContent: {
     padding: 16,
     paddingTop: 6,
+    paddingBottom: 110,
     flexGrow: 1,
   },
   columnWrapper: {
     justifyContent: 'space-between',
     marginBottom: 12,
+    flexDirection: 'row',
   },
   emptyContainer: {
     flex: 1,
@@ -513,10 +664,33 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   categoryTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.7)',
     marginBottom: 10,
     textAlign: 'center',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  // Section header styles
+  sectionHeader: {
+    paddingVertical: 10,
+    backgroundColor: COLORS.background,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(108, 71, 255, 0.3)',
+    marginBottom: 10,
+    marginTop: 5,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.7)',
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  emptyCardSpace: {
+    flex: 1,
+    marginHorizontal: 6,
   },
 }); 

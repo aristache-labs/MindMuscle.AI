@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { StyleSheet, View, Image, TouchableOpacity, SafeAreaView, StatusBar, ViewStyle, GestureResponderEvent, Animated, Modal, Pressable, Platform } from 'react-native';
+import { StyleSheet, View, Image, TouchableOpacity, SafeAreaView, StatusBar, ViewStyle, GestureResponderEvent, Animated, Modal, Pressable, Platform, ScrollView } from 'react-native';
 import { Text, IconButton, Surface, Divider } from 'react-native-paper';
 import { COLORS, SPACING, BORDER_RADIUS, HEADER_HEIGHT } from '../constants/theme';
 import Timer from '../components/timer';
@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeneralHeader } from '../components/GeneralHeader';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
 
 interface MuscleGroup {
   id: number;
@@ -168,6 +169,8 @@ export default function ExercisesScreen() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const [isTransitioning, setIsTransitioning] = useState(false);
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const scrollIndicatorY = useRef(new Animated.Value(0)).current;
 
   // Preload body model images
   const bodyModelImages = [
@@ -203,6 +206,24 @@ export default function ExercisesScreen() {
       ).start();
     }
   }, [isImageLoaded]);
+
+  // Animate the scroll indicator
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(scrollIndicatorY, {
+          toValue: 10,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scrollIndicatorY, {
+          toValue: 0,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
 
   const handleViewChange = (newView: 'front' | 'back') => {
     if (isTransitioning || newView === currentView) return;
@@ -253,193 +274,240 @@ export default function ExercisesScreen() {
     });
   };
 
+  const navigateToAllExercises = () => {
+    router.push({
+      pathname: '/(stack)/exercises-list',
+      params: { showAllCategories: 'true', openSearch: 'true', fromScreen: 'exercises' }
+    });
+  };
+
   const filteredMuscles = muscleGroups.filter(muscle => muscle.view === currentView);
 
+  const handleScroll = Animated.event(
+    [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+    { useNativeDriver: false }
+  );
+
+  const handleScrollEnd = ({ nativeEvent }: { nativeEvent: { contentOffset: { y: number } } }) => {
+    if (nativeEvent.contentOffset.y > 100) {
+      // If scrolled more than 100px, navigate to exercises list
+      navigateToAllExercises();
+    }
+  };
+
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
-      <GeneralHeader
-        title="Exercises"
-        icon={<MaterialIcons name="fitness-center" size={24} color={COLORS.text} />}
-        rightElement={
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Pressable style={styles.premiumButton} onPress={() => {}}>
-              <View style={styles.premiumIconColumn}>
-                <IconButton
-                  icon="crown"
-                  iconColor="#f9e009"
-                  size={26}
-                  style={styles.premiumIcon}
-                />
-                <Text style={styles.premiumText}>PREMIUM</Text>
-              </View>
-            </Pressable>
-          </View>
-        }
-      />
-      
-      {/* Timer Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={showTimer}
-        onRequestClose={() => setShowTimer(false)}
-      >
-        <View style={styles.modalContainer}>
-          <Timer onClose={() => setShowTimer(false)} />
-        </View>
-      </Modal>
-
-      {/* Body Model Container */}
-      <View 
-        style={[styles.bodyModelContainer, { paddingTop: HEADER_HEIGHT }]}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-      >
-        <Animated.View style={[styles.modelContainer, { opacity: fadeAnim }]}>
-          <View style={styles.imagesContainer}>
-            <OptimizedImage
-              source={require('../../assets/body-model_front.png')}
-              style={[
-                styles.bodyModel,
-                {
-                  opacity: currentView === 'front' ? 1 : 0,
-                  position: 'absolute',
-                }
-              ]}
-              imageStyle={styles.bodyModel}
-              contentFit="contain"
-              onLoad={() => setIsImageLoaded(true)}
-              transparent
-            />
-            <OptimizedImage
-              source={require('../../assets/body-model_back.png')}
-              style={[
-                styles.bodyModel,
-                {
-                  opacity: currentView === 'back' ? 1 : 0,
-                  position: 'absolute',
-                }
-              ]}
-              imageStyle={styles.bodyModel}
-              contentFit="contain"
-              onLoad={() => setIsImageLoaded(true)}
-              transparent
-            />
-          </View>
-          
-          {/* Timer Icon */}
-          <IconButton
-            icon="timer-outline"
-            iconColor="white"
-            size={38}
-            style={styles.timerIcon}
-            onPress={() => setShowTimer(true)}
-          />
-
-          {/* Muscle Group Markers */}
-          {isImageLoaded && filteredMuscles.map((muscle) => (
-            <React.Fragment key={muscle.id}>
-              {/* Create a larger clickable area first */}
-              <TouchableOpacity
-                style={[
-                  styles.clickableZone,
-                  {
-                    position: 'absolute',
-                    width: `${Math.abs(
-                      parseFloat((muscle.textPosition.right ? (100 - parseFloat(muscle.textPosition.right)) : muscle.textPosition.left || '0').toString()) -
-                      parseFloat((muscle.dotPosition.right ? (100 - parseFloat(muscle.dotPosition.right)) : muscle.dotPosition.left || '0').toString())
-                    ) + 5}%`, // Slightly wider than the dotted line
-                    height: '10%', // Tall enough to be easily clickable
-                    left: `${
-                      muscle.textPosition.right 
-                        ? (100 - Math.max(
-                            parseFloat(muscle.textPosition.right),
-                            parseFloat(muscle.dotPosition.right || '0')
-                          ))
-                        : Math.min(
-                            parseFloat(muscle.dotPosition.left || '100'),
-                            parseFloat(muscle.textPosition.left || '100')
-                          )
-                    }%`,
-                    top: `${parseFloat(muscle.dotPosition.top) - 5}%`, // Slightly above the dot
-                    zIndex: 5,
-                  } as ViewStyle
-                ]}
-                onPress={() => navigateToExercisesList(muscle.name)}
-              />
-              
-              <TouchableOpacity
-                style={[
-                  styles.muscleMarker,
-                  muscle.name === 'Cardio' ? { 
-                    width: 32, 
-                    height: 32, 
-                    justifyContent: 'center', 
-                    alignItems: 'center',
-                    marginTop: -12
-                  } : {},
-                  muscle.name === 'Cardio' ? muscle.heartPosition as ViewStyle : muscle.dotPosition as ViewStyle
-                ]}
-                onPress={() => navigateToExercisesList(muscle.name)}
-              >
-                {muscle.name === 'Cardio' ? (
-                  <MaterialCommunityIcons name="heart-pulse" size={28} color={COLORS.primary} style={{ marginTop: -1 }} />
-                ) : (
-                  <Animated.View 
-                    style={[
-                      styles.markerDot,
-                      { 
-                        transform: [{ scale: pulseAnim }],
-                      }
-                    ]} 
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" />
+        <GeneralHeader
+          title="Exercises"
+          icon={<MaterialIcons name="fitness-center" size={24} color={COLORS.text} />}
+          rightElement={
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Pressable style={styles.premiumButton} onPress={() => {}}>
+                <View style={styles.premiumIconColumn}>
+                  <IconButton
+                    icon="crown"
+                    iconColor="#f9e009"
+                    size={26}
+                    style={styles.premiumIcon}
                   />
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.textContainer,
-                  muscle.textPosition as ViewStyle,
-                  muscle.textPosition.right ? styles.textRight : styles.textLeft
-                ]}
-                onPress={() => navigateToExercisesList(muscle.name)}
-              >
-                <Text style={styles.markerText}>{muscle.name}</Text>
-              </TouchableOpacity>
-              {/* Visual dotted line (not clickable anymore as we have the large clickable zone) */}
-              <View
-                style={[
-                  styles.dottedLine,
-                  {
-                    width: `${Math.abs(
-                      parseFloat((muscle.textPosition.right ? (100 - parseFloat(muscle.textPosition.right)) : muscle.textPosition.left || '0').toString()) -
-                      parseFloat((muscle.dotPosition.right ? (100 - parseFloat(muscle.dotPosition.right)) : muscle.dotPosition.left || '0').toString())
-                    )}%`,
-                    left: `${
-                      muscle.textPosition.right 
-                        ? (100 - Math.max(
-                            parseFloat(muscle.textPosition.right),
-                            parseFloat(muscle.dotPosition.right || '0')
-                          ))
-                        : Math.min(
-                            parseFloat(muscle.dotPosition.left || '100'),
-                            parseFloat(muscle.textPosition.left || '100')
-                          )
-                    }%`,
-                    top: `${parseFloat(muscle.dotPosition.top) + 0.5}%`,
-                  } as ViewStyle
-                ]}
-              />
-            </React.Fragment>
-          ))}
-
-          <View style={styles.viewIndicator}>
-            <View style={[styles.dot, currentView === 'front' && styles.activeDot]} />
-            <View style={[styles.dot, currentView === 'back' && styles.activeDot]} />
+                  <Text style={styles.premiumText}>PREMIUM</Text>
+                </View>
+              </Pressable>
+            </View>
+          }
+        />
+        
+        {/* Search Icon */}
+        <TouchableOpacity 
+          style={styles.searchButton}
+          onPress={navigateToAllExercises}
+        >
+          <Surface style={styles.searchSurface}>
+            <MaterialIcons name="search" size={24} color={COLORS.text} />
+          </Surface>
+        </TouchableOpacity>
+        
+        {/* Timer Modal */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={showTimer}
+          onRequestClose={() => setShowTimer(false)}
+        >
+          <View style={styles.modalContainer}>
+            <Timer onClose={() => setShowTimer(false)} />
           </View>
-        </Animated.View>
+        </Modal>
+
+        {/* Body Model Container */}
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ flexGrow: 1 }}
+          onScroll={handleScroll}
+          onMomentumScrollEnd={handleScrollEnd}
+          scrollEventThrottle={16}
+        >
+          <View 
+            style={[styles.bodyModelContainer, { paddingTop: HEADER_HEIGHT }]}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+          >
+            <Animated.View style={[styles.modelContainer, { opacity: fadeAnim }]}>
+              <View style={styles.imagesContainer}>
+                <OptimizedImage
+                  source={require('../../assets/body-model_front.png')}
+                  style={[
+                    styles.bodyModel,
+                    {
+                      opacity: currentView === 'front' ? 1 : 0,
+                      position: 'absolute',
+                    }
+                  ]}
+                  imageStyle={styles.bodyModel}
+                  contentFit="contain"
+                  onLoad={() => setIsImageLoaded(true)}
+                  transparent
+                />
+                <OptimizedImage
+                  source={require('../../assets/body-model_back.png')}
+                  style={[
+                    styles.bodyModel,
+                    {
+                      opacity: currentView === 'back' ? 1 : 0,
+                      position: 'absolute',
+                    }
+                  ]}
+                  imageStyle={styles.bodyModel}
+                  contentFit="contain"
+                  onLoad={() => setIsImageLoaded(true)}
+                  transparent
+                />
+              </View>
+              
+              {/* Timer Icon */}
+              <IconButton
+                icon="timer-outline"
+                iconColor="white"
+                size={38}
+                style={styles.timerIcon}
+                onPress={() => setShowTimer(true)}
+              />
+
+              {/* Muscle Group Markers */}
+              {isImageLoaded && filteredMuscles.map((muscle) => (
+                <React.Fragment key={muscle.id}>
+                  {/* Create a larger clickable area first */}
+                  <TouchableOpacity
+                    style={[
+                      styles.clickableZone,
+                      {
+                        position: 'absolute',
+                        width: `${Math.abs(
+                          parseFloat((muscle.textPosition.right ? (100 - parseFloat(muscle.textPosition.right)) : muscle.textPosition.left || '0').toString()) -
+                          parseFloat((muscle.dotPosition.right ? (100 - parseFloat(muscle.dotPosition.right)) : muscle.dotPosition.left || '0').toString())
+                        ) + 5}%`, // Slightly wider than the dotted line
+                        height: '10%', // Tall enough to be easily clickable
+                        left: `${
+                          muscle.textPosition.right 
+                            ? (100 - Math.max(
+                                parseFloat(muscle.textPosition.right),
+                                parseFloat(muscle.dotPosition.right || '0')
+                              ))
+                            : Math.min(
+                                parseFloat(muscle.dotPosition.left || '100'),
+                                parseFloat(muscle.textPosition.left || '100')
+                              )
+                        }%`,
+                        top: `${parseFloat(muscle.dotPosition.top) - 5}%`, // Slightly above the dot
+                        zIndex: 5,
+                      } as ViewStyle
+                    ]}
+                    onPress={() => navigateToExercisesList(muscle.name)}
+                  />
+                  
+                  <TouchableOpacity
+                    style={[
+                      styles.muscleMarker,
+                      muscle.name === 'Cardio' ? { 
+                        width: 32, 
+                        height: 32, 
+                        justifyContent: 'center', 
+                        alignItems: 'center',
+                        marginTop: -12
+                      } : {},
+                      muscle.name === 'Cardio' ? muscle.heartPosition as ViewStyle : muscle.dotPosition as ViewStyle
+                    ]}
+                    onPress={() => navigateToExercisesList(muscle.name)}
+                  >
+                    {muscle.name === 'Cardio' ? (
+                      <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+                        <MaterialCommunityIcons name="heart-pulse" size={28} color={COLORS.primary} style={{ marginTop: -1 }} />
+                      </Animated.View>
+                    ) : (
+                      <Animated.View 
+                        style={[
+                          styles.markerDot,
+                          { 
+                            transform: [{ scale: pulseAnim }],
+                          }
+                        ]} 
+                      />
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.textContainer,
+                      muscle.textPosition as ViewStyle,
+                      muscle.textPosition.right ? styles.textRight : styles.textLeft
+                    ]}
+                    onPress={() => navigateToExercisesList(muscle.name)}
+                  >
+                    <Text style={styles.markerText}>{muscle.name}</Text>
+                  </TouchableOpacity>
+                  {/* Visual dotted line (not clickable anymore as we have the large clickable zone) */}
+                  <View
+                    style={[
+                      styles.dottedLine,
+                      {
+                        width: `${Math.abs(
+                          parseFloat((muscle.textPosition.right ? (100 - parseFloat(muscle.textPosition.right)) : muscle.textPosition.left || '0').toString()) -
+                          parseFloat((muscle.dotPosition.right ? (100 - parseFloat(muscle.dotPosition.right)) : muscle.dotPosition.left || '0').toString())
+                        )}%`,
+                        left: `${
+                          muscle.textPosition.right 
+                            ? (100 - Math.max(
+                                parseFloat(muscle.textPosition.right),
+                                parseFloat(muscle.dotPosition.right || '0')
+                              ))
+                            : Math.min(
+                                parseFloat(muscle.dotPosition.left || '100'),
+                                parseFloat(muscle.textPosition.left || '100')
+                              )
+                        }%`,
+                        top: `${parseFloat(muscle.dotPosition.top) + 0.5}%`,
+                      } as ViewStyle
+                    ]}
+                  />
+                </React.Fragment>
+              ))}
+
+              <View style={styles.viewIndicator}>
+                <View style={[styles.dot, currentView === 'front' && styles.activeDot]} />
+                <View style={[styles.dot, currentView === 'back' && styles.activeDot]} />
+              </View>
+
+              {/* Scroll indicator */}
+              <Animated.View style={[styles.scrollIndicator, { transform: [{ translateY: scrollIndicatorY }] }]}>
+                <MaterialIcons name="keyboard-arrow-up" size={30} color="white" />
+                <Text style={styles.scrollText}>Scroll for all exercises</Text>
+              </Animated.View>
+            </Animated.View>
+          </View>
+        </ScrollView>
       </View>
-    </View>
+    </GestureHandlerRootView>
   );
 }
 
@@ -454,6 +522,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     bottom: 35,
     position: 'relative',
+    paddingTop: 50, // Add space for the search button
   },
   modelContainer: {
     flex: 1,
@@ -563,5 +632,34 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     zIndex: 4,
+  },
+  searchButton: {
+    position: 'absolute',
+    top: HEADER_HEIGHT + 50,
+    left: 20,
+    zIndex: 10,
+  },
+  searchSurface: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: BORDER_RADIUS.round,
+    backgroundColor: '#2A2F35',
+    elevation: 3,
+    width: 46,
+    height: 46,
+  },
+  scrollIndicator: {
+    position: 'absolute',
+    bottom: 30,
+    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scrollText: {
+    color: 'white',
+    fontSize: 14,
+    marginTop: 5,
   },
 }); 

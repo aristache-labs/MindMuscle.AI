@@ -39,7 +39,7 @@ const CATEGORY_NAMES = {
 };
 
 export default function ExercisesListScreen() {
-  const { categoryId, fromScreen } = useLocalSearchParams();
+  const { categoryId, fromScreen, openSearch: openSearchParam, showAllCategories } = useLocalSearchParams();
   const router = useRouter();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
@@ -60,9 +60,30 @@ export default function ExercisesListScreen() {
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
 
   // State & animation for search
-  const [isSearchActive, setIsSearchActive] = useState(false);
+  const [isSearchActive, setIsSearchActive] = useState(openSearchParam === 'true');
   const [searchQuery, setSearchQuery] = useState('');
-  const searchWidthAnim = useRef(new Animated.Value(40)).current;
+  const searchWidthAnim = useRef(new Animated.Value(openSearchParam === 'true' ? SCREEN_WIDTH - 32 : 40)).current;
+  const contentOffsetAnim = useRef(new Animated.Value(openSearchParam === 'true' ? 50 : 0)).current;
+  const searchInputRef = useRef<TextInput>(null);
+
+  // Open search automatically if openSearch param is true
+  useEffect(() => {
+    if (openSearchParam === 'true') {
+      setIsSearchActive(true);
+      // Ensure search is fully opened
+      Animated.timing(searchWidthAnim, {
+        toValue: SCREEN_WIDTH - 32,
+        duration: 300,
+        useNativeDriver: false
+      }).start();
+      // Move content down
+      Animated.timing(contentOffsetAnim, {
+        toValue: 50,
+        duration: 300,
+        useNativeDriver: false
+      }).start();
+    }
+  }, [openSearchParam]);
 
   // Fetch exercises on mount and when category changes
   useEffect(() => {
@@ -161,14 +182,23 @@ export default function ExercisesListScreen() {
 
   const openSearch = () => {
     setIsSearchActive(true);
+    // Animate search width expansion
     Animated.timing(searchWidthAnim, {
       toValue: SCREEN_WIDTH - 32, // Almost full width with 16px padding on each side
+      duration: 300,
+      useNativeDriver: false
+    }).start();
+    
+    // Animate content moving down
+    Animated.timing(contentOffsetAnim, {
+      toValue: 50,
       duration: 300,
       useNativeDriver: false
     }).start();
   };
 
   const closeSearch = () => {
+    // Animate search width collapse
     Animated.timing(searchWidthAnim, {
       toValue: 40,
       duration: 300,
@@ -177,6 +207,13 @@ export default function ExercisesListScreen() {
       setIsSearchActive(false);
       setSearchQuery('');
     });
+    
+    // Animate content moving back up
+    Animated.timing(contentOffsetAnim, {
+      toValue: 0,
+      duration: 300,
+      useNativeDriver: false
+    }).start();
   };
 
   const handleSearchIconPress = () => {
@@ -224,42 +261,44 @@ export default function ExercisesListScreen() {
     }
 
     return (
-      <FlatList
-        data={displayedExercises}
-        renderItem={({ item }) => (
-          <ExerciseCard
-            id={item.id}
-            name={item.name}
-            image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE}
-            isFavorite={favoriteIds.has(item.id)}
-            onPress={() => handleExercisePress(item.id)}
-            onToggleFavorite={() => toggleFavorite(item.id)}
-          />
-        )}
-        keyExtractor={item => item.id}
-        numColumns={2}
-        columnWrapperStyle={styles.columnWrapper}
-        contentContainerStyle={styles.listContent}
-        ListHeaderComponent={
-          <View style={styles.categoryTitleContainer}>
-            <Text style={styles.categoryTitle}>
-              {CATEGORY_NAMES[currentCategory] || 'EXERCISES'}
-            </Text>
-          </View>
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <MaterialIcons name="search-off" size={48} color="rgba(255,255,255,0.5)" />
-            <Text style={styles.emptyText}>
-              {searchQuery.trim() 
-                ? "No exercises match your search" 
-                : showFavoritesOnly 
-                  ? "No favorite exercises yet" 
-                  : "No exercises available"}
-            </Text>
-          </View>
-        }
-      />
+      <Animated.View style={{ paddingTop: contentOffsetAnim }}>
+        <FlatList
+          data={displayedExercises}
+          renderItem={({ item }) => (
+            <ExerciseCard
+              id={item.id}
+              name={item.name}
+              image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE}
+              isFavorite={favoriteIds.has(item.id)}
+              onPress={() => handleExercisePress(item.id)}
+              onToggleFavorite={() => toggleFavorite(item.id)}
+            />
+          )}
+          keyExtractor={item => item.id}
+          numColumns={2}
+          columnWrapperStyle={styles.columnWrapper}
+          contentContainerStyle={styles.listContent}
+          ListHeaderComponent={
+            <View style={styles.categoryTitleContainer}>
+              <Text style={styles.categoryTitle}>
+                {CATEGORY_NAMES[currentCategory] || 'EXERCISES'}
+              </Text>
+            </View>
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <MaterialIcons name="search-off" size={48} color="rgba(255,255,255,0.5)" />
+              <Text style={styles.emptyText}>
+                {searchQuery.trim() 
+                  ? "No exercises match your search" 
+                  : showFavoritesOnly 
+                    ? "No favorite exercises yet" 
+                    : "No exercises available"}
+              </Text>
+            </View>
+          }
+        />
+      </Animated.View>
     );
   };
 
@@ -321,12 +360,13 @@ export default function ExercisesListScreen() {
               <MaterialIcons name="search" size={24} color={COLORS.text} style={styles.searchIconActive} />
             </TouchableOpacity>
             <TextInput
+              ref={searchInputRef}
               style={styles.searchInput}
-              placeholder="Search for exercises"
+              placeholder="Search exercises..."
               placeholderTextColor="rgba(255,255,255,0.5)"
               value={searchQuery}
               onChangeText={setSearchQuery}
-              autoFocus={true}
+              autoFocus={isSearchActive}
               returnKeyType="search"
               onSubmitEditing={handleSearchSubmit}
             />

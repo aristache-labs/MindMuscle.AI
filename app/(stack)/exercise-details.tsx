@@ -283,10 +283,10 @@ export default function ExerciseDetailsScreen() {
               <Text 
                 style={[
                   styles.muscleTagText, 
-                  { color: isPrimary ? 'white' : 'rgba(255,255,255,0.9)' }
+                  { color: 'black' }
                 ]}
               >
-                {muscle}
+                {muscle.toUpperCase()}
               </Text>
             </View>
           );
@@ -573,7 +573,7 @@ const styles = StyleSheet.create({
   },
   seeAllText: {
     fontSize: 14,
-    color: COLORS.primary,
+    color: COLORS.text,
   },
   placeholderText: {
     fontSize: 14,
@@ -606,7 +606,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: 'rgba(255,255,255,0.7)', // Faded text for secondary
-    flex: 1,
+    flex: 2,
     textAlign: 'left',
   },
   muscleGroupsContainer: {
@@ -619,8 +619,8 @@ const styles = StyleSheet.create({
     paddingRight: SPACING.sm,
   },
   secondaryMuscleContainer: {
-    flex: 1,
-    paddingLeft: SPACING.sm,
+    flex: 2,
+    paddingRight: 20,
   },
   muscleTagsContainer: {
     flexDirection: 'row',

@@ -33,6 +33,12 @@ export default function StackLayout() {
           presentation: 'modal',
         }}
       />
+      <Stack.Screen
+        name="exercise-details"
+        options={{
+          headerShown: false,
+        }}
+      />
     </Stack>
   );
 } 

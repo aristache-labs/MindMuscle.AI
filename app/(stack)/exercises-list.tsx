@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { StyleSheet, View, FlatList, TouchableOpacity, TextInput, Animated, TouchableWithoutFeedback, Dimensions } from 'react-native';
 import { Text, IconButton, Divider } from 'react-native-paper';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -131,10 +131,23 @@ export default function ExercisesListScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const searchWidthAnim = useRef(new Animated.Value(40)).current;
   
-  // Filter exercises based on favorite state if needed
-  const displayedExercises = showFavoritesOnly 
-    ? favoriteExercises.filter(ex => ex.isFavorite) 
-    : favoriteExercises;
+  // Filter exercises based on favorite state and search query
+  const displayedExercises = useMemo(() => {
+    // First filter by favorites if needed
+    let filteredExercises = showFavoritesOnly 
+      ? favoriteExercises.filter(ex => ex.isFavorite) 
+      : favoriteExercises;
+    
+    // Then filter by search query if it exists
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filteredExercises = filteredExercises.filter(ex => 
+        ex.name.toLowerCase().includes(query)
+      );
+    }
+    
+    return filteredExercises;
+  }, [favoriteExercises, showFavoritesOnly, searchQuery]);
 
   const toggleFavorite = (id: string) => {
     setFavoriteExercises(prev => 
@@ -174,6 +187,12 @@ export default function ExercisesListScreen() {
       closeSearch();
     } else {
       openSearch();
+    }
+  };
+
+  const handleSearchSubmit = () => {
+    if (searchQuery.trim() === '') {
+      closeSearch();
     }
   };
 
@@ -240,6 +259,7 @@ export default function ExercisesListScreen() {
               onChangeText={setSearchQuery}
               autoFocus={true}
               returnKeyType="search"
+              onSubmitEditing={handleSearchSubmit}
             />
             <TouchableOpacity onPress={closeSearch}>
               <MaterialIcons name="close" size={24} color={COLORS.text} />
@@ -264,6 +284,18 @@ export default function ExercisesListScreen() {
         numColumns={2}
         columnWrapperStyle={styles.columnWrapper}
         contentContainerStyle={styles.listContent}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <MaterialIcons name="search-off" size={48} color="rgba(255,255,255,0.5)" />
+            <Text style={styles.emptyText}>
+              {searchQuery.trim() 
+                ? "No exercises match your search" 
+                : showFavoritesOnly 
+                  ? "No favorite exercises yet" 
+                  : "No exercises available"}
+            </Text>
+          </View>
+        }
       />
     </View>
   );
@@ -347,9 +379,22 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: 16,
+    flexGrow: 1,
   },
   columnWrapper: {
     justifyContent: 'space-between',
     marginBottom: 12,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 100,
+  },
+  emptyText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.7)',
+    textAlign: 'center',
   },
 }); 

@@ -7,7 +7,8 @@ import {
   TextInput, 
   ScrollView, 
   Pressable, 
-  Dimensions 
+  Dimensions,
+  ActivityIndicator
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { IconButton, Divider, Surface } from 'react-native-paper';
@@ -23,6 +24,7 @@ import Animated, {
   runOnJS
 } from 'react-native-reanimated';
 import { StackActions } from '@react-navigation/native';
+import supabase from '../services/supabase';
 
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import OptimizedImage from '../components/OptimizedImage';
@@ -39,10 +41,53 @@ export default function ExerciseDetailsScreen() {
   // State for managing which section is visible
   const [activeSection, setActiveSection] = useState<'muscles' | 'instructions'>('muscles');
   const [notes, setNotes] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [exerciseData, setExerciseData] = useState<{
+    instructions: string[] | string;
+    primaryMuscles: string[];
+    secondaryMuscles: string[];
+  } | null>(null);
   
   // Animation for swipeable sections
   const translateX = useSharedValue(0);
   const sectionWidth = width - (SPACING.md * 2); // Account for padding
+
+  // Fetch exercise data from Supabase
+  useEffect(() => {
+    if (id) {
+      fetchExerciseData(id.toString());
+    }
+  }, [id]);
+
+  const fetchExerciseData = async (exerciseId: string) => {
+    try {
+      setLoading(true);
+      
+      // Fetch exercise data from Supabase
+      const { data, error } = await supabase
+        .from('exercises')
+        .select('instructions, primary_muscles, secondary_muscles')
+        .eq('id', exerciseId)
+        .single();
+      
+      if (error) {
+        console.error('Error fetching exercise data:', error);
+        return;
+      }
+      
+      if (data) {
+        setExerciseData({
+          instructions: data.instructions || '',
+          primaryMuscles: data.primary_muscles || [],
+          secondaryMuscles: data.secondary_muscles || []
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching exercise data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Handle back button press
   const handleBackPress = () => {
@@ -61,6 +106,12 @@ export default function ExerciseDetailsScreen() {
       ctx.startX = translateX.value;
     },
     onActive: (event, ctx) => {
+      // Only process horizontal gestures
+      // If the user is primarily swiping vertically (more vertical than horizontal), ignore the gesture
+      if (Math.abs(event.translationY) > Math.abs(event.translationX)) {
+        return;
+      }
+      
       // Calculate new position with boundaries
       let newPosition = ctx.startX + event.translationX;
       
@@ -71,6 +122,11 @@ export default function ExerciseDetailsScreen() {
       translateX.value = newPosition;
     },
     onEnd: (event) => {
+      // Only process horizontal gestures
+      if (Math.abs(event.velocityY) > Math.abs(event.velocityX)) {
+        return;
+      }
+      
       // Determine which section to snap to based on velocity and position
       if (event.velocityX < -500 || (translateX.value < -sectionWidth / 2 && event.velocityX < 0)) {
         translateX.value = withTiming(-sectionWidth, { duration: 300 });
@@ -88,6 +144,27 @@ export default function ExerciseDetailsScreen() {
       transform: [{ translateX: translateX.value }],
     };
   });
+
+  // Format instructions for display
+  const formatInstructions = (instructions: string[] | string) => {
+    if (!instructions) return '';
+    
+    // If instructions is a string, handle it as before
+    if (typeof instructions === 'string') {
+      const lines = instructions.includes('\n') 
+        ? instructions.split('\n').filter(line => line.trim() !== '')
+        : [instructions];
+      
+      return lines.join('\n');
+    }
+    
+    // If instructions is an array, join them with newlines
+    if (Array.isArray(instructions)) {
+      return instructions.join('\n');
+    }
+    
+    return '';
+  };
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -159,7 +236,11 @@ export default function ExerciseDetailsScreen() {
 
           {/* Swipeable Sections */}
           <View style={styles.sectionsWrapper}>
-            <PanGestureHandler onGestureEvent={gestureHandler}>
+            <PanGestureHandler 
+              onGestureEvent={gestureHandler}
+              activeOffsetX={[-10, 10]} // Only activate for horizontal movements greater than 10 units
+              failOffsetY={[-5, 5]} // Fail the gesture if it moves vertically more than 5 units
+            >
               <Animated.View style={[styles.sectionsContainer, animatedStyle]}>
                 {/* Muscles Worked Section */}
                 <Surface style={styles.sectionContent}>
@@ -183,24 +264,33 @@ export default function ExerciseDetailsScreen() {
                   
                   <Text style={styles.sectionSubtitle}>Secondary:</Text>
                   <Text style={styles.sectionText}>
-                    Shoulders, Triceps, Core
+                    {exerciseData?.secondaryMuscles?.join(', ') || 'Shoulders, Triceps, Core'}
                   </Text>
                 </Surface>
 
                 {/* Instructions Section */}
                 <Surface style={styles.sectionContent}>
-                  <Text style={styles.sectionTitle}>Instructions</Text>
+                  <Text style={styles.instructionsSectionTitle}>Instructions</Text>
                   
-                  <Text style={styles.instructionText}>
-                    Set the treadmill to your desired incline and speed.
-                    Begin with a slow jog to warm up for 2-3 minutes.
-                    Gradually increase speed to your target pace.
-                    Maintain an upright posture with your head up, shoulders back, and core engaged.
-                    Land midfoot, not on your heels or toes.
-                    Allow your arms to swing naturally at 90-degree angles.
-                    Continue for your desired duration.
-                    Finish with a cooldown walk for 2-3 minutes.
-                  </Text>
+                  {loading ? (
+                    <View style={styles.loadingContainer}>
+                      <ActivityIndicator size="large" color={COLORS.primary} />
+                      <Text style={styles.loadingText}>Loading instructions...</Text>
+                    </View>
+                  ) : (
+                    <ScrollView 
+                      style={styles.instructionsScrollView}
+                      contentContainerStyle={styles.instructionsScrollContent}
+                      showsVerticalScrollIndicator={true}
+                      nestedScrollEnabled={true}
+                    >
+                      <Text style={styles.instructionText}>
+                        {exerciseData?.instructions ? 
+                          formatInstructions(exerciseData.instructions) : 
+                          'Instructions not available for this exercise.'}
+                      </Text>
+                    </ScrollView>
+                  )}
                 </Surface>
               </Animated.View>
             </PanGestureHandler>
@@ -347,12 +437,12 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.sm,
   },
   sectionText: {
-    fontSize: 14,
+    fontSize: 15,
     color: 'rgba(255,255,255,0.8)',
     lineHeight: 20,
   },
   instructionText: {
-    fontSize: 14,
+    fontSize: 15,
     color: 'rgba(255,255,255,0.8)',
     lineHeight: 22,
   },
@@ -398,6 +488,15 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     fontSize: 12,
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: SPACING.md,
+    color: 'rgba(255,255,255,0.7)',
+  },
   notesContainer: {
     padding: SPACING.md,
     borderRadius: BORDER_RADIUS.md,
@@ -416,5 +515,18 @@ const styles = StyleSheet.create({
     padding: SPACING.sm,
     color: COLORS.text,
     fontSize: 14,
+  },
+  instructionsScrollView: {
+    flex: 1,
+    height: 250, // Set a specific height to make scrolling work
+  },
+  instructionsScrollContent: {
+    paddingBottom: SPACING.md, // Add some bottom padding for better scrolling
+  },
+  instructionsSectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: COLORS.text,
+    marginBottom: SPACING.xs,
   },
 }); 

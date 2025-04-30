@@ -275,7 +275,7 @@ export default function ExercisesListScreen() {
       useNativeDriver: false
     }).start(() => {
       setIsSearchActive(false);
-      setSearchQuery('');
+      // Don't clear search query when closing the UI
     });
     
     // Animate content moving back up
@@ -284,6 +284,12 @@ export default function ExercisesListScreen() {
       duration: 300,
       useNativeDriver: false
     }).start();
+  };
+
+  const clearSearch = () => {
+    // Clear search query and close the search UI
+    setSearchQuery('');
+    closeSearch();
   };
 
   const handleSearchIconPress = () => {
@@ -519,7 +525,7 @@ export default function ExercisesListScreen() {
               returnKeyType="search"
               onSubmitEditing={handleSearchSubmit}
             />
-            <TouchableOpacity onPress={closeSearch}>
+            <TouchableOpacity onPress={clearSearch}>
               <MaterialIcons name="close" size={24} color={COLORS.text} />
             </TouchableOpacity>
           </View>
@@ -609,7 +615,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: 16,
-    paddingTop: 6,
+    paddingTop: 30,
     paddingBottom: 110,
     flexGrow: 1,
   },
@@ -674,12 +680,12 @@ const styles = StyleSheet.create({
   },
   // Section header styles
   sectionHeader: {
-    paddingVertical: 10,
+    paddingVertical: 5,
     backgroundColor: COLORS.background,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(108, 71, 255, 0.3)',
     marginBottom: 10,
-    marginTop: 5,
+    marginTop: 0,
   },
   sectionTitle: {
     fontSize: 14,

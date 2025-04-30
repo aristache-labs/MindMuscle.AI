@@ -316,8 +316,13 @@ export default function ExercisesListScreen() {
   };
 
   const handleBackPress = () => {
-    // Always navigate back to the exercises tab
-    router.replace('/(tabs)/exercises');
+    // Navigate back to the previous screen using the fromScreen parameter
+    if (fromScreen === 'exercises') {
+      router.push('/(tabs)/exercises');
+    } else {
+      // Fallback to default navigation for other cases
+      navigation.goBack();
+    }
   };
 
   // Render a row of two exercise cards for SectionList

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { IconButton, Divider, Surface } from 'react-native-paper';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useNavigation } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PanGestureHandler, GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -22,6 +22,7 @@ import Animated, {
   withTiming,
   runOnJS
 } from 'react-native-reanimated';
+import { StackActions } from '@react-navigation/native';
 
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import OptimizedImage from '../components/OptimizedImage';
@@ -30,6 +31,7 @@ const { width } = Dimensions.get('window');
 
 export default function ExerciseDetailsScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
   const { id, name, image } = params;
@@ -40,7 +42,7 @@ export default function ExerciseDetailsScreen() {
   
   // Animation for swipeable sections
   const translateX = useSharedValue(0);
-  const sectionWidth = width;
+  const sectionWidth = width - (SPACING.md * 2); // Account for padding
 
   // Handle back button press
   const handleBackPress = () => {
@@ -86,16 +88,6 @@ export default function ExerciseDetailsScreen() {
       transform: [{ translateX: translateX.value }],
     };
   });
-
-  // Function to manually switch sections
-  const switchSection = (section: 'muscles' | 'instructions') => {
-    if (section === 'muscles') {
-      translateX.value = withTiming(0, { duration: 300 });
-    } else {
-      translateX.value = withTiming(-sectionWidth, { duration: 300 });
-    }
-    setActiveSection(section);
-  };
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -153,63 +145,66 @@ export default function ExerciseDetailsScreen() {
             </Text>
           </Surface>
 
-          {/* Section Tabs */}
-          <View style={styles.tabsContainer}>
-            <TouchableOpacity 
-              style={[styles.tab, activeSection === 'muscles' && styles.activeTab]}
-              onPress={() => switchSection('muscles')}
-            >
-              <Text style={[styles.tabText, activeSection === 'muscles' && styles.activeTabText]}>
-                Muscles Worked
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.tab, activeSection === 'instructions' && styles.activeTab]}
-              onPress={() => switchSection('instructions')}
-            >
-              <Text style={[styles.tabText, activeSection === 'instructions' && styles.activeTabText]}>
-                Instructions
-              </Text>
-            </TouchableOpacity>
+          {/* Swipe Indicator */}
+          <View style={styles.swipeIndicatorContainer}>
+            <Text style={styles.swipeIndicatorText}>
+              {activeSection === 'muscles' ? 'Swipe left for Instructions' : 'Swipe right for Muscles Worked'}
+            </Text>
+            <MaterialIcons 
+              name={activeSection === 'muscles' ? 'arrow-forward' : 'arrow-back'} 
+              size={20} 
+              color="rgba(255,255,255,0.6)" 
+            />
           </View>
 
           {/* Swipeable Sections */}
-          <PanGestureHandler onGestureEvent={gestureHandler}>
-            <Animated.View style={[styles.sectionsContainer, animatedStyle]}>
-              {/* Muscles Worked Section */}
-              <View style={[styles.section, { width: sectionWidth }]}>
+          <View style={styles.sectionsWrapper}>
+            <PanGestureHandler onGestureEvent={gestureHandler}>
+              <Animated.View style={[styles.sectionsContainer, animatedStyle]}>
+                {/* Muscles Worked Section */}
                 <Surface style={styles.sectionContent}>
+                  <Text style={styles.sectionTitle}>Muscles Worked</Text>
+                  
                   <Text style={styles.sectionSubtitle}>Primary:</Text>
+                  <View style={styles.primaryMuscleTag}>
+                    <Text style={styles.primaryMuscleText}>Cardio</Text>
+                  </View>
+                  
                   <View style={styles.muscleMapContainer}>
-                    {/* Placeholder for muscle map visualization */}
                     <View style={styles.muscleMap}>
-                      <View style={styles.muscleHighlight} />
+                      {/* Simplified muscle visualization */}
+                      <View style={styles.bodyView}>
+                        <View style={styles.bodyPlaceholder}>
+                          <View style={styles.chestHighlight} />
+                        </View>
+                      </View>
                     </View>
                   </View>
+                  
                   <Text style={styles.sectionSubtitle}>Secondary:</Text>
                   <Text style={styles.sectionText}>
                     Shoulders, Triceps, Core
                   </Text>
                 </Surface>
-              </View>
 
-              {/* Instructions Section */}
-              <View style={[styles.section, { width: sectionWidth }]}>
+                {/* Instructions Section */}
                 <Surface style={styles.sectionContent}>
+                  <Text style={styles.sectionTitle}>Instructions</Text>
+                  
                   <Text style={styles.instructionText}>
-                    1. Set the treadmill to your desired incline and speed.{'\n\n'}
-                    2. Begin with a slow jog to warm up for 2-3 minutes.{'\n\n'}
-                    3. Gradually increase speed to your target pace.{'\n\n'}
-                    4. Maintain an upright posture with your head up, shoulders back, and core engaged.{'\n\n'}
-                    5. Land midfoot, not on your heels or toes.{'\n\n'}
-                    6. Allow your arms to swing naturally at 90-degree angles.{'\n\n'}
-                    7. Continue for your desired duration.{'\n\n'}
-                    8. Finish with a cooldown walk for 2-3 minutes.
+                    Set the treadmill to your desired incline and speed.
+                    Begin with a slow jog to warm up for 2-3 minutes.
+                    Gradually increase speed to your target pace.
+                    Maintain an upright posture with your head up, shoulders back, and core engaged.
+                    Land midfoot, not on your heels or toes.
+                    Allow your arms to swing naturally at 90-degree angles.
+                    Continue for your desired duration.
+                    Finish with a cooldown walk for 2-3 minutes.
                   </Text>
                 </Surface>
-              </View>
-            </Animated.View>
-          </PanGestureHandler>
+              </Animated.View>
+            </PanGestureHandler>
+          </View>
 
           {/* Exercise Notes */}
           <Surface style={styles.notesContainer}>
@@ -303,10 +298,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: SPACING.md,
   },
+  sectionsWrapper: {
+    height: 350,
+    marginBottom: SPACING.md,
+    overflow: 'hidden',
+  },
+  sectionsContainer: {
+    flexDirection: 'row',
+    width: (width - SPACING.md), // Double width to hold both sections
+  },
+  sectionContent: {
+    padding: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
+    backgroundColor: COLORS.surface,
+    width: width - SPACING.md * 2, // Full width minus padding
+    height: 350,
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: COLORS.text,
+    marginBottom: SPACING.md,
   },
   seeAllText: {
     fontSize: 14,
@@ -317,40 +329,16 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.7)',
     fontStyle: 'italic',
   },
-  tabsContainer: {
+  swipeIndicatorContainer: {
     flexDirection: 'row',
-    marginBottom: SPACING.md,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: SPACING.sm,
+    justifyContent: 'center',
     alignItems: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
+    marginBottom: SPACING.sm,
   },
-  activeTab: {
-    borderBottomColor: COLORS.primary,
-  },
-  tabText: {
-    fontSize: 16,
-    color: 'rgba(255,255,255,0.7)',
-  },
-  activeTabText: {
-    color: COLORS.text,
-    fontWeight: '500',
-  },
-  sectionsContainer: {
-    flexDirection: 'row',
-    marginBottom: SPACING.md,
-  },
-  section: {
-    flex: 1,
-  },
-  sectionContent: {
-    padding: SPACING.md,
-    borderRadius: BORDER_RADIUS.md,
-    backgroundColor: COLORS.surface,
-    minHeight: 250,
+  swipeIndicatorText: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.6)',
+    marginRight: SPACING.xs,
   },
   sectionSubtitle: {
     fontSize: 16,
@@ -369,25 +357,46 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   muscleMapContainer: {
-    alignItems: 'center',
     marginBottom: SPACING.md,
   },
   muscleMap: {
-    width: 200,
-    height: 120,
-    backgroundColor: 'rgba(100,100,100,0.3)',
     marginVertical: SPACING.sm,
-    borderRadius: BORDER_RADIUS.sm,
+  },
+  bodyView: {
+    width: '100%',
+    height: 200,
+    position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  bodyPlaceholder: {
+    width: '50%',
+    height: '90%',
+    backgroundColor: 'rgba(100,100,100,0.3)',
+    borderRadius: BORDER_RADIUS.md,
     position: 'relative',
   },
-  muscleHighlight: {
+  chestHighlight: {
     position: 'absolute',
-    width: 60,
-    height: 40,
-    backgroundColor: 'rgba(255,0,0,0.4)',
+    width: 40,
+    height: 30,
+    backgroundColor: 'rgba(255,0,0,0.6)',
     borderRadius: BORDER_RADIUS.sm,
-    top: 40,
-    left: 70,
+    top: 50,
+    left: 25,
+  },
+  primaryMuscleTag: {
+    backgroundColor: '#FF3B30',
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    borderRadius: 20,
+    alignSelf: 'flex-start',
+    marginBottom: SPACING.md,
+  },
+  primaryMuscleText: {
+    color: 'white',
+    fontWeight: '500',
+    fontSize: 12,
   },
   notesContainer: {
     padding: SPACING.md,

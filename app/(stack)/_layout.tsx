@@ -31,6 +31,7 @@ export default function StackLayout() {
         options={{
           headerShown: false,
           animation: 'slide_from_right',
+          gestureEnabled: true,
           fullScreenGestureEnabled: true,
         }}
       />
@@ -38,9 +39,9 @@ export default function StackLayout() {
         name="exercise-details"
         options={{
           headerShown: false,
-          presentation: 'card',
           animation: 'slide_from_right',
-          fullScreenGestureEnabled: true,
+          gestureEnabled: false,
+          fullScreenGestureEnabled: false,
         }}
       />
     </Stack>

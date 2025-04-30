@@ -36,8 +36,8 @@ const muscleGroups: MuscleGroup[] = [
   { 
     id: 1, 
     name: 'Shoulders', 
-    dotPosition: { top: '26%', left: '30%' },
-    textPosition: { top: '24%', left: '1%' },
+    dotPosition: { top: '27%', left: '30%' },
+    textPosition: { top: '25%', left: '1%' },
     view: 'front' 
   },
   { 
@@ -51,35 +51,35 @@ const muscleGroups: MuscleGroup[] = [
   { 
     id: 2, 
     name: 'Chest', 
-    dotPosition: { top: '30%', left: '40%' },
-    textPosition: { top: '28%', left: '1%' },
+    dotPosition: { top: '32%', left: '40%' },
+    textPosition: { top: '30%', left: '1%' },
     view: 'front' 
   },
   { 
     id: 3, 
     name: 'Biceps', 
-    dotPosition: { top: '34%', right: '30%' },
-    textPosition: { top: '32%', right: '1%' },
+    dotPosition: { top: '35%', right: '31%' },
+    textPosition: { top: '33%', right: '1%' },
     view: 'front' 
   },
   { 
     id: 4, 
     name: 'Forearms', 
-    dotPosition: { top: '42%', left: '24%' },
+    dotPosition: { top: '42%', left: '22%' },
     textPosition: { top: '40%', left: '1%' },
     view: 'front' 
   },
   { 
     id: 5, 
     name: 'Abs', 
-    dotPosition: { top: '40%', right: '47%' },
-    textPosition: { top: '38%', right: '1%' },
+    dotPosition: { top: '41%', right: '47%' },
+    textPosition: { top: '39%', right: '1%' },
     view: 'front' 
   },
   { 
     id: 6, 
     name: 'Obliques', 
-    dotPosition: { top: '48%', left: '33%' },
+    dotPosition: { top: '48%', left: '34%' },
     textPosition: { top: '46%', left: '1%' },
     view: 'front' 
   },
@@ -101,36 +101,36 @@ const muscleGroups: MuscleGroup[] = [
   { 
     id: 9, 
     name: 'Traps', 
-    dotPosition: { top: '23%', left: '43%' },
-    textPosition: { top: '21%', left: '1%' },
+    dotPosition: { top: '24%', left: '44%' },
+    textPosition: { top: '22%', left: '1%' },
     view: 'back' 
   },
   { 
     id: 10, 
     name: 'Triceps', 
-    dotPosition: { top: '34%', left: '28%' },
+    dotPosition: { top: '34%', left: '25%' },
     textPosition: { top: '32%', left: '1%' },
     view: 'back' 
   },
   { 
     id: 11, 
     name: 'Abductors', 
-    dotPosition: { top: '43%', left: '35%' },
-    textPosition: { top: '41%', left: '1%' },
+    dotPosition: { top: '44%', left: '35%' },
+    textPosition: { top: '42%', left: '1%' },
     view: 'back' 
   },
   { 
     id: 12, 
     name: 'Lats', 
-    dotPosition: { top: '30%', right: '40%' },
-    textPosition: { top: '28%', right: '1%' },
+    dotPosition: { top: '31%', right: '39%' },
+    textPosition: { top: '29%', right: '1%' },
     view: 'back' 
   },
   { 
     id: 13, 
     name: 'Lower back', 
-    dotPosition: { top: '40%', right: '45%' },
-    textPosition: { top: '38%', right: '1%' },
+    dotPosition: { top: '42%', right: '44%' },
+    textPosition: { top: '40%', right: '1%' },
     view: 'back' 
   },
   { 
@@ -143,15 +143,15 @@ const muscleGroups: MuscleGroup[] = [
   { 
     id: 15, 
     name: 'Hamstrings', 
-    dotPosition: { top: '60%', left: '38%' },
-    textPosition: { top: '58%', left: '1%' },
+    dotPosition: { top: '58%', left: '36%' },
+    textPosition: { top: '56%', left: '1%' },
     view: 'back' 
   },
   { 
     id: 16, 
     name: 'Calves', 
-    dotPosition: { top: '75%', left: '35%' },
-    textPosition: { top: '73%', left: '1%' },
+    dotPosition: { top: '70%', left: '34%' },
+    textPosition: { top: '68%', left: '1%' },
     view: 'back' 
   }
 ];
@@ -166,6 +166,7 @@ export default function ExercisesScreen() {
 
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
   const [isTransitioning, setIsTransitioning] = useState(false);
 
   // Preload body model images
@@ -184,6 +185,22 @@ export default function ExercisesScreen() {
         duration: 200,
         useNativeDriver: true,
       }).start();
+
+      // Start the pulsing animation
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.3,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
     }
   }, [isImageLoaded]);
 
@@ -323,6 +340,35 @@ export default function ExercisesScreen() {
           {/* Muscle Group Markers */}
           {isImageLoaded && filteredMuscles.map((muscle) => (
             <React.Fragment key={muscle.id}>
+              {/* Create a larger clickable area first */}
+              <TouchableOpacity
+                style={[
+                  styles.clickableZone,
+                  {
+                    position: 'absolute',
+                    width: `${Math.abs(
+                      parseFloat((muscle.textPosition.right ? (100 - parseFloat(muscle.textPosition.right)) : muscle.textPosition.left || '0').toString()) -
+                      parseFloat((muscle.dotPosition.right ? (100 - parseFloat(muscle.dotPosition.right)) : muscle.dotPosition.left || '0').toString())
+                    ) + 5}%`, // Slightly wider than the dotted line
+                    height: '10%', // Tall enough to be easily clickable
+                    left: `${
+                      muscle.textPosition.right 
+                        ? (100 - Math.max(
+                            parseFloat(muscle.textPosition.right),
+                            parseFloat(muscle.dotPosition.right || '0')
+                          ))
+                        : Math.min(
+                            parseFloat(muscle.dotPosition.left || '100'),
+                            parseFloat(muscle.textPosition.left || '100')
+                          )
+                    }%`,
+                    top: `${parseFloat(muscle.dotPosition.top) - 5}%`, // Slightly above the dot
+                    zIndex: 5,
+                  } as ViewStyle
+                ]}
+                onPress={() => navigateToExercisesList(muscle.name)}
+              />
+              
               <TouchableOpacity
                 style={[
                   styles.muscleMarker,
@@ -340,7 +386,14 @@ export default function ExercisesScreen() {
                 {muscle.name === 'Cardio' ? (
                   <MaterialCommunityIcons name="heart-pulse" size={28} color={COLORS.primary} style={{ marginTop: -1 }} />
                 ) : (
-                  <View style={styles.markerDot} />
+                  <Animated.View 
+                    style={[
+                      styles.markerDot,
+                      { 
+                        transform: [{ scale: pulseAnim }],
+                      }
+                    ]} 
+                  />
                 )}
               </TouchableOpacity>
               <TouchableOpacity
@@ -353,7 +406,7 @@ export default function ExercisesScreen() {
               >
                 <Text style={styles.markerText}>{muscle.name}</Text>
               </TouchableOpacity>
-              {/* Dotted line connecting dot to text */}
+              {/* Visual dotted line (not clickable anymore as we have the large clickable zone) */}
               <View
                 style={[
                   styles.dottedLine,
@@ -426,9 +479,9 @@ const styles = StyleSheet.create({
     height: 8,
   },
   markerDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 10,
+    height: 10,
+    borderRadius: 16,
     backgroundColor: COLORS.primary,
   },
   textContainer: {
@@ -443,7 +496,7 @@ const styles = StyleSheet.create({
   },
   markerText: {
     color: 'white',
-    fontSize: 12,
+    fontSize: 14,
     backgroundColor: 'rgba(108, 71, 255, 0.27)',
     paddingHorizontal: 8,
     paddingVertical: 2,
@@ -464,8 +517,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   dot: {
-    width: 8,
-    height: 8,
+    width: 14,
+    height: 14,
     borderRadius: 4,
     backgroundColor: 'rgba(224, 15, 15, 0.3)',
   },
@@ -504,5 +557,11 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: 'bold',
     marginTop: -10,
+  },
+  clickableZone: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+    zIndex: 4,
   },
 }); 

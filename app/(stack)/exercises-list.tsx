@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { StyleSheet, View, FlatList, TouchableOpacity, TextInput, Animated, TouchableWithoutFeedback, Dimensions, ActivityIndicator } from 'react-native';
 import { Text, IconButton, Divider } from 'react-native-paper';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import ExerciseCard from '../components/ExerciseCard';
@@ -38,17 +38,19 @@ const CATEGORY_NAMES = {
 };
 
 export default function ExercisesListScreen() {
-  const { categoryId } = useLocalSearchParams();
+  const { categoryId, fromScreen } = useLocalSearchParams();
   const router = useRouter();
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   
   // Default to Cardio if no category provided
   const currentCategory = typeof categoryId === 'string' 
-    ? (categoryId as ExerciseCategory) || 'Cardio'
-    : 'Cardio';
+    ? (categoryId as ExerciseCategory) || 'all'
+    : 'all';
   
   // State for exercises
   const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [allExercises, setAllExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
@@ -72,6 +74,14 @@ export default function ExercisesListScreen() {
         const exercisesData = await exerciseService.getExercisesByCategory(currentCategory);
         setExercises(exercisesData);
         
+        // Fetch all exercises for global search
+        if (currentCategory !== 'all') {
+          const allExercisesData = await exerciseService.getExercisesByCategory('all');
+          setAllExercises(allExercisesData);
+        } else {
+          setAllExercises(exercisesData);
+        }
+        
         // Fetch favorite exercises to mark which ones are favorites
         const favorites = await exerciseService.getFavoriteExercises();
         const favoriteIdSet = new Set(favorites.map(fav => fav.id));
@@ -89,11 +99,14 @@ export default function ExercisesListScreen() {
   
   // Filter exercises based on favorite state and search query
   const displayedExercises = useMemo(() => {
+    // Determine which set of exercises to use based on search
+    const exercisesToFilter = searchQuery.trim() ? allExercises : exercises;
+    
     // First filter by favorites if needed
-    let filteredExercises = exercises;
+    let filteredExercises = exercisesToFilter;
     
     if (showFavoritesOnly) {
-      filteredExercises = exercises.filter(ex => favoriteIds.has(ex.id));
+      filteredExercises = filteredExercises.filter(ex => favoriteIds.has(ex.id));
     }
     
     // Then filter by search query if it exists
@@ -105,7 +118,7 @@ export default function ExercisesListScreen() {
     }
     
     return filteredExercises;
-  }, [exercises, favoriteIds, showFavoritesOnly, searchQuery]);
+  }, [exercises, allExercises, favoriteIds, showFavoritesOnly, searchQuery]);
 
   const toggleFavorite = useCallback(async (id: string) => {
     try {
@@ -179,6 +192,16 @@ export default function ExercisesListScreen() {
     }
   };
 
+  const handleBackPress = () => {
+    if (fromScreen) {
+      // Navigate to the specific screen that this was accessed from
+      router.push(`/${fromScreen}`);
+    } else {
+      // If no specific source screen is specified, default to going back
+      router.back();
+    }
+  };
+
   const renderContent = () => {
     if (loading) {
       return (
@@ -221,6 +244,13 @@ export default function ExercisesListScreen() {
         numColumns={2}
         columnWrapperStyle={styles.columnWrapper}
         contentContainerStyle={styles.listContent}
+        ListHeaderComponent={
+          <View style={styles.categoryTitleContainer}>
+            <Text style={styles.categoryTitle}>
+              {CATEGORY_NAMES[currentCategory] || 'EXERCISES'}
+            </Text>
+          </View>
+        }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <MaterialIcons name="search-off" size={48} color="rgba(255,255,255,0.5)" />
@@ -247,7 +277,7 @@ export default function ExercisesListScreen() {
           <IconButton
             icon="arrow-left"
             size={28}
-            onPress={() => router.back()}
+            onPress={handleBackPress}
             iconColor={COLORS.text}
             style={styles.backButton}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -262,7 +292,9 @@ export default function ExercisesListScreen() {
             style={styles.favoriteButton}
           />
         </View>
-        <View style={styles.headerRight} />
+        <View style={styles.headerRight}>
+          {/* Favorite button moved to center */}
+        </View>
       </View>
       <Divider style={styles.divider} />
 
@@ -361,7 +393,7 @@ const styles = StyleSheet.create({
     left: 16,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(70, 70, 70, 0.7)',
+    backgroundColor: 'rgb(70, 70, 70)',
     flexDirection: 'row',
     alignItems: 'center',
     zIndex: 100,
@@ -392,6 +424,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: 16,
+    paddingTop: 6,
     flexGrow: 1,
   },
   columnWrapper: {
@@ -432,5 +465,22 @@ const styles = StyleSheet.create({
   retryText: {
     color: COLORS.text,
     fontWeight: '600',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: COLORS.text,
+  },
+  categoryTitleContainer: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    width: '100%',
+  },
+  categoryTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    marginBottom: 10,
+    textAlign: 'center',
   },
 }); 

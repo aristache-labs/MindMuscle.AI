@@ -226,27 +226,9 @@ export default function ExercisesScreen() {
   };
 
   const navigateToExercisesList = (muscleGroupName: string) => {
-    const categoryMap: Record<string, string> = {
-      'Shoulders': 'strength',
-      'Chest': 'strength',
-      'Biceps': 'strength',
-      'Triceps': 'strength',
-      'Forearms': 'strength',
-      'Abs': 'strength',
-      'Obliques': 'strength',
-      'Quads': 'strength',
-      'Adductors': 'strength',
-      'Traps': 'strength',
-      'Lats': 'strength',
-      'Lower back': 'strength',
-      'Glutes': 'strength',
-      'Hamstrings': 'strength',
-      'Calves': 'strength',
-      'Abductors': 'strength',
-      'Cardio': 'cardio'
-    };
+    // Pass the exact muscle group name as the categoryId
+    const categoryId = muscleGroupName;
     
-    const categoryId = categoryMap[muscleGroupName] || 'strength';
     router.push({
       pathname: '/(stack)/exercises-list',
       params: { categoryId }

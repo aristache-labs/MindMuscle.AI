@@ -21,48 +21,6 @@ export default function StackLayout() {
       }}
     >
       <Stack.Screen
-        name="(auth)/login"
-        options={{
-          headerShown: false,
-        }}
-      />
-      <Stack.Screen
-        name="(auth)/register"
-        options={{
-          headerShown: false,
-        }}
-      />
-      <Stack.Screen
-        name="(auth)/forgot-password"
-        options={{
-          headerShown: false,
-        }}
-      />
-      <Stack.Screen
-        name="(auth)/reset-password"
-        options={{
-          headerShown: false,
-        }}
-      />
-      <Stack.Screen
-        name="(auth)/edit-profile"
-        options={{
-          headerShown: false,
-        }}
-      />
-      <Stack.Screen
-        name="(tabs)"
-        options={{
-          headerShown: false,
-        }}
-      />
-      <Stack.Screen
-        name="index"
-        options={{
-          headerShown: false,
-        }}
-      />
-      <Stack.Screen
         name="settings"
         options={{
           headerShown: false,
@@ -73,7 +31,6 @@ export default function StackLayout() {
         options={{
           headerShown: false,
           presentation: 'modal',
-          redirect: true,
         }}
       />
     </Stack>

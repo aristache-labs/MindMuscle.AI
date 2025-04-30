@@ -228,7 +228,7 @@ export default function EditProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, updateUserMetadata, refreshUser } = useAuth();
-  const { measurements, addMeasurement } = useMeasurements();
+  const { measurements, addMeasurement, refreshMeasurements } = useMeasurements();
   const [focusedInput, setFocusedInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [weightPickerVisible, setWeightPickerVisible] = useState(false);
@@ -274,27 +274,39 @@ export default function EditProfileScreen() {
       return;
     }
     
-    const loadUserPreferences = async () => {
+    // Function to load all user data
+    const loadUserData = async () => {
       if (!user) return;
       
       try {
+        // Refresh measurements first
+        await refreshMeasurements();
+        
+        // Load preferences
         const { data, error } = await supabase
           .from('user_profile_details')
-          .select('preferred_weight_unit, preferred_height_unit')
+          .select('preferred_weight_unit, preferred_height_unit, weight_kg, height_cm')
           .eq('user_id', user.id)
           .single();
 
         if (!error && data) {
           setWeightUnit(data.preferred_weight_unit || 'KG');
           setHeightUnit(data.preferred_height_unit || 'CM');
+          
+          // Update form data with latest values from database
+          setFormData(prev => ({
+            ...prev,
+            weight: data.weight_kg?.toString() || prev.weight,
+            height: data.height_cm?.toString() || prev.height
+          }));
         }
       } catch (error) {
-        console.error('Error loading user preferences:', error);
+        console.error('Error loading user data:', error);
       }
     };
 
-    loadUserPreferences();
-  }, [user]);
+    loadUserData();
+  }, [user, refreshMeasurements]);
 
   useEffect(() => {
     if (measurements.WEIGHT) {
@@ -351,7 +363,20 @@ export default function EditProfileScreen() {
         throw preferencesError;
       }
 
+      // Add weight and height measurements
+      try {
+        await addMeasurement('WEIGHT', parseFloat(formData.weight), 'kg');
+        // Note: HEIGHT may not be a valid measurement category in your app
+        // Uncomment if HEIGHT is a valid category
+        // await addMeasurement('HEIGHT', parseFloat(formData.height), 'cm');
+      } catch (measurementError) {
+        console.error('Error adding measurements:', measurementError);
+        // Continue even if measurement update fails
+      }
+
+      // Refresh user auth data and measurements
       await refreshUser();
+      await refreshMeasurements();
       
       // Add a small delay before navigation to ensure state is updated
       setTimeout(() => {
@@ -364,16 +389,11 @@ export default function EditProfileScreen() {
     }
   };
 
-  const handleWeightChange = async (value: number) => {
-    try {
-      await addMeasurement('WEIGHT', value, 'kg');
-      setFormData(prev => ({ ...prev, weight: value.toString() }));
-    } catch (error) {
-      console.error('Error updating weight:', error);
-    } finally {
-      setWeightPickerVisible(false);
-      setFocusedInput('');
-    }
+  const handleWeightChange = (value: number) => {
+    // Only update local state, without database operations
+    setFormData(prev => ({ ...prev, weight: value.toString() }));
+    setWeightPickerVisible(false);
+    setFocusedInput('');
   };
 
   const handleHeightChange = (value: number) => {

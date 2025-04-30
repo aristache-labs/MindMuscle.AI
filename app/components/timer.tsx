@@ -119,11 +119,10 @@ export default function Timer({ onClose }: TimerProps) {
 
         <View style={styles.timerContainer}>
           <View style={styles.adjustButtons}>
-            <Surface style={styles.adjustButtonSurface}>
-              <View style={styles.adjustButtonOverflow}>
+            <View style={{ borderRadius: 16, overflow: 'hidden' }}>
+              <Surface style={styles.adjustButtonSurface}>
                 <Pressable
                   style={[
-                    
                     styles.adjustButton,
                     isActive && styles.adjustButtonDisabled
                   ]}
@@ -135,11 +134,11 @@ export default function Timer({ onClose }: TimerProps) {
                     isActive && styles.adjustButtonTextDisabled
                   ]}>-5</Text>
                 </Pressable>
-              </View>
-            </Surface>
+              </Surface>
+            </View>
 
-            <Surface style={styles.adjustButtonSurface}>
-              <View style={styles.adjustButtonOverflow}>
+            <View style={{ borderRadius: 16, overflow: 'hidden' }}>
+              <Surface style={styles.adjustButtonSurface}>
                 <Pressable
                   style={[
                     styles.adjustButton,
@@ -153,16 +152,16 @@ export default function Timer({ onClose }: TimerProps) {
                     isActive && styles.adjustButtonTextDisabled
                   ]}>+5</Text>
                 </Pressable>
-              </View>
-            </Surface>
+              </Surface>
+            </View>
           </View>
 
           <Pressable
             onPress={handlePress}
             style={styles.timerCircle}
           >
-            <Surface style={styles.timerSurface}>
-              <View style={styles.surfaceOverflow}>
+            <View style={{ borderRadius: CIRCLE_SIZE / 2, overflow: 'hidden' }}>
+              <Surface style={styles.timerSurface}>
                 <View style={styles.timerInner}>
                   <View style={styles.progressContainer}>
                     <Svg width={CIRCLE_SIZE} height={CIRCLE_SIZE}>
@@ -201,8 +200,8 @@ export default function Timer({ onClose }: TimerProps) {
                     {isActive ? 'Tap to Reset' : 'Tap to Start'}
                   </Text>
                 </View>
-              </View>
-            </Surface>
+              </Surface>
+            </View>
           </Pressable>
         </View>
 
@@ -323,17 +322,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   timerSurface: {
-    width: '100%',
-    height: '100%',
+    width: CIRCLE_SIZE,
+    height: CIRCLE_SIZE,
     borderRadius: CIRCLE_SIZE / 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    borderWidth: 0.2,
+    borderColor: COLORS.primary,
     elevation: 4,
-    backgroundColor: '#1C1C1E',
-  },
-  surfaceOverflow: {
-    width: '100%',
-    height: '100%',
-    borderRadius: CIRCLE_SIZE / 2,
-    overflow: 'hidden',
+    shadowColor: COLORS.primary,
+    shadowOffset: {
+      width: 0,
+      height: 0,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
   },
   timerInner: {
     flex: 1,
@@ -422,7 +426,6 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   adjustButtonSurface: {
-    borderRadius: 16,
     elevation: 2,
     backgroundColor: '#1f222a',
     width: ADJUST_BUTTON_SIZE,
@@ -436,12 +439,6 @@ const styles = StyleSheet.create({
     borderColor: COLORS.primary,
     shadowOpacity: 0.2,
     shadowRadius: 3,
-  },
-  adjustButtonOverflow: {
-    width: '100%',
-    height: '100%',
-    overflow: 'hidden',
-    borderRadius: 16,
   },
   adjustButton: {
     width: '100%',

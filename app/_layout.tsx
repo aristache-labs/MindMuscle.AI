@@ -21,35 +21,23 @@ import { MeasurementsProvider } from './store/MeasurementsContext';
 // Handle splash screen errors in Expo Go
 if (Constants.appOwnership === 'expo') {
   try {
-    const globalAny = global as any;
-    
-    if (!globalAny.SplashModule) {
-      globalAny.SplashModule = {
-        internalPreventAutoHideAsync: () => Promise.resolve(true),
-        internalMaybeHideAsync: () => Promise.resolve(true)
-      };
-    }
-
-    if (Platform.OS === 'ios' || Platform.OS === 'android') {
-      const ReactNative = require('react-native');
-      if (!ReactNative.NativeModules.SplashScreen) {
-        ReactNative.NativeModules.SplashScreen = {
-          preventAutoHide: () => {},
-          hide: () => {}
-        };
-      }
-    }
-
-    console.log('Splash screen modules patched for Expo Go');
+    // Don't try to modify NativeModules directly as it can cause conflicts
+    // Instead, we'll handle errors from SplashScreen methods when they occur
+    console.log('Running in Expo Go environment');
   } catch (e) {
-    console.warn('Failed to patch splash screen modules:', e);
+    console.warn('Error in Expo Go environment setup:', e);
   }
 }
 
 // Prevent the splash screen from auto-hiding until we're ready
-SplashScreen.preventAutoHideAsync().catch(e => {
-  console.warn('Error preventing splash screen auto-hide:', e);
-});
+try {
+  SplashScreen.preventAutoHideAsync().catch(e => {
+    console.warn('Error preventing splash screen auto-hide:', e);
+    // Proceed normally even if this fails
+  });
+} catch (e) {
+  console.warn('Failed to call preventAutoHideAsync:', e);
+}
 
 // Initialize Sentry as early as possible
 initializeSentry();
@@ -88,7 +76,14 @@ function RootLayout() {
         Sentry.captureException(e);
       } finally {
         setAppIsReady(true);
-        await SplashScreen.hideAsync();
+        
+        // Safely hide splash screen
+        try {
+          await SplashScreen.hideAsync();
+        } catch (e) {
+          console.warn('Error hiding splash screen:', e);
+          // Proceed even if hiding fails
+        }
       }
     }
 

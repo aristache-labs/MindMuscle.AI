@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from 'react';
 import { View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
+import Constants from 'expo-constants';
 
 interface SplashScreenManagerProps {
   isAppReady: boolean;
@@ -22,14 +23,23 @@ export default function SplashScreenManager({
   useEffect(() => {
     const prepare = async () => {
       try {
-        // Safely access preventAutoHideAsync method
-        if (SplashScreen.preventAutoHideAsync) {
+        // Check if we're in Expo Go
+        const isExpoGo = Constants.appOwnership === 'expo';
+        
+        if (isExpoGo) {
+          console.log('Running in Expo Go - using simplified splash screen handling');
+          return;
+        }
+        
+        // Try to prevent auto-hide with a safe guard
+        try {
           await SplashScreen.preventAutoHideAsync();
-        } else {
-          console.warn('SplashScreen.preventAutoHideAsync is not available');
+        } catch (err) {
+          console.warn('Could not prevent splash screen auto hide:', err);
+          // Continue execution - this is not critical
         }
       } catch (error) {
-        console.warn('Error keeping splash screen visible:', error);
+        console.warn('Error in splash screen preparation:', error);
       }
     };
     
@@ -39,11 +49,17 @@ export default function SplashScreenManager({
     return () => {
       const hideSplash = async () => {
         try {
-          if (isAppReady && SplashScreen.hideAsync) {
-            await SplashScreen.hideAsync();
+          // Only attempt to hide if app is ready
+          if (isAppReady) {
+            try {
+              await SplashScreen.hideAsync();
+            } catch (err) {
+              console.warn('Could not hide splash screen during cleanup:', err);
+              // Not critical, continue
+            }
           }
         } catch (error) {
-          console.warn('Error hiding splash screen on unmount:', error);
+          console.warn('Error in splash screen cleanup:', error);
         }
       };
       
@@ -58,9 +74,17 @@ export default function SplashScreenManager({
         // Call the onLayoutRootView first
         await onLayoutRootView();
         
-        // Then try to hide splash screen if the method exists
-        if (SplashScreen.hideAsync) {
-          await SplashScreen.hideAsync();
+        // Check if we're in Expo Go
+        const isExpoGo = Constants.appOwnership === 'expo';
+        
+        if (!isExpoGo) {
+          // Try to hide the splash screen
+          try {
+            await SplashScreen.hideAsync();
+          } catch (err) {
+            console.warn('Could not hide splash screen after layout:', err);
+            // Not critical, continue
+          }
         }
       } catch (error) {
         console.warn('Error in layout handler:', error);

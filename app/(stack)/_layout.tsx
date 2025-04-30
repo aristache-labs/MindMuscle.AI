@@ -68,6 +68,14 @@ export default function StackLayout() {
           headerShown: false,
         }}
       />
+      <Stack.Screen
+        name="exercises-list"
+        options={{
+          headerShown: false,
+          presentation: 'modal',
+          redirect: true,
+        }}
+      />
     </Stack>
   );
 } 

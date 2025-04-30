@@ -11,15 +11,38 @@ interface GeneralHeaderProps {
   onSettingsPress?: () => void;
   rightElement?: React.ReactNode;
   style?: any;
+  showBackButton?: boolean;
+  onBackPress?: () => void;
 }
 
-export function GeneralHeader({ title, icon, onSettingsPress, rightElement, style }: GeneralHeaderProps) {
+export function GeneralHeader({ 
+  title, 
+  icon, 
+  onSettingsPress, 
+  rightElement, 
+  style,
+  showBackButton,
+  onBackPress
+}: GeneralHeaderProps) {
   const router = useRouter();
+
+  const handleBackPress = () => {
+    if (onBackPress) {
+      onBackPress();
+    } else {
+      router.back();
+    }
+  };
 
   return (
     <View style={[styles.headerContainer, style]}> 
       <View style={styles.header}>
         <View style={styles.headerLeft}>
+          {showBackButton && (
+            <TouchableOpacity onPress={handleBackPress} style={styles.backButton}>
+              <MaterialIcons name="arrow-back" size={24} color={COLORS.text} />
+            </TouchableOpacity>
+          )}
           {icon && <View style={styles.headerIcon}>{icon}</View>}
           <Text style={styles.headerTitle}>{title}</Text>
         </View>
@@ -71,6 +94,9 @@ const styles = StyleSheet.create({
   },
   settingsButton: {
     padding: 8,
+  },
+  backButton: {
+    marginRight: SPACING.sm,
   },
   divider: {
     backgroundColor: COLORS.primary,

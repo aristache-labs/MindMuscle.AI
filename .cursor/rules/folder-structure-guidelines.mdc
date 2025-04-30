@@ -12,7 +12,7 @@ alwaysApply: true
 
 ## Project Folder Structure
 
-Regularly update this folder structure each time you create, modify, or delete a file or folder. (Latest: Added GeneralHeader.tsx component for shared page headers):
+Regularly update this folder structure each time you create, modify, or delete a file or folder. (Latest: Added ExerciseCard component and exercises-list stack screen):
 
 ```
 mindmuscle-ai/
@@ -22,12 +22,16 @@ mindmuscle-ai/
 │   ├── achievements.tsx
 │   ├── (auth)/
 │   ├── (stack)/
+│   │   ├── _layout.tsx
+│   │   ├── settings.tsx
+│   │   └── exercises-list.tsx
 │   ├── (tabs)/
 │   ├── coaching/
 │   ├── components/
 │   │   ├── Achievements.tsx
 │   │   ├── AuthGuard.tsx
 │   │   ├── CoachingInterface.tsx
+│   │   ├── ExerciseCard.tsx
 │   │   ├── ExerciseGraphs.tsx
 │   │   ├── ExerciseGraphModal.tsx
 │   │   ├── GeneralHeader.tsx

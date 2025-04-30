@@ -8,6 +8,7 @@ import { useImagePreloader } from '../hooks/useImagePreloader';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeneralHeader } from '../components/GeneralHeader';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 
 interface MuscleGroup {
   id: number;
@@ -161,6 +162,7 @@ export default function ExercisesScreen() {
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [showTimer, setShowTimer] = useState(false);
   const SWIPE_THRESHOLD = 50;
+  const router = useRouter();
 
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -221,6 +223,34 @@ export default function ExercisesScreen() {
         handleViewChange('back');
       }
     }
+  };
+
+  const navigateToExercisesList = (muscleGroupName: string) => {
+    const categoryMap: Record<string, string> = {
+      'Shoulders': 'strength',
+      'Chest': 'strength',
+      'Biceps': 'strength',
+      'Triceps': 'strength',
+      'Forearms': 'strength',
+      'Abs': 'strength',
+      'Obliques': 'strength',
+      'Quads': 'strength',
+      'Adductors': 'strength',
+      'Traps': 'strength',
+      'Lats': 'strength',
+      'Lower back': 'strength',
+      'Glutes': 'strength',
+      'Hamstrings': 'strength',
+      'Calves': 'strength',
+      'Abductors': 'strength',
+      'Cardio': 'cardio'
+    };
+    
+    const categoryId = categoryMap[muscleGroupName] || 'strength';
+    router.push({
+      pathname: '/(stack)/exercises-list',
+      params: { categoryId }
+    });
   };
 
   const filteredMuscles = muscleGroups.filter(muscle => muscle.view === currentView);
@@ -310,7 +340,7 @@ export default function ExercisesScreen() {
           {/* Muscle Group Markers */}
           {isImageLoaded && filteredMuscles.map((muscle) => (
             <React.Fragment key={muscle.id}>
-              <View
+              <TouchableOpacity
                 style={[
                   styles.muscleMarker,
                   muscle.name === 'Cardio' ? { 
@@ -322,22 +352,24 @@ export default function ExercisesScreen() {
                   } : {},
                   muscle.name === 'Cardio' ? muscle.heartPosition as ViewStyle : muscle.dotPosition as ViewStyle
                 ]}
+                onPress={() => navigateToExercisesList(muscle.name)}
               >
                 {muscle.name === 'Cardio' ? (
                   <MaterialCommunityIcons name="heart-pulse" size={28} color={COLORS.primary} style={{ marginTop: -1 }} />
                 ) : (
                   <View style={styles.markerDot} />
                 )}
-              </View>
-              <View
+              </TouchableOpacity>
+              <TouchableOpacity
                 style={[
                   styles.textContainer,
                   muscle.textPosition as ViewStyle,
                   muscle.textPosition.right ? styles.textRight : styles.textLeft
                 ]}
+                onPress={() => navigateToExercisesList(muscle.name)}
               >
                 <Text style={styles.markerText}>{muscle.name}</Text>
-              </View>
+              </TouchableOpacity>
               {/* Dotted line connecting dot to text */}
               <View
                 style={[

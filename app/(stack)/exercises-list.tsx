@@ -1,5 +1,5 @@
-import React, { useState, useRef, useMemo } from 'react';
-import { StyleSheet, View, FlatList, TouchableOpacity, TextInput, Animated, TouchableWithoutFeedback, Dimensions } from 'react-native';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
+import { StyleSheet, View, FlatList, TouchableOpacity, TextInput, Animated, TouchableWithoutFeedback, Dimensions, ActivityIndicator } from 'react-native';
 import { Text, IconButton, Divider } from 'react-native-paper';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -7,106 +7,34 @@ import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import ExerciseCard from '../components/ExerciseCard';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import exerciseService, { Exercise, ExerciseCategory } from '../services/exerciseService';
 
 // Get screen width for responsive sizing
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Mock data for exercises based on category
-const CARDIO_EXERCISES = [
-  { 
-    id: 'c1', 
-    name: 'Running', 
-    image: require('../../assets/exercises/placeholder.jpg'),
-    isFavorite: false 
-  },
-  { 
-    id: 'c2', 
-    name: 'Bicycle Machine', 
-    image: require('../../assets/exercises/placeholder.jpg'),
-    isFavorite: true 
-  },
-  { 
-    id: 'c3', 
-    name: 'Elliptical Machine', 
-    image: require('../../assets/exercises/placeholder.jpg'),
-    isFavorite: false 
-  },
-  { 
-    id: 'c4', 
-    name: 'Step Machine', 
-    image: require('../../assets/exercises/placeholder.jpg'),
-    isFavorite: false 
-  },
-  { 
-    id: 'c5', 
-    name: 'Rowing Machine', 
-    image: require('../../assets/exercises/placeholder.jpg'),
-    isFavorite: false 
-  },
-  { 
-    id: 'c6', 
-    name: 'Jump Rope', 
-    image: require('../../assets/exercises/placeholder.jpg'),
-    isFavorite: true 
-  },
-];
+// Fallback image for exercises without an image
+const FALLBACK_IMAGE = require('../../assets/exercises/placeholder.jpg');
 
-const STRENGTH_EXERCISES = [
-  { 
-    id: 's1', 
-    name: 'Push-up', 
-    image: require('../../assets/exercises/pushup.jpg'),
-    isFavorite: true 
-  },
-  { 
-    id: 's2', 
-    name: 'Squat', 
-    image: require('../../assets/exercises/squat.jpg'),
-    isFavorite: false 
-  },
-  { 
-    id: 's3', 
-    name: 'Dumbbell Curl', 
-    image: require('../../assets/exercises/dumbbell.jpg'),
-    isFavorite: false 
-  },
-  { 
-    id: 's4', 
-    name: 'Plank', 
-    image: require('../../assets/exercises/placeholder.jpg'),
-    isFavorite: true 
-  },
-];
-
-const YOGA_EXERCISES = [
-  { 
-    id: 'y1', 
-    name: 'Downward Dog', 
-    image: require('../../assets/exercises/yoga.jpg'),
-    isFavorite: false 
-  },
-  { 
-    id: 'y2', 
-    name: 'Warrior Pose', 
-    image: require('../../assets/exercises/yoga.jpg'),
-    isFavorite: true 
-  },
-];
-
-// Map of category IDs to their exercises and display names
-const CATEGORIES = {
-  'cardio': {
-    name: 'CARDIO',
-    exercises: CARDIO_EXERCISES
-  },
-  'strength': {
-    name: 'STRENGTH TRAINING',
-    exercises: STRENGTH_EXERCISES
-  },
-  'yoga': {
-    name: 'YOGA',
-    exercises: YOGA_EXERCISES
-  }
+// Map for category display names
+const CATEGORY_NAMES = {
+  'Cardio': 'CARDIO',
+  'Shoulders': 'SHOULDERS',
+  'Chest': 'CHEST',
+  'Biceps': 'BICEPS',
+  'Abs': 'ABS',
+  'Forearms': 'FOREARMS',
+  'Obliques': 'OBLIQUES',
+  'Quads': 'QUADS',
+  'Adductors': 'ADDUCTORS',
+  'Traps': 'TRAPS',
+  'Triceps': 'TRICEPS',
+  'Lats': 'LATS',
+  'Lower back': 'LOWER BACK',
+  'Abductors': 'ABDUCTORS',
+  'Glutes': 'GLUTES',
+  'Hamstrings': 'HAMSTRINGS',
+  'Calves': 'CALVES',
+  'all': 'ALL EXERCISES'
 };
 
 export default function ExercisesListScreen() {
@@ -114,14 +42,16 @@ export default function ExercisesListScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   
-  // Default to cardio if no category provided
+  // Default to Cardio if no category provided
   const currentCategory = typeof categoryId === 'string' 
-    ? CATEGORIES[categoryId as keyof typeof CATEGORIES] || CATEGORIES.cardio
-    : CATEGORIES.cardio;
+    ? (categoryId as ExerciseCategory) || 'Cardio'
+    : 'Cardio';
   
-  const [favoriteExercises, setFavoriteExercises] = useState(
-    currentCategory.exercises.map(ex => ({ ...ex }))
-  );
+  // State for exercises
+  const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   
   // State for favorite filter
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
@@ -130,13 +60,41 @@ export default function ExercisesListScreen() {
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const searchWidthAnim = useRef(new Animated.Value(40)).current;
+
+  // Fetch exercises on mount and when category changes
+  useEffect(() => {
+    const loadExercises = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        // Fetch exercises for the current muscle group category
+        const exercisesData = await exerciseService.getExercisesByCategory(currentCategory);
+        setExercises(exercisesData);
+        
+        // Fetch favorite exercises to mark which ones are favorites
+        const favorites = await exerciseService.getFavoriteExercises();
+        const favoriteIdSet = new Set(favorites.map(fav => fav.id));
+        setFavoriteIds(favoriteIdSet);
+      } catch (err) {
+        console.error('Error loading exercises:', err);
+        setError('Failed to load exercises. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadExercises();
+  }, [currentCategory]);
   
   // Filter exercises based on favorite state and search query
   const displayedExercises = useMemo(() => {
     // First filter by favorites if needed
-    let filteredExercises = showFavoritesOnly 
-      ? favoriteExercises.filter(ex => ex.isFavorite) 
-      : favoriteExercises;
+    let filteredExercises = exercises;
+    
+    if (showFavoritesOnly) {
+      filteredExercises = exercises.filter(ex => favoriteIds.has(ex.id));
+    }
     
     // Then filter by search query if it exists
     if (searchQuery.trim()) {
@@ -147,19 +105,44 @@ export default function ExercisesListScreen() {
     }
     
     return filteredExercises;
-  }, [favoriteExercises, showFavoritesOnly, searchQuery]);
+  }, [exercises, favoriteIds, showFavoritesOnly, searchQuery]);
 
-  const toggleFavorite = (id: string) => {
-    setFavoriteExercises(prev => 
-      prev.map(ex => 
-        ex.id === id ? { ...ex, isFavorite: !ex.isFavorite } : ex
-      )
-    );
-  };
+  const toggleFavorite = useCallback(async (id: string) => {
+    try {
+      const isFavorite = !favoriteIds.has(id);
+      
+      // Optimistically update the UI
+      setFavoriteIds(prev => {
+        const newSet = new Set(prev);
+        if (isFavorite) {
+          newSet.add(id);
+        } else {
+          newSet.delete(id);
+        }
+        return newSet;
+      });
+      
+      // Update in the database
+      await exerciseService.toggleFavoriteExercise(id, isFavorite);
+    } catch (err) {
+      console.error('Error toggling favorite:', err);
+      // Revert on error
+      setFavoriteIds(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(id)) {
+          newSet.delete(id);
+        } else {
+          newSet.add(id);
+        }
+        return newSet;
+      });
+    }
+  }, [favoriteIds]);
 
   const handleExercisePress = (exerciseId: string) => {
     // Navigate to exercise detail page
     console.log(`Navigating to exercise ${exerciseId}`);
+    // router.push(`/exercise-detail/${exerciseId}`);
   };
 
   const openSearch = () => {
@@ -194,6 +177,64 @@ export default function ExercisesListScreen() {
     if (searchQuery.trim() === '') {
       closeSearch();
     }
+  };
+
+  const renderContent = () => {
+    if (loading) {
+      return (
+        <View style={styles.centeredContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.messageText}>Loading exercises...</Text>
+        </View>
+      );
+    }
+
+    if (error) {
+      return (
+        <View style={styles.centeredContainer}>
+          <MaterialIcons name="error-outline" size={48} color="rgba(255,255,255,0.7)" />
+          <Text style={styles.messageText}>{error}</Text>
+          <TouchableOpacity 
+            style={styles.retryButton}
+            onPress={() => router.replace(`/exercises-list?categoryId=${currentCategory}`)}
+          >
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return (
+      <FlatList
+        data={displayedExercises}
+        renderItem={({ item }) => (
+          <ExerciseCard
+            id={item.id}
+            name={item.name}
+            image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE}
+            isFavorite={favoriteIds.has(item.id)}
+            onPress={() => handleExercisePress(item.id)}
+            onToggleFavorite={() => toggleFavorite(item.id)}
+          />
+        )}
+        keyExtractor={item => item.id}
+        numColumns={2}
+        columnWrapperStyle={styles.columnWrapper}
+        contentContainerStyle={styles.listContent}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <MaterialIcons name="search-off" size={48} color="rgba(255,255,255,0.5)" />
+            <Text style={styles.emptyText}>
+              {searchQuery.trim() 
+                ? "No exercises match your search" 
+                : showFavoritesOnly 
+                  ? "No favorite exercises yet" 
+                  : "No exercises available"}
+            </Text>
+          </View>
+        }
+      />
+    );
   };
 
   return (
@@ -268,35 +309,7 @@ export default function ExercisesListScreen() {
         )}
       </Animated.View>
 
-      <FlatList
-        data={displayedExercises}
-        renderItem={({ item }) => (
-          <ExerciseCard
-            id={item.id}
-            name={item.name}
-            image={item.image}
-            isFavorite={item.isFavorite}
-            onPress={() => handleExercisePress(item.id)}
-            onToggleFavorite={() => toggleFavorite(item.id)}
-          />
-        )}
-        keyExtractor={item => item.id}
-        numColumns={2}
-        columnWrapperStyle={styles.columnWrapper}
-        contentContainerStyle={styles.listContent}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <MaterialIcons name="search-off" size={48} color="rgba(255,255,255,0.5)" />
-            <Text style={styles.emptyText}>
-              {searchQuery.trim() 
-                ? "No exercises match your search" 
-                : showFavoritesOnly 
-                  ? "No favorite exercises yet" 
-                  : "No exercises available"}
-            </Text>
-          </View>
-        }
-      />
+      {renderContent()}
     </View>
   );
 }
@@ -396,5 +409,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: 'rgba(255,255,255,0.7)',
     textAlign: 'center',
+  },
+  centeredContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  messageText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.7)',
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: COLORS.primary,
+    borderRadius: BORDER_RADIUS.md,
+  },
+  retryText: {
+    color: COLORS.text,
+    fontWeight: '600',
   },
 }); 

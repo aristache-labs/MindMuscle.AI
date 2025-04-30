@@ -30,13 +30,17 @@ export default function StackLayout() {
         name="exercises-list"
         options={{
           headerShown: false,
-          presentation: 'modal',
+          animation: 'slide_from_right',
+          fullScreenGestureEnabled: true,
         }}
       />
       <Stack.Screen
         name="exercise-details"
         options={{
           headerShown: false,
+          presentation: 'card',
+          animation: 'slide_from_right',
+          fullScreenGestureEnabled: true,
         }}
       />
     </Stack>

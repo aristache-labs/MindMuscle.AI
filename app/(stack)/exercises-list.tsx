@@ -8,6 +8,7 @@ import ExerciseCard from '../components/ExerciseCard';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import exerciseService, { Exercise, ExerciseCategory } from '../services/exerciseService';
+import { GeneralHeader } from '../components/GeneralHeader';
 
 // Get screen width for responsive sizing
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -193,19 +194,8 @@ export default function ExercisesListScreen() {
   };
 
   const handleBackPress = () => {
-    // Check if we can go back in navigation history
-    try {
-      if (navigation.canGoBack()) {
-        navigation.goBack();
-      } else {
-        // If we can't go back (no history), navigate to tabs
-        router.replace('/(tabs)');
-      }
-    } catch (error) {
-      console.error('Navigation error:', error);
-      // Fallback if navigation fails
-      router.replace('/(tabs)');
-    }
+    // Always navigate back to the exercises tab
+    router.replace('/(tabs)/exercises');
   };
 
   const renderContent = () => {
@@ -277,7 +267,7 @@ export default function ExercisesListScreen() {
     <View style={styles.container}>
       <StatusBar style="light" />
       
-      {/* Custom Header */}
+      {/* Header with custom back button */}
       <View style={[styles.header, { marginTop: insets.top }]}>
         <View style={styles.headerLeft}>
           <IconButton

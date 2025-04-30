@@ -227,11 +227,12 @@ export default function ExercisesScreen() {
 
   const navigateToExercisesList = (muscleGroupName: string) => {
     // Pass the exact muscle group name as the categoryId
+    // Also pass the fromScreen parameter so we can navigate back to exercises tab
     const categoryId = muscleGroupName;
     
     router.push({
       pathname: '/(stack)/exercises-list',
-      params: { categoryId }
+      params: { categoryId, fromScreen: 'exercises' }
     });
   };
 

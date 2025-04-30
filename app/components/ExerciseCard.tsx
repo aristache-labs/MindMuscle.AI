@@ -32,26 +32,28 @@ const ExerciseCard = ({
       activeOpacity={0.7}
     >
       <Surface style={styles.card}>
-        <View style={styles.imageContainer}>
-          <OptimizedImage
-            source={image}
-            style={styles.image}
-            contentFit="cover"
-          />
-          <TouchableOpacity
-            style={styles.favoriteButton}
-            onPress={onToggleFavorite}
-            hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
-          >
-            <MaterialIcons
-              name={isFavorite ? "star" : "star-outline"}
-              size={24}
-              color={isFavorite ? "#FFD700" : "white"}
+        <View style={styles.cardContentWrapper}>
+          <View style={styles.imageContainer}>
+            <OptimizedImage
+              source={image}
+              style={styles.image}
+              contentFit="cover"
             />
-          </TouchableOpacity>
-        </View>
-        <View style={styles.textContainer}>
-          <Text style={styles.name} numberOfLines={2}>{name}</Text>
+            <TouchableOpacity
+              style={styles.favoriteButton}
+              onPress={onToggleFavorite}
+              hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
+            >
+              <MaterialIcons
+                name={isFavorite ? "star" : "star-outline"}
+                size={24}
+                color={isFavorite ? "#FFD700" : "white"}
+              />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.textContainer}>
+            <Text style={styles.name} numberOfLines={2}>{name}</Text>
+          </View>
         </View>
       </Surface>
     </TouchableOpacity>
@@ -61,6 +63,7 @@ const ExerciseCard = ({
 interface Styles {
   container: ViewStyle;
   card: ViewStyle;
+  cardContentWrapper: ViewStyle;
   imageContainer: ViewStyle;
   image: ViewStyle;
   favoriteButton: ViewStyle;
@@ -75,9 +78,12 @@ const styles = StyleSheet.create<Styles>({
   },
   card: {
     borderRadius: BORDER_RADIUS.md,
-    overflow: 'hidden',
     backgroundColor: '#1E2126',
     elevation: 3,
+  },
+  cardContentWrapper: {
+    borderRadius: BORDER_RADIUS.md,
+    overflow: 'hidden',
   },
   imageContainer: {
     position: 'relative',

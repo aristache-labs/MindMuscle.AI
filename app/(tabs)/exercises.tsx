@@ -7,7 +7,7 @@ import OptimizedImage from '../components/OptimizedImage';
 import { useImagePreloader } from '../hooks/useImagePreloader';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeneralHeader } from '../components/GeneralHeader';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 
 interface MuscleGroup {
   id: number;
@@ -23,6 +23,11 @@ interface MuscleGroup {
     right?: string;
   };
   view: 'front' | 'back';
+  heartPosition?: {
+    top: string;
+    left?: string;
+    right?: string;
+  };
 }
 
 const muscleGroups: MuscleGroup[] = [
@@ -33,6 +38,14 @@ const muscleGroups: MuscleGroup[] = [
     dotPosition: { top: '26%', left: '30%' },
     textPosition: { top: '24%', left: '1%' },
     view: 'front' 
+  },
+  { 
+    id: 17, 
+    name: 'Cardio', 
+    dotPosition: { top: '20%', right: '25%' },
+    textPosition: { top: '18%', right: '1%' },
+    view: 'front',
+    heartPosition: { top: '20%', right: '25%' }
   },
   { 
     id: 2, 
@@ -300,10 +313,21 @@ export default function ExercisesScreen() {
               <View
                 style={[
                   styles.muscleMarker,
-                  muscle.dotPosition as ViewStyle
+                  muscle.name === 'Cardio' ? { 
+                    width: 32, 
+                    height: 32, 
+                    justifyContent: 'center', 
+                    alignItems: 'center',
+                    marginTop: -12
+                  } : {},
+                  muscle.name === 'Cardio' ? muscle.heartPosition as ViewStyle : muscle.dotPosition as ViewStyle
                 ]}
               >
-                <View style={styles.markerDot} />
+                {muscle.name === 'Cardio' ? (
+                  <MaterialCommunityIcons name="heart-pulse" size={28} color={COLORS.primary} style={{ marginTop: -1 }} />
+                ) : (
+                  <View style={styles.markerDot} />
+                )}
               </View>
               <View
                 style={[

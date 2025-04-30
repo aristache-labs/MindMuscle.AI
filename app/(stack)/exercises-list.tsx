@@ -245,9 +245,18 @@ export default function ExercisesListScreen() {
   }, [favoriteIds]);
 
   const handleExercisePress = (exerciseId: string) => {
-    // Navigate to exercise detail page
-    console.log(`Navigating to exercise ${exerciseId}`);
-    // router.push(`/exercise-detail/${exerciseId}`);
+    // Find the exercise details to pass as params
+    const exercise = allExercises.find(ex => ex.id === exerciseId);
+    if (exercise) {
+      router.push({
+        pathname: '/exercise-details',
+        params: {
+          id: exercise.id,
+          name: exercise.name,
+          image: exercise.image_url || '',
+        }
+      });
+    }
   };
 
   const openSearch = () => {

@@ -24,12 +24,38 @@ import Animated, {
   runOnJS
 } from 'react-native-reanimated';
 import { StackActions } from '@react-navigation/native';
+import { SvgXml } from 'react-native-svg';
 import supabase from '../services/supabase';
 
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import OptimizedImage from '../components/OptimizedImage';
 
 const { width } = Dimensions.get('window');
+
+// Import SVG files
+import * as FileSystem from 'expo-file-system';
+import { Asset } from 'expo-asset';
+
+// Muscle group color mapping
+const MUSCLE_COLORS: { [key: string]: string } = {
+  cardio: '#FF0000',         // red
+  lats: '#3CE8E8',           // teal
+  biceps: '#D74FA0',         // pink
+  chest: '#00D3FF',          // light blue
+  shoulders: '#C34FFB',      // purple
+  forearms: '#FF38DF',       // pink
+  obliques: '#38FF98',       // light green
+  quads: '#EDFF38',          // yellow
+  glutes: '#949F27',         // olive
+  adductors: '#D7B110',      // gold
+  abs: '#00FF19',            // green
+  traps: '#7B3C9B',          // purple
+  abductors: '#C2B575',      // beige
+  lowerback: '#98D1D0',      // light teal
+  hamstrings: '#D0F70D',     // lime
+  triceps: '#F361C4',         // yellow-green
+  calves: '#DFFE4A',         // yellow-green
+};
 
 export default function ExerciseDetailsScreen() {
   const router = useRouter();
@@ -47,17 +73,44 @@ export default function ExerciseDetailsScreen() {
     primaryMuscles: string[];
     secondaryMuscles: string[];
   } | null>(null);
+  const [frontBodySvg, setFrontBodySvg] = useState<string | null>(null);
+  const [backBodySvg, setBackBodySvg] = useState<string | null>(null);
   
   // Animation for swipeable sections
   const translateX = useSharedValue(0);
   const sectionWidth = width - (SPACING.md * 2); // Account for padding
 
-  // Fetch exercise data from Supabase
+  // Fetch exercise data from Supabase and SVG files
   useEffect(() => {
     if (id) {
       fetchExerciseData(id.toString());
     }
+    
+    // Load SVG files
+    loadSvgFiles();
   }, [id]);
+
+  const loadSvgFiles = async () => {
+    try {
+      // Load front body SVG
+      const frontBodyAsset = Asset.fromModule(require('../../assets/exercises/body_front.svg'));
+      await frontBodyAsset.downloadAsync();
+      if (frontBodyAsset.localUri) {
+        const frontBodyContent = await FileSystem.readAsStringAsync(frontBodyAsset.localUri);
+        setFrontBodySvg(frontBodyContent);
+      }
+      
+      // Load back body SVG
+      const backBodyAsset = Asset.fromModule(require('../../assets/exercises/body_back.svg'));
+      await backBodyAsset.downloadAsync();
+      if (backBodyAsset.localUri) {
+        const backBodyContent = await FileSystem.readAsStringAsync(backBodyAsset.localUri);
+        setBackBodySvg(backBodyContent);
+      }
+    } catch (error) {
+      console.error('Error loading SVG files:', error);
+    }
+  };
 
   const fetchExerciseData = async (exerciseId: string) => {
     try {
@@ -166,6 +219,82 @@ export default function ExerciseDetailsScreen() {
     return '';
   };
 
+  // Modify SVG to highlight muscle groups
+  const getHighlightedSvg = (svg: string | null, isBackView: boolean = false) => {
+    if (!svg) return null;
+    
+    let modifiedSvg = svg;
+    
+    if (exerciseData) {
+      // Process primary muscles first (they take precedence)
+      exerciseData.primaryMuscles.forEach(muscle => {
+        const muscleLower = muscle.toLowerCase().replace(/\s+/g, '');
+        if (MUSCLE_COLORS[muscleLower]) {
+          // This is a simplified example - in reality, you'd need a more complex mapping of 
+          // muscle names to SVG element IDs or paths
+          const muscleIdRegex = new RegExp(`id="${muscleLower}(-left|-right)?"`, 'gi');
+          modifiedSvg = modifiedSvg.replace(muscleIdRegex, (match) => {
+            return `${match} fill="${MUSCLE_COLORS[muscleLower]}" stroke="white" stroke-width="0.5"`;
+          });
+        }
+      });
+      
+      // Process secondary muscles (only if not already highlighted as primary)
+      exerciseData.secondaryMuscles.forEach(muscle => {
+        const muscleLower = muscle.toLowerCase().replace(/\s+/g, '');
+        if (MUSCLE_COLORS[muscleLower]) {
+          // Only highlight if not already highlighted as primary
+          if (!exerciseData.primaryMuscles.some(pm => pm.toLowerCase().replace(/\s+/g, '') === muscleLower)) {
+            const muscleIdRegex = new RegExp(`id="${muscleLower}(-left|-right)?"`, 'gi');
+            modifiedSvg = modifiedSvg.replace(muscleIdRegex, (match) => {
+              // Use a transparency for secondary muscles
+              return `${match} fill="${MUSCLE_COLORS[muscleLower]}80" stroke="white" stroke-width="0.5"`;
+            });
+          }
+        }
+      });
+    }
+    
+    return modifiedSvg;
+  };
+
+  // Render muscle group tags
+  const renderMuscleTags = (muscles: string[], isPrimary: boolean) => {
+    if (!muscles || muscles.length === 0) {
+      return (
+        <Text style={styles.emptyMuscleText}>No data available</Text>
+      );
+    }
+
+    return (
+      <View style={styles.muscleTagsContainer}>
+        {muscles.map((muscle, index) => {
+          const muscleLower = muscle.toLowerCase().replace(/\s+/g, '');
+          const tagColor = MUSCLE_COLORS[muscleLower] || (isPrimary ? '#FF3B30' : 'rgba(255,255,255,0.2)');
+          
+          return (
+            <View 
+              key={`${muscle}-${index}`} 
+              style={[
+                styles.muscleTag, 
+                { backgroundColor: tagColor }
+              ]}
+            >
+              <Text 
+                style={[
+                  styles.muscleTagText, 
+                  { color: isPrimary ? 'white' : 'rgba(255,255,255,0.9)' }
+                ]}
+              >
+                {muscle}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+    );
+  };
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.container}>
@@ -246,26 +375,58 @@ export default function ExerciseDetailsScreen() {
                 <Surface style={styles.sectionContent}>
                   <Text style={styles.sectionTitle}>Muscles Worked</Text>
                   
-                  <Text style={styles.sectionSubtitle}>Primary:</Text>
-                  <View style={styles.primaryMuscleTag}>
-                    <Text style={styles.primaryMuscleText}>Cardio</Text>
+                  {/* Primary and Secondary muscle labels side by side */}
+                  <View style={styles.muscleLabelsContainer}>
+                    <Text style={styles.primaryLabel}>Primary:</Text>
+                    <Text style={styles.secondaryLabel}>Secondary:</Text>
+                  </View>
+                  
+                  {/* Primary and Secondary muscle groups */}
+                  <View style={styles.muscleGroupsContainer}>
+                    <View style={styles.primaryMuscleContainer}>
+                      {renderMuscleTags(exerciseData?.primaryMuscles || [], true)}
+                    </View>
+                    <View style={styles.secondaryMuscleContainer}>
+                      {renderMuscleTags(exerciseData?.secondaryMuscles || [], false)}
+                    </View>
                   </View>
                   
                   <View style={styles.muscleMapContainer}>
                     <View style={styles.muscleMap}>
-                      {/* Simplified muscle visualization */}
-                      <View style={styles.bodyView}>
-                        <View style={styles.bodyPlaceholder}>
-                          <View style={styles.chestHighlight} />
+                      {/* Body visualization with both SVGs side by side */}
+                      <View style={styles.bodyViewContainer}>
+                        {/* Front Body (Left) */}
+                        <View style={styles.bodyView}>
+                          {frontBodySvg ? (
+                            <SvgXml 
+                              xml={getHighlightedSvg(frontBodySvg)} 
+                              width="100%" 
+                              height="100%" 
+                            />
+                          ) : (
+                            <View style={styles.bodyPlaceholder}>
+
+                            </View>
+                          )}
+                        </View>
+
+                        {/* Back Body (Right) */}
+                        <View style={styles.bodyView}>
+                          {backBodySvg ? (
+                            <SvgXml 
+                              xml={getHighlightedSvg(backBodySvg, true)} 
+                              width="100%" 
+                              height="100%" 
+                            />
+                          ) : (
+                            <View style={styles.bodyPlaceholder}>
+                              {/* Placeholder for back view */}
+                            </View>
+                          )}
                         </View>
                       </View>
                     </View>
                   </View>
-                  
-                  <Text style={styles.sectionSubtitle}>Secondary:</Text>
-                  <Text style={styles.sectionText}>
-                    {exerciseData?.secondaryMuscles?.join(', ') || 'Shoulders, Triceps, Core'}
-                  </Text>
                 </Surface>
 
                 {/* Instructions Section */}
@@ -389,26 +550,26 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
   },
   sectionsWrapper: {
-    height: 350,
+    height: 380,
     marginBottom: SPACING.md,
     overflow: 'hidden',
   },
   sectionsContainer: {
     flexDirection: 'row',
-    width: (width - SPACING.md), // Double width to hold both sections
+    width: (width - SPACING.md),
   },
   sectionContent: {
     padding: SPACING.md,
     borderRadius: BORDER_RADIUS.md,
     backgroundColor: COLORS.surface,
-    width: width - SPACING.md * 2, // Full width minus padding
-    height: 350,
+    width: width - SPACING.md * 2,
+    height: 380,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: COLORS.text,
-    marginBottom: SPACING.md,
+    marginBottom: SPACING.xs,
   },
   seeAllText: {
     fontSize: 14,
@@ -430,11 +591,56 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.6)',
     marginRight: SPACING.xs,
   },
-  sectionSubtitle: {
+  muscleLabelsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: SPACING.xs,
+  },
+  primaryLabel: {
     fontSize: 16,
     fontWeight: '500',
     color: COLORS.text,
+    flex: 1,
+  },
+  secondaryLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.7)', // Faded text for secondary
+    flex: 1,
+    textAlign: 'left',
+  },
+  muscleGroupsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     marginBottom: SPACING.sm,
+  },
+  primaryMuscleContainer: {
+    flex: 1,
+    paddingRight: SPACING.sm,
+  },
+  secondaryMuscleContainer: {
+    flex: 1,
+    paddingLeft: SPACING.sm,
+  },
+  muscleTagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  muscleTag: {
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    borderRadius: 20,
+    marginRight: SPACING.xs,
+    marginBottom: 6,
+  },
+  muscleTagText: {
+    fontWeight: '500',
+    fontSize: 12,
+  },
+  emptyMuscleText: {
+    fontSize: 13,
+    fontStyle: 'italic',
+    color: 'rgba(255,255,255,0.5)',
   },
   sectionText: {
     fontSize: 15,
@@ -447,46 +653,30 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   muscleMapContainer: {
-    marginBottom: SPACING.md,
+    marginTop: SPACING.xs * -6,
   },
   muscleMap: {
-    marginVertical: SPACING.sm,
+    marginVertical: SPACING.md,
+    position: 'relative',
+  },
+  bodyViewContainer: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   bodyView: {
-    width: '100%',
-    height: 200,
-    position: 'relative',
+    width: '45%',
+    height: 280,
     justifyContent: 'center',
     alignItems: 'center',
   },
   bodyPlaceholder: {
-    width: '50%',
-    height: '90%',
+    width: '90%',
+    height: '95%',
     backgroundColor: 'rgba(100,100,100,0.3)',
     borderRadius: BORDER_RADIUS.md,
     position: 'relative',
-  },
-  chestHighlight: {
-    position: 'absolute',
-    width: 40,
-    height: 30,
-    backgroundColor: 'rgba(255,0,0,0.6)',
-    borderRadius: BORDER_RADIUS.sm,
-    top: 50,
-    left: 25,
-  },
-  primaryMuscleTag: {
-    backgroundColor: '#FF3B30',
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: 4,
-    borderRadius: 20,
-    alignSelf: 'flex-start',
-    marginBottom: SPACING.md,
-  },
-  primaryMuscleText: {
-    color: 'white',
-    fontWeight: '500',
-    fontSize: 12,
   },
   loadingContainer: {
     flex: 1,

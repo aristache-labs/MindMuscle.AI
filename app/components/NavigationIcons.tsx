@@ -81,4 +81,14 @@ export const ProfileIcon = ({ size = 24, color = '#FFFFFF', focused = false }: I
       />
     </>
   </Svg>
-); 
+);
+
+// Add a default export for the main component
+const NavigationIcons = { 
+  HomeIcon, 
+  SearchIcon, 
+  DumbbellIcon, 
+  InsightsIcon, 
+  ProfileIcon 
+};
+export default NavigationIcons; 

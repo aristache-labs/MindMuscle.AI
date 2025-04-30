@@ -193,12 +193,18 @@ export default function ExercisesListScreen() {
   };
 
   const handleBackPress = () => {
-    if (fromScreen) {
-      // Navigate to the specific screen that this was accessed from
-      router.push(`/${fromScreen}`);
-    } else {
-      // If no specific source screen is specified, default to going back
-      router.back();
+    // Check if we can go back in navigation history
+    try {
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+      } else {
+        // If we can't go back (no history), navigate to tabs
+        router.replace('/(tabs)');
+      }
+    } catch (error) {
+      console.error('Navigation error:', error);
+      // Fallback if navigation fails
+      router.replace('/(tabs)');
     }
   };
 

@@ -55,6 +55,8 @@ export function GeneralHeader({
   );
 }
 
+export default GeneralHeader;
+
 const styles = StyleSheet.create({
   headerContainer: {
     position: 'absolute',

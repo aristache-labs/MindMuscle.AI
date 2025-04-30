@@ -54,4 +54,8 @@ export const CircleBackground = () => (
       />
     </Svg>
   </View>
-); 
+);
+
+// Add a default export for the main component
+const NavigationBackgrounds = { TabBarBackground, CircleBackground };
+export default NavigationBackgrounds; 

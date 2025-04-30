@@ -110,4 +110,6 @@ export function useMeasurements() {
     throw new Error('useMeasurements must be used within a MeasurementsProvider');
   }
   return context;
-} 
+}
+
+export default MeasurementsProvider; 

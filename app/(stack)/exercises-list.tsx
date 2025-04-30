@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, FlatList, TouchableOpacity } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { StyleSheet, View, FlatList, TouchableOpacity, TextInput, Animated, TouchableWithoutFeedback, Dimensions } from 'react-native';
 import { Text, IconButton, Divider } from 'react-native-paper';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -7,6 +7,9 @@ import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import ExerciseCard from '../components/ExerciseCard';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+// Get screen width for responsive sizing
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // Mock data for exercises based on category
 const CARDIO_EXERCISES = [
@@ -120,8 +123,13 @@ export default function ExercisesListScreen() {
     currentCategory.exercises.map(ex => ({ ...ex }))
   );
   
-  // New state for favorite filter
+  // State for favorite filter
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+
+  // State & animation for search
+  const [isSearchActive, setIsSearchActive] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchWidthAnim = useRef(new Animated.Value(40)).current;
   
   // Filter exercises based on favorite state if needed
   const displayedExercises = showFavoritesOnly 
@@ -138,8 +146,35 @@ export default function ExercisesListScreen() {
 
   const handleExercisePress = (exerciseId: string) => {
     // Navigate to exercise detail page
-    // router.push(`/exercise-detail/${exerciseId}`);
     console.log(`Navigating to exercise ${exerciseId}`);
+  };
+
+  const openSearch = () => {
+    setIsSearchActive(true);
+    Animated.timing(searchWidthAnim, {
+      toValue: SCREEN_WIDTH - 32, // Almost full width with 16px padding on each side
+      duration: 300,
+      useNativeDriver: false
+    }).start();
+  };
+
+  const closeSearch = () => {
+    Animated.timing(searchWidthAnim, {
+      toValue: 40,
+      duration: 300,
+      useNativeDriver: false
+    }).start(() => {
+      setIsSearchActive(false);
+      setSearchQuery('');
+    });
+  };
+
+  const handleSearchIconPress = () => {
+    if (isSearchActive) {
+      closeSearch();
+    } else {
+      openSearch();
+    }
   };
 
   return (
@@ -159,34 +194,59 @@ export default function ExercisesListScreen() {
           />
         </View>
         <View style={styles.headerCenter}>
-          {currentCategory.name === 'CARDIO' ? (
-            <View style={styles.favoriteFilterContainer}>
-              <IconButton
-                icon={showFavoritesOnly ? 'star' : 'star-outline'}
-                size={28}
-                iconColor={showFavoritesOnly ? "#FFD700" : COLORS.text}
-                onPress={() => setShowFavoritesOnly(!showFavoritesOnly)}
-                style={styles.favoriteButton}
-              />
-              <Text style={styles.favoriteText}>
-                {showFavoritesOnly ? 'Favorites' : 'All Exercises'}
-              </Text>
-            </View>
-          ) : (
-            <Text style={styles.title}>{currentCategory.name}</Text>
-          )}
+          <IconButton
+            icon={showFavoritesOnly ? 'star' : 'star-outline'}
+            size={28}
+            iconColor={showFavoritesOnly ? "#FFD700" : COLORS.text}
+            onPress={() => setShowFavoritesOnly(!showFavoritesOnly)}
+            style={styles.favoriteButton}
+          />
         </View>
         <View style={styles.headerRight} />
       </View>
       <Divider style={styles.divider} />
 
-      {/* Search FAB */}
-      <TouchableOpacity 
-        style={[styles.searchFAB, { bottom: insets.bottom + 20 }]}
-        onPress={() => console.log('Search pressed')}
+      {/* Background Overlay to close search */}
+      {isSearchActive && (
+        <TouchableWithoutFeedback onPress={closeSearch}>
+          <View style={styles.overlay} />
+        </TouchableWithoutFeedback>
+      )}
+
+      {/* Floating Search */}
+      <Animated.View 
+        style={[
+          styles.searchContainer, 
+          { width: searchWidthAnim }
+        ]}
       >
-        <MaterialIcons name="search" size={26} color="white" />
-      </TouchableOpacity>
+        {!isSearchActive ? (
+          <TouchableOpacity 
+            style={styles.searchIconButton}
+            onPress={openSearch}
+          >
+            <MaterialIcons name="search" size={22} color={COLORS.text} />
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.activeSearchContainer}>
+            <TouchableOpacity onPress={handleSearchIconPress}>
+              <MaterialIcons name="search" size={24} color={COLORS.text} style={styles.searchIconActive} />
+            </TouchableOpacity>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search for exercises"
+              placeholderTextColor="rgba(255,255,255,0.5)"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoFocus={true}
+              returnKeyType="search"
+            />
+            <TouchableOpacity onPress={closeSearch}>
+              <MaterialIcons name="close" size={24} color={COLORS.text} />
+            </TouchableOpacity>
+          </View>
+        )}
+      </Animated.View>
 
       <FlatList
         data={displayedExercises}
@@ -203,10 +263,7 @@ export default function ExercisesListScreen() {
         keyExtractor={item => item.id}
         numColumns={2}
         columnWrapperStyle={styles.columnWrapper}
-        contentContainerStyle={[
-          styles.listContent,
-          { paddingTop: 16 } // Adjust padding as we're not using HEADER_HEIGHT anymore
-        ]}
+        contentContainerStyle={styles.listContent}
       />
     </View>
   );
@@ -237,47 +294,62 @@ const styles = StyleSheet.create({
   backButton: {
     margin: 0,
   },
-  title: {
-    color: COLORS.text,
-    fontSize: 18,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  favoriteFilterContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   favoriteButton: {
     margin: 0,
-  },
-  favoriteText: {
-    color: COLORS.text,
-    fontSize: 16,
-    fontWeight: '500',
-    marginLeft: -8,
   },
   divider: {
     backgroundColor: COLORS.primary,
     height: 0.2,
+  },
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'transparent',
+    zIndex: 99,
+  },
+  searchContainer: {
+    position: 'absolute',
+    top: 120,
+    left: 16,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(70, 70, 70, 0.7)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    zIndex: 100,
+    elevation: 6,
+    overflow: 'hidden',
+  },
+  searchIconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  activeSearchContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  searchIconActive: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    height: '100%',
+    color: COLORS.text,
+    fontSize: 16,
   },
   listContent: {
     padding: 16,
   },
   columnWrapper: {
     justifyContent: 'space-between',
-    marginBottom: 0,
+    marginBottom: 12,
   },
-  searchFAB: {
-    position: 'absolute',
-    left: 16,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: COLORS.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-    zIndex: 100,
-  }
 }); 

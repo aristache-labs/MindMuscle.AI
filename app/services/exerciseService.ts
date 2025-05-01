@@ -30,7 +30,7 @@ export type ExerciseCategory =
   | 'Traps' 
   | 'Triceps' 
   | 'Lats' 
-  | 'Lower back' 
+  | 'Lower_back' 
   | 'Abductors' 
   | 'Glutes' 
   | 'Hamstrings' 

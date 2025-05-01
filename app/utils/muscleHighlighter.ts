@@ -236,7 +236,7 @@ export function highlightMusclesInSvg(
     if (primarySet.has(normalizedKey)) {
       style = `fill:${MUSCLE_CONFIG[originalKey].color};stroke:white;stroke-width:0.5;`;
     } else if (secondarySet.has(normalizedKey)) {
-      style = `fill:${MUSCLE_CONFIG[originalKey].color}80;stroke:white;stroke-width:0.5;`;
+      style = `fill:${MUSCLE_CONFIG[originalKey].color}CC;stroke:white;stroke-width:0.5;`;
     } else {
       return;
     }
@@ -287,7 +287,7 @@ export function highlightMusclesInSvg(
         return;
       }
       
-      const style = `fill:${muscleConfig.color}${isPrimary ? '' : '80'};stroke:white;stroke-width:0.5;`;
+      const style = `fill:${muscleConfig.color}${isPrimary ? '' : 'CC'};stroke:white;stroke-width:0.5;`;
       
       // Try to find any elements with IDs containing this muscle name
       const musclePattern = new RegExp(`<[^>]*\\bid=["'][^"']*?${escapeRegExp(originalKey)}[^"']*?["'][^>]*?>`, 'gi');
@@ -370,7 +370,7 @@ export function getMuscleColor(muscleKey: string, isPrimary: boolean): string {
     baseColor = '#FF3B30'; // fallback to a default red
   }
   
-  return isPrimary ? baseColor : `${baseColor}80`; // 80 = 50% opacity for secondary
+  return isPrimary ? baseColor : `${baseColor}CC`; // CC = 80% opacity for secondary
 }
 
 /**

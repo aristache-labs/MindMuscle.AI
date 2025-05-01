@@ -30,7 +30,7 @@ const CATEGORY_NAMES = {
   'Traps': 'TRAPS',
   'Triceps': 'TRICEPS',
   'Lats': 'LATS',
-  'Lower back': 'LOWER BACK',
+  'Lower_back': 'LOWER BACK',
   'Abductors': 'ABDUCTORS',
   'Glutes': 'GLUTES',
   'Hamstrings': 'HAMSTRINGS',
@@ -57,7 +57,7 @@ const MUSCLE_GROUP_ALIASES: Record<string, string[]> = {
   'Glutes': ['gluteus maximus', 'butt', 'buttocks'],
   'Calves': ['calf muscles', 'lower legs'],
   'Forearms': ['lower arms'],
-  'Lower back': ['lower back', 'erectorspinae', 'erector-spinae', 'Erector', 'Lower_Back', 'Lowerback', 'erector', 'Lower back'],
+  'Lower_back': ['lower back', 'erectorspinae', 'erector-spinae', 'erector', 'lower_back', 'lowerback'],
   'Traps': ['trapezius', 'upper back'],
 };
 
@@ -69,7 +69,7 @@ export default function ExercisesListScreen() {
   
   // Default to Cardio if no category provided
   const currentCategory = typeof categoryId === 'string' 
-    ? (categoryId as ExerciseCategory) || 'all'
+    ? (categoryId === 'Lower back' ? 'Lower_back' : categoryId as ExerciseCategory) || 'all'
     : 'all';
   
   // State for exercises
@@ -445,7 +445,7 @@ export default function ExercisesListScreen() {
               !searchQuery.trim() ? (
                 <View style={styles.categoryTitleContainer}>
                   <Text style={styles.categoryTitle}>
-                    {CATEGORY_NAMES[currentCategory] || 'EXERCISES'}
+                    {CATEGORY_NAMES[currentCategory] || currentCategory.toUpperCase()}
                   </Text>
                 </View>
               ) : searchQuery.trim() ? (

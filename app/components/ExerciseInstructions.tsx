@@ -64,9 +64,9 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
     color: COLORS.text,
-    marginBottom: SPACING.xs,
+    marginBottom: SPACING.md,
   },
   loadingContainer: {
     flex: 1,
@@ -86,7 +86,7 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.md, // Add some bottom padding for better scrolling
   },
   instructionText: {
-    fontSize: 15,
+    fontSize: 16,
     color: 'rgba(255,255,255,0.8)',
     lineHeight: 22,
   },

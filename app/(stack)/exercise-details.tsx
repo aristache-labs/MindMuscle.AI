@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -7,7 +7,10 @@ import {
   ScrollView, 
   Pressable, 
   Dimensions,
-  ActivityIndicator
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { IconButton, Divider, Surface } from 'react-native-paper';
@@ -24,6 +27,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import * as FileSystem from 'expo-file-system';
 import { Asset } from 'expo-asset';
+import { useDebounce } from '../hooks/useDebounce';
 import supabase from '../services/supabase';
 
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
@@ -58,6 +62,15 @@ export default function ExerciseDetailsScreen() {
   const translateX = useSharedValue(0);
   const sectionWidth = width - (SPACING.md * 2); // Account for padding
 
+  // State for notes
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  
+  // Debounce notes changes to avoid too many database calls
+  const debouncedNotes = useDebounce(notes, 1000);
+
+  const scrollViewRef = useRef<ScrollView>(null);
+  
   // Fetch exercise data from Supabase and SVG files
   useEffect(() => {
     if (id) {
@@ -67,6 +80,37 @@ export default function ExerciseDetailsScreen() {
     // Load SVG files
     loadSvgFiles();
   }, [id]);
+
+  // Fetch existing notes when component mounts
+  useEffect(() => {
+    if (id) {
+      fetchExerciseNotes(id.toString());
+    }
+  }, [id]);
+
+  // Save notes when they change (debounced)
+  useEffect(() => {
+    if (id && debouncedNotes !== undefined) {
+      saveExerciseNotes(id.toString(), debouncedNotes);
+    }
+  }, [debouncedNotes]);
+
+  // Handle keyboard show event
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      'keyboardDidShow',
+      () => {
+        // Wait a bit for the keyboard animation to finish
+        setTimeout(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+    };
+  }, []);
 
   const loadSvgFiles = async () => {
     try {
@@ -119,6 +163,73 @@ export default function ExerciseDetailsScreen() {
       console.error('Error fetching exercise data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Function to fetch exercise notes
+  const fetchExerciseNotes = async (exerciseId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('exercise_notes')
+        .select('note_content')
+        .eq('exercise_id', exerciseId)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error fetching notes:', error);
+        return;
+      }
+
+      if (data) {
+        setNotes(data.note_content);
+      } else {
+        setNotes('');
+      }
+    } catch (error) {
+      console.error('Error fetching notes:', error);
+    }
+  };
+
+  // Function to save exercise notes
+  const saveExerciseNotes = async (exerciseId: string, noteContent: string) => {
+    if (!noteContent.trim()) return; // Don't save empty notes
+    
+    setIsSaving(true);
+    setSaveError(null);
+    
+    try {
+      // Get current user ID
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError || !user) {
+        console.error('Error getting user:', userError);
+        setSaveError('Failed to authenticate user');
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('exercise_notes')
+        .upsert(
+          {
+            exercise_id: exerciseId,
+            note_content: noteContent,
+            user_id: user.id,
+            updated_at: new Date().toISOString()
+          },
+          {
+            onConflict: 'user_id,exercise_id'
+          }
+        );
+
+      if (error) {
+        console.error('Error saving notes:', error);
+        setSaveError('Failed to save notes');
+      }
+    } catch (error) {
+      console.error('Error saving notes:', error);
+      setSaveError('Failed to save notes');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -217,136 +328,164 @@ export default function ExerciseDetailsScreen() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <View style={styles.container}>
-        <StatusBar style="light" />
-        
-        {/* Custom Header with Back Button */}
-        <View style={[styles.header, { marginTop: insets.top }]}>
-          <View style={styles.headerLeft}>
-            <IconButton
-              icon="arrow-left"
-              size={28}
-              onPress={handleBackPress}
-              iconColor={COLORS.text}
-              style={styles.backButton}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            />
-          </View>
-          <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle}>{name}</Text>
-          </View>
-          <View style={styles.headerRight}>
-            {/* Debug button toggle - visible only in dev environment */}
-            {__DEV__ && (
+      <KeyboardAvoidingView 
+        style={{ flex: 1 }} 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 25}
+      >
+        <View style={styles.container}>
+          <StatusBar style="light" />
+          
+          {/* Custom Header with Back Button */}
+          <View style={[styles.header, { marginTop: insets.top }]}>
+            <View style={styles.headerLeft}>
               <IconButton
-                icon="bug"
-                size={24}
-                onPress={toggleDebugMode}
-                iconColor={debugMode ? COLORS.primary : COLORS.text}
+                icon="arrow-left"
+                size={28}
+                onPress={handleBackPress}
+                iconColor={COLORS.text}
+                style={styles.backButton}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               />
-            )}
-          </View>
-        </View>
-        
-        <Divider style={styles.divider} />
-        
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.contentContainer}>
-          {/* Exercise Image/Video */}
-          <Pressable style={styles.mediaContainer} onPress={handleMediaPress}>
-            <OptimizedImage 
-              source={image ? { uri: image.toString() } : require('../../assets/exercises/placeholder.jpg')} 
-              style={styles.mediaImage}
-            />
-            <View style={styles.playButtonOverlay}>
-              <MaterialIcons name="play-circle-filled" size={60} color="rgba(255,255,255,0.8)" />
             </View>
-          </Pressable>
-
-          {/* Swipe Indicator */}
-          <View style={styles.swipeIndicatorContainer}>
-            <Text style={styles.swipeIndicatorText}>
-              {activeSection === 'muscles' ? 'Swipe left for instructions' : 'Swipe right for muscles'}
-            </Text>
-            <MaterialIcons 
-              name={activeSection === 'muscles' ? 'arrow-forward' : 'arrow-back'} 
-              size={20} 
-              color="rgba(255,255,255,0.6)" 
-            />
+            <View style={styles.headerCenter}>
+              <Text style={styles.headerTitle}>{name}</Text>
+            </View>
+            <View style={styles.headerRight}>
+              {/* Debug button toggle - visible only in dev environment */}
+              {__DEV__ && (
+                <IconButton
+                  icon="bug"
+                  size={24}
+                  onPress={toggleDebugMode}
+                  iconColor={debugMode ? COLORS.primary : COLORS.text}
+                />
+              )}
+            </View>
           </View>
+          
+          <Divider style={styles.divider} />
+          
+          <ScrollView 
+            style={styles.scrollView} 
+            contentContainerStyle={styles.contentContainer}
+            ref={scrollViewRef}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Exercise Image/Video */}
+            <Pressable style={styles.mediaContainer} onPress={handleMediaPress}>
+              <OptimizedImage 
+                source={image ? { uri: image.toString() } : require('../../assets/exercises/placeholder.jpg')} 
+                style={styles.mediaImage}
+              />
+              <View style={styles.playButtonOverlay}>
+                <MaterialIcons name="play-circle-filled" size={60} color="rgba(255,255,255,0.8)" />
+              </View>
+            </Pressable>
 
-          {/* Swipeable Sections */}
-          <View style={styles.sectionsWrapper}>
-            <PanGestureHandler 
-              onGestureEvent={gestureHandler}
-              activeOffsetX={[-10, 10]} // Only activate for horizontal movements greater than 10 units
-              failOffsetY={[-5, 5]} // Fail the gesture if it moves vertically more than 5 units
-            >
-              <Animated.View style={[styles.sectionsContainer, animatedStyle]}>
-                {/* Muscles Worked Section */}
-                <Surface style={styles.sectionContent}>
-                  <Text style={styles.sectionTitle}>Muscles Worked</Text>
-                  
-                  {/* Primary and Secondary muscle labels side by side */}
-                  <View style={styles.muscleLabelsContainer}>
-                    <Text style={[styles.primaryLabel, hasSecondaryMuscles ? {} : { flex: 2 }]}>Primary:</Text>
-                    {hasSecondaryMuscles && <Text style={styles.secondaryLabel}>Secondary:</Text>}
-                  </View>
-                  
-                  {/* Primary and Secondary muscle groups */}
-                  <View style={styles.muscleGroupsContainer}>
-                    <View style={[styles.primaryMuscleContainer, hasSecondaryMuscles ? {} : { flex: 2 }]}>
-                      <MuscleTags 
-                        muscles={exerciseData?.primaryMuscles || []} 
-                        isPrimary={true} 
-                      />
+            {/* Swipe Indicator */}
+            <View style={styles.swipeIndicatorContainer}>
+              <Text style={styles.swipeIndicatorText}>
+                {activeSection === 'muscles' ? 'Swipe left for instructions' : 'Swipe right for muscles'}
+              </Text>
+              <MaterialIcons 
+                name={activeSection === 'muscles' ? 'arrow-forward' : 'arrow-back'} 
+                size={20} 
+                color="rgba(255,255,255,0.6)" 
+              />
+            </View>
+
+            {/* Swipeable Sections */}
+            <View style={styles.sectionsWrapper}>
+              <PanGestureHandler 
+                onGestureEvent={gestureHandler}
+                activeOffsetX={[-10, 10]} // Only activate for horizontal movements greater than 10 units
+                failOffsetY={[-5, 5]} // Fail the gesture if it moves vertically more than 5 units
+              >
+                <Animated.View style={[styles.sectionsContainer, animatedStyle]}>
+                  {/* Muscles Worked Section */}
+                  <Surface style={styles.sectionContent}>
+                    <Text style={styles.sectionTitle}>Muscles Worked</Text>
+                    
+                    {/* Primary and Secondary muscle labels side by side */}
+                    <View style={styles.muscleLabelsContainer}>
+                      <Text style={[styles.primaryLabel, hasSecondaryMuscles ? {} : { flex: 2 }]}>Primary:</Text>
+                      {hasSecondaryMuscles && <Text style={styles.secondaryLabel}>Secondary:</Text>}
                     </View>
-                    {hasSecondaryMuscles && (
-                      <View style={styles.secondaryMuscleContainer}>
+                    
+                    {/* Primary and Secondary muscle groups */}
+                    <View style={styles.muscleGroupsContainer}>
+                      <View style={[styles.primaryMuscleContainer, hasSecondaryMuscles ? {} : { flex: 2 }]}>
                         <MuscleTags 
-                          muscles={exerciseData?.secondaryMuscles || []} 
-                          isPrimary={false} 
+                          muscles={exerciseData?.primaryMuscles || []} 
+                          isPrimary={true} 
                         />
                       </View>
-                    )}
-                  </View>
-                  
-                  <MuscleDiagram 
-                    frontBodySvg={frontBodySvg}
-                    backBodySvg={backBodySvg}
-                    primaryMuscles={exerciseData?.primaryMuscles || []}
-                    secondaryMuscles={exerciseData?.secondaryMuscles || []}
-                    loading={loading}
-                    isCardioExercise={isCardioExercise}
-                    debugMode={debugMode}
-                  />
-                </Surface>
+                      {hasSecondaryMuscles && (
+                        <View style={styles.secondaryMuscleContainer}>
+                          <MuscleTags 
+                            muscles={exerciseData?.secondaryMuscles || []} 
+                            isPrimary={false} 
+                          />
+                        </View>
+                      )}
+                    </View>
+                    
+                    <MuscleDiagram 
+                      frontBodySvg={frontBodySvg}
+                      backBodySvg={backBodySvg}
+                      primaryMuscles={exerciseData?.primaryMuscles || []}
+                      secondaryMuscles={exerciseData?.secondaryMuscles || []}
+                      loading={loading}
+                      isCardioExercise={isCardioExercise}
+                      debugMode={debugMode}
+                    />
+                  </Surface>
 
-                {/* Instructions Section */}
-                <Surface style={styles.sectionContent}>
-                  <ExerciseInstructions 
-                    instructions={exerciseData?.instructions || null}
-                    loading={loading}
-                  />
-                </Surface>
-              </Animated.View>
-            </PanGestureHandler>
-          </View>
+                  {/* Instructions Section */}
+                  <Surface style={styles.sectionContent}>
+                    <ExerciseInstructions 
+                      instructions={exerciseData?.instructions || null}
+                      loading={loading}
+                    />
+                  </Surface>
+                </Animated.View>
+              </PanGestureHandler>
+            </View>
 
-          {/* Exercise Notes */}
-          <Surface style={styles.notesContainer}>
-            <Text style={styles.notesSectionTitle}>Exercise Notes</Text>
-            <TextInput
-              style={styles.notesInput}
-              placeholder="Type your notes here"
-              placeholderTextColor="rgba(255,255,255,0.5)"
-              value={notes}
-              onChangeText={setNotes}
-              multiline
-              textAlignVertical="top"
-            />
-          </Surface>
-        </ScrollView>
-      </View>
+            {/* Exercise Notes */}
+            <Surface style={styles.notesContainer}>
+              <View style={styles.notesTitleContainer}>
+                <Text style={styles.notesSectionTitle}>Exercise Notes</Text>
+                {isSaving && (
+                  <ActivityIndicator size="small" color={COLORS.primary} style={styles.savingIndicator} />
+                )}
+                {saveError && (
+                  <Text style={styles.errorText}>{saveError}</Text>
+                )}
+              </View>
+              <TextInput
+                style={styles.notesInput}
+                placeholder="Type your notes here"
+                placeholderTextColor="rgba(255,255,255,0.5)"
+                value={notes}
+                onChangeText={setNotes}
+                multiline
+                textAlignVertical="top"
+                onFocus={() => {
+                  // Scroll to the input when it receives focus
+                  setTimeout(() => {
+                    scrollViewRef.current?.scrollToEnd({ animated: true });
+                  }, 100);
+                }}
+              />
+            </Surface>
+            
+            {/* Add some padding at the bottom for keyboard */}
+            <View style={styles.keyboardSpacer} />
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
     </GestureHandlerRootView>
   );
 }
@@ -493,6 +632,23 @@ const styles = StyleSheet.create({
     padding: SPACING.sm,
     color: COLORS.text,
     minHeight: 100,
+    maxHeight: 200, // Limit maximum height
     textAlignVertical: 'top',
+  },
+  notesTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: SPACING.sm,
+  },
+  savingIndicator: {
+    marginLeft: SPACING.sm,
+  },
+  errorText: {
+    color: COLORS.error,
+    fontSize: 14,
+    marginLeft: SPACING.sm,
+  },
+  keyboardSpacer: {
+    height: Platform.OS === 'ios' ? 0 : 0, // Extra space at the bottom for keyboard
   },
 });

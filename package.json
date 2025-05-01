@@ -74,6 +74,7 @@
     "react-native-url-polyfill": "^2.0.0",
     "react-native-vector-icons": "^10.0.3",
     "sentry-expo": "~7.0.0",
+    "svgo": "^3.3.2",
     "victory-native": "^36.7.0"
   },
   "devDependencies": {

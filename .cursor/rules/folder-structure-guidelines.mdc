@@ -12,7 +12,7 @@ alwaysApply: true
 
 ## Project Folder Structure
 
-Regularly update this folder structure each time you create, modify, or delete a file or folder. (Latest: Added ExerciseCard component and exercises-list stack screen):
+Regularly update this folder structure each time you create, modify, or delete a file or folder. (Latest: Added muscleHighlighter utility and refactored ExerciseDetailsScreen into smaller components):
 
 ```
 mindmuscle-ai/
@@ -24,7 +24,8 @@ mindmuscle-ai/
 │   ├── (stack)/
 │   │   ├── _layout.tsx
 │   │   ├── settings.tsx
-│   │   └── exercises-list.tsx
+│   │   ├── exercises-list.tsx
+│   │   └── exercise-details.tsx
 │   ├── (tabs)/
 │   ├── coaching/
 │   ├── components/
@@ -34,6 +35,7 @@ mindmuscle-ai/
 │   │   ├── ExerciseCard.tsx
 │   │   ├── ExerciseGraphs.tsx
 │   │   ├── ExerciseGraphModal.tsx
+│   │   ├── ExerciseInstructions.tsx
 │   │   ├── GeneralHeader.tsx
 │   │   ├── GlobalGestureHandler
 │   │   ├── HowToMeasureModal
@@ -41,6 +43,8 @@ mindmuscle-ai/
 │   │   ├── MeasurementHistory
 │   │   ├── MeasurementModal
 │   │   ├── MeasurementsGraph
+│   │   ├── MuscleDiagram.tsx
+│   │   ├── MuscleTags.tsx
 │   │   ├── OptimizedImage
 │   │   ├── SplashScreenManager
 │   │   ├── SwipeBackHandler
@@ -61,6 +65,7 @@ mindmuscle-ai/
 │   │   └── TaskContext
 │   ├── types/
 │   └── utils/
+│       └── muscleHighlighter.ts
 ├── assets/
 │   ├── exercises/
 │   └── measurements/

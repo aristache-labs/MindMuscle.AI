@@ -57,6 +57,7 @@ const MUSCLE_GROUP_ALIASES: Record<string, string[]> = {
   'Glutes': ['gluteus maximus', 'butt', 'buttocks'],
   'Calves': ['calf muscles', 'lower legs'],
   'Forearms': ['lower arms'],
+  'Lower back': ['lower back', 'erectorspinae', 'erector-spinae', 'Erector', 'Lower_Back', 'Lowerback', 'erector', 'Lower back'],
   'Traps': ['trapezius', 'upper back'],
 };
 

@@ -49,7 +49,6 @@ export default function ExerciseDetailsScreen() {
   const [activeSection, setActiveSection] = useState<'muscles' | 'instructions'>('muscles');
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(true);
-  const [debugMode, setDebugMode] = useState(false); // For development debugging
   const [exerciseData, setExerciseData] = useState<{
     instructions: string[] | string;
     primaryMuscles: string[];
@@ -238,17 +237,6 @@ export default function ExerciseDetailsScreen() {
     router.back();
   };
 
-  // Toggle debug mode for development
-  const toggleDebugMode = () => {
-    setDebugMode(prev => !prev);
-  };
-
-  // Handle image/video container press - would show fullscreen or play video
-  const handleMediaPress = () => {
-    // Implementation for showing fullscreen image or playing video
-    console.log('Media pressed');
-  };
-
   // Animation for swiping between muscles and instructions sections
   const gestureHandler = useAnimatedGestureHandler({
     onStart: (_, ctx: any) => {
@@ -351,17 +339,7 @@ export default function ExerciseDetailsScreen() {
             <View style={styles.headerCenter}>
               <Text style={styles.headerTitle}>{name}</Text>
             </View>
-            <View style={styles.headerRight}>
-              {/* Debug button toggle - visible only in dev environment */}
-              {__DEV__ && (
-                <IconButton
-                  icon="bug"
-                  size={24}
-                  onPress={toggleDebugMode}
-                  iconColor={debugMode ? COLORS.primary : COLORS.text}
-                />
-              )}
-            </View>
+            <View style={styles.headerRight} />
           </View>
           
           <Divider style={styles.divider} />
@@ -373,7 +351,7 @@ export default function ExerciseDetailsScreen() {
             keyboardShouldPersistTaps="handled"
           >
             {/* Exercise Image/Video */}
-            <Pressable style={styles.mediaContainer} onPress={handleMediaPress}>
+            <Pressable style={styles.mediaContainer} onPress={() => {}}>
               <OptimizedImage 
                 source={image ? { uri: image.toString() } : require('../../assets/exercises/placeholder.jpg')} 
                 style={styles.mediaImage}
@@ -438,7 +416,6 @@ export default function ExerciseDetailsScreen() {
                       secondaryMuscles={exerciseData?.secondaryMuscles || []}
                       loading={loading}
                       isCardioExercise={isCardioExercise}
-                      debugMode={debugMode}
                     />
                   </Surface>
 

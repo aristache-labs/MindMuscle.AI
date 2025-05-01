@@ -63,7 +63,7 @@ const MUSCLE_ID_MAPPING: { [key: string]: string[] } = {
   // Primary mapping for front view muscles
   cardio: ['Cardio', 'cardio', 'heart'],
   chest: ['Chest', 'chest', 'Chest_2', 'Chest_3', 'Chest_4', 'pectorals', 'pecs'],
-  shoulders: ['Shoulders', 'Shoulders_2', 'Shoulders_3', 'Delts', 'delts', 'deltoids'],
+  shoulders: ['Shoulders', 'Shoulders_2', 'Shoulders_3', 'Delts', 'delts', 'deltoids', 'Vector_9', 'Vector_10', 'Shoulders-front', 'Shoulders-back'],
   triceps: ['Triceps', 'tricep', 'Tricep', 'Triceps-left', 'Triceps-right', 'Group 302', 'Group 303', 'Triceps_left', 'Triceps_right'],
   biceps: ['Biceps', 'Biceps_2', 'bicep', 'Biceps-left', 'Biceps-right', 'Biceps_left', 'Biceps_right', 'Vector 28', 'Vector 29', 'Vector 26', 'Vector 27'],
   forearms: ['Forearms', 'Forearms_2', 'Forearms_3', 'Forearms_4', 'forearm'],
@@ -990,6 +990,190 @@ export default function ExerciseDetailsScreen() {
                 }
               });
             }
+          }
+          
+          // Special handling for shoulders
+          if (muscleLower === 'shoulders') {
+            if (debugMode) {
+              console.log("Handling Shoulders element with special approach");
+            }
+            
+            // Direct approach for the main Shoulders elements
+            ['Shoulders', 'Shoulders_2', 'Shoulders_3'].forEach(shouldersId => {
+              const shouldersElementWithFill = new RegExp(`<([^>]*)id="${shouldersId}"([^>]*)fill="[^"]*"([^>]*)>`, 'gi');
+              let replacementCount = 0;
+              
+              modifiedSvg = modifiedSvg.replace(shouldersElementWithFill, (match, prefix, middle, suffix) => {
+                replacementCount++;
+                // Use primary or secondary color based on whether it's in primaryMuscles
+                const color = exerciseData.primaryMuscles.some(m => 
+                  m.toLowerCase().replace(/\s+/g, '') === 'shoulders') 
+                  ? MUSCLE_COLORS.shoulders 
+                  : `${MUSCLE_COLORS.shoulders}80`;
+                
+                return `<${prefix}id="${shouldersId}"${middle}fill="${color}"${suffix}>`;
+              });
+              
+              if (debugMode && replacementCount > 0) {
+                console.log(`Replaced ${replacementCount} fill attributes for ${shouldersId} elements`);
+              }
+              
+              // Add fill attributes if they don't exist
+              const shouldersElementWithoutFill = new RegExp(`<([^>]*)id="${shouldersId}"([^>]*[^"f][^"i][^"l][^"l])>`, 'gi');
+              replacementCount = 0;
+              
+              modifiedSvg = modifiedSvg.replace(shouldersElementWithoutFill, (match, prefix, suffix) => {
+                replacementCount++;
+                // Use primary or secondary color
+                const color = exerciseData.primaryMuscles.some(m => 
+                  m.toLowerCase().replace(/\s+/g, '') === 'shoulders') 
+                  ? MUSCLE_COLORS.shoulders 
+                  : `${MUSCLE_COLORS.shoulders}80`;
+                
+                return `<${prefix}id="${shouldersId}"${suffix} fill="${color}">`;
+              });
+              
+              if (debugMode && replacementCount > 0) {
+                console.log(`Added ${replacementCount} fill attributes to ${shouldersId} elements`);
+              }
+            });
+            
+            // Special handling for shoulders in back view specifically
+            if (isBackView) {
+              // In back view, look for the specific vector IDs for the shoulder elements
+              ['Vector_9', 'Vector_10'].forEach(vectorId => {
+                const vectorPattern = new RegExp(`<([^>]*)id="${vectorId}"([^>]*)fill="[^"]*"([^>]*)>`, 'gi');
+                
+                modifiedSvg = modifiedSvg.replace(vectorPattern, (match, prefix, middle, suffix) => {
+                  // Use primary or secondary color
+                  const color = exerciseData.primaryMuscles.some(m => 
+                    m.toLowerCase().replace(/\s+/g, '') === 'shoulders') 
+                    ? MUSCLE_COLORS.shoulders 
+                    : `${MUSCLE_COLORS.shoulders}80`;
+                  
+                  if (debugMode) {
+                    console.log(`Replaced fill for shoulders back vector: ${vectorId}`);
+                  }
+                  
+                  return `<${prefix}id="${vectorId}"${middle}fill="${color}"${suffix}>`;
+                });
+                
+                // Also handle case where fill attribute doesn't exist
+                const vectorPatternNoFill = new RegExp(`<([^>]*)id="${vectorId}"([^>]*[^"f][^"i][^"l][^"l])>`, 'gi');
+                
+                modifiedSvg = modifiedSvg.replace(vectorPatternNoFill, (match, prefix, suffix) => {
+                  // Use primary or secondary color
+                  const color = exerciseData.primaryMuscles.some(m => 
+                    m.toLowerCase().replace(/\s+/g, '') === 'shoulders') 
+                    ? MUSCLE_COLORS.shoulders 
+                    : `${MUSCLE_COLORS.shoulders}80`;
+                  
+                  if (debugMode) {
+                    console.log(`Added fill for shoulders back vector: ${vectorId}`);
+                  }
+                  
+                  const styleAttr = `fill="${color}"`;
+                  return addStyleToElement(`<${prefix}id="${vectorId}"${suffix}>`, styleAttr);
+                });
+              });
+            }
+            
+            // Look for parent groups that might contain shoulders
+            // First try for back view specific groups
+            if (isBackView) {
+              const shouldersBackGroupPattern = /<g[^>]*id="[^"]*Shoulders[^"]*"[^>]*>([\s\S]*?)<\/g>/gi;
+              const shouldersBackGroups = modifiedSvg.match(shouldersBackGroupPattern);
+              
+              if (shouldersBackGroups) {
+                shouldersBackGroups.forEach(group => {
+                  // Use primary or secondary color
+                  const color = exerciseData.primaryMuscles.some(m => 
+                    m.toLowerCase().replace(/\s+/g, '') === 'shoulders') 
+                    ? MUSCLE_COLORS.shoulders 
+                    : `${MUSCLE_COLORS.shoulders}80`;
+                  
+                  // Replace fill attributes within the group
+                  const updatedGroup = group.replace(/fill="[^"]*"/gi, `fill="${color}"`);
+                  modifiedSvg = modifiedSvg.replace(group, updatedGroup);
+                  
+                  if (debugMode && group !== updatedGroup) {
+                    console.log("Successfully replaced fill colors in shoulders back group");
+                  }
+                });
+              }
+              
+              // Try a more specific approach - look for Group elements near shoulder elements
+              const shouldersNeighboringGroups = [
+                'Group 332', // This might be close to shoulders in back view
+              ];
+              
+              shouldersNeighboringGroups.forEach(groupId => {
+                const groupPattern = new RegExp(`<g[^>]*id="${groupId}"[^>]*>([\s\S]*?)<\/g>`, 'gi');
+                const groups = modifiedSvg.match(groupPattern);
+                
+                if (groups) {
+                  groups.forEach(group => {
+                    // Only update if it hasn't been colored by another muscle
+                    if (!group.includes('fill="#')) {
+                      // Use primary or secondary color
+                      const color = exerciseData.primaryMuscles.some(m => 
+                        m.toLowerCase().replace(/\s+/g, '') === 'shoulders') 
+                        ? MUSCLE_COLORS.shoulders 
+                        : `${MUSCLE_COLORS.shoulders}80`;
+                      
+                      // Replace fill attributes within the group
+                      const updatedGroup = group.replace(/fill="[^"]*"/gi, `fill="${color}"`);
+                      modifiedSvg = modifiedSvg.replace(group, updatedGroup);
+                      
+                      if (debugMode && group !== updatedGroup) {
+                        console.log(`Successfully replaced fill colors in neighboring shoulders group: ${groupId}`);
+                      }
+                    }
+                  });
+                }
+              });
+            } else {
+              // Front view groups
+              const shouldersFrontGroupPattern = /<g[^>]*id="[^"]*Shoulders[^"]*"[^>]*>([\s\S]*?)<\/g>/gi;
+              const shouldersFrontGroups = modifiedSvg.match(shouldersFrontGroupPattern);
+              
+              if (shouldersFrontGroups) {
+                shouldersFrontGroups.forEach(group => {
+                  // Use primary or secondary color
+                  const color = exerciseData.primaryMuscles.some(m => 
+                    m.toLowerCase().replace(/\s+/g, '') === 'shoulders') 
+                    ? MUSCLE_COLORS.shoulders 
+                    : `${MUSCLE_COLORS.shoulders}80`;
+                  
+                  // Replace fill attributes within the group
+                  const updatedGroup = group.replace(/fill="[^"]*"/gi, `fill="${color}"`);
+                  modifiedSvg = modifiedSvg.replace(group, updatedGroup);
+                  
+                  if (debugMode && group !== updatedGroup) {
+                    console.log("Successfully replaced fill colors in shoulders front group");
+                  }
+                });
+              }
+            }
+            
+            // Try for deltoid specific elements
+            ['Delts', 'delts', 'deltoids'].forEach(deltId => {
+              const deltPattern = new RegExp(`<([^>]*)id="${deltId}"([^>]*)fill="[^"]*"([^>]*)>`, 'gi');
+              
+              modifiedSvg = modifiedSvg.replace(deltPattern, (match, prefix, middle, suffix) => {
+                // Use primary or secondary color
+                const color = exerciseData.primaryMuscles.some(m => 
+                  m.toLowerCase().replace(/\s+/g, '') === 'shoulders') 
+                  ? MUSCLE_COLORS.shoulders 
+                  : `${MUSCLE_COLORS.shoulders}80`;
+                
+                if (debugMode) {
+                  console.log(`Replaced fill for deltoid element: ${deltId}`);
+                }
+                
+                return `<${prefix}id="${deltId}"${middle}fill="${color}"${suffix}>`;
+              });
+            });
           }
         });
         

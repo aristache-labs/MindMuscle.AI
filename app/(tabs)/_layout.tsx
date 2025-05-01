@@ -305,7 +305,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: 'Workout',
         }}
       />
       <Tabs.Screen

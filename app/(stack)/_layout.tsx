@@ -44,6 +44,42 @@ export default function StackLayout() {
           fullScreenGestureEnabled: false,
         }}
       />
+      <Stack.Screen
+        name="my-plan"
+        options={{
+          headerShown: false,
+          animation: 'slide_from_right',
+          gestureEnabled: false,
+          fullScreenGestureEnabled: false,
+        }}
+      /> 
+      <Stack.Screen
+        name="ai-coaching"
+        options={{
+          headerShown: false,
+          animation: 'slide_from_right',
+          gestureEnabled: false,
+          fullScreenGestureEnabled: false,
+        }}
+      />
+      <Stack.Screen
+        name="single-workout"
+        options={{
+          headerShown: false,
+          animation: 'slide_from_right',
+          gestureEnabled: false,
+          fullScreenGestureEnabled: false,
+        }}
+      />
+       <Stack.Screen
+        name="custom"
+        options={{
+          headerShown: false,
+          animation: 'slide_from_right',
+          gestureEnabled: false,
+          fullScreenGestureEnabled: false,
+        }}
+      />
     </Stack>
   );
 } 

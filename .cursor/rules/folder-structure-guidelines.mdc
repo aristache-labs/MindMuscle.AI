@@ -25,7 +25,8 @@ mindmuscle-ai/
 │   │   ├── _layout.tsx
 │   │   ├── settings.tsx
 │   │   ├── exercises-list.tsx
-│   │   └── exercise-details.tsx
+│   │   ├── exercise-details.tsx
+│   │   └── plans.tsx
 │   ├── (tabs)/
 │   ├── coaching/
 │   ├── components/
@@ -55,6 +56,10 @@ mindmuscle-ai/
 │   ├── docs/
 │   ├── hooks/
 │   ├── services/
+│   │   ├── exerciseService.ts
+│   │   ├── profileService.ts
+│   │   ├── supabase.ts
+│   │   └── workoutPlanService.ts
 │   ├── store/
 │   │   ├── AuthContext
 │   │   ├── CoachingContext

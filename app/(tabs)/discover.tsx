@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { StyleSheet, View, SectionList, ImageSourcePropType, Pressable, SectionListRenderItemInfo, SectionListData, Animated, NativeSyntheticEvent, NativeScrollEvent, LayoutChangeEvent, SectionListProps, ViewToken, findNodeHandle, Easing, ScrollView } from 'react-native';
-import { Text, Chip, IconButton, Surface, Divider } from 'react-native-paper';
+import { Text, Chip, IconButton, Surface, Divider, ActivityIndicator } from 'react-native-paper';
 import { COLORS, SPACING, HEADER_HEIGHT } from '../constants/theme';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,6 +8,8 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import OptimizedImage from '../components/OptimizedImage';
 import { useImagePreloader } from '../hooks/useImagePreloader';
 import { LinearGradient } from 'expo-linear-gradient';
+import supabase from '../services/supabase';
+import { useRouter } from 'expo-router';
 
 // Heights
 const FILTER_HEIGHT = 48;
@@ -73,6 +75,26 @@ const filterCategories = [
   }
 ];
 
+// Interfaces for Supabase data
+interface WorkoutCategory {
+  id: string;
+  name: string;
+  display_order: number;
+  identifier: string;
+}
+
+interface WorkoutSubcategory {
+  id: string;
+  category_id: string;
+  category_identifier: string;
+  title: string;
+  subtitle: string;
+  accent_color: string;
+  image_url: string;
+  display_order: number;
+  identifier: string;
+}
+
 interface WorkoutProgram {
   id: string;
   title: string;
@@ -82,205 +104,42 @@ interface WorkoutProgram {
   accent: string;
 }
 
-// Workout program data organized by frequency categories
-const workoutPrograms: WorkoutProgram[] = [
-  // 1 Day a Week
-  {
-    id: '1-1',
-    title: 'GET IN SHAPE',
-    subtitle: 'Full Body Split',
-    image: require('../../assets/exercises/fullbody.jpg'),
-    category: '1 Day a Week',
-    accent: '#9eff00', // Green accent
-  },
-  {
-    id: '1-2',
-    title: 'GET LEAN',
-    subtitle: 'Full Body Split',
-    image: require('../../assets/exercises/dumbbell.jpg'),
-    category: '1 Day a Week',
-    accent: '#00f7ff', // Teal accent
-  },
-  {
-    id: '1-3',
-    title: 'OVERALL FITNESS',
-    subtitle: 'Full Body Split',
-    image: require('../../assets/exercises/pushup.jpg'),
-    category: '1 Day a Week',
-    accent: '#ff5252', // Red accent
-  },
-  {
-    id: '1-4',
-    title: 'BEGINNER FRIENDLY',
-    subtitle: 'Full Body Workout',
-    image: require('../../assets/exercises/squat.jpg'),
-    category: '1 Day a Week',
-    accent: '#ffeb3b', // Yellow accent
-  },
-  {
-    id: '1-5',
-    title: 'BUSY LIFESTYLE',
-    subtitle: 'Time-Efficient Full Body',
-    image: require('../../assets/exercises/yoga.jpg'),
-    category: '1 Day a Week',
-    accent: '#4178ff', // Blue accent
-  },
-  {
-    id: '1-6',
-    title: 'MAINTAIN MUSCLE',
-    subtitle: 'Maintenance Workout',
-    image: require('../../assets/exercises/dumbbell.jpg'),
-    category: '1 Day a Week',
-    accent: '#aa00ff', // Purple accent
-  },
-  
-  // 2 Days a Week
-  {
-    id: '2-1',
-    title: 'BUILD STRENGTH',
-    subtitle: 'Full Body Split',
-    image: require('../../assets/exercises/squat.jpg'),
-    category: '2 Days a Week',
-    accent: '#00ff7f', // Green accent
-  },
-  {
-    id: '2-2',
-    title: 'GET IN SHAPE',
-    subtitle: 'Full Body Split',
-    image: require('../../assets/exercises/yoga.jpg'),
-    category: '2 Days a Week',
-    accent: '#9eff00', // Green accent
-  },
-  {
-    id: '2-3',
-    title: 'LOSE WEIGHT',
-    subtitle: 'Full Body Split',
-    image: require('../../assets/exercises/fullbody.jpg'),
-    category: '2 Days a Week',
-    accent: '#4178ff', // Blue accent
-  },
-  {
-    id: '2-4',
-    title: 'UPPER/LOWER',
-    subtitle: '2-Day Split',
-    image: require('../../assets/exercises/pushup.jpg'),
-    category: '2 Days a Week',
-    accent: '#ff5252', // Red accent
-  },
-  {
-    id: '2-5',
-    title: 'PUSH/PULL',
-    subtitle: '2-Day Split',
-    image: require('../../assets/exercises/dumbbell.jpg'),
-    category: '2 Days a Week',
-    accent: '#00f7ff', // Teal accent
-  },
-  {
-    id: '2-6',
-    title: 'TOTAL WELLNESS',
-    subtitle: 'Strength & Cardio',
-    image: require('../../assets/exercises/yoga.jpg'),
-    category: '2 Days a Week',
-    accent: '#ff9100', // Orange accent
-  },
-  {
-    id: '2-7',
-    title: 'WEEKEND WARRIOR',
-    subtitle: 'Weekend-Only Split',
-    image: require('../../assets/exercises/fullbody.jpg'),
-    category: '2 Days a Week',
-    accent: '#aa00ff', // Purple accent
-  },
-  
-  // 3 Days a Week
-  {
-    id: '3-1',
-    title: 'BUILD STRENGTH',
-    subtitle: 'Full Body Split',
-    image: require('../../assets/exercises/dumbbell.jpg'),
-    category: '3 Days a Week',
-    accent: '#00ff7f', // Green accent
-  },
-  {
-    id: '3-2',
-    title: 'GET IN SHAPE',
-    subtitle: 'Full Body Split',
-    image: require('../../assets/exercises/squat.jpg'),
-    category: '3 Days a Week',
-    accent: '#9eff00', // Green accent
-  },
-  
-  // 4 Days a Week
-  {
-    id: '4-1',
-    title: 'MUSCLE BUILDING',
-    subtitle: 'Upper/Lower Split',
-    image: require('../../assets/exercises/fullbody.jpg'),
-    category: '4 Days a Week',
-    accent: '#ff9100', // Orange accent
-  },
-  
-  // 5 Days a Week
-  {
-    id: '5-1',
-    title: 'PROGRESSIVE OVERLOAD',
-    subtitle: 'Push/Pull/Legs',
-    image: require('../../assets/exercises/pushup.jpg'),
-    category: '5 Days a Week',
-    accent: '#ffeb3b', // Yellow accent
-  },
-  
-  // 6 Days a Week
-  {
-    id: '6-1',
-    title: 'BODYBUILDING',
-    subtitle: 'Arnold Split',
-    image: require('../../assets/exercises/dumbbell.jpg'),
-    category: '6 Days a Week',
-    accent: '#aa00ff', // Purple accent
-  },
-  
-  // 7 Days a Week
-  {
-    id: '7-1',
-    title: 'ELITE PHYSIQUE',
-    subtitle: 'Daily Training Split',
-    image: require('../../assets/exercises/yoga.jpg'),
-    category: '7 Days a Week',
-    accent: '#ff0055', // Pink accent
-  },
-];
-
-// Extract unique categories
-const categories = Array.from(new Set(workoutPrograms.map(program => program.category)));
-
-// Format data for SectionList
-const sections: Array<{title: string, data: WorkoutProgram[]}> = categories.map(category => ({
-  title: category,
-  data: workoutPrograms.filter(program => program.category === category)
-}));
-
 // Workout card component
-const WorkoutCard = ({ title, subtitle, image, accent }: WorkoutProgram) => {
+const WorkoutCard = ({ id, title, subtitle, image, accent }: WorkoutProgram) => {
+  const router = useRouter();
+  
+  const handlePress = () => {
+    router.push({
+      pathname: "/(stack)/plans",
+      params: {
+        subcategoryId: id,
+        title,
+        accent
+      }
+    });
+  };
+  
   return (
-    <Surface style={styles.card} elevation={2}>
-      <View style={styles.cardContentContainer}>
-        <View style={styles.cardImageContainer}>
-          <OptimizedImage 
-            source={image}
-            style={styles.cardImageContainer}
-            imageStyle={styles.cardImage}
-            contentFit="cover"
-          />
-          <View style={styles.cardContent}>
-            <View style={styles.cardInfo}>
-              <Text style={[styles.cardTitle, { color: accent }]}>{title}</Text>
-              <Text variant="bodyMedium" style={styles.cardSubtitle}>{subtitle}</Text>
+    <Pressable onPress={handlePress}>
+      <Surface style={styles.card} elevation={2}>
+        <View style={styles.cardContentContainer}>
+          <View style={styles.cardImageContainer}>
+            <OptimizedImage 
+              source={image}
+              style={styles.cardImageContainer}
+              imageStyle={styles.cardImage}
+              contentFit="cover"
+            />
+            <View style={styles.cardContent}>
+              <View style={styles.cardInfo}>
+                <Text style={[styles.cardTitle, { color: accent }]}>{title}</Text>
+                <Text variant="bodyMedium" style={styles.cardSubtitle}>{subtitle}</Text>
+              </View>
             </View>
           </View>
         </View>
-      </View>
-    </Surface>
+      </Surface>
+    </Pressable>
   );
 };
 
@@ -439,11 +298,20 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     alignItems: 'center',
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 });
 
 export default function DiscoverScreen() {
   const insets = useSafeAreaInsets();
-  const [currentSection, setCurrentSection] = useState(categories[0]);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [workoutPrograms, setWorkoutPrograms] = useState<WorkoutProgram[]>([]);
+  const [sections, setSections] = useState<Array<{title: string, data: WorkoutProgram[]}>>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [currentSection, setCurrentSection] = useState('');
   const [nextSection, setNextSection] = useState('');
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
@@ -475,6 +343,92 @@ export default function DiscoverScreen() {
   const filterHeaderH = FILTER_HEIGHT;
   const totalHeaderH = headerTop + mainHeaderH + filterHeaderH;
   const categoryBarTop = totalHeaderH;
+
+  // Fetch workout categories and subcategories from Supabase
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        setIsLoading(true);
+        
+        // Fetch workout categories
+        const { data: categoriesData, error: categoriesError } = await supabase
+          .from('workout_categories')
+          .select('*')
+          .order('display_order', { ascending: true });
+
+        if (categoriesError) {
+          console.error('Error fetching categories:', categoriesError);
+          return;
+        }
+
+        // Fetch workout subcategories
+        const { data: subcategoriesData, error: subcategoriesError } = await supabase
+          .from('workout_subcategories')
+          .select('*')
+          .order('display_order', { ascending: true });
+
+        if (subcategoriesError) {
+          console.error('Error fetching subcategories:', subcategoriesError);
+          return;
+        }
+
+        // Map the data to our required format
+        const categoryNames = (categoriesData as WorkoutCategory[]).map(category => category.name);
+        setCategories(categoryNames);
+
+        // Initialize the current section if we have categories
+        if (categoryNames.length > 0) {
+          setCurrentSection(categoryNames[0]);
+        }
+
+        // Process the workout programs
+        const mappedPrograms: WorkoutProgram[] = (subcategoriesData as WorkoutSubcategory[]).map(subcat => {
+          // Find the category name for this subcategory using the category_identifier
+          const category = (categoriesData as WorkoutCategory[]).find(cat => cat.identifier === subcat.category_identifier);
+          const categoryName = category ? category.name : '';
+
+          // Map the image URL to the correct asset
+          const imageMap: { [key: string]: ImageSourcePropType } = {
+            'fullbody.jpg': require('../../assets/exercises/fullbody.jpg'),
+            'dumbbell.jpg': require('../../assets/exercises/dumbbell.jpg'),
+            'pushup.jpg': require('../../assets/exercises/pushup.jpg'),
+            'squat.jpg': require('../../assets/exercises/squat.jpg'),
+            'yoga.jpg': require('../../assets/exercises/yoga.jpg'),
+          };
+
+          // Use the mapped image or a default one if not found
+          const image = subcat.image_url && imageMap[subcat.image_url] 
+            ? imageMap[subcat.image_url] 
+            : require('../../assets/exercises/fullbody.jpg');
+
+          return {
+            id: subcat.identifier, // Use identifier instead of UUID
+            title: subcat.title,
+            subtitle: subcat.subtitle,
+            image: image,
+            category: categoryName,
+            accent: subcat.accent_color,
+          };
+        });
+
+        setWorkoutPrograms(mappedPrograms);
+
+        // Create sections for the SectionList
+        const formattedSections = categoryNames.map(categoryName => ({
+          title: categoryName,
+          data: mappedPrograms.filter(program => program.category === categoryName)
+        }));
+
+        setSections(formattedSections);
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setIsLoading(false);
+      }
+    }
+
+    fetchData();
+  }, []);
   
   // Handle scroll to determine current section
   const handleScroll = Animated.event(
@@ -482,7 +436,7 @@ export default function DiscoverScreen() {
     {
       useNativeDriver: false,
       listener: ({ nativeEvent: { contentOffset: { y } } }: NativeSyntheticEvent<NativeScrollEvent>) => {
-        if (!sectionMeasured.current) return;
+        if (!sectionMeasured.current || categories.length === 0) return;
         
         // Add CATEGORY_HEIGHT to align the "zero" of scroll position with the bottom of the category bar (green line)
         const triggerY = y;
@@ -528,6 +482,8 @@ export default function DiscoverScreen() {
   
   // Calculate section heights and offsets after render
   useEffect(() => {
+    if (categories.length === 0) return;
+    
     // This runs after layout and gives time for the list to render
     const timer = setTimeout(() => {
       let cumulativeHeight = 0;
@@ -556,7 +512,7 @@ export default function DiscoverScreen() {
     }, 500);
     
     return () => clearTimeout(timer);
-  }, []);
+  }, [categories, workoutPrograms]);
   
   // Preload all workout program images
   const imagesToPreload = workoutPrograms.map(program => program.image);
@@ -564,7 +520,7 @@ export default function DiscoverScreen() {
 
   // Function to render section headers - hide the first one
   const renderSectionHeader = ({ section }: { section: {title: string, data: WorkoutProgram[]} }) => {
-    if (section.title === categories[0]) {
+    if (categories.length > 0 && section.title === categories[0]) {
       return <View style={{ height: 0, opacity: 0 }} />;
     }
     return (
@@ -633,6 +589,15 @@ export default function DiscoverScreen() {
       );
     });
   };
+
+  if (isLoading) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={{ marginTop: 16, color: COLORS.text }}>Loading workout programs...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { paddingTop: totalHeaderH }]}>

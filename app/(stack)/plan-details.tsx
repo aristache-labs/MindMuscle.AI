@@ -134,7 +134,7 @@ export default function PlanDetailsScreen() {
   const getImageSource = (exercise: PlanExercise) => {
     // If the exercise has a valid image_url, use it
     if (exercise.image_url) {
-      // Check if it's a full URL (starts with http/https) or a relative path
+      // Check if it's a full URL (starts with http/https)
       if (exercise.image_url.startsWith('http')) {
         return { uri: exercise.image_url };
       } 

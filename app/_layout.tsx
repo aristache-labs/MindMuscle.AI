@@ -11,7 +11,7 @@ import { ProgressPhotosProvider } from './store/ProgressPhotosContext';
 import InitialLoadingScreen from './components/InitialLoadingScreen';
 import AuthGuard from './components/AuthGuard';
 import * as SplashScreen from 'expo-splash-screen';
-import { preloadStaticImages } from './utils/imagePreloader';
+import { preloadAllImages } from './utils/imagePreloader';
 import * as Sentry from '@sentry/react-native';
 import { initializeSentry } from './services/sentry';
 import Constants from 'expo-constants';
@@ -63,7 +63,7 @@ function RootLayout() {
           }),
           (async () => {
             try {
-              await preloadStaticImages();
+              await preloadAllImages();
               setImagesLoaded(true);
             } catch (e) {
               console.warn('Failed to preload images:', e);
@@ -90,6 +90,7 @@ function RootLayout() {
     prepare();
   }, [fontsLoaded]);
 
+  // Show the initial loading screen a bit longer to ensure images are loaded
   const onInitialLoadingFinish = useCallback(() => {
     setShowInitialLoading(false);
   }, []);
@@ -98,7 +99,7 @@ function RootLayout() {
     return (
       <InitialLoadingScreen
         onFinish={onInitialLoadingFinish}
-        duration={3000}
+        duration={5000} // Increase duration to give more time for images to load
         showProgress={true}
       />
     );

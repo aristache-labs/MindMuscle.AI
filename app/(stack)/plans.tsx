@@ -107,8 +107,18 @@ export default function PlansScreen() {
   const getImageSource = (imageUrl: string | null) => {
     if (!imageUrl) return imageMap['placeholder.jpg'];
     
-    // Check if the image exists in our map
-    return imageMap[imageUrl] || imageMap['placeholder.jpg'];
+    // Check if it's a full URL (starts with http/https)
+    if (imageUrl.startsWith('http')) {
+      return { uri: imageUrl };
+    }
+    
+    // Check if it's a key in our image map
+    if (imageMap[imageUrl]) {
+      return imageMap[imageUrl];
+    }
+    
+    // Default fallback
+    return imageMap['placeholder.jpg'];
   };
 
   const renderPlanItem = ({ item, index }: { item: WorkoutPlan; index: number }) => {
@@ -128,7 +138,7 @@ export default function PlansScreen() {
         <View style={styles.planCardContent}>
           <View style={styles.planCardLeft}>
             <Text style={styles.planNumber}>PLAN {index + 1}</Text>
-            {item.days_per_week && (
+            {item.days_per_week !== undefined && (
               <Text style={styles.planDaysPerWeek}>
                 {item.days_per_week} {item.days_per_week === 1 ? 'Day' : 'Days'} per Week
               </Text>
@@ -235,12 +245,6 @@ export default function PlansScreen() {
         </View>
       </View>
       
-      {/* Section Title */}
-      <View style={styles.sectionTitleContainer}>
-        <Text style={styles.sectionTitle}>Available Plans</Text>
-        <Divider style={styles.sectionDivider} />
-      </View>
-      
       {/* Plans List */}
       {isLoading ? (
         <View style={styles.loadingContainer}>
@@ -308,6 +312,7 @@ const styles = StyleSheet.create({
     height: 220,
     width: '100%',
     position: 'relative',
+    marginBottom: SPACING.md,
   },
   featuredImage: {
     width: '100%',
@@ -360,7 +365,7 @@ const styles = StyleSheet.create({
   },
   plansList: {
     padding: SPACING.md,
-    paddingTop: 0,
+    paddingTop: SPACING.md,
   },
   planCard: {
     height: 70,

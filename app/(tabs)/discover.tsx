@@ -1,20 +1,21 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { StyleSheet, View, SectionList, ImageSourcePropType, Pressable, SectionListRenderItemInfo, SectionListData, Animated, NativeSyntheticEvent, NativeScrollEvent, LayoutChangeEvent, SectionListProps, ViewToken, findNodeHandle, Easing, ScrollView } from 'react-native';
 import { Text, Chip, IconButton, Surface, Divider, ActivityIndicator } from 'react-native-paper';
-import { COLORS, SPACING, HEADER_HEIGHT } from '../constants/theme';
+import { COLORS, SPACING, HEADER_HEIGHT, BORDER_RADIUS } from '../constants/theme';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import OptimizedImage from '../components/OptimizedImage';
 import { useImagePreloader } from '../hooks/useImagePreloader';
 import { LinearGradient } from 'expo-linear-gradient';
-import supabase from '../services/supabase';
+import supabase, { supabaseUrl } from '../services/supabase';
 import { useRouter } from 'expo-router';
+import { GeneralHeader } from '../components/GeneralHeader';
 
 // Heights
 const FILTER_HEIGHT = 48;
 const CATEGORY_HEIGHT = 46;
-const CARD_HEIGHT = 160; // Height of workout card
+const CARD_HEIGHT = 200; // Height of workout card
 const SECTION_HEADER_HEIGHT = 30; // Approx height of section headers
 const CATEGORY_TRANSITION_THRESHOLD = 60; // Threshold in pixels when scrolling to trigger category change
 
@@ -157,29 +158,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  headerContainer: {
+  filterBarContainer: {
     position: 'absolute',
     left: 0,
     right: 0,
-    zIndex: 30,
+    zIndex: 20,
     backgroundColor: COLORS.background,
-  },
-  mainHeader: {
-    height: HEADER_HEIGHT,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: SPACING.md,
-  },
-  headerTitle: {
-    flex: 1,
-    marginLeft: SPACING.md,
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: COLORS.text,
-  },
-  divider: {
-    height: 0.2,
-    backgroundColor: COLORS.primary, // Purple color
   },
   filterBar: {
     height: FILTER_HEIGHT,
@@ -215,9 +199,10 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     justifyContent: 'center',
     paddingHorizontal: SPACING.md,
-    zIndex: 25,
-    elevation: 25,
+    zIndex: 15,
+    elevation: 15,
     alignItems: 'center',
+
   },
   categoryText: {
     fontSize: 16,
@@ -253,7 +238,7 @@ const styles = StyleSheet.create({
     marginRight: 4, 
   },
   card: {
-    height: 160,
+    height: 200,
     borderRadius: 16,
     backgroundColor: 'transparent',
     marginBottom: 6, // Further reduced from 8 to 6
@@ -306,7 +291,7 @@ const styles = StyleSheet.create({
     color: '#f9e009',
     fontSize: 10,
     fontWeight: 'bold',
-    marginTop: -8,
+    marginTop: -10,
   },
   premiumIconColumn: {
     flexDirection: 'column',
@@ -351,12 +336,10 @@ export default function DiscoverScreen() {
   const [sectionOffsets, setSectionOffsets] = useState<{[key: string]: number}>({});
   const sectionMeasured = useRef(false);
   
-  // Calculate heights
-  const headerTop = insets.top;
-  const mainHeaderH = HEADER_HEIGHT;
+  // Calculate heights with new header structure
   const filterHeaderH = FILTER_HEIGHT;
-  const totalHeaderH = headerTop + mainHeaderH + filterHeaderH;
-  const categoryBarTop = totalHeaderH;
+  const totalHeaderH = HEADER_HEIGHT + filterHeaderH;
+  const categoryBarTop = insets.top + HEADER_HEIGHT + filterHeaderH;
 
   // Fetch workout categories and subcategories from Supabase
   useEffect(() => {
@@ -410,16 +393,34 @@ export default function DiscoverScreen() {
             'yoga.jpg': require('../../assets/exercises/yoga.jpg'),
           };
 
-          // Use the mapped image or a default one if not found
-          const image = subcat.image_url && imageMap[subcat.image_url] 
-            ? imageMap[subcat.image_url] 
-            : require('../../assets/exercises/fullbody.jpg');
+          // Handle image URL
+          let imageSource: ImageSourcePropType;
+          
+          if (subcat.image_url) {
+            // If it's a full URL, use it directly
+            if (subcat.image_url.startsWith('http')) {
+              imageSource = { uri: subcat.image_url };
+            }
+            // If it's a key in our image map, use the corresponding require()
+            else if (imageMap[subcat.image_url]) {
+              imageSource = imageMap[subcat.image_url];
+            }
+            // Otherwise, assume it's in Supabase storage
+            else {
+              // Use the Supabase URL format for storage
+              const storageUrl = `${supabaseUrl}/storage/v1/object/public/images/${subcat.image_url}`;
+              imageSource = { uri: storageUrl };
+            }
+          } else {
+            // Default fallback
+            imageSource = require('../../assets/exercises/fullbody.jpg');
+          }
 
           return {
             id: subcat.identifier, // Use identifier instead of UUID
             title: subcat.title,
             subtitle: subcat.subtitle,
-            image: image,
+            image: imageSource,
             category: categoryName,
             accent: subcat.accent_color,
           };
@@ -614,14 +615,14 @@ export default function DiscoverScreen() {
   }
 
   return (
-    <View style={[styles.container, { paddingTop: totalHeaderH }]}>
+    <View style={styles.container}>
       <StatusBar style="light" />
       
-      {/* 1) Custom top header with filters */}
-      <View style={[styles.headerContainer, { paddingTop: insets.top }]}>
-        <View style={styles.mainHeader}>
-          <MaterialCommunityIcons name="compass" size={24} color={COLORS.text} />
-          <Text style={styles.headerTitle}>Discover</Text>
+      {/* Header with GeneralHeader component */}
+      <GeneralHeader
+        title="Discover"
+        icon={<MaterialCommunityIcons name="compass" size={24} color={COLORS.text} />}
+        rightElement={
           <View style={styles.premiumIconColumn}>
             <IconButton
               icon="crown"
@@ -631,11 +632,12 @@ export default function DiscoverScreen() {
             />
             <Text style={styles.premiumText}>PREMIUM</Text>
           </View>
-        </View>
+        }
+      />
         
-        {/* Purple divider above filters */}
-        <Divider style={styles.divider} />
-        
+      {/* Filter bar */}
+      <View style={[styles.filterBarContainer, { top: insets.top + HEADER_HEIGHT }]}>
+
         <View style={styles.filterBar}>
           <ScrollView 
             ref={filterScrollRef}
@@ -649,8 +651,8 @@ export default function DiscoverScreen() {
         </View>
       </View>
       
-      {/* 2) Floating category bar */}
-      <View style={[styles.categoryBar, { top: categoryBarTop }]}>
+      {/* Floating category bar */}
+      <View style={[styles.categoryBar, { top: insets.top + HEADER_HEIGHT + filterHeaderH }]}>
         <Animated.Text 
           style={[
             styles.categoryText,
@@ -667,7 +669,7 @@ export default function DiscoverScreen() {
       {/* 3) Scrollable list */}
       <AnimatedSectionList
         ref={sectionListRef}
-        style={{ flex: 1 }}
+        style={{ flex: 1, marginTop: insets.top + HEADER_HEIGHT + filterHeaderH }}
         sections={sections}
         keyExtractor={(item: WorkoutProgram) => item.id}
         renderItem={({ item }: { item: WorkoutProgram }) => (

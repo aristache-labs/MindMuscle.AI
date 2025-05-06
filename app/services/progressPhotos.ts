@@ -2,6 +2,7 @@ import * as FileSystem from 'expo-file-system';
 import supabase from './supabase';
 import { format } from 'date-fns';
 import { Platform } from 'react-native';
+import { preloadSingleImage } from '../utils/imagePreloader';
 
 export interface ProgressPhoto {
   id: string;
@@ -53,6 +54,14 @@ export const progressPhotoService = {
         .from(PHOTOS_BUCKET)
         .getPublicUrl(filePath);
 
+      // Preload the image immediately after upload to avoid loading placeholders
+      try {
+        await preloadSingleImage(publicUrl);
+      } catch (e) {
+        console.warn('Failed to preload uploaded image:', e);
+        // Continue anyway as this is not critical
+      }
+
       // Save metadata to database
       const photo: ProgressPhoto = {
         id: fileName,
@@ -85,6 +94,16 @@ export const progressPhotoService = {
       if (error) throw error;
 
       const photos = data as ProgressPhoto[];
+      
+      // Preload photos immediately
+      photos.forEach(photo => {
+        if (photo.photo_url) {
+          preloadSingleImage(photo.photo_url).catch(() => {
+            // Silently continue if preloading fails
+          });
+        }
+      });
+      
       return {
         before: photos.find(p => p.type === 'before'),
         after: photos.find(p => p.type === 'after'),
@@ -126,7 +145,18 @@ export const progressPhotoService = {
 
       if (error) throw error;
 
-      return data as ProgressPhoto[];
+      const photos = data as ProgressPhoto[];
+      
+      // Preload all photos in the background
+      photos.forEach(photo => {
+        if (photo.photo_url) {
+          preloadSingleImage(photo.photo_url).catch(() => {
+            // Silently continue if preloading fails
+          });
+        }
+      });
+      
+      return photos;
     } catch (error) {
       throw error;
     }

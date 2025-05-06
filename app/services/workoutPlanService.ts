@@ -79,10 +79,20 @@ const workoutPlanService = {
     // In a real app, you might want to use different logic or store this in the database
     const durationWeeks = 4; // Default to 4 weeks for all plans
     
-    // Assign a default image if none is provided
-    // Lowercase title to create a relevant image name if image_url is null
+    // Process image URL if it exists
     let imageUrl = plan.image_url;
-    if (!imageUrl) {
+    
+    // If we have an image URL from the database that doesn't start with http,
+    // but isn't one of our fallback images, it might be a public Supabase storage URL
+    if (imageUrl && !imageUrl.startsWith('http') && 
+        !['fullbody.jpg', 'dumbbell.jpg', 'pushup.jpg', 'squat.jpg', 'yoga.jpg', 'placeholder.jpg'].includes(imageUrl)) {
+      
+      // Assume it's in Supabase storage and construct the full URL
+      // This URL format may need adjustment based on your actual Supabase storage setup
+      imageUrl = `${supabaseUrl}/storage/v1/object/public/images/${imageUrl}`;
+    }
+    // If no image URL, assign a default image based on title
+    else if (!imageUrl) {
       if (plan.title.toLowerCase().includes('strength')) {
         imageUrl = 'squat.jpg';
       } else if (plan.title.toLowerCase().includes('lean')) {

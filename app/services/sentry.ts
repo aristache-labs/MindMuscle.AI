@@ -13,13 +13,30 @@ export function initializeSentry() {
     
     Sentry.init({
       dsn: sentryDsn,
-      debug: __DEV__,
+      debug: false, // Disable debug mode even in development
       environment: Constants.expoConfig?.extra?.environment || 'development',
       tracesSampleRate: 1.0,
-      sendDefaultPii: true
+      sendDefaultPii: true,
+      // Disable user interaction tracing
+      integrations: (integrations) => {
+        return integrations.filter(
+          (integration) => integration.name !== 'UserInteractionIntegration'
+        );
+      },
+      // Silence Sentry logs
+      beforeBreadcrumb(breadcrumb) {
+        // Return null to drop the breadcrumb
+        return breadcrumb.category === 'console' ? null : breadcrumb;
+      }
     });
     
-    console.log('Sentry initialized successfully');
+    // Disable console logging from Sentry
+    Sentry.setTag('silent', 'true');
+    
+    // Still log initialization success but only once
+    if (!__DEV__) {
+      console.log('Sentry initialized successfully');
+    }
   } catch (error) {
     console.warn('Sentry initialization failed:', error);
   }

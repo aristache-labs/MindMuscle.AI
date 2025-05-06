@@ -105,7 +105,7 @@ interface WorkoutProgram {
 }
 
 // Workout card component
-const WorkoutCard = ({ id, title, subtitle, image, accent }: WorkoutProgram) => {
+const WorkoutCard = ({ id, title, subtitle, image, accent, category }: WorkoutProgram) => {
   const router = useRouter();
   
   const handlePress = () => {
@@ -114,7 +114,11 @@ const WorkoutCard = ({ id, title, subtitle, image, accent }: WorkoutProgram) => 
       params: {
         subcategoryId: id,
         title,
-        accent
+        accent,
+        subcategoryName: title,
+        subcategoryTitle: title,
+        subcategorySubtitle: subtitle,
+        categoryName: category
       }
     });
   };
@@ -129,6 +133,10 @@ const WorkoutCard = ({ id, title, subtitle, image, accent }: WorkoutProgram) => 
               style={styles.cardImageContainer}
               imageStyle={styles.cardImage}
               contentFit="cover"
+            />
+            <LinearGradient
+              colors={['transparent', 'rgba(0,0,0,0.6)', 'rgba(0,0,0,0.8)']}
+              style={styles.cardGradient}
             />
             <View style={styles.cardContent}>
               <View style={styles.cardInfo}>
@@ -264,13 +272,19 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  cardGradient: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: '60%',
+  },
   cardContent: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
     padding: 16,
-    backgroundColor: 'rgba(0,0,0,0.3)',
   },
   cardInfo: {
     flexDirection: 'column',

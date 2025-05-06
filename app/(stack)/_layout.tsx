@@ -90,6 +90,16 @@ export default function StackLayout() {
           animationDuration: 250,
         }}
       />
+      <Stack.Screen
+        name="plan-details"
+        options={{
+          headerShown: false,
+          animation: 'default',
+          gestureEnabled: true,
+          fullScreenGestureEnabled: true,
+          animationDuration: 250,
+        }}
+      />
     </Stack>
   );
 } 

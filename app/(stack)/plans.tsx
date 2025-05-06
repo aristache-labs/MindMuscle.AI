@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import OptimizedImage from '../components/OptimizedImage';
 import { LinearGradient } from 'expo-linear-gradient';
 import workoutPlanService, { WorkoutPlan } from '../services/workoutPlanService';
+import { MaterialIcons } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
 
@@ -18,6 +19,10 @@ export default function PlansScreen() {
   const subcategoryId = params.subcategoryId as string;
   const title = params.title as string;
   const accent = params.accent as string;
+  const subcategoryName = params.subcategoryName as string;
+  const subcategoryTitle = params.subcategoryTitle as string;
+  const subcategorySubtitle = params.subcategorySubtitle as string;
+  const categoryName = params.categoryName as string;
   
   const [plans, setPlans] = useState<WorkoutPlan[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -43,30 +48,25 @@ export default function PlansScreen() {
         
         // Fetch plans by subcategory if available
         if (subcategoryId) {
-          console.log('Fetching plans for subcategory:', subcategoryId);
           fetchedPlans = await workoutPlanService.getPlansBySubcategory(subcategoryId.toString());
         } else {
-          console.log('No subcategory provided, fetching all plans');
           // Fetch all plans as fallback
           fetchedPlans = await workoutPlanService.getAllPlans();
-        }
-
-        // Log to debug
-        console.log(`Fetched ${fetchedPlans.length} plans`);
-        if (fetchedPlans.length > 0) {
-          console.log('First plan:', JSON.stringify(fetchedPlans[0], null, 2));
         }
         
         // Set featured plan (first one or null)
         if (fetchedPlans.length > 0) {
           setFeaturedPlan(fetchedPlans[0]);
-          console.log('Set featured plan:', fetchedPlans[0].title);
+        } else {
+          setFeaturedPlan(null);
         }
         
         setPlans(fetchedPlans);
         setIsLoading(false);
       } catch (error) {
-        console.error('Error in fetchPlans:', error);
+        console.error("Error fetching plans:", error);
+        setPlans([]);
+        setFeaturedPlan(null);
         setIsLoading(false);
       }
     }
@@ -75,14 +75,32 @@ export default function PlansScreen() {
   }, [subcategoryId]);
 
   const handleBackPress = () => {
-    router.back();
+    // Check if we have subcategoryId and send back to discover with that subcategory
+    if (subcategoryId) {
+      router.push({
+        pathname: '/discover',
+        params: { 
+          subcategoryId,
+          category: categoryName,
+          title: subcategoryTitle || title
+        }
+      });
+    } else {
+      // If no subcategoryId, fallback to regular back navigation
+      router.back();
+    }
   };
 
-  const handlePlanPress = (planId: string, planTitle: string) => {
-    // Navigate to the selected plan details screen
-    console.log('Selected plan:', planId, planTitle);
-    // This would redirect to a plan details page in the future
-    router.back();
+  const handlePlanPress = (planId: string, planTitle: string, index: number) => {
+    // Navigate to the plan details screen with the planId and planNumber
+    router.push({
+      pathname: '/plan-details',
+      params: { 
+        planId, 
+        planTitle,
+        planNumber: index + 1
+      }
+    });
   };
 
   // Helper to get appropriate image source with fallback
@@ -93,37 +111,35 @@ export default function PlansScreen() {
     return imageMap[imageUrl] || imageMap['placeholder.jpg'];
   };
 
-  const renderPlanItem = ({ item }: { item: WorkoutPlan }) => {
+  const renderPlanItem = ({ item, index }: { item: WorkoutPlan; index: number }) => {
     // Get image source with fallback
     const imageSource = getImageSource(item.image_url);
     
-    // Get text color with string type guarantee
-    const textColor = accent || COLORS.primary;
+    // Get accent color for vertical bar
+    const accentColor = item.accent_color || accent || COLORS.primary;
     
     return (
       <Pressable 
         style={styles.planCard} 
-        onPress={() => handlePlanPress(item.id, item.title)}
+        onPress={() => handlePlanPress(item.id, item.title, index)}
+        android_ripple={{ color: 'rgba(255,255,255,0.1)' }}
       >
-        <View style={styles.cardImageContainer}>
-          <OptimizedImage
-            source={imageSource}
-            style={styles.cardImageWrapper}
-            imageStyle={styles.cardImage}
-            contentFit="cover"
-          />
-          <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.7)']}
-            style={styles.cardGradient}
-          />
-          <View style={styles.cardContent}>
-            <Text style={[styles.planTitle, { color: textColor }]}>
-              {item.title}
-            </Text>
-            <Text style={styles.planSubtitle}>
-              {item.days_per_week} {item.days_per_week === 1 ? 'day' : 'days'} a week • {item.duration_weeks} weeks
-            </Text>
+        <View style={[styles.planCardAccent, { backgroundColor: accentColor }]} />
+        <View style={styles.planCardContent}>
+          <View style={styles.planCardLeft}>
+            <Text style={styles.planNumber}>PLAN {index + 1}</Text>
+            {item.days_per_week && (
+              <Text style={styles.planDaysPerWeek}>
+                {item.days_per_week} {item.days_per_week === 1 ? 'Day' : 'Days'} per Week
+              </Text>
+            )}
           </View>
+          <IconButton
+            icon="chevron-right"
+            size={24}
+            iconColor={COLORS.primary}
+            style={styles.arrowIcon}
+          />
         </View>
       </Pressable>
     );
@@ -134,8 +150,43 @@ export default function PlansScreen() {
     ? getImageSource(featuredPlan.image_url)
     : imageMap['placeholder.jpg'];
 
-  // Get text color with string type guarantee for featured title
+  // Get text color for featured title - use accent color from params or default to primary color
   const featuredTextColor = accent || COLORS.primary;
+
+  // Format for the subtitle - changed to "subcategory subtitle • category name"
+  const getFormattedSubtitle = () => {
+    if (featuredPlan) {
+      // Try to get the subtitle from the plan
+      const subtitle = featuredPlan.subcategory_subtitle || subcategorySubtitle || '';
+      
+      // Get category name from params
+      const category = categoryName || '';
+      
+      // Use the format "subtitle • category" if both exist
+      if (subtitle && category) {
+        return `${subtitle} • ${category}`;
+      }
+      
+      // Fallbacks if either value is missing
+      if (subtitle) return subtitle;
+      if (category) return category;
+      
+      // Final fallback to days per week info
+      const daysText = `${featuredPlan.days_per_week} ${featuredPlan.days_per_week === 1 ? 'Day' : 'Days'} a Week`;
+      return daysText;
+    }
+    
+    // Fallback for when no plan is available but we have params
+    if (subcategorySubtitle && categoryName) {
+      return `${subcategorySubtitle} • ${categoryName}`;
+    } else if (subcategorySubtitle) {
+      return subcategorySubtitle;
+    } else if (categoryName) {
+      return categoryName;
+    }
+    
+    return subcategoryName || 'No plans available';
+  };
 
   // Calculate content padding based on bottom insets
   const contentPadding = insets.bottom + SPACING.xl;
@@ -176,14 +227,18 @@ export default function PlansScreen() {
         />
         <View style={styles.featuredContent}>
           <Text style={[styles.featuredTitle, { color: featuredTextColor }]}>
-            {title || (featuredPlan ? featuredPlan.title : 'GET IN SHAPE')}
+            {title || (featuredPlan ? featuredPlan.title : subcategoryName || 'COMING SOON')}
           </Text>
           <Text style={styles.featuredSubtitle}>
-            {featuredPlan 
-              ? `${featuredPlan.days_per_week} ${featuredPlan.days_per_week === 1 ? 'day' : 'days'} a week • ${featuredPlan.duration_weeks} weeks` 
-              : 'Full Body Split, 1 Day a Week'}
+            {getFormattedSubtitle()}
           </Text>
         </View>
+      </View>
+      
+      {/* Section Title */}
+      <View style={styles.sectionTitleContainer}>
+        <Text style={styles.sectionTitle}>Available Plans</Text>
+        <Divider style={styles.sectionDivider} />
       </View>
       
       {/* Plans List */}
@@ -204,8 +259,9 @@ export default function PlansScreen() {
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No workout plans available for this category.</Text>
-              <Text style={styles.emptySubtext}>Try choosing a different category or check back later.</Text>
+              <MaterialIcons name="fitness-center" size={64} color={`${COLORS.primary}80`} />
+              <Text style={styles.emptyText}>No plans added yet</Text>
+              <Text style={styles.emptySubtext}>Plans for this category will be available soon</Text>
             </View>
           }
         />
@@ -249,7 +305,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   featuredImageContainer: {
-    height: 250,
+    height: 220,
     width: '100%',
     position: 'relative',
   },
@@ -266,7 +322,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: '60%',
+    height: '70%',
   },
   featuredContent: {
     position: 'absolute',
@@ -276,63 +332,73 @@ const styles = StyleSheet.create({
     padding: SPACING.md,
   },
   featuredTitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 'bold',
     textTransform: 'uppercase',
-    color: 'white',
   },
   featuredSubtitle: {
-    fontSize: 16,
-    color: 'white',
+    fontSize: 15,
+    color: COLORS.text,
     opacity: 0.9,
     marginTop: 4,
   },
+  sectionTitleContainer: {
+    marginHorizontal: SPACING.md,
+    marginTop: SPACING.md,
+    marginBottom: SPACING.xs,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    marginBottom: SPACING.xs,
+  },
+  sectionDivider: {
+    backgroundColor: `${COLORS.primary}60`,
+    height: 2,
+    width: 40,
+  },
   plansList: {
     padding: SPACING.md,
+    paddingTop: 0,
   },
   planCard: {
-    height: 90,
+    height: 70,
     marginBottom: SPACING.md,
     borderRadius: BORDER_RADIUS.md,
     overflow: 'hidden',
-    backgroundColor: COLORS.surface,
+    backgroundColor: `${COLORS.surface}60`,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 0.2,
+    borderColor: `${COLORS.primary}80`,
   },
-  cardImageContainer: {
-    width: '100%',
-    height: '100%',
-    position: 'relative',
-  },
-  cardImageWrapper: {
-    width: '100%',
-    height: '100%',
-  },
-  cardImage: {
-    width: '100%',
+  planCardAccent: {
+    width: 4,
     height: '100%',
   },
-  cardGradient: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: '100%',
+  planCardContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.md,
   },
-  cardContent: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: SPACING.md,
+  planCardLeft: {
+    flexDirection: 'column',
   },
-  planTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: 'white',
+  planNumber: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: COLORS.text,
   },
-  planSubtitle: {
-    fontSize: 14,
-    color: 'white',
-    opacity: 0.85,
+  planDaysPerWeek: {
+    fontSize: 13,
+    color: `${COLORS.text}B3`,
+    marginTop: 2,
+  },
+  arrowIcon: {
+    margin: 0,
   },
   loadingContainer: {
     flex: 1,
@@ -346,11 +412,21 @@ const styles = StyleSheet.create({
   emptyContainer: {
     padding: SPACING.xl,
     alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+    minHeight: 200,
+    backgroundColor: `${COLORS.surface}30`,
+    borderRadius: BORDER_RADIUS.md,
+    borderWidth: 0.2,
+    borderColor: `${COLORS.primary}80`,
+    marginTop: SPACING.md,
   },
   emptyText: {
     color: COLORS.text,
-    fontSize: 16,
+    fontSize: 18,
+    fontWeight: 'bold',
     textAlign: 'center',
+    marginTop: SPACING.md,
   },
   emptySubtext: {
     color: COLORS.text,

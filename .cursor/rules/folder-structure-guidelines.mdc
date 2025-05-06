@@ -12,7 +12,7 @@ alwaysApply: true
 
 ## Project Folder Structure
 
-Regularly update this folder structure each time you create, modify, or delete a file or folder. (Latest: Added muscleHighlighter utility and refactored ExerciseDetailsScreen into smaller components):
+Regularly update this folder structure each time you create, modify, or delete a file or folder. (Latest: Added plan-details.tsx for displaying workout plan exercises):
 
 ```
 mindmuscle-ai/
@@ -26,6 +26,7 @@ mindmuscle-ai/
 │   │   ├── settings.tsx
 │   │   ├── exercises-list.tsx
 │   │   ├── exercise-details.tsx
+│   │   ├── plan-details.tsx
 │   │   └── plans.tsx
 │   ├── (tabs)/
 │   ├── coaching/
@@ -104,6 +105,4 @@ module.exports = {
   codeChangeGuidelines,
   toolUsageGuidelines,
   additionalInstructions
-
-
 };

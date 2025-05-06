@@ -38,12 +38,31 @@ import ExerciseInstructions from '../components/ExerciseInstructions';
 
 const { width } = Dimensions.get('window');
 
-export default function ExerciseDetailsScreen() {
+// In the component props interface, add the modal-specific props
+interface ExerciseDetailsProps {
+  isModal?: boolean;
+  modalParams?: {
+    id: string;
+    name: string;
+    image?: any;
+  };
+  onModalClose?: () => void;
+}
+
+export default function ExerciseDetailsScreen({ 
+  isModal, 
+  modalParams,
+  onModalClose
+}: ExerciseDetailsProps) {
   const router = useRouter();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  
+  // Use local params or modal params based on context
   const params = useLocalSearchParams();
-  const { id, name, image } = params;
+  const { id, name, image } = isModal && modalParams 
+    ? modalParams 
+    : params;
 
   // State management
   const [activeSection, setActiveSection] = useState<'muscles' | 'instructions'>('muscles');
@@ -232,9 +251,13 @@ export default function ExerciseDetailsScreen() {
     }
   };
 
-  // Handle back button press
+  // Update the handleBackPress function to use onModalClose when in modal mode
   const handleBackPress = () => {
-    router.back();
+    if (isModal && onModalClose) {
+      onModalClose();
+    } else {
+      router.back();
+    }
   };
 
   // Animation for swiping between muscles and instructions sections
@@ -314,6 +337,58 @@ export default function ExerciseDetailsScreen() {
     return hasCardio && !hasBackMuscles;
   }, [exerciseData?.primaryMuscles, exerciseData?.secondaryMuscles]);
 
+  // Only render header when not in modal mode
+  const renderHeader = () => {
+    if (isModal) return null;
+    
+    return (
+      <>
+        <View style={[styles.header, { marginTop: insets.top }]}>
+          <View style={styles.headerLeft}>
+            <IconButton
+              icon="arrow-left"
+              size={28}
+              onPress={handleBackPress}
+              iconColor={COLORS.text}
+              style={styles.backButton}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            />
+          </View>
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>{name}</Text>
+          </View>
+          <View style={styles.headerRight} />
+        </View>
+        <Divider style={styles.divider} />
+      </>
+    );
+  };
+  
+  // Helper function to get the correct image source
+  const getImageSource = () => {
+    if (!image) {
+      return require('../../assets/exercises/placeholder.jpg');
+    }
+    
+    // If it's a URL, use it directly
+    if (image.toString().startsWith('http')) {
+      return { uri: image.toString() };
+    }
+    
+    // Handle placeholder identifiers from plan-details.tsx
+    switch(image.toString()) {
+      case 'placeholder_pushup':
+        return require('../../assets/exercises/pushup.jpg');
+      case 'placeholder_squat':
+        return require('../../assets/exercises/squat.jpg');
+      case 'placeholder_dumbbell':
+        return require('../../assets/exercises/dumbbell.jpg');
+      case 'placeholder_default':
+      default:
+        return require('../../assets/exercises/placeholder.jpg');
+    }
+  };
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <KeyboardAvoidingView 
@@ -324,25 +399,7 @@ export default function ExerciseDetailsScreen() {
         <View style={styles.container}>
           <StatusBar style="light" />
           
-          {/* Custom Header with Back Button */}
-          <View style={[styles.header, { marginTop: insets.top }]}>
-            <View style={styles.headerLeft}>
-              <IconButton
-                icon="arrow-left"
-                size={28}
-                onPress={handleBackPress}
-                iconColor={COLORS.text}
-                style={styles.backButton}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              />
-            </View>
-            <View style={styles.headerCenter}>
-              <Text style={styles.headerTitle}>{name}</Text>
-            </View>
-            <View style={styles.headerRight} />
-          </View>
-          
-          <Divider style={styles.divider} />
+          {renderHeader()}
           
           <ScrollView 
             style={styles.scrollView} 
@@ -353,7 +410,7 @@ export default function ExerciseDetailsScreen() {
             {/* Exercise Image/Video */}
             <Pressable style={styles.mediaContainer} onPress={() => {}}>
               <OptimizedImage 
-                source={image ? { uri: image.toString() } : require('../../assets/exercises/placeholder.jpg')} 
+                source={getImageSource()} 
                 style={styles.mediaImage}
               />
               <View style={styles.playButtonOverlay}>
@@ -594,6 +651,7 @@ const styles = StyleSheet.create({
   },
   notesContainer: {
     padding: SPACING.md,
+    marginBottom: SPACING.md,
     borderRadius: BORDER_RADIUS.md,
     backgroundColor: COLORS.surface,
   },

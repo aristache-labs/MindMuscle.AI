@@ -1,4 +1,5 @@
 import supabase from './supabase';
+import { supabaseUrl } from './supabase';
 
 // Updated interface to match the actual database schema
 export interface WorkoutPlan {
@@ -17,6 +18,8 @@ export interface WorkoutPlan {
   updated_at: string;
   identifier?: string;
   subcategory_identifier?: string;
+  subcategory_title?: string; // Added field for subcategory title
+  subcategory_subtitle?: string; // Added field for subcategory subtitle
 }
 
 // Interface for raw database response
@@ -34,6 +37,35 @@ interface RawWorkoutPlan {
   updated_at: string;
   identifier: string;
   subcategory_identifier: string;
+  subcategory_title?: string;
+}
+
+// Workout subcategory interface
+export interface WorkoutSubcategory {
+  id: string;
+  title: string;
+  description: string;
+  image_url: string | null;
+  identifier: string;
+  accent_color?: string;
+  subtitle?: string; // Add subtitle field
+}
+
+// Interface for plan exercise
+export interface PlanExercise {
+  id: string;
+  exercise_id: string;
+  name: string;
+  image_url?: string;
+  sets: number;
+  reps: string; // range like '8-10'
+  equipment?: string;
+  muscle_group?: string;
+  primary_muscles?: string[];
+  secondary_muscles?: string[];
+  instructions?: string[];
+  rest_time?: number; // in seconds
+  order: number;
 }
 
 const workoutPlanService = {
@@ -74,74 +106,132 @@ const workoutPlanService = {
   async getAllPlans(): Promise<WorkoutPlan[]> {
     const { data, error } = await supabase
       .from('workout_plans')
-      .select('*')
+      .select(`
+        *,
+        workout_subcategories:subcategory_id (title)
+      `)
       .order('display_order', { ascending: true });
 
     if (error) {
       console.error('Error fetching workout plans:', error);
-      throw error;
+      return []; // Return empty array instead of throwing error
     }
 
+    // Transform data to include subcategory title
+    const plansWithSubcategory = data?.map(plan => ({
+      ...plan,
+      subcategory_title: plan.workout_subcategories?.title || ''
+    })) || [];
+
     // Transform each plan to match the interface
-    return (data || []).map(this.transformResponse);
+    return plansWithSubcategory.map(this.transformResponse);
+  },
+
+  async getSubcategoryById(subcategoryId: string): Promise<WorkoutSubcategory | null> {
+    const { data, error } = await supabase
+      .from('workout_subcategories')
+      .select('*')
+      .eq('id', subcategoryId)
+      .single();
+
+    if (error) {
+      console.error('Error fetching workout subcategory:', error);
+      return null;
+    }
+
+    return data as WorkoutSubcategory;
+  },
+
+  async getSubcategoryByIdentifier(identifier: string): Promise<WorkoutSubcategory | null> {
+    const { data, error } = await supabase
+      .from('workout_subcategories')
+      .select('*')
+      .eq('identifier', identifier)
+      .single();
+
+    if (error) {
+      console.error('Error fetching workout subcategory by identifier:', error);
+      return null;
+    }
+
+    return data as WorkoutSubcategory;
   },
 
   async getPlansBySubcategory(subcategoryId: string): Promise<WorkoutPlan[]> {
-    // Create some sample workout plans if no subcategory ID is provided or if there's an error
+    // Return empty array if no subcategory ID is provided
     if (!subcategoryId) {
-      console.log('No subcategory ID provided, returning sample plans');
-      return this.getSampleWorkoutPlans();
+      return [];
     }
 
     try {
-      console.log('Querying workout_plans with subcategory_identifier:', subcategoryId);
+      // First try to get the subcategory details to include the title
+      const subcategory = await this.getSubcategoryByIdentifier(subcategoryId);
       
       const { data, error } = await supabase
         .from('workout_plans')
-        .select('*')
+        .select(`
+          *,
+          workout_subcategories:subcategory_id (title)
+        `)
         .eq('subcategory_identifier', subcategoryId)
         .order('display_order', { ascending: true });
 
       if (error) {
         console.error('Error fetching workout plans by subcategory:', error);
         console.error('Error details:', error.message);
-        // Return sample data as fallback
-        return this.getSampleWorkoutPlans();
+        // Return empty array instead of sample data
+        return [];
       }
 
       if (!data || data.length === 0) {
-        console.log('No plans found for subcategory:', subcategoryId);
         // Try a secondary query approach
         const { data: secondaryData, error: secondaryError } = await supabase
           .from('workout_plans')
-          .select('*')
+          .select(`
+            *,
+            workout_subcategories:subcategory_id (title)
+          `)
           .eq('subcategory_id', subcategoryId)
           .order('display_order', { ascending: true });
           
         if (secondaryError || !secondaryData || secondaryData.length === 0) {
-          console.log('Secondary query also failed or found no results');
-          // Return sample data if no plans found
-          return this.getSampleWorkoutPlans();
+          // Return empty array instead of sample data
+          return [];
         }
         
-        console.log(`Found ${secondaryData.length} plans using subcategory_id instead`);
-        return secondaryData.map(this.transformResponse);
+        // Transform data to include subcategory title and subtitle
+        const plansWithSubcategory = secondaryData.map(plan => ({
+          ...plan,
+          subcategory_title: plan.workout_subcategories?.title || (subcategory?.title || ''),
+          subcategory_subtitle: plan.workout_subcategories?.subtitle || (subcategory?.subtitle || '')
+        }));
+
+        return plansWithSubcategory.map(this.transformResponse);
       }
 
-      console.log(`Found ${data.length} plans for subcategory_identifier: ${subcategoryId}`);
+      // Transform data to include subcategory title and subtitle
+      const plansWithSubcategory = data.map(plan => ({
+        ...plan,
+        subcategory_title: plan.workout_subcategories?.title || (subcategory?.title || ''),
+        subcategory_subtitle: plan.workout_subcategories?.subtitle || (subcategory?.subtitle || '')
+      }));
+
       // Transform each plan to match the interface
-      return data.map(this.transformResponse);
+      return plansWithSubcategory.map(this.transformResponse);
     } catch (error) {
-      console.error('Exception in getPlansBySubcategory:', error);
-      // Return sample data as fallback
-      return this.getSampleWorkoutPlans();
+      console.error('Error in getPlansBySubcategory:', error);
+      // Return empty array instead of sample data
+      return [];
     }
   },
 
   async getPlanById(planId: string): Promise<WorkoutPlan | null> {
     const { data, error } = await supabase
       .from('workout_plans')
-      .select('*')
+      .select(`
+        *,
+        workout_subcategories:subcategory_id (title)
+      `)
       .eq('id', planId)
       .single();
 
@@ -150,7 +240,15 @@ const workoutPlanService = {
       throw error;
     }
 
-    return data ? this.transformResponse(data) : null;
+    if (!data) return null;
+
+    // Add subcategory title to plan data
+    const planWithSubcategory = {
+      ...data,
+      subcategory_title: data.workout_subcategories?.title || ''
+    };
+
+    return this.transformResponse(planWithSubcategory);
   },
 
   async createPlan(plan: Omit<WorkoutPlan, 'id' | 'created_at' | 'updated_at'>): Promise<WorkoutPlan> {
@@ -199,6 +297,8 @@ const workoutPlanService = {
         duration_weeks: 4,
         days_per_week: 3,
         display_order: 1,
+        subcategory_title: 'Full Body Split',
+        subcategory_subtitle: '3 Days a Week',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       },
@@ -212,6 +312,8 @@ const workoutPlanService = {
         duration_weeks: 6,
         days_per_week: 4,
         display_order: 2,
+        subcategory_title: 'Full Body Split',
+        subcategory_subtitle: '4 Days a Week',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       },
@@ -225,10 +327,81 @@ const workoutPlanService = {
         duration_weeks: 8, 
         days_per_week: 5,
         display_order: 3,
+        subcategory_title: 'Full Body Split',
+        subcategory_subtitle: '5 Days a Week',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       }
     ];
+  },
+
+  async getPlanExercises(planId: string): Promise<PlanExercise[]> {
+    try {
+      // Ensure planId is properly formatted
+      if (!planId || typeof planId !== 'string') {
+        return [];
+      }
+
+      // Use a direct query approach with proper joining
+      const { data, error } = await supabase
+        .from('workout_plan_exercises')
+        .select(`
+          id, 
+          plan_id,
+          exercise_id,
+          sets,
+          reps_range,
+          rest_time,
+          "order",
+          exercises(
+            id,
+            name,
+            image_url,
+            muscle_group,
+            equipment,
+            primary_muscles,
+            secondary_muscles
+          )
+        `)
+        .eq('plan_id', planId)
+        .order('"order"', { ascending: true });
+
+      if (error) {
+        return [];
+      }
+
+      if (!data || data.length === 0) {
+        return [];
+      }
+
+      // Transform the data to match the PlanExercise interface
+      const result: PlanExercise[] = [];
+
+      for (const item of data) {
+        // Safe access to nested exercise data
+        const exerciseData = item.exercises as any;
+        
+        const planExercise: PlanExercise = {
+          id: item.id,
+          exercise_id: item.exercise_id,
+          name: exerciseData?.name || 'Unknown Exercise',
+          image_url: exerciseData?.image_url,
+          sets: item.sets || 3,
+          reps: item.reps_range || '8-10',
+          rest_time: item.rest_time || 60,
+          order: item.order || 0,
+          equipment: exerciseData?.equipment,
+          muscle_group: exerciseData?.muscle_group,
+          primary_muscles: exerciseData?.primary_muscles || [],
+          secondary_muscles: exerciseData?.secondary_muscles || [],
+        };
+        result.push(planExercise);
+      }
+
+      return result;
+    } catch (error) {
+      return [];
+    }
   }
 };
 

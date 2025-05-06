@@ -66,6 +66,9 @@ export default function useImagePreloader(
     }
   });
 
+  // Check if FastImage is available
+  const isFastImageAvailable = !!FastImage && typeof FastImage.preload === 'function';
+
   // Effect to preload images when sources change
   useEffect(() => {
     // Skip if no sources
@@ -123,18 +126,27 @@ export default function useImagePreloader(
 
         // Process each batch
         for (const batch of batches) {
-          if (Platform.OS === 'web') {
-            // For web, use Asset
+          // Always use Asset for web or when FastImage is unavailable
+          if (Platform.OS === 'web' || !isFastImageAvailable) {
+            // For web or when FastImage is unavailable, use Asset
             await Promise.allSettled(
               batch.map(uri => Asset.fromURI(uri).downloadAsync())
             );
           } else {
-            // For native, use FastImage
-            const sources: Source[] = batch.map(uri => ({
-              uri,
-              priority: fastImagePriority
-            }));
-            await FastImage.preload(sources);
+            try {
+              // For native with FastImage available, use FastImage
+              const sources: Source[] = batch.map(uri => ({
+                uri,
+                priority: fastImagePriority
+              }));
+              await FastImage.preload(sources);
+            } catch (err) {
+              // If FastImage fails, fallback to Asset
+              console.warn(`[${debugLabel}] FastImage preload failed, falling back to Asset:`, err);
+              await Promise.allSettled(
+                batch.map(uri => Asset.fromURI(uri).downloadAsync())
+              );
+            }
           }
 
           // Update progress
@@ -169,7 +181,7 @@ export default function useImagePreloader(
         }));
 
         if (DEBUG_IMAGE_PRELOADER) {
-          console.log(`✅ [${debugLabel}] All images preloaded in ${duration}ms`);
+          console.log(`✅ [${debugLabel}] All images preloaded in ${duration}ms using ${isFastImageAvailable ? 'FastImage' : 'Asset'}`);
         }
       } catch (err) {
         // Handle error
@@ -196,7 +208,7 @@ export default function useImagePreloader(
     preloadImages();
     
     // No cleanup needed
-  }, [sources, priority, batchSize, debugLabel, fastImagePriority]);
+  }, [sources, priority, batchSize, debugLabel, fastImagePriority, isFastImageAvailable]);
 
   return status;
 } 

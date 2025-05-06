@@ -6,7 +6,8 @@ import {
   StyleProp, 
   ViewStyle,
   ImageStyle,
-  Platform
+  Platform,
+  Image as RNImage
 } from 'react-native';
 import FastImage from 'react-native-fast-image';
 import { Image, ImageContentFit } from 'expo-image';
@@ -14,6 +15,9 @@ import { ImagePriority, CachePolicy, markAsImportantImage } from '../utils/image
 
 // Debug flag
 export const DEBUG_OPTIMIZED_IMAGE = true;
+
+// Check if FastImage is available
+const isFastImageAvailable = !!FastImage && typeof FastImage.preload === 'function';
 
 // Performance tracking interface
 interface ImageTiming {
@@ -196,6 +200,18 @@ export default function OptimizedImage({
   
   // Get FastImage resize mode
   function getResizeMode(mode: string): any {
+    if (!isFastImageAvailable) {
+      // Return RN resize mode if FastImage is not available
+      switch (mode) {
+        case 'contain': return 'contain';
+        case 'stretch': return 'stretch';
+        case 'center': return 'center';
+        case 'cover':
+        default: return 'cover';
+      }
+    }
+    
+    // Return FastImage resize mode
     switch (mode) {
       case 'contain': return FastImage.resizeMode.contain;
       case 'stretch': return FastImage.resizeMode.stretch;
@@ -230,8 +246,8 @@ export default function OptimizedImage({
           onLoad={handleLoadEnd}
           onError={() => handleError(new Error('Image load failed'))}
         />
-      ) : (
-        // Use FastImage for native platforms
+      ) : isFastImageAvailable ? (
+        // Use FastImage for native platforms if available
         <FastImage
           source={processedSource}
           style={[styles.image, style as any]}
@@ -249,6 +265,16 @@ export default function OptimizedImage({
             />
           )}
         </FastImage>
+      ) : (
+        // Fallback to React Native Image if FastImage is not available
+        <RNImage
+          source={processedSource}
+          style={[styles.image, style]}
+          resizeMode={getResizeMode(resizeMode) as any}
+          onLoadStart={handleLoadStart}
+          onLoad={handleLoadEnd}
+          onError={() => handleError(new Error('Image load failed'))}
+        />
       )}
       
       {loading && showLoader && (

@@ -5,23 +5,62 @@ import { Platform } from 'react-native';
 // Debug flag - Set to true to enable verbose logging
 export const DEBUG_IMAGE_PRELOADER = true;
 
-// Configure FastImage global defaults for web compatibility
-const originalPreload = FastImage.preload;
-FastImage.preload = function(sources: Source[]): void | Promise<Asset[]> {
-  if (Platform.OS === 'web') {
-    // FastImage is not available on web, use Asset instead
-    return Promise.all(
-      sources.map(source => {
-        if (source && source.uri) {
-          return Asset.fromURI(source.uri).downloadAsync();
-        }
-        // Return a resolved promise for undefined URIs
-        return Promise.resolve(new Asset({} as any));
-      })
-    );
+// Get a safe reference to the original preload function if available
+const isFastImagePreloadAvailable = (): boolean => {
+  return (
+    typeof FastImage !== 'undefined' && 
+    FastImage !== null && 
+    typeof FastImage.preload === 'function'
+  );
+};
+
+// Safely preload images with fallback to Asset API
+export const safePreloadImages = (sources: Source[]): Promise<any> => {
+  // Use Asset API as fallback for web or when FastImage is unavailable
+  if (Platform.OS === 'web' || !isFastImagePreloadAvailable()) {
+    if (DEBUG_IMAGE_PRELOADER && !isFastImagePreloadAvailable()) {
+      console.warn('FastImage is not available, falling back to Asset for preloading');
+    }
+    
+    if (sources && Array.isArray(sources)) {
+      return Promise.all(
+        sources.map(source => {
+          if (source && source.uri) {
+            return Asset.fromURI(source.uri).downloadAsync();
+          }
+          // Return a resolved promise for undefined URIs
+          return Promise.resolve(new Asset({} as any));
+        })
+      );
+    }
+    
+    // Return a resolved promise if sources are invalid
+    return Promise.resolve([]);
   }
   
-  return originalPreload(sources);
+  try {
+    // Call the original preload function
+    const result = FastImage.preload(sources);
+    
+    // Since FastImage.preload may return void or a Promise, we handle both cases
+    // We always return a Promise regardless
+    return Promise.resolve();
+  } catch (error) {
+    console.warn('Error using FastImage.preload, falling back to Asset:', error);
+    
+    // Fallback to Asset on error
+    if (sources && Array.isArray(sources)) {
+      return Promise.all(
+        sources.map(source => {
+          if (source && source.uri) {
+            return Asset.fromURI(source.uri).downloadAsync();
+          }
+          return Promise.resolve(new Asset({} as any));
+        })
+      );
+    }
+    return Promise.resolve([]);
+  }
 };
 
 /**
@@ -38,11 +77,11 @@ export const ImagePriority = {
  */
 export const CachePolicy = {
   // Use immutable for static assets that won't change
-  IMMUTABLE: FastImage.cacheControl.immutable,
+  IMMUTABLE: FastImage?.cacheControl?.immutable || 'immutable',
   // Use web for dynamic content that updates frequently
-  WEB: FastImage.cacheControl.web,
+  WEB: FastImage?.cacheControl?.web || 'web',
   // Use cacheOnly when offline
-  CACHE_ONLY: FastImage.cacheControl.cacheOnly
+  CACHE_ONLY: FastImage?.cacheControl?.cacheOnly || 'cacheOnly'
 };
 
 /**
@@ -84,7 +123,21 @@ export const batchPreloadImages = async (
         priority 
       }));
       
-      await FastImage.preload(sources);
+      // Check if FastImage is available
+      if (!FastImage || typeof FastImage.preload !== 'function') {
+        // Use Asset as fallback
+        await Promise.all(
+          sources.map(source => {
+            if (source && source.uri) {
+              return Asset.fromURI(source.uri).downloadAsync();
+            }
+            return Promise.resolve();
+          })
+        );
+      } else {
+        await FastImage.preload(sources);
+      }
+      
       completedCount += batch.length;
       
       if (onProgress) {
@@ -116,24 +169,40 @@ export const batchPreloadImages = async (
 export const markAsImportantImage = (uri: string): void => {
   if (!uri) return;
   
-  if (Platform.OS === 'web') {
-    // Web doesn't support priority caching in the same way
-    Asset.fromURI(uri).downloadAsync();
-    return;
-  }
-  
+  // Always use Asset API as the primary method for marking images as important
   try {
-    // Note: FastImage.priority is causing type issues, so we're preloading with high priority instead
-    // which achieves a similar result of keeping the image in memory
-    const sources: Source[] = [{
-      uri,
-      priority: ImagePriority.HIGH
-    }];
-    
-    FastImage.preload(sources);
+    Asset.fromURI(uri).downloadAsync().catch(error => {
+      console.warn('❌ Error with Asset preloading in markAsImportantImage:', error);
+    });
     
     if (DEBUG_IMAGE_PRELOADER) {
-      console.log(`🔒 Marked as important: ${uri.substring(0, 40)}${uri.length > 40 ? '...' : ''}`);
+      console.log(`🔒 Marked as important with Asset: ${uri.substring(0, 40)}${uri.length > 40 ? '...' : ''}`);
+    }
+    
+    // Only try FastImage as a secondary method if it's safe to do so
+    if (Platform.OS !== 'web' && isFastImagePreloadAvailable()) {
+      try {
+        const sources: Source[] = [{
+          uri,
+          priority: ImagePriority.HIGH
+        }];
+        
+        // Use our safe preload function that handles errors internally
+        safePreloadImages(sources).catch(err => {
+          if (DEBUG_IMAGE_PRELOADER) {
+            console.warn('❌ Failed to mark image as important with FastImage:', err);
+          }
+        });
+        
+        if (DEBUG_IMAGE_PRELOADER) {
+          console.log(`🔒 Also marked as important with FastImage: ${uri.substring(0, 40)}${uri.length > 40 ? '...' : ''}`);
+        }
+      } catch (fastImageError) {
+        // Silently continue if FastImage fails, we already used Asset
+        if (DEBUG_IMAGE_PRELOADER) {
+          console.warn('❌ FastImage error in markAsImportantImage (non-critical):', fastImageError);
+        }
+      }
     }
   } catch (error) {
     console.warn('❌ Error marking image as important:', error);
@@ -151,6 +220,11 @@ export const clearImageCache = async (): Promise<void> => {
   }
   
   try {
+    if (!FastImage) {
+      console.warn('FastImage is not available, cannot clear cache');
+      return;
+    }
+    
     await FastImage.clearMemoryCache();
     await FastImage.clearDiskCache();
     

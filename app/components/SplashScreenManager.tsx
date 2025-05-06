@@ -5,6 +5,7 @@ import InitialLoadingScreen from './InitialLoadingScreen';
 import { useAuth } from '@store/AuthContext';
 import * as Network from 'expo-network';
 import supabase from '@services/supabase';
+import storageService, { STORAGE_BUCKETS } from '@services/storage';
 import { Asset } from 'expo-asset';
 import { LOADING_MESSAGES } from '@constants/loadingMessages';
 import * as FileSystem from 'expo-file-system';
@@ -304,92 +305,103 @@ export default function SplashScreenManager({ children }: { children: React.Reac
       const mediumPriorityImages: string[] = [];
       const lowPriorityImages: string[] = [];
       
-      // 1. Get progress photos (HIGH PRIORITY - immediately visible on profile)
+      // 1. Get progress photos from storage (HIGH PRIORITY - immediately visible on profile)
       setLoadingMessage(LOADING_MESSAGES.PROGRESS_PHOTOS);
-      type ProgressPhoto = { photo_url: string };
-      const progressPhotos = await fetchSupabaseData<ProgressPhoto>(
-        'progress_photos',
-        supabase
-          .from('progress_photos')
-          .select('photo_url')
-          .eq('user_id', userId)
-          .order('taken_at', { ascending: false })
-          .limit(PRELOAD_CONFIG.USER_DATA_LIMIT),
-        'Error fetching progress photos'
-      );
-      
-      const photoUrls = progressPhotos
-        .map(photo => photo.photo_url)
-        .filter(url => url && typeof url === 'string');
+      try {
+        // Get files from progress-photos bucket for this user using the storage service
+        const progressPhotos = await storageService.listFiles(STORAGE_BUCKETS.PROGRESS_PHOTOS, userId);
         
-      if (photoUrls.length > 0) {
-        // Most recent photos (first 2) get high priority
-        highPriorityImages.push(...photoUrls.slice(0, 2));
-        
-        // Rest get medium priority
-        if (photoUrls.length > 2) {
-          mediumPriorityImages.push(...photoUrls.slice(2));
+        if (progressPhotos && progressPhotos.length > 0) {
+          // Get public URLs for these files
+          const photoUrls = progressPhotos.map(photo => 
+            storageService.getPublicUrl(STORAGE_BUCKETS.PROGRESS_PHOTOS, `${userId}/${photo.name}`)
+          );
+          
+          const filteredUrls = photoUrls.filter(url => url && typeof url === 'string');
+          
+          if (filteredUrls.length > 0) {
+            // Most recent photos (first 2) get high priority
+            highPriorityImages.push(...filteredUrls.slice(0, 2));
+            
+            // Rest get medium priority
+            if (filteredUrls.length > 2) {
+              mediumPriorityImages.push(...filteredUrls.slice(2));
+            }
+            
+            // Mark the most recent photo as important so it stays in memory
+            if (filteredUrls.length > 0) {
+              markAsImportantImage(filteredUrls[0]);
+            }
+            
+            console.log(`Found ${filteredUrls.length} progress photos to preload (${highPriorityImages.length} high priority)`);
+          }
         }
-        
-        // Mark the most recent photo as important so it stays in memory
-        if (photoUrls.length > 0) {
-          markAsImportantImage(photoUrls[0]);
-        }
-        
-        console.log(`Found ${photoUrls.length} progress photos to preload (${highPriorityImages.length} high priority)`);
+      } catch (error) {
+        console.warn('Error fetching progress photos from storage:', error);
       }
       
-      // 2. Get favorite exercises (MEDIUM-HIGH PRIORITY - accessed from favorites tab)
-      setLoadingMessage(LOADING_MESSAGES.FAVORITE_EXERCISES);
-      type FavoriteExercise = { exercise_id: string };
-      const favorites = await fetchSupabaseData<FavoriteExercise>(
-        'user_favorite_exercises',
-        supabase
+      // Check if user_favorite_exercises table exists
+      try {
+        const { count: favoritesTableExists } = await supabase
           .from('user_favorite_exercises')
-          .select('exercise_id')
-          .eq('user_id', userId)
-          .limit(PRELOAD_CONFIG.FAVORITE_EXERCISES_LIMIT),
-        'Error fetching favorite exercises'
-      );
-      
-      if (favorites.length > 0) {
-        // Get details for favorite exercises
-        const exerciseIds = favorites.map(fav => fav.exercise_id);
+          .select('*', { count: 'exact', head: true });
         
-        type ExerciseDetail = { id: string; image_url: string; name: string };
-        const favoriteExercises = await fetchSupabaseData<ExerciseDetail>(
-          'exercises',
-          supabase
-            .from('exercises')
-            .select('id, image_url, name')
-            .in('id', exerciseIds),
-          'Error fetching favorite exercise details'
-        );
-        
-        const exerciseUrls = favoriteExercises
-          .map(ex => ({ id: ex.id, url: ex.image_url, name: ex.name }))
-          .filter(item => item.url && typeof item.url === 'string');
-        
-        // First 5 favorite exercises get high priority
-        highPriorityImages.push(...exerciseUrls.slice(0, 5).map(item => item.url));
-        
-        // Next 10 get medium priority
-        mediumPriorityImages.push(...exerciseUrls.slice(5, 15).map(item => item.url));
-        
-        // Rest get low priority
-        lowPriorityImages.push(...exerciseUrls.slice(15).map(item => item.url));
-        
-        // Mark all favorite exercise images as important
-        exerciseUrls.forEach(item => {
-          if (item.url) {
-            markAsImportantImage(item.url);
+        if (favoritesTableExists !== null) {
+          // 2. Get favorite exercises (MEDIUM-HIGH PRIORITY - accessed from favorites tab)
+          setLoadingMessage(LOADING_MESSAGES.FAVORITE_EXERCISES);
+          type FavoriteExercise = { exercise_id: string };
+          const favorites = await fetchSupabaseData<FavoriteExercise>(
+            'user_favorite_exercises',
+            supabase
+              .from('user_favorite_exercises')
+              .select('exercise_id')
+              .eq('user_id', userId)
+              .limit(PRELOAD_CONFIG.FAVORITE_EXERCISES_LIMIT),
+            'Error fetching favorite exercises'
+          );
+          
+          if (favorites.length > 0) {
+            // Get details for favorite exercises
+            const exerciseIds = favorites.map(fav => fav.exercise_id);
+            
+            type ExerciseDetail = { id: string; image_url: string; name: string };
+            const favoriteExercises = await fetchSupabaseData<ExerciseDetail>(
+              'exercises',
+              supabase
+                .from('exercises')
+                .select('id, image_url, name')
+                .in('id', exerciseIds),
+              'Error fetching favorite exercise details'
+            );
+            
+            const exerciseUrls = favoriteExercises
+              .map(ex => ({ id: ex.id, url: ex.image_url, name: ex.name }))
+              .filter(item => item.url && typeof item.url === 'string');
+            
+            // First 5 favorite exercises get high priority
+            highPriorityImages.push(...exerciseUrls.slice(0, 5).map(item => item.url));
+            
+            // Next 10 get medium priority
+            mediumPriorityImages.push(...exerciseUrls.slice(5, 15).map(item => item.url));
+            
+            // Rest get low priority
+            lowPriorityImages.push(...exerciseUrls.slice(15).map(item => item.url));
+            
+            // Mark all favorite exercise images as important
+            exerciseUrls.forEach(item => {
+              if (item.url) {
+                markAsImportantImage(item.url);
+              }
+            });
+            
+            console.log(`Found ${exerciseUrls.length} favorite exercise images to preload (${
+              Math.min(exerciseUrls.length, 5)} high, ${
+              Math.min(Math.max(exerciseUrls.length - 5, 0), 10)} medium, ${
+              Math.max(exerciseUrls.length - 15, 0)} low priority)`);
           }
-        });
-        
-        console.log(`Found ${exerciseUrls.length} favorite exercise images to preload (${
-          Math.min(exerciseUrls.length, 5)} high, ${
-          Math.min(Math.max(exerciseUrls.length - 5, 0), 10)} medium, ${
-          Math.max(exerciseUrls.length - 15, 0)} low priority)`);
+        }
+      } catch (error) {
+        console.warn('Error fetching favorite exercises:', error);
       }
       
       // Set loading message back to general user content
@@ -413,7 +425,7 @@ export default function SplashScreenManager({ children }: { children: React.Reac
       setLoadingMessage(LOADING_MESSAGES.DATA);
       
       // SECTION 1: Load ALL exercises - no limits
-      const allExercises = await fetchSupabaseData(
+      const allExercises = await fetchSupabaseData<{ id: string; name: string }>(
         'exercises',
         supabase.from('exercises').select('*'),
         'Error precaching all exercises'
@@ -424,7 +436,7 @@ export default function SplashScreenManager({ children }: { children: React.Reac
       }
       
       // SECTION 2: Cache ALL workout plans - no limits
-      const allPlans = await fetchSupabaseData(
+      const allPlans = await fetchSupabaseData<{ id: string; title: string }>(
         'workout_plans',
         supabase.from('workout_plans').select('*'),
         'Error precaching workout plans'
@@ -436,19 +448,8 @@ export default function SplashScreenManager({ children }: { children: React.Reac
       
       // SECTION 3: Cache user-specific data if logged in
       if (session?.user) {
-        // User settings
-        await fetchSupabaseData(
-          'user_settings',
-          supabase
-            .from('user_settings')
-            .select('*')
-            .eq('user_id', session.user.id)
-            .single(),
-          'Error fetching user settings'
-        );
-        
-        // User profile
-        await fetchSupabaseData(
+        // User profile - this table definitely exists
+        await fetchSupabaseData<{ id: string }>(
           'profiles',
           supabase
             .from('profiles')
@@ -458,58 +459,77 @@ export default function SplashScreenManager({ children }: { children: React.Reac
           'Error fetching user profile'
         );
         
-        // User's workouts - get ALL, not just recent
-        await fetchSupabaseData(
-          'workouts',
-          supabase
-            .from('workouts')
-            .select('*')
-            .eq('user_id', session.user.id)
-            .order('created_at', { ascending: false }),
-          'Error fetching user workouts'
-        );
+        // Check available storage buckets for user content
+        try {
+          // Check if user has any progress photos
+          const userPhotos = await storageService.listFiles(
+            STORAGE_BUCKETS.PROGRESS_PHOTOS, 
+            session.user.id
+          );
+          
+          if (userPhotos && userPhotos.length > 0) {
+            console.log(`📊 Found ${userPhotos.length} progress photos in storage`);
+          }
+        } catch (error) {
+          console.warn('Error checking storage for progress photos:', error);
+        }
         
-        // User achievements
-        await fetchSupabaseData(
-          'user_achievements',
-          supabase
-            .from('user_achievements')
-            .select('*')
-            .eq('user_id', session.user.id),
-          'Error fetching user achievements'
-        );
-        
-        // Favorite exercises
-        await fetchSupabaseData(
-          'user_favorite_exercises',
-          supabase
+        // Check if user_favorite_exercises table exists and fetch if it does
+        try {
+          const { count: favoritesTableExists } = await supabase
             .from('user_favorite_exercises')
-            .select('exercise_id')
-            .eq('user_id', session.user.id),
-          'Error fetching favorite exercises'
-        );
+            .select('*', { count: 'exact', head: true });
+          
+          if (favoritesTableExists !== null) {
+            // User favorites table exists, fetch data
+            await fetchSupabaseData<{ exercise_id: string }>(
+              'user_favorite_exercises',
+              supabase
+                .from('user_favorite_exercises')
+                .select('exercise_id')
+                .eq('user_id', session.user.id),
+              'Error fetching favorite exercises'
+            );
+          }
+        } catch (error) {
+          // Table doesn't exist yet
+          console.log('user_favorite_exercises table not found');
+        }
         
-        // Progress photos - get ALL, not just recent
-        await fetchSupabaseData(
-          'progress_photos',
-          supabase
-            .from('progress_photos')
-            .select('*')
-            .eq('user_id', session.user.id)
-            .order('created_at', { ascending: false }),
-          'Error fetching progress photos'
-        );
+        // The following tables don't exist yet based on the logs
+        // We'll check for their existence before querying
+
+        // Tables to check
+        const tablesToCheck = [
+          'user_settings',
+          'workouts',
+          'user_achievements',
+          'user_measurements'
+        ];
         
-        // User measurements
-        await fetchSupabaseData(
-          'user_measurements',
-          supabase
-            .from('user_measurements')
-            .select('*')
-            .eq('user_id', session.user.id)
-            .order('created_at', { ascending: false }),
-          'Error fetching user measurements'
-        );
+        // Check each table once instead of multiple separate checks
+        for (const table of tablesToCheck) {
+          try {
+            const { count: tableExists } = await supabase
+              .from(table)
+              .select('*', { count: 'exact', head: true });
+            
+            if (tableExists !== null) {
+              // Table exists, fetch data
+              await fetchSupabaseData(
+                table,
+                supabase
+                  .from(table)
+                  .select('*')
+                  .eq('user_id', session.user.id),
+                `Error fetching ${table}`
+              );
+            }
+          } catch (error) {
+            // Table doesn't exist, but that's expected
+            // No need to log an error as we're just checking
+          }
+        }
       }
       
       updateProgress(0.1, LOADING_MESSAGES.DATA + ' ✓');

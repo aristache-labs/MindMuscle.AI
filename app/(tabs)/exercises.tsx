@@ -4,7 +4,6 @@ import { Text, IconButton, Surface, Divider } from 'react-native-paper';
 import { COLORS, SPACING, BORDER_RADIUS, HEADER_HEIGHT } from '../constants/theme';
 import Timer from '../components/timer';
 import OptimizedImage from '../components/OptimizedImage';
-import { useImagePreloader } from '../hooks/useImagePreloader';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeneralHeader } from '../components/GeneralHeader';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';

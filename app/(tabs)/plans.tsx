@@ -9,6 +9,7 @@ import OptimizedImage from '../components/OptimizedImage';
 import { LinearGradient } from 'expo-linear-gradient';
 import workoutPlanService, { WorkoutPlan } from '../services/workoutPlanService';
 import { MaterialIcons } from '@expo/vector-icons';
+import loadTimeTracker from '../utils/loadTimeTracker';
 
 const { width } = Dimensions.get('window');
 
@@ -28,6 +29,14 @@ export default function PlansScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [featuredPlan, setFeaturedPlan] = useState<WorkoutPlan | null>(null);
 
+  // For performance tracking
+  useEffect(() => {
+    loadTimeTracker.startLoadTimeTracking('PlansScreen');
+    return () => {
+      loadTimeTracker.endLoadTimeTracking('PlansScreen');
+    };
+  }, []);
+
   // Map for plan images based on the ones in assets/exercises
   const imageMap: { [key: string]: any } = {
     'placeholder.jpg': require('../../assets/exercises/placeholder.jpg'),
@@ -37,17 +46,22 @@ export default function PlansScreen() {
   useEffect(() => {
     async function fetchPlans() {
       try {
+        loadTimeTracker.markLoadTime('PlansScreen', 'fetchPlans started');
         setIsLoading(true);
         
         let fetchedPlans: WorkoutPlan[] = [];
         
         // Fetch plans by subcategory if available
         if (subcategoryId) {
+          loadTimeTracker.markLoadTime('PlansScreen', `Fetching plans for subcategory: ${subcategoryId}`);
           fetchedPlans = await workoutPlanService.getPlansBySubcategory(subcategoryId.toString());
         } else {
           // Fetch all plans as fallback
+          loadTimeTracker.markLoadTime('PlansScreen', 'Fetching all plans');
           fetchedPlans = await workoutPlanService.getAllPlans();
         }
+        
+        loadTimeTracker.markLoadTime('PlansScreen', `Plans fetched: ${fetchedPlans.length}`);
         
         // Set featured plan (first one or null)
         if (fetchedPlans.length > 0) {
@@ -58,8 +72,14 @@ export default function PlansScreen() {
         
         setPlans(fetchedPlans);
         setIsLoading(false);
+        
+        // Mark UI render time
+        setTimeout(() => {
+          loadTimeTracker.markLoadTime('PlansScreen', 'UI fully rendered');
+        }, 500);
       } catch (error) {
         console.error("Error fetching plans:", error);
+        loadTimeTracker.markLoadTime('PlansScreen', 'Error fetching plans');
         setPlans([]);
         setFeaturedPlan(null);
         setIsLoading(false);
@@ -230,7 +250,6 @@ export default function PlansScreen() {
         <OptimizedImage
           source={featuredImageSource}
           style={styles.featuredImage}
-          imageStyle={styles.featuredImageStyle}
           contentFit="cover"
         />
         <LinearGradient
@@ -317,10 +336,6 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
   },
   featuredImage: {
-    width: '100%',
-    height: '100%',
-  },
-  featuredImageStyle: {
     width: '100%',
     height: '100%',
   },

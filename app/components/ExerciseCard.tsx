@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View, TouchableOpacity, Dimensions, ViewStyle, TextStyle } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, Dimensions, ViewStyle, TextStyle, ImageStyle } from 'react-native';
 import { Text, Surface } from 'react-native-paper';
 import { COLORS, BORDER_RADIUS } from '../constants/theme';
 import OptimizedImage from './OptimizedImage';
@@ -25,6 +25,9 @@ const ExerciseCard = ({
   onPress,
   onToggleFavorite
 }: ExerciseCardProps) => {
+  // Create a unique debug label using exercise id or name
+  const debugLabel = `exercise-card-${id || name.toLowerCase().replace(/\s+/g, '_').substring(0, 20)}`;
+  
   return (
     <TouchableOpacity
       style={styles.container}
@@ -38,6 +41,8 @@ const ExerciseCard = ({
               source={image}
               style={styles.image}
               contentFit="cover"
+              debugLabel={debugLabel}
+              markImportant={true} // Mark exercise images as important to keep in memory
             />
             <TouchableOpacity
               style={styles.favoriteButton}
@@ -65,7 +70,7 @@ interface Styles {
   card: ViewStyle;
   cardContentWrapper: ViewStyle;
   imageContainer: ViewStyle;
-  image: ViewStyle;
+  image: ImageStyle;
   favoriteButton: ViewStyle;
   textContainer: ViewStyle;
   name: TextStyle;

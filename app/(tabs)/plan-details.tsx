@@ -9,6 +9,7 @@ import OptimizedImage from '../components/OptimizedImage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import workoutPlanService, { WorkoutPlan, PlanExercise } from '../services/workoutPlanService';
+import loadTimeTracker from '../utils/loadTimeTracker';
 
 const { width } = Dimensions.get('window');
 
@@ -31,6 +32,14 @@ export default function PlanDetailsScreen() {
   const [totalDuration, setTotalDuration] = useState(0);
   const [totalCalories, setTotalCalories] = useState(0);
 
+  // For performance tracking
+  useEffect(() => {
+    loadTimeTracker.startLoadTimeTracking('PlanDetailsScreen');
+    return () => {
+      loadTimeTracker.endLoadTimeTracking('PlanDetailsScreen');
+    };
+  }, []);
+
   // Map for fallback exercise images based on the ones in assets/exercises
   const fallbackImageMap: { [key: string]: any } = {
     'fullbody.jpg': require('../../assets/exercises/fullbody.jpg'),
@@ -45,19 +54,24 @@ export default function PlanDetailsScreen() {
   useEffect(() => {
     async function fetchPlanDetails() {
       try {
+        loadTimeTracker.markLoadTime('PlanDetailsScreen', 'fetchPlanDetails started');
         setIsLoading(true);
         
         // Fetch plan details
         if (planId) {
+          loadTimeTracker.markLoadTime('PlanDetailsScreen', `Fetching plan ID: ${planId}`);
           const planData = await workoutPlanService.getPlanById(planId);
           
           if (planData) {
             setPlan(planData);
+            loadTimeTracker.markLoadTime('PlanDetailsScreen', 'Plan data loaded');
             
             // Fetch exercises for this plan
+            loadTimeTracker.markLoadTime('PlanDetailsScreen', 'Fetching exercises');
             const exercisesData = await workoutPlanService.getPlanExercises(planId);
             
             if (exercisesData && exercisesData.length > 0) {
+              loadTimeTracker.markLoadTime('PlanDetailsScreen', `Exercises loaded: ${exercisesData.length}`);
               setExercises(exercisesData);
               
               // Calculate stats 
@@ -74,11 +88,20 @@ export default function PlanDetailsScreen() {
               setTotalDuration(Math.ceil(duration / 60));
               setTotalCalories(calories);
             }
+          } else {
+            loadTimeTracker.markLoadTime('PlanDetailsScreen', 'Plan not found');
           }
         }
         
         setIsLoading(false);
+        
+        // Mark UI render time
+        setTimeout(() => {
+          loadTimeTracker.markLoadTime('PlanDetailsScreen', 'UI fully rendered');
+        }, 500);
       } catch (error) {
+        console.error('Error in fetchPlanDetails:', error);
+        loadTimeTracker.markLoadTime('PlanDetailsScreen', 'Error fetching data');
         setIsLoading(false);
       }
     }

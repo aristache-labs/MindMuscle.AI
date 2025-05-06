@@ -9,6 +9,8 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import exerciseService, { Exercise, ExerciseCategory } from '../services/exerciseService';
 import { GeneralHeader } from '../components/GeneralHeader';
+import cacheManager from '../utils/cacheManager';
+import loadTimeTracker from '../utils/loadTimeTracker';
 
 // Get screen width for responsive sizing
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -79,6 +81,14 @@ export default function ExercisesListScreen() {
   const [error, setError] = useState<string | null>(null);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   
+  // For performance tracking
+  useEffect(() => {
+    loadTimeTracker.startLoadTimeTracking('ExercisesListScreen');
+    return () => {
+      loadTimeTracker.endLoadTimeTracking('ExercisesListScreen');
+    };
+  }, []);
+
   // State for favorite filter
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
 
@@ -112,32 +122,84 @@ export default function ExercisesListScreen() {
   useEffect(() => {
     const loadExercises = async () => {
       try {
+        loadTimeTracker.markLoadTime('ExercisesListScreen', 'loadExercises started');
         setLoading(true);
         setError(null);
         
-        // Always fetch all exercises for potential search and categorization
-        const allExercisesData = await exerciseService.getExercisesByCategory('all');
-        setAllExercises(allExercisesData);
+        let exercisesData: Exercise[] = [];
+        let allExercisesData: Exercise[] = [];
         
-        // If a specific category is selected, filter the exercises
+        // Try to load from cache first for better performance
         if (currentCategory !== 'all') {
-          const categoryExercises = allExercisesData.filter(
-            ex => ex.muscle_group === currentCategory
-          );
-          setExercises(categoryExercises);
-        } else {
-          setExercises(allExercisesData);
+          loadTimeTracker.markLoadTime('ExercisesListScreen', `Trying cache for category: ${currentCategory}`);
+          // Try to get category-specific cache
+          const cachedData = await cacheManager.getCachedData<Exercise[]>(`exercises_${currentCategory}`);
+          if (cachedData && cachedData.length > 0) {
+            loadTimeTracker.markLoadTime('ExercisesListScreen', `Using cached data for ${currentCategory}`);
+            console.log(`Using cached data for ${currentCategory}`);
+            exercisesData = cachedData;
+          } else {
+            loadTimeTracker.markLoadTime('ExercisesListScreen', `Cache miss for ${currentCategory}, loading from API`);
+            console.log(`Cache miss for ${currentCategory}, loading from API`);
+            exercisesData = await exerciseService.getExercisesByCategory(currentCategory as ExerciseCategory);
+          }
         }
         
-        // Fetch favorite exercises to mark which ones are favorites
-        const favorites = await exerciseService.getFavoriteExercises();
-        const favoriteIdSet = new Set(favorites.map(fav => fav.id));
-        setFavoriteIds(favoriteIdSet);
+        // Try to get all exercises from cache
+        loadTimeTracker.markLoadTime('ExercisesListScreen', 'Trying cache for all exercises');
+        const cachedAllExercises = await cacheManager.getCachedData<Exercise[]>('all_exercises_minimal');
+        if (cachedAllExercises && cachedAllExercises.length > 0) {
+          loadTimeTracker.markLoadTime('ExercisesListScreen', 'Using cached all exercises data');
+          console.log('Using cached data for all exercises');
+          allExercisesData = cachedAllExercises;
+          
+          // If we need all exercises and haven't loaded them specifically
+          if (currentCategory === 'all') {
+            exercisesData = allExercisesData;
+          }
+        } else {
+          // Load all exercises from API
+          loadTimeTracker.markLoadTime('ExercisesListScreen', 'Cache miss for all exercises, loading from API');
+          console.log('Cache miss for all exercises, loading from API');
+          allExercisesData = await exerciseService.getExercisesByCategory('all');
+          
+          // If we need all exercises
+          if (currentCategory === 'all') {
+            exercisesData = allExercisesData;
+          }
+          
+          // Cache this for next time
+          await cacheManager.cacheData('all_exercises_minimal', allExercisesData);
+        }
+        
+        // Update state
+        setExercises(exercisesData);
+        setAllExercises(allExercisesData);
+        loadTimeTracker.markLoadTime('ExercisesListScreen', `Exercises data loaded: ${exercisesData.length}`);
+        
+        // Load favorites (don't use this as a blocker for showing content)
+        try {
+          loadTimeTracker.markLoadTime('ExercisesListScreen', 'Loading favorites');
+          const favorites = await exerciseService.getFavoriteExercises();
+          const favoriteIdSet = new Set(favorites.map(fav => fav.id));
+          setFavoriteIds(favoriteIdSet);
+          loadTimeTracker.markLoadTime('ExercisesListScreen', `Favorites loaded: ${favoriteIdSet.size}`);
+        } catch (favError) {
+          console.error('Error loading favorites:', favError);
+          loadTimeTracker.markLoadTime('ExercisesListScreen', 'Error loading favorites');
+          // Don't block the UI for favorites loading issues
+        }
       } catch (err) {
         console.error('Error loading exercises:', err);
+        loadTimeTracker.markLoadTime('ExercisesListScreen', 'Error loading exercises');
         setError('Failed to load exercises. Please try again.');
       } finally {
         setLoading(false);
+        
+        // Mark UI render time
+        setTimeout(() => {
+          loadTimeTracker.markLoadTime('ExercisesListScreen', 'UI fully rendered');
+        }, 500);
       }
     };
     

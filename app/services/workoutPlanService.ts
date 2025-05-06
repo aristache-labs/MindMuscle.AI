@@ -5,7 +5,6 @@ import { supabaseUrl } from './supabase';
 export interface WorkoutPlan {
   id: string;
   title: string;
-  description: string;
   image_url: string | null;
   subcategory_id: string;
   difficulty: string;  // Mapped from difficulty_level in transformResponse
@@ -25,7 +24,6 @@ export interface WorkoutPlan {
 interface RawWorkoutPlan {
   id: string;
   title: string;
-  description: string;
   image_url: string | null;
   subcategory_id: string;
   difficulty_level: string;
@@ -304,7 +302,6 @@ const workoutPlanService = {
       {
         id: `${projectId}-001`,
         title: 'Beginner Workout',
-        description: 'A complete workout plan for beginners',
         image_url: 'fullbody.jpg',
         subcategory_id: 'full-body-workouts',
         difficulty: 'beginner',
@@ -319,7 +316,6 @@ const workoutPlanService = {
       {
         id: `${projectId}-002`,
         title: 'Intermediate Training',
-        description: 'Step up your fitness with this intermediate plan',
         image_url: 'dumbbell.jpg',
         subcategory_id: 'full-body-workouts',
         difficulty: 'intermediate',
@@ -334,7 +330,6 @@ const workoutPlanService = {
       {
         id: `${projectId}-003`,
         title: 'Advanced Strength',
-        description: 'Push your limits with advanced exercises',
         image_url: 'pushup.jpg',
         subcategory_id: 'full-body-workouts',
         difficulty: 'advanced',

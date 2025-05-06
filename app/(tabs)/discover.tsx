@@ -6,12 +6,13 @@ import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import OptimizedImage from '../components/OptimizedImage';
-import { useImagePreloader } from '../hooks/useImagePreloader';
-import { markAsImportantImage } from '../utils/imagePreloader';
 import { LinearGradient } from 'expo-linear-gradient';
 import supabase, { supabaseUrl } from '../services/supabase';
 import { useRouter } from 'expo-router';
 import { GeneralHeader } from '../components/GeneralHeader';
+import cacheManager from '../utils/cacheManager';
+import { markAsImportantImage } from '../utils/imagePreloader';
+import loadTimeTracker from '../utils/loadTimeTracker';
 
 // Add debug tracking for discover screen - add after imports
 const DEBUG_NAVIGATION = true;
@@ -159,9 +160,8 @@ const WorkoutCard = ({ id, title, subtitle, image, accent, category }: WorkoutPr
         <View style={styles.cardContentContainer}>
           <View style={styles.cardImageContainer}>
             <OptimizedImage 
-              source={image}
-              style={styles.cardImageContainer}
-              imageStyle={styles.cardImage}
+              source={typeof image === 'string' ? { uri: image } : image as any}
+              style={[styles.cardImageContainer, styles.cardImage]}
               contentFit="cover"
               debugLabel={`workout-card-${id}`}
               priority="high"
@@ -336,6 +336,7 @@ const styles = StyleSheet.create({
 });
 
 export default function DiscoverScreen() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const [categories, setCategories] = useState<string[]>([]);
   const [workoutPrograms, setWorkoutPrograms] = useState<WorkoutProgram[]>([]);
@@ -348,6 +349,14 @@ export default function DiscoverScreen() {
   const sectionListRef = useRef<any>(null);
   const filterScrollRef = useRef<ScrollView>(null);
   
+  // For performance tracking - add this right after the component starts
+  useEffect(() => {
+    loadTimeTracker.startLoadTimeTracking('DiscoverScreen');
+    return () => {
+      loadTimeTracker.endLoadTimeTracking('DiscoverScreen');
+    };
+  }, []);
+
   // Active filters state
   const [activeFilters, setActiveFilters] = useState<{[key: string]: string[]}>({
     equipment: [],
@@ -376,6 +385,7 @@ export default function DiscoverScreen() {
   useEffect(() => {
     async function fetchData() {
       try {
+        loadTimeTracker.markLoadTime('DiscoverScreen', 'fetchData started');
         setIsLoading(true);
         
         // Fetch workout categories
@@ -389,6 +399,8 @@ export default function DiscoverScreen() {
           return;
         }
 
+        loadTimeTracker.markLoadTime('DiscoverScreen', 'Categories fetched');
+
         // Fetch workout subcategories
         const { data: subcategoriesData, error: subcategoriesError } = await supabase
           .from('workout_subcategories')
@@ -399,6 +411,8 @@ export default function DiscoverScreen() {
           console.error('Error fetching subcategories:', subcategoriesError);
           return;
         }
+
+        loadTimeTracker.markLoadTime('DiscoverScreen', 'Subcategories fetched');
 
         // Map the data to our required format
         const categoryNames = (categoriesData as WorkoutCategory[]).map(category => category.name);
@@ -466,7 +480,16 @@ export default function DiscoverScreen() {
         }));
 
         setSections(formattedSections);
+        
+        // Add before setting isLoading to false
+        loadTimeTracker.markLoadTime('DiscoverScreen', 'Data processing complete');
+        
         setIsLoading(false);
+        
+        // Add this at the end of the successful data fetch
+        setTimeout(() => {
+          loadTimeTracker.markLoadTime('DiscoverScreen', 'UI fully rendered');
+        }, 500);
       } catch (error) {
         console.error('Error fetching data:', error);
         setIsLoading(false);
@@ -476,93 +499,8 @@ export default function DiscoverScreen() {
     fetchData();
   }, []);
   
-  // Handle scroll to determine current section
-  const handleScroll = Animated.event(
-    [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-    {
-      useNativeDriver: false,
-      listener: ({ nativeEvent: { contentOffset: { y } } }: NativeSyntheticEvent<NativeScrollEvent>) => {
-        if (!sectionMeasured.current || categories.length === 0) return;
-        
-        // Add CATEGORY_HEIGHT to align the "zero" of scroll position with the bottom of the category bar (green line)
-        const triggerY = y;
-        
-        // Determine which section we're in based on the scroll position
-        let activeSection = categories[0];
-        
-        for (const category of categories) {
-          const sectionTop = sectionOffsets[category] || 0;
-          if (triggerY >= sectionTop) {
-            activeSection = category;
-          } else {
-            // We've gone past the current section, so the previous one is active
-            break;
-          }
-        }
-        
-        if (activeSection !== currentSection && activeSection !== nextSection) {
-          setNextSection(activeSection);
-        }
-      }
-    }
-  );
-  
-  // Toggle a filter selection
-  const toggleFilter = (categoryId: string, optionId: string) => {
-    setActiveFilters(prev => {
-      const currentSelection = [...prev[categoryId]];
-      const index = currentSelection.indexOf(optionId);
-      
-      if (index === -1) {
-        currentSelection.push(optionId);
-      } else {
-        currentSelection.splice(index, 1);
-      }
-      
-      return {
-        ...prev,
-        [categoryId]: currentSelection
-      };
-    });
-  };
-  
-  // Calculate section heights and offsets after render
-  useEffect(() => {
-    if (categories.length === 0) return;
-    
-    // This runs after layout and gives time for the list to render
-    const timer = setTimeout(() => {
-      let cumulativeHeight = 0;
-      const tempOffsets: {[key: string]: number} = {};
-      
-      // Process sections in order
-      categories.forEach((category, index) => {
-        // Compute the offset at which this section should become active
-        // Subtract CATEGORY_HEIGHT so the section activates when it crosses the green line
-        tempOffsets[category] = cumulativeHeight + CATEGORY_HEIGHT;
-        
-        // Get the height of this section's header
-        const headerHeight = SECTION_HEADER_HEIGHT;
-        
-        // Get the total height of items in this section
-        const items = workoutPrograms.filter(p => p.category === category);
-        // Use the actual 6px margin
-        const itemsHeight = items.length * (CARD_HEIGHT + 6);
-        
-        // Add this section's height to the cumulative total
-        cumulativeHeight += headerHeight + itemsHeight;
-      });
-      
-      setSectionOffsets(tempOffsets);
-      sectionMeasured.current = true;
-    }, 500);
-    
-    return () => clearTimeout(timer);
-  }, [categories, workoutPrograms]);
-  
-  // Preload all workout program images
-  const imagesToPreload = workoutPrograms.map(program => program.image);
-  const { loaded: imagesPreloaded } = useImagePreloader(imagesToPreload);
+  // No need to use useImagePreloader as all images are already preloaded during splash screen
+  const imagesPreloaded = true; // All images are already preloaded in SplashScreenManager
 
   // Function to render section headers - hide the first one
   const renderSectionHeader = ({ section }: { section: {title: string, data: WorkoutProgram[]} }) => {
@@ -575,76 +513,6 @@ export default function DiscoverScreen() {
       </View>
     );
   };
-
-  // Animate text change with spring and easing for smoother transitions
-  useEffect(() => {
-    if (nextSection && nextSection !== currentSection) {
-      // Slide out current text and fade it out with easing
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 200,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(slideAnim, {
-          toValue: -20,
-          duration: 200,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        })
-      ]).start(() => {
-        // Update current section
-        setCurrentSection(nextSection);
-        
-        // Reset slide position for new text
-        slideAnim.setValue(20);
-        
-        // Slide in new text with spring and fade in with easing
-        Animated.parallel([
-          Animated.timing(fadeAnim, {
-            toValue: 1,
-            duration: 200,
-            easing: Easing.out(Easing.quad),
-            useNativeDriver: true,
-          }),
-          Animated.spring(slideAnim, {
-            toValue: 0,
-            friction: 8,
-            useNativeDriver: true,
-          })
-        ]).start();
-      });
-    }
-  }, [nextSection, currentSection, fadeAnim, slideAnim]);
-
-  const renderFilterChips = () => {
-    return filterCategories.map(category => {
-      const isActive = selectedFilterCategory === category.id;
-      const count = category.options.length;
-      
-      return (
-        <Chip 
-          key={category.id}
-          style={[styles.chip, isActive && styles.activeChip]} 
-          textStyle={styles.chipText}
-          onPress={() => setSelectedFilterCategory(category.id)}
-        >
-          {category.name} ({count}) {isActive ? '▾' : ''}
-        </Chip>
-      );
-    });
-  };
-
-  // Add after the existing hooks
-  useEffect(() => {
-    if (DEBUG_NAVIGATION) {
-      console.log('📱 SCREEN: Discover screen mounted');
-      return () => {
-        console.log('📱 SCREEN: Discover screen unmounted');
-      };
-    }
-  }, []);
 
   if (isLoading) {
     return (
@@ -687,19 +555,45 @@ export default function DiscoverScreen() {
             contentContainerStyle={styles.filterScrollContent}
             style={styles.filterScroll}
           >
-            {renderFilterChips()}
+            {filterCategories.map(category => {
+              const isActive = activeFilters[category.id].includes(category.id);
+              const count = category.options.length;
+              
+              return (
+                <Chip 
+                  key={category.id}
+                  style={[styles.chip, isActive && styles.activeChip]} 
+                  textStyle={styles.chipText}
+                  onPress={() => {
+                    if (isActive) {
+                      setActiveFilters(prev => ({
+                        ...prev,
+                        [category.id]: prev[category.id].filter(id => id !== category.id)
+                      }));
+                    } else {
+                      setActiveFilters(prev => ({
+                        ...prev,
+                        [category.id]: [...prev[category.id], category.id]
+                      }));
+                    }
+                  }}
+                >
+                  {category.name} ({count}) {isActive ? '▾' : ''}
+                </Chip>
+              );
+            })}
           </ScrollView>
         </View>
       </View>
       
       {/* Floating category bar */}
-      <View style={[styles.categoryBar, { top: insets.top + HEADER_HEIGHT + filterHeaderH }]}>
+      <View style={[styles.categoryBar, { top: insets.top + HEADER_HEIGHT + FILTER_HEIGHT }]}>
         <Animated.Text 
           style={[
             styles.categoryText,
             { 
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }] 
+              opacity: currentSection ? 1 : 0,
+              transform: [{ translateY: currentSection ? 0 : -20 }] 
             }
           ]}
         >
@@ -710,7 +604,7 @@ export default function DiscoverScreen() {
       {/* 3) Scrollable list */}
       <AnimatedSectionList
         ref={sectionListRef}
-        style={{ flex: 1, marginTop: insets.top + HEADER_HEIGHT + filterHeaderH }}
+        style={{ flex: 1, marginTop: insets.top + HEADER_HEIGHT + FILTER_HEIGHT }}
         sections={sections}
         keyExtractor={(item: WorkoutProgram) => item.id}
         renderItem={({ item }: { item: WorkoutProgram }) => (
@@ -720,7 +614,10 @@ export default function DiscoverScreen() {
         )}
         renderSectionHeader={renderSectionHeader}
         stickySectionHeadersEnabled={false}
-        onScroll={handleScroll}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: false }
+        )}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{

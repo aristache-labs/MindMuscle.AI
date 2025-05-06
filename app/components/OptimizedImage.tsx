@@ -1,237 +1,309 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Image as ExpoImage } from 'expo-image';
-import { StyleSheet, ActivityIndicator, View, StyleProp, ViewStyle } from 'react-native';
-import { getCachedImageUri } from '../utils/cacheManager';
-import { preloadSingleImage, getFromMemoryCache } from '../utils/imagePreloader';
-import { Text } from 'react-native-paper';
-import { ImageStyle } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, ActivityIndicator, StyleSheet, StyleProp, ImageStyle, ViewStyle } from 'react-native';
+import { Image } from 'expo-image';
+import { getFromMemoryCache, storeInMemoryCache, isImportantImage, markAsImportantImage, isRemotePrefetched } from '../utils/imagePreloader';
+import { Asset } from 'expo-asset';
 
-// Debug flag - set to true to enable detailed image loading logs
-const DEBUG_IMAGE_LOADING = true;
+const DEBUG_OPTIMIZED_IMAGE = true;
 
+// Props for the OptimizedImage component
 interface OptimizedImageProps {
-  source: string | any;
+  source: { uri?: string } | number | string;
   style?: StyleProp<ImageStyle>;
-  containerStyle?: StyleProp<ViewStyle>;
-  imageStyle?: StyleProp<ImageStyle>;
-  placeholder?: React.ReactNode;
-  fadeDuration?: number;
+  fallbackSource?: { uri?: string } | number;
+  resizeMode?: 'cover' | 'contain' | 'stretch' | 'center';
   contentFit?: 'cover' | 'contain' | 'fill' | 'none';
-  enableCaching?: boolean;
-  priority?: 'high' | 'normal' | 'low';
-  fallback?: string | any;
-  onError?: () => void;
-  onLoad?: () => void;
-  testID?: string;
-  debugLabel?: string; // Add label for debugging
+  width?: number;
+  height?: number;
+  blurRadius?: number;
+  fadeDuration?: number;
+  backgroundColor?: string;
+  showLoadingIndicator?: boolean;
+  markImportant?: boolean;  // New prop to mark images as important
+  debugLabel?: string;      // Debug label for tracing image loading
+  loadingColor?: string;
+  loadingSize?: 'small' | 'large';
+  priority?: 'low' | 'normal' | 'high';
+  cachePolicy?: 'memory-disk' | 'memory' | 'disk' | 'none';
+  placeholderStyle?: StyleProp<ViewStyle>;
+  children?: React.ReactNode;
 }
 
-// Add a debug utility function to better extract URL information
-const getSourceForDebug = (source: any): string => {
-  if (!source) return 'null';
-  if (typeof source === 'string') return source;
-  if (typeof source === 'number') return `local-asset-${source}`;
-  if (source.uri) return source.uri;
-  return JSON.stringify(source).substring(0, 50);
+const extractUriFromSource = (source: any): string | null => {
+  if (!source) return null;
+  
+  if (typeof source === 'string') {
+    return source;
+  }
+  
+  if (typeof source === 'number') {
+    return `local-asset-${source}`;
+  }
+  
+  if (source && source.uri) {
+    return source.uri;
+  }
+  
+  return null;
 };
 
-export default function OptimizedImage({
+const OptimizedImage: React.FC<OptimizedImageProps> = ({
   source,
   style,
-  containerStyle,
-  imageStyle,
-  placeholder,
+  fallbackSource,
+  resizeMode = 'cover',
+  contentFit,
+  width,
+  height,
+  blurRadius,
   fadeDuration = 200,
-  contentFit = 'cover',
-  enableCaching = true,
-  priority = 'normal',
-  fallback,
-  onError,
-  onLoad,
-  testID,
+  backgroundColor = '#f0f0f0',
+  showLoadingIndicator = true,
+  markImportant = false,
   debugLabel = 'unlabeled',
-}: OptimizedImageProps) {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [imageSource, setImageSource] = useState<any>(null);
-  const didUnmountRef = useRef(false);
-  const isMountedRef = useRef(true);
+  loadingColor = '#999',
+  loadingSize = 'small',
+  priority = 'normal',
+  cachePolicy = 'memory-disk',
+  placeholderStyle,
+  children
+}) => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<Error | null>(null);
+  const [finalSource, setFinalSource] = useState<any>(null);
   
+  // Combined styles for the image container
+  const containerStyle: StyleProp<ViewStyle> = [
+    styles.container,
+    backgroundColor ? { backgroundColor } : undefined,
+    width ? { width } : undefined,
+    height ? { height } : undefined,
+    placeholderStyle,
+  ];
+  
+  // Combined styles for the image itself
+  const imageStyle: StyleProp<ImageStyle> = [
+    styles.image,
+    { resizeMode },
+    style,
+    width ? { width } : undefined,
+    height ? { height } : undefined,
+  ];
+  
+  // Prepare the image source
   useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
+    const prepareSource = async () => {
+      // Reset state
+      setIsLoading(true);
+      setLoadError(null);
+      
+      try {
+        // Handle different source types
+        if (typeof source === 'number') {
+          // Local bundled asset (numeric require)
+          if (DEBUG_OPTIMIZED_IMAGE) {
+            console.log(`📦 [${debugLabel}] Using local bundled asset (numeric): ${source}`);
+          }
+          
+          setFinalSource(source);
+          setIsLoading(false);
+          return;
+        }
+        
+        if (typeof source === 'string') {
+          // Direct URI string
+          setFinalSource({ uri: source });
+          setIsLoading(false);
+          return;
+        }
+        
+        if (source && source.uri) {
+          const uri = source.uri;
+          
+          // First check memory cache - this is fastest
+          const cachedImage = getFromMemoryCache(uri);
+          
+          if (cachedImage) {
+            if (DEBUG_OPTIMIZED_IMAGE) {
+              console.log(`✅ [${debugLabel}] CACHE HIT (memory): ${uri}`);
+            }
+            setFinalSource({ uri });
+            setIsLoading(false);
+            
+            // Still mark as important if needed
+            if (markImportant && !isImportantImage(uri)) {
+              markAsImportantImage(uri);
+            }
+            return;
+          }
+          
+          // If remote image is already prefetched, use it
+          if (isRemotePrefetched(uri)) {
+            if (DEBUG_OPTIMIZED_IMAGE) {
+              console.log(`✅ [${debugLabel}] Using prefetched remote image: ${uri}`);
+            }
+            setFinalSource({ uri });
+            setIsLoading(false);
+            
+            // Mark as important if needed
+            if (markImportant && !isImportantImage(uri)) {
+              markAsImportantImage(uri);
+            }
+            return;
+          }
+          
+          // For remote images, we'll load them normally and let expo-image handle caching
+          if (uri.startsWith('http')) {
+            if (DEBUG_OPTIMIZED_IMAGE) {
+              console.log(`🔄 [${debugLabel}] CACHE MISS, loading from network: ${uri}`);
+            }
+            
+            // Mark as important if needed
+            if (markImportant && !isImportantImage(uri)) {
+              markAsImportantImage(uri);
+            }
+            
+            setFinalSource({ uri });
+            setIsLoading(false);
+            return;
+          }
+          
+          // For local file URIs, just use directly
+          if (uri.startsWith('file') || uri.startsWith('content')) {
+            if (DEBUG_OPTIMIZED_IMAGE) {
+              console.log(`🔄 [${debugLabel}] CACHE MISS, loading from disk: ${uri}`);
+            }
+            
+            // Mark as important if needed
+            if (markImportant && !isImportantImage(uri)) {
+              markAsImportantImage(uri);
+            }
+            
+            setFinalSource({ uri });
+            setIsLoading(false);
+            return;
+          }
+        }
+        
+        // If we get here, use fallback if provided
+        if (fallbackSource) {
+          if (DEBUG_OPTIMIZED_IMAGE) {
+            console.log(`⚠️ [${debugLabel}] Using fallback source`);
+          }
+          setFinalSource(fallbackSource);
+          setIsLoading(false);
+          return;
+        }
+        
+        // If no valid source and no fallback, set error
+        throw new Error('Invalid image source');
+      } catch (error) {
+        if (DEBUG_OPTIMIZED_IMAGE) {
+          console.error(`❌ [${debugLabel}] Error loading image:`, error);
+        }
+        setLoadError(error as Error);
+        setIsLoading(false);
+      }
     };
-  }, []);
-  
-  useEffect(() => {
-    let isMounted = true;
-    setLoading(true);
-    setError(false);
-    const sourceDebugInfo = getSourceForDebug(source);
-    if (DEBUG_IMAGE_LOADING) {
-      console.log(`🖼️ [${debugLabel}] START loading image: ${sourceDebugInfo.substring(0, 50)}${sourceDebugInfo.length > 50 ? '...' : ''}`);
+    
+    // Track image loading in the log
+    if (DEBUG_OPTIMIZED_IMAGE) {
+      const uri = extractUriFromSource(source);
+      console.log(`🖼️ [${debugLabel}] START loading image: ${uri?.substring(0, 50)}${uri && uri.length > 50 ? '...' : ''}`);
     }
-    const loadImage = async () => {
-      if (!source) {
-        DEBUG_IMAGE_LOADING && console.log(`🚫 [${debugLabel}] No source provided`);
-        setError(true);
-        setLoading(false);
-        return;
-      }
-
-      // Special case: numeric local-bundle asset (result of require)
-      if (typeof source === 'number') {
-        DEBUG_IMAGE_LOADING && console.log(`📦 [${debugLabel}] Using local bundled asset (numeric): ${source}`);
-        // For require() results, use the numeric ID directly
-        setImageSource(source);
-        setLoading(false);
-        return;
-      }
-
-      // 1) extract a plain URL string, if any
-      let uri: string | null = null;
-      if (typeof source === 'string') {
-        uri = source;
-      } else if (typeof source === 'object' && source.uri && typeof source.uri === 'string') {
-        uri = source.uri;
-      }
-
-      // 2) numeric local-bundle (require) — just use it directly
-      if (typeof source === 'number' && !uri) {
-        DEBUG_IMAGE_LOADING && console.log(`📦 [${debugLabel}] Using local bundle asset`);
-        setImageSource(source);
-        setLoading(false);
-        return;
-      }
-
-      // 3) if we got a URL, try memory cache
-      if (enableCaching && uri) {
-        const mem = getFromMemoryCache(uri);
-        if (mem) {
-          DEBUG_IMAGE_LOADING && console.log(`✅ [${debugLabel}] CACHE HIT (memory): ${uri}`);
-          setImageSource(mem);
-          setLoading(false);
-          return;
-        }
-
-        // 4) miss → go to disk cache
-        try {
-          DEBUG_IMAGE_LOADING && console.log(`🔄 [${debugLabel}] CACHE MISS, loading from disk: ${uri}`);
-          const filePath = await getCachedImageUri(uri);
-          setImageSource({ uri: filePath });
-          setLoading(false);
-          // kick off a low-priority prefetch to keep REMOTE_PREFETCHED in sync
-          preloadSingleImage(uri).catch(() => {});
-          return;
-        } catch (e) {
-          console.warn(`Cache/disk error for ${uri}:`, e);
-        }
-      }
-
-      // 5) fallback: remote URL or data URI with no caching
-      if (uri) {
-        DEBUG_IMAGE_LOADING && console.log(`🔗 [${debugLabel}] Direct load (no cache): ${uri}`);
-        setImageSource({ uri });
-      } else {
-        // catch-all fallback for unknown shapes
-        DEBUG_IMAGE_LOADING && console.log(`🧩 [${debugLabel}] Unknown source shape, rendering as-is`);
-        setImageSource(source);
-      }
-      setLoading(false);
-    };
-    loadImage();
-    return () => {
-      isMounted = false;
-    };
-  }, [source, enableCaching, priority, fallback, debugLabel]);
+    
+    prepareSource();
+  }, [source, fallbackSource, debugLabel, markImportant]);
   
+  // Handle successful image load
   const handleLoad = () => {
-    if (DEBUG_IMAGE_LOADING) {
-      const sourceDebugInfo = getSourceForDebug(source);
-      console.log(`✅ [${debugLabel}] Image LOADED: ${sourceDebugInfo.substring(0, 50)}${sourceDebugInfo.length > 50 ? '...' : ''}`);
+    setIsLoading(false);
+    
+    // Track image loading success in the log
+    if (DEBUG_OPTIMIZED_IMAGE) {
+      const uri = extractUriFromSource(source);
+      console.log(`✅ [${debugLabel}] Image LOADED: ${uri?.substring(0, 50)}${uri && uri.length > 50 ? '...' : ''}`);
     }
     
-    if (isMountedRef.current) {
-      setLoading(false);
-      if (onLoad) onLoad();
+    // Cache the image data if not already cached
+    const uri = extractUriFromSource(source);
+    if (uri && !getFromMemoryCache(uri)) {
+      storeInMemoryCache(uri, true);
     }
   };
   
-  const handleError = () => {
-    if (DEBUG_IMAGE_LOADING) {
-      const sourceDebugInfo = getSourceForDebug(source);
-      console.log(`❌ [${debugLabel}] Image FAILED: ${sourceDebugInfo.substring(0, 50)}${sourceDebugInfo.length > 50 ? '...' : ''}`);
+  // Handle image load error
+  const handleError = (error: any) => {
+    setLoadError(error);
+    setIsLoading(false);
+    
+    // Track image loading error in the log
+    if (DEBUG_OPTIMIZED_IMAGE) {
+      const uri = extractUriFromSource(source);
+      console.log(`❌ [${debugLabel}] Image FAILED: ${uri?.substring(0, 50)}${uri && uri.length > 50 ? '...' : ''}`);
     }
     
-    if (isMountedRef.current) {
-      setError(true);
-      setLoading(false);
-      if (onError) onError();
+    // Try fallback if available
+    if (fallbackSource && fallbackSource !== finalSource) {
+      setFinalSource(fallbackSource);
     }
-  };
-  
-  const renderPlaceholder = () => {
-    if (placeholder) return placeholder;
-    
-    return (
-      <View style={[styles.placeholder, containerStyle]}>
-        <ActivityIndicator color="#6c47ff" size="small" />
-      </View>
-    );
-  };
-  
-  const renderError = () => {
-    return (
-      <View style={[styles.errorContainer, containerStyle]}>
-        <Text style={styles.errorText}>!</Text>
-      </View>
-    );
   };
   
   return (
-    <View style={[styles.container, containerStyle]}>
-      {loading && renderPlaceholder()}
-      
-      {imageSource && !error && (
-        <ExpoImage
-          source={imageSource}
-          style={[styles.image, style, imageStyle]}
-          contentFit={contentFit}
+    <View style={containerStyle}>
+      {finalSource && (
+        <Image
+          source={finalSource}
+          style={imageStyle}
+          contentFit={contentFit || resizeMode as any}
+          blurRadius={blurRadius}
           transition={fadeDuration}
           onLoad={handleLoad}
           onError={handleError}
-          testID={testID}
-          cachePolicy="memory-disk"
+          cachePolicy={cachePolicy}
+          priority={priority}
         />
       )}
       
-      {error && renderError()}
+      {(isLoading || !finalSource) && showLoadingIndicator && (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator color={loadingColor} size={loadingSize} />
+        </View>
+      )}
+      
+      {loadError && fallbackSource && !finalSource && (
+        <Image
+          source={fallbackSource}
+          style={imageStyle}
+          contentFit={contentFit || resizeMode as any}
+          transition={fadeDuration}
+        />
+      )}
+      
+      {children}
     </View>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
     overflow: 'hidden',
-    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   image: {
     width: '100%',
     height: '100%',
   },
-  placeholder: {
+  loadingContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.05)',
-  },
-  errorContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.05)',
-  },
-  errorText: {
-    fontSize: 18,
-    color: 'red',
-  },
-}); 
+  }
+});
+
+export default React.memo(OptimizedImage); 

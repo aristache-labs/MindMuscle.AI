@@ -2,6 +2,8 @@ import { Asset } from 'expo-asset';
 import { ImageSourcePropType } from 'react-native';
 import { Image } from 'expo-image';
 import supabase from '../services/supabase';
+import { Image as ReactNativeImage } from 'react-native';
+import * as FileSystem from 'expo-file-system';
 
 // Debug configuration
 const DEBUG_IMAGE_PRELOADER = true;
@@ -21,6 +23,19 @@ let memCacheStores = 0;
 
 // Track important images that should always be kept in memory
 const IMPORTANT_IMAGE_URLS = new Set<string>();
+
+// A set to keep track of which images are currently being preloaded
+const preloadingImages = new Set<string>();
+
+// A map of important image URIs that should always stay in memory
+const importantImages = new Map<string, boolean>();
+
+// A cache for image dimensions to avoid re-requesting
+const imageDimensionsCache = new Map<string, { width: number; height: number }>();
+
+// Batch loading settings
+const DEFAULT_BATCH_SIZE = 10;
+const DEFAULT_BATCH_DELAY = 100; // ms
 
 export const STATIC_IMAGES = {
   measurements: {
@@ -393,6 +408,117 @@ export function markAsRemotePrefetched(url: string): void {
   REMOTE_PREFETCHED[url] = true;
 }
 
+/**
+ * Preloads images by batches to avoid overwhelming the device
+ * @param imageUrls Array of image URLs to preload
+ * @param batchSize Number of images to load in parallel (default: 10)
+ * @param onProgress Optional callback to track progress
+ * @returns Promise that resolves when all images are preloaded
+ */
+export const batchPreloadImages = async (
+  imageUrls: string[],
+  batchSize = DEFAULT_BATCH_SIZE,
+  onProgress?: (progress: number) => void
+): Promise<void> => {
+  if (!imageUrls || imageUrls.length === 0) return;
+
+  const validUrls = imageUrls.filter(url => typeof url === 'string' && url.length > 0);
+  const totalImages = validUrls.length;
+  let loadedImages = 0;
+
+  // Process images in batches
+  for (let i = 0; i < totalImages; i += batchSize) {
+    const batch = validUrls.slice(i, i + batchSize);
+    
+    // Process this batch in parallel
+    await Promise.all(
+      batch.map(async (url) => {
+        await preloadAndCacheImage(url);
+        loadedImages++;
+        
+        if (onProgress) {
+          onProgress(loadedImages / totalImages);
+        }
+      })
+    );
+    
+    // Small delay between batches to avoid UI jank
+    if (i + batchSize < totalImages) {
+      await new Promise(resolve => setTimeout(resolve, DEFAULT_BATCH_DELAY));
+    }
+  }
+};
+
+/**
+ * Preloads a single image and caches its dimensions
+ * @param imageUrl URL of the image to preload
+ * @returns Promise that resolves when the image is loaded
+ */
+export const preloadAndCacheImage = async (imageUrl: string): Promise<void> => {
+  if (!imageUrl || typeof imageUrl !== 'string' || preloadingImages.has(imageUrl)) {
+    return;
+  }
+  
+  try {
+    preloadingImages.add(imageUrl);
+
+    // Determine if this is a URL, file URI, or asset
+    if (imageUrl.startsWith('http') || imageUrl.startsWith('https')) {
+      // Remote image - prefetch and store dimensions
+      await Image.prefetch(imageUrl);
+      
+      // Get image dimensions if not already cached
+      if (!imageDimensionsCache.has(imageUrl)) {
+        await getImageDimensions(imageUrl);
+      }
+    } else if (imageUrl.startsWith('file') || imageUrl.startsWith('content')) {
+      // Local file URI - just check if exists and get size if possible
+      try {
+        const fileInfo = await FileSystem.getInfoAsync(imageUrl);
+        if (fileInfo.exists) {
+          // File exists, try to get dimensions
+          await getImageDimensions(imageUrl);
+        }
+      } catch (e) {
+        console.warn('Error accessing local image file:', e);
+      }
+    } else {
+      // Assume it's a local bundled asset - nothing to prefetch
+    }
+  } catch (error) {
+    console.warn('Error preloading image:', imageUrl, error);
+  } finally {
+    preloadingImages.delete(imageUrl);
+  }
+};
+
+/**
+ * Get image dimensions and cache them
+ * @param imageUrl URL of the image
+ * @returns Promise with image dimensions
+ */
+export const getImageDimensions = (imageUrl: string): Promise<{ width: number; height: number }> => {
+  return new Promise((resolve, reject) => {
+    if (imageDimensionsCache.has(imageUrl)) {
+      resolve(imageDimensionsCache.get(imageUrl)!);
+      return;
+    }
+
+    ReactNativeImage.getSize(
+      imageUrl,
+      (width, height) => {
+        const dimensions = { width, height };
+        imageDimensionsCache.set(imageUrl, dimensions);
+        resolve(dimensions);
+      },
+      (error) => {
+        console.warn('Error getting image dimensions:', error);
+        resolve({ width: 0, height: 0 });
+      }
+    );
+  });
+};
+
 // Create an ImagePreloader object to export as default
 const ImagePreloader = {
   STATIC_IMAGES,
@@ -405,7 +531,10 @@ const ImagePreloader = {
   markAsImportantImage,
   isImportantImage,
   isRemotePrefetched,
-  markAsRemotePrefetched
+  markAsRemotePrefetched,
+  batchPreloadImages,
+  preloadAndCacheImage,
+  getImageDimensions
 };
 
 console.log('🧩 imagePreloader loaded');

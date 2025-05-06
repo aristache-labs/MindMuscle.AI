@@ -20,7 +20,6 @@ import MeasurementModal from '../components/MeasurementModal';
 import MeasurementsGraph from '../components/MeasurementsGraph';
 import HowToMeasureModal from '../components/HowToMeasureModal';
 import OptimizedImage from '../components/OptimizedImage';
-import { useImagePreloader } from '../hooks/useImagePreloader';
 import ExerciseGraphs, { ExerciseData } from '../components/ExerciseGraphs';
 import ExerciseGraphModal from '../components/ExerciseGraphModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -286,13 +285,8 @@ export default function InsightsScreen() {
     }
   };
 
-  // Preload images when they're available
-  const imagesToPreload = [
-    beforePhoto?.photo_url,
-    afterPhoto?.photo_url
-  ].filter(Boolean) as string[];
-  
-  const { loaded: imagesPreloaded } = useImagePreloader(imagesToPreload);
+  // No need to use useImagePreloader as all images are already preloaded during splash screen
+  const imagesPreloaded = true; // All images are already preloaded
 
   const handleAddExercise = () => {
     setSelectedExercise(undefined);

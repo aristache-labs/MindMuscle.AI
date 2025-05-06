@@ -4,7 +4,19 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import * as Network from 'expo-network';
 import { Platform } from 'react-native';
-import { storeInMemoryCache, getFromMemoryCache, markAsRemotePrefetched, isRemotePrefetched } from './imagePreloader';
+import { 
+  storeInMemoryCache as imageStoreInMemoryCache, 
+  getFromMemoryCache as imageGetFromMemoryCache, 
+  markAsRemotePrefetched, 
+  isRemotePrefetched, 
+  markAsImportantImage,
+  isImportantImage, 
+  preloadAllImages,
+  preloadAndCacheImage as imageCachePreloadAndCacheImage,
+  batchPreloadImages as imageCacheBatchPreloadImages
+} from './imagePreloader';
+import supabase from '../services/supabase';
+import { manipulateAsync } from 'expo-image-manipulator';
 
 // Constants
 const CACHE_FOLDER = `${FileSystem.cacheDirectory}app-cache/`;
@@ -12,452 +24,570 @@ const IMAGE_CACHE_FOLDER = `${CACHE_FOLDER}images/`;
 const DATA_CACHE_FOLDER = `${CACHE_FOLDER}data/`;
 const CACHE_EXPIRY = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
 
-// Cache metadata for tracking expiration and validation
-interface CacheMetadata {
-  url: string;
-  cachedAt: number;
-  expires: number;
-  etag?: string;
-  contentType?: string;
-  size?: number;
-}
+// Cache configuration
+const MEMORY_CACHE_SIZE_MB = 50; // Increase size of memory cache
+const DISK_CACHE_SIZE_MB = 200;  // Increase size of disk cache
+const CACHE_VERSION = '1.0.0';   // Bump cache version when data structure changes
 
-interface LoadingStatus {
-  loaded: number;
-  total: number;
-}
+// Remove the external CacheManager dependency
+// and just use our own implementation
+const initCacheDirectories = async (): Promise<void> => {
+  try {
+    // Create cache directories if they don't exist
+    await FileSystem.makeDirectoryAsync(CACHE_FOLDER, { intermediates: true });
+    await FileSystem.makeDirectoryAsync(IMAGE_CACHE_FOLDER, { intermediates: true });
+    await FileSystem.makeDirectoryAsync(DATA_CACHE_FOLDER, { intermediates: true });
+  } catch (error) {
+    console.warn('Failed to create cache directories:', error);
+  }
+};
 
-/**
- * Cache manager for both image and data caching
- */
-class CacheManager {
-  private initialized = false;
-  private metadataCache: Record<string, CacheMetadata> = {};
+// Initialize cache directories
+initCacheDirectories().catch(console.error);
+
+// Cache storage keys
+const CACHE_KEYS = {
+  exercises: 'exercises_cache',
+  exercisesByGroup: 'exercises_by_group_cache',
+  workoutPlans: 'workout_plans_cache',
+  userSettings: 'user_settings_cache',
+  allExercises: 'all_exercises_cache',
+};
+
+// In-memory cache for faster access
+const memoryCache = new Map<string, any>();
+const memoryCacheTimestamps = new Map<string, number>();
+
+// Memory cache tracking
+const memoryCacheStats = {
+  hits: 0,
+  misses: 0,
+  stores: 0,
+  size: 0
+};
+
+// Configuration
+const CACHE_TTL = {
+  SHORT: 10 * 60 * 1000,         // 10 minutes
+  MEDIUM: 60 * 60 * 1000,        // 1 hour
+  LONG: 24 * 60 * 60 * 1000,     // 1 day
+  PERMANENT: 30 * 24 * 60 * 60 * 1000  // 30 days
+};
+
+// Prioritized cache keys that should be kept longer in memory
+const PRIORITY_CACHE_KEYS = [
+  'all_exercises',
+  'exercises_Chest',
+  'exercises_Biceps',
+  'exercises_Triceps',
+  'exercises_Shoulders',
+  'exercises_Abs',
+  'exercises_Legs',
+  'exercises_Back',
+  'featured_workout_plans',
+  'all_workout_plans'
+];
+
+// Cache helpers
+const getMemoryCacheKey = (key: string): string => {
+  return `${CACHE_VERSION}:${key}`;
+};
+
+const getDiskCacheKey = (key: string): string => {
+  return `${CACHE_VERSION}:${key}`;
+};
+
+// Cache stats tracking
+const logCacheStats = () => {
+  console.log(`📊 CACHE STATS: ${memoryCache.size} items (${memoryCacheStats.hits} hits, ${memoryCacheStats.misses} misses, ${memoryCacheStats.stores} stores)`);
+};
+
+// Get data from memory cache
+const getFromMemoryCache = <T>(key: string): T | null => {
+  const cacheKey = getMemoryCacheKey(key);
+  const value = memoryCache.get(cacheKey);
   
-  /**
-   * Initialize the cache system
-   */
-  public async initialize(): Promise<void> {
-    if (this.initialized) return;
-    
-    try {
-      // Create cache directories if they don't exist
-      await this.ensureDirectoryExists(CACHE_FOLDER);
-      await this.ensureDirectoryExists(IMAGE_CACHE_FOLDER);
-      await this.ensureDirectoryExists(DATA_CACHE_FOLDER);
-      
-      // Load cache metadata from storage
-      await this.loadMetadata();
-      
-      // Clean expired cache entries
-      await this.cleanExpiredCache();
-      
-      this.initialized = true;
-      console.log('🚀 Cache system initialized successfully');
-    } catch (error) {
-      console.error('Failed to initialize cache system:', error);
-      // Still mark as initialized to prevent multiple initialization attempts
-      this.initialized = true;
-    }
+  if (value !== undefined) {
+    // Update timestamp to mark as recently used
+    memoryCacheTimestamps.set(cacheKey, Date.now());
+    memoryCacheStats.hits++;
+    return value as T;
   }
   
-  /**
-   * Ensure that a directory exists
-   */
-  private async ensureDirectoryExists(dirPath: string): Promise<void> {
-    const dirInfo = await FileSystem.getInfoAsync(dirPath);
-    if (!dirInfo.exists) {
-      await FileSystem.makeDirectoryAsync(dirPath, { intermediates: true });
-    }
+  memoryCacheStats.misses++;
+  return null;
+};
+
+// Store data in memory cache
+const storeInMemoryCache = (key: string, data: any): void => {
+  const cacheKey = getMemoryCacheKey(key);
+  memoryCache.set(cacheKey, data);
+  memoryCacheTimestamps.set(cacheKey, Date.now());
+  memoryCacheStats.stores++;
+  memoryCacheStats.size = memoryCache.size;
+  
+  // Log memory cache update
+  if (key.startsWith('http')) {
+    console.log(`➕ CACHE STORE: ${key.substring(0, 50)}...`);
+  } else {
+    console.log(`➕ CACHE STORE: ${key}`);
   }
   
-  /**
-   * Load cache metadata from persistent storage
-   */
-  private async loadMetadata(): Promise<void> {
-    try {
-      const metadataJson = await AsyncStorage.getItem('cache_metadata');
-      if (metadataJson) {
-        this.metadataCache = JSON.parse(metadataJson);
-        console.log(`📋 Loaded metadata for ${Object.keys(this.metadataCache).length} cached items`);
-      }
-    } catch (error) {
-      console.warn('Failed to load cache metadata:', error);
-      // Reset metadata cache on error
-      this.metadataCache = {};
-    }
-  }
+  // Clean up cache if it gets too large
+  cleanupMemoryCache();
   
-  /**
-   * Save cache metadata to persistent storage
-   */
-  private async saveMetadata(): Promise<void> {
-    try {
-      await AsyncStorage.setItem('cache_metadata', JSON.stringify(this.metadataCache));
-    } catch (error) {
-      console.warn('Failed to save cache metadata:', error);
-    }
+  // Log stats occasionally
+  if (memoryCacheStats.stores % 5 === 0) {
+    logCacheStats();
   }
+};
+
+// Clean up memory cache to prevent excessive memory usage
+const cleanupMemoryCache = (): void => {
+  // If cache is smaller than threshold, don't clean up
+  if (memoryCache.size < 100) return;
   
-  /**
-   * Clean expired cache entries
-   */
-  private async cleanExpiredCache(): Promise<void> {
-    const now = Date.now();
-    const expiredKeys: string[] = [];
+  // Get all cache entries sorted by last access time (oldest first)
+  const entries = Array.from(memoryCacheTimestamps.entries())
+    .sort((a, b) => a[1] - b[1]);
+  
+  // Keep priority items and most recently used items
+  const itemsToRemove = Math.floor(entries.length * 0.2); // Remove oldest 20%
+  
+  if (itemsToRemove <= 0) return;
+  
+  for (let i = 0; i < itemsToRemove; i++) {
+    const [key, _] = entries[i];
     
-    // Find expired entries
-    for (const [key, metadata] of Object.entries(this.metadataCache)) {
-      if (metadata.expires < now) {
-        expiredKeys.push(key);
-      }
+    // Don't remove priority items
+    const baseKey = key.split(':')[1];
+    if (PRIORITY_CACHE_KEYS.some(pk => baseKey.includes(pk))) {
+      continue;
     }
     
-    if (expiredKeys.length === 0) return;
-    
-    console.log(`🧹 Cleaning ${expiredKeys.length} expired cache entries`);
-    
-    // Delete expired files and metadata
-    await Promise.all(expiredKeys.map(async (key) => {
-      try {
-        const metadata = this.metadataCache[key];
-        const filePath = this.getFilePath(metadata.url);
-        await FileSystem.deleteAsync(filePath, { idempotent: true });
-        delete this.metadataCache[key];
-      } catch (error) {
-        console.warn(`Failed to delete expired cache for: ${key}`, error);
-      }
-    }));
-    
-    // Save updated metadata
-    await this.saveMetadata();
+    // Otherwise remove this item
+    memoryCache.delete(key);
+    memoryCacheTimestamps.delete(key);
   }
   
-  /**
-   * Generate a hash for a URL to use as cache key
-   */
-  private async generateCacheKey(url: string): Promise<string> {
-    const hash = await Crypto.digestStringAsync(
-      Crypto.CryptoDigestAlgorithm.SHA256,
-      url
+  memoryCacheStats.size = memoryCache.size;
+};
+
+// Cache API
+export const cacheData = async (key: string, data: any, ttl = CACHE_TTL.MEDIUM): Promise<void> => {
+  try {
+    // Store in memory for faster access
+    storeInMemoryCache(key, data);
+    
+    // Also persist to disk
+    const cacheItem = {
+      data,
+      timestamp: Date.now(),
+      ttl
+    };
+    
+    await AsyncStorage.setItem(
+      getDiskCacheKey(key), 
+      JSON.stringify(cacheItem)
     );
-    return hash.slice(0, 16); // Use first 16 chars of hash
+  } catch (error) {
+    console.error(`Error caching data for key ${key}:`, error);
   }
-  
-  /**
-   * Get the file path for a URL
-   */
-  private getFilePath(url: string, isImage = true): string {
-    const key = url.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-    const folder = isImage ? IMAGE_CACHE_FOLDER : DATA_CACHE_FOLDER;
-    return `${folder}${key}`;
-  }
-  
-  /**
-   * Cache an image from a URL
-   */
-  public async cacheImage(url: string, options: { force?: boolean; ttl?: number } = {}): Promise<string> {
-    if (!this.initialized) await this.initialize();
-    
-    if (!url.startsWith('http')) {
-      return url; // Return as is if not a remote URL
+};
+
+export const getCachedData = async <T>(key: string, fallbackFn?: () => Promise<T>): Promise<T | null> => {
+  try {
+    // First try memory cache
+    const memoryData = getFromMemoryCache<T>(key);
+    if (memoryData !== null) {
+      // Log that we're using cached data
+      console.log(`Using cached data for ${key}`);
+      return memoryData;
     }
     
+    // Then try disk cache
+    const cachedItemJson = await AsyncStorage.getItem(getDiskCacheKey(key));
+    
+    if (cachedItemJson) {
+      const cachedItem = JSON.parse(cachedItemJson);
+      const now = Date.now();
+      
+      // Check if cache is still valid
+      if (now - cachedItem.timestamp < cachedItem.ttl) {
+        // Cache hit, store in memory for future use
+        storeInMemoryCache(key, cachedItem.data);
+        console.log(`Using disk-cached data for ${key}`);
+        return cachedItem.data as T;
+      }
+    }
+    
+    // Cache miss or expired, use fallback if provided
+    if (fallbackFn) {
+      const data = await fallbackFn();
+      if (data) {
+        await cacheData(key, data);
+      }
+      return data;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error(`Error retrieving cached data for key ${key}:`, error);
+    
+    // If there's an error and we have a fallback, use it
+    if (fallbackFn) {
+      try {
+        const data = await fallbackFn();
+        if (data) {
+          await cacheData(key, data);
+        }
+        return data;
+      } catch (fallbackError) {
+        console.error(`Fallback error for key ${key}:`, fallbackError);
+      }
+    }
+    
+    return null;
+  }
+};
+
+export const removeCachedData = async (key: string): Promise<void> => {
+  try {
+    // Remove from memory cache
+    const cacheKey = getMemoryCacheKey(key);
+    memoryCache.delete(cacheKey);
+    memoryCacheTimestamps.delete(cacheKey);
+    
+    // Remove from disk cache
+    await AsyncStorage.removeItem(getDiskCacheKey(key));
+  } catch (error) {
+    console.error(`Error removing cached data for key ${key}:`, error);
+  }
+};
+
+export const clearAllCachedData = async (): Promise<void> => {
+  try {
+    // Clear memory cache
+    memoryCache.clear();
+    memoryCacheTimestamps.clear();
+    
+    // Clear disk cache
+    const keys = await AsyncStorage.getAllKeys();
+    const cacheKeys = keys.filter(key => key.startsWith(CACHE_VERSION));
+    if (cacheKeys.length > 0) {
+      await AsyncStorage.multiRemove(cacheKeys);
+    }
+    
+    // Don't use CacheManager from external library
+    // Just clear files from our cache directory
     try {
-      const cacheKey = await this.generateCacheKey(url);
-      const filePath = this.getFilePath(url, true);
-      const fileInfo = await FileSystem.getInfoAsync(filePath);
+      await FileSystem.deleteAsync(CACHE_FOLDER, { idempotent: true });
+      await FileSystem.makeDirectoryAsync(CACHE_FOLDER, { intermediates: true });
+      await FileSystem.makeDirectoryAsync(IMAGE_CACHE_FOLDER, { intermediates: true });
+      await FileSystem.makeDirectoryAsync(DATA_CACHE_FOLDER, { intermediates: true });
+    } catch (e) {
+      console.log('Error clearing cache directories:', e);
+    }
+    
+    console.log('All cache cleared successfully');
+  } catch (error) {
+    console.error('Error clearing all cached data:', error);
+  }
+};
+
+export const preloadExercisesByMuscleGroup = async (muscleGroup: string): Promise<void> => {
+  const cacheKey = `exercises_${muscleGroup}`;
+  
+  // Check if already cached
+  const cached = getFromMemoryCache(cacheKey);
+  if (cached) {
+    console.log(`Already cached exercises for ${muscleGroup}`);
+    return;
+  }
+  
+  // Try to get all exercises first if they're cached
+  const allExercises = getFromMemoryCache('all_exercises') as any[] | null;
+  
+  if (allExercises && Array.isArray(allExercises)) {
+    // Filter by muscle group
+    const exercises = allExercises.filter(ex => ex.muscle_group === muscleGroup);
+    
+    if (exercises && exercises.length > 0) {
+      // Cache this filtered set
+      await cacheData(cacheKey, exercises);
       
-      // Check if cache exists and is valid
-      if (!options.force && fileInfo.exists && this.metadataCache[cacheKey]) {
-        // Also store in memory cache for faster access during navigation
-        storeInMemoryCache(url, { uri: filePath });
-        return filePath;
+      // Also prefetch images for these exercises
+      const imageUrls = exercises
+        .filter(ex => ex.image_url)
+        .map(ex => ex.image_url);
+      
+      if (imageUrls.length > 0) {
+        batchPreloadImages(imageUrls).catch(err => {
+          console.log(`Error prefetching ${muscleGroup} exercise images:`, err);
+        });
       }
       
-      // Ensure network connectivity before attempting download
-      const networkState = await Network.getNetworkStateAsync();
-      if (!networkState.isConnected || !networkState.isInternetReachable) {
-        throw new Error('No internet connection available');
-      }
-      
-      // Download and cache the image
-      const downloadResult = await FileSystem.downloadAsync(url, filePath);
-      
-      // Store metadata
-      this.metadataCache[cacheKey] = {
-        url,
-        cachedAt: Date.now(),
-        expires: Date.now() + (options.ttl || CACHE_EXPIRY),
-        contentType: downloadResult.headers['Content-Type'],
-        size: parseInt(downloadResult.headers['Content-Length'] || '0', 10)
-      };
-      
-      await this.saveMetadata();
-      
-      // Also store in memory cache for faster access during navigation
-      storeInMemoryCache(url, { uri: filePath });
-      
-      return filePath;
-    } catch (error) {
-      console.warn(`Failed to cache image: ${url}`, error);
-      return url; // Return original URL on error
+      return;
     }
   }
   
-  /**
-   * Cache data from API response
-   */
-  public async cacheData<T>(key: string, data: T, ttl: number = CACHE_EXPIRY): Promise<void> {
-    if (!this.initialized) await this.initialize();
+  // Otherwise fallback to specific queries
+  try {
+    const { data } = await getCachedData(cacheKey, async () => {
+      const response = await fetch(`/api/exercises?muscle_group=${muscleGroup}`);
+      if (!response.ok) throw new Error('Failed to fetch exercises');
+      return response.json();
+    });
     
-    try {
-      const cacheKey = await this.generateCacheKey(key);
-      const filePath = this.getFilePath(key, false);
-      
-      // Write data to file
-      await FileSystem.writeAsStringAsync(filePath, JSON.stringify(data));
-      
-      // Store metadata
-      this.metadataCache[cacheKey] = {
-        url: key,
-        cachedAt: Date.now(),
-        expires: Date.now() + ttl
-      };
-      
-      await this.saveMetadata();
-    } catch (error) {
-      console.warn(`Failed to cache data for key: ${key}`, error);
+    if (data) {
+      console.log(`Preloaded ${data.length} exercises for ${muscleGroup}`);
     }
+  } catch (error) {
+    console.error(`Error preloading exercises for ${muscleGroup}:`, error);
   }
+};
+
+export const preloadImages = async (
+  urls: string[], 
+  progressCallback?: (progress: number) => void
+): Promise<void> => {
+  if (!urls || urls.length === 0) return;
   
-  /**
-   * Get cached data
-   */
-  public async getCachedData<T>(key: string): Promise<T | null> {
-    if (!this.initialized) await this.initialize();
-    
-    try {
-      const cacheKey = await this.generateCacheKey(key);
-      const filePath = this.getFilePath(key, false);
-      const fileInfo = await FileSystem.getInfoAsync(filePath);
-      
-      // Check if cache exists and is valid
-      if (!fileInfo.exists || !this.metadataCache[cacheKey]) {
-        return null;
-      }
-      
-      // Check if cache has expired
-      const metadata = this.metadataCache[cacheKey];
-      if (metadata.expires < Date.now()) {
-        // Delete expired cache
-        await FileSystem.deleteAsync(filePath, { idempotent: true });
-        delete this.metadataCache[cacheKey];
-        await this.saveMetadata();
-        return null;
-      }
-      
-      // Read and parse cached data
-      const jsonData = await FileSystem.readAsStringAsync(filePath);
-      return JSON.parse(jsonData) as T;
-    } catch (error) {
-      console.warn(`Failed to get cached data for key: ${key}`, error);
-      return null;
-    }
-  }
-  
-  /**
-   * Check if data is cached and valid
-   */
-  public async isDataCached(key: string): Promise<boolean> {
-    if (!this.initialized) await this.initialize();
-    
-    try {
-      const cacheKey = await this.generateCacheKey(key);
-      const filePath = this.getFilePath(key, false);
-      const fileInfo = await FileSystem.getInfoAsync(filePath);
-      
-      // Check if cache exists and is valid
-      if (!fileInfo.exists || !this.metadataCache[cacheKey]) {
+  try {
+    // Check which URLs are already cached
+    const toLoad = urls.filter(url => {
+      const fromCache = getFromMemoryCache<boolean>(`img_${url}`);
+      if (fromCache) {
+        console.log(`✅ PRELOAD SKIP: Already cached ${url.substring(0, 50)}...`);
         return false;
       }
       
-      // Check if cache has expired
-      return this.metadataCache[cacheKey].expires >= Date.now();
-    } catch (error) {
-      return false;
+      // Check if it's a remote or local URL
+      const isRemote = url.startsWith('http') || url.startsWith('https');
+      console.log(`✅ PRELOAD CHECK: ${url.substring(0, 50)}... [Remote:${isRemote}]`);
+      return true;
+    });
+    
+    if (toLoad.length > 0) {
+      // Use our batched preloader
+      await batchPreloadImages(toLoad, 10, progressCallback);
+      
+      // Mark as cached
+      toLoad.forEach(url => {
+        storeInMemoryCache(`img_${url}`, true);
+      });
     }
+  } catch (error) {
+    console.error('Error preloading images:', error);
   }
-  
-  /**
-   * Preload and cache a batch of images
-   */
-  public async preloadImages(urls: string[], progressCallback?: (progress: number) => void): Promise<void> {
-    if (!this.initialized) await this.initialize();
-    
-    if (!urls || urls.length === 0) return;
-    
-    let completed = 0;
-    const total = urls.length;
-    
-    try {
-      // Process images in batches of 5 to not overwhelm network
-      const batchSize = 5;
-      for (let i = 0; i < urls.length; i += batchSize) {
-        const batch = urls.slice(i, i + batchSize);
-        
-        await Promise.all(
-          batch.map(async (url) => {
-            try {
-              await this.cacheImage(url);
-            } catch (err) {
-              // Log but continue with other images
-              console.warn(`Failed to preload image: ${url}`, err);
-            } finally {
-              completed++;
-              if (progressCallback) {
-                progressCallback(completed / total);
-              }
-            }
-          })
-        );
-      }
-    } catch (error) {
-      console.error('Error during image preloading:', error);
-    }
-  }
-  
-  /**
-   * Preload and cache static bundled assets
-   */
-  public async preloadAssets(assets: number[], progressCallback?: (progress: number) => void): Promise<void> {
-    if (!assets || assets.length === 0) return;
-    
-    try {
-      // Use the correct API for Asset.loadAsync
-      await Asset.loadAsync(assets);
-      
-      // Manually track progress if callback is provided
-      if (progressCallback) {
-        progressCallback(1.0); // Signal completion
-      }
-    } catch (error) {
-      console.error('Error preloading assets:', error);
-    }
-  }
-  
-  /**
-   * Clear all cached data
-   */
-  public async clearAllCache(): Promise<void> {
-    if (!this.initialized) await this.initialize();
-    
-    try {
-      // Delete cache directories
-      await FileSystem.deleteAsync(CACHE_FOLDER, { idempotent: true });
-      
-      // Recreate them
-      await this.ensureDirectoryExists(CACHE_FOLDER);
-      await this.ensureDirectoryExists(IMAGE_CACHE_FOLDER);
-      await this.ensureDirectoryExists(DATA_CACHE_FOLDER);
-      
-      // Clear metadata
-      this.metadataCache = {};
-      await this.saveMetadata();
-      
-      console.log('🧹 All cache cleared successfully');
-    } catch (error) {
-      console.error('Failed to clear cache:', error);
-    }
-  }
-  
-  /**
-   * Get cache statistics
-   */
-  public async getCacheStats(): Promise<{
-    imageCount: number;
-    dataCount: number;
-    totalSize: number;
-    oldestEntry: Date;
-    newestEntry: Date;
-  }> {
-    if (!this.initialized) await this.initialize();
-    
-    let imageCount = 0;
-    let dataCount = 0;
-    let totalSize = 0;
-    let oldestTimestamp = Date.now();
-    let newestTimestamp = 0;
-    
-    for (const metadata of Object.values(this.metadataCache)) {
-      const isImage = metadata.url.match(/\.(jpg|jpeg|png|gif|webp|bmp)/i);
-      
-      if (isImage) {
-        imageCount++;
-      } else {
-        dataCount++;
-      }
-      
-      if (metadata.size) {
-        totalSize += metadata.size;
-      }
-      
-      if (metadata.cachedAt < oldestTimestamp) {
-        oldestTimestamp = metadata.cachedAt;
-      }
-      
-      if (metadata.cachedAt > newestTimestamp) {
-        newestTimestamp = metadata.cachedAt;
-      }
-    }
-    
-    return {
-      imageCount,
-      dataCount,
-      totalSize,
-      oldestEntry: new Date(oldestTimestamp),
-      newestEntry: new Date(newestTimestamp)
-    };
-  }
-}
+};
 
-// Export singleton instance
-export const cacheManager = new CacheManager();
+// New method to mark an image as important so it stays in memory
+export const markImageAsImportant = (imageUrl: string, debugLabel?: string): void => {
+  if (!imageUrl) return;
+  
+  markAsImportantImage(imageUrl);
+  
+  // Also make sure it's in our cacheManager
+  storeInMemoryCache(`img_${imageUrl}`, true);
+};
 
-// Helper functions
-export async function preloadAndCacheImage(url: string): Promise<string> {
-  return cacheManager.cacheImage(url);
-}
-
-export async function preloadAndCacheImages(urls: string[], onProgress?: (progress: number) => void): Promise<void> {
-  return cacheManager.preloadImages(urls, onProgress);
-}
+// Helper to check if image is marked as important
+export const isImageImportant = (imageUrl: string): boolean => {
+  return isImportantImage(imageUrl);
+};
 
 /**
- * Get a cached image URI, downloading if needed
+ * Preloads a single image and caches it
+ * @param imageUrl URL of the image to preload
+ * @returns Promise that resolves when the image is loaded
  */
-export async function getCachedImageUri(url: string): Promise<string> {
-  // Return early for non-HTTP URLs and null/undefined values
-  if (!url || (typeof url === 'string' && !url.startsWith('http'))) {
-    return url;
-  }
+export const preloadAndCacheImage = async (imageUrl: string): Promise<void> => {
+  if (!imageUrl) return;
+  
   try {
-    // Use the cache manager to get or download the image
-    const cachedUri = await cacheManager.cacheImage(url);
-    // If we successfully cached to disk, also mark as remotely prefetched
-    // to avoid unnecessary prefetch operations
-    if (!isRemotePrefetched(url)) {
-      markAsRemotePrefetched(url);
-    }
-    return cachedUri;
+    // Check if it's already loaded
+    const fromCache = getFromMemoryCache<boolean>(`img_${imageUrl}`);
+    if (fromCache) return;
+    
+    // Use the imported function from imagePreloader
+    await imageCachePreloadAndCacheImage(imageUrl);
+    
+    // Mark as cached
+    storeInMemoryCache(`img_${imageUrl}`, true);
+    
+    console.log(`✅ PRELOAD SUCCESS: ${imageUrl.substring(0, 50)}...`);
   } catch (error) {
-    console.error(`Failed to get cached image: ${url}`, error);
-    return url; // Fallback to original URL
+    console.warn('Error preloading single image:', error);
   }
-}
+};
 
-export async function clearImageCache(): Promise<void> {
-  return cacheManager.clearAllCache();
-}
+/**
+ * Batch preload images efficiently
+ */
+export const batchPreloadImages = async (
+  urls: string[],
+  batchSize = 10,
+  progressCallback?: (progress: number) => void
+): Promise<void> => {
+  if (!urls || urls.length === 0) return;
+  
+  try {
+    // Use the imported function
+    await imageCacheBatchPreloadImages(urls, batchSize, progressCallback);
+  } catch (error) {
+    console.error('Error batch preloading images:', error);
+  }
+};
+
+/**
+ * Initialize the cache system
+ */
+export const initialize = async (): Promise<void> => {
+  try {
+    // Create cache directories
+    await initCacheDirectories();
+    
+    // Load any cached data that should be in memory
+    // into the memory cache for faster access
+    await loadPriorityCacheItems();
+    
+    console.log('Cache system initialized');
+  } catch (error) {
+    console.error('Error initializing cache system:', error);
+  }
+};
+
+/**
+ * Load priority cache items into memory
+ */
+const loadPriorityCacheItems = async (): Promise<void> => {
+  // Get all keys from AsyncStorage
+  const keys = await AsyncStorage.getAllKeys();
+  const cacheKeys = keys.filter(key => 
+    key.startsWith(CACHE_VERSION) && 
+    PRIORITY_CACHE_KEYS.some(pk => key.includes(pk))
+  );
+  
+  // Load each priority item into memory
+  await Promise.all(cacheKeys.map(async (key) => {
+    try {
+      const baseKey = key.split(':')[1]; // Remove version prefix
+      // Just call getCachedData to load it into memory
+      await getCachedData(baseKey);
+    } catch (error) {
+      console.warn(`Error loading priority cache item ${key}:`, error);
+    }
+  }));
+};
+
+/**
+ * Prefetch exercise list data for faster navigation
+ */
+export const prefetchExerciseListData = async (options?: {
+  includeImages?: boolean;
+  categoryLimit?: number;
+}): Promise<void> => {
+  const { includeImages = true, categoryLimit = 20 } = options || {};
+  
+  try {
+    // First try to get all exercises if not already cached
+    const allExercises = getFromMemoryCache('all_exercises') as any[] | null;
+    
+    if (!allExercises) {
+      // Fetch all exercises and cache them
+      const { data: exercises, error } = await supabase
+        .from('exercises')
+        .select('id, name, muscle_group, image_url')
+        .limit(300);
+        
+      if (!error && exercises) {
+        // Cache all exercises
+        await cacheData('all_exercises', exercises);
+        
+        // Group by muscle group
+        const exercisesByGroup: Record<string, any[]> = {};
+        exercises.forEach(exercise => {
+          const group = exercise.muscle_group || 'Other';
+          if (!exercisesByGroup[group]) {
+            exercisesByGroup[group] = [];
+          }
+          exercisesByGroup[group].push(exercise);
+        });
+        
+        // Cache each group separately
+        for (const [group, groupExercises] of Object.entries(exercisesByGroup)) {
+          await cacheData(`exercises_${group}`, groupExercises);
+          
+          // Preload images if requested
+          if (includeImages) {
+            const imageUrls = groupExercises
+              .filter(ex => ex.image_url)
+              .slice(0, categoryLimit)
+              .map(ex => ex.image_url);
+              
+            if (imageUrls.length > 0) {
+              // Don't await - let this run in background
+              preloadImages(imageUrls).catch(err => {
+                console.warn(`Error preloading ${group} images:`, err);
+              });
+            }
+          }
+        }
+      }
+    } else {
+      // We already have all exercises, just make sure the muscle groups are cached
+      const exercisesByGroup: Record<string, any[]> = {};
+      allExercises.forEach(exercise => {
+        const group = exercise.muscle_group || 'Other';
+        if (!exercisesByGroup[group]) {
+          exercisesByGroup[group] = [];
+        }
+        exercisesByGroup[group].push(exercise);
+      });
+      
+      // Cache each group separately if not already cached
+      for (const [group, groupExercises] of Object.entries(exercisesByGroup)) {
+        if (!getFromMemoryCache(`exercises_${group}`)) {
+          await cacheData(`exercises_${group}`, groupExercises);
+          
+          // Preload images if requested
+          if (includeImages) {
+            const imageUrls = groupExercises
+              .filter(ex => ex.image_url)
+              .slice(0, categoryLimit)
+              .map(ex => ex.image_url);
+              
+            if (imageUrls.length > 0) {
+              // Don't await - let this run in background
+              preloadImages(imageUrls).catch(err => {
+                console.warn(`Error preloading ${group} images:`, err);
+              });
+            }
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error prefetching exercise list data:', error);
+  }
+};
+
+const cacheManager = {
+  initialize,
+  cacheData,
+  getCachedData,
+  removeCachedData,
+  clearAllCachedData,
+  preloadImages,
+  preloadExercisesByMuscleGroup,
+  prefetchExerciseListData,
+  markAsRemotePrefetched,
+  isRemotePrefetched,
+  markImageAsImportant,
+  isImageImportant,
+  preloadAndCacheImage,
+  batchPreloadImages
+};
 
 export default cacheManager; 

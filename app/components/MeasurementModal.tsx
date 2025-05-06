@@ -17,7 +17,6 @@ import { Text, IconButton, Portal, Provider } from 'react-native-paper';
 import Slider from '@react-native-community/slider';
 import { MeasurementCategory, measurementService, Measurement } from '../services/measurements';
 import MeasurementHistory from './MeasurementHistory';
-import OptimizedImage from './OptimizedImage';
 import { COLORS } from '../constants/theme';
 interface Props {
   visible: boolean;

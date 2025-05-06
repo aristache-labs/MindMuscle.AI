@@ -8,7 +8,6 @@ import { COLORS, SPACING, BORDER_RADIUS, HEADER_HEIGHT } from '../constants/them
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { progressPhotoService, ProgressPhoto } from '../services/progressPhotos';
 import { useAuth } from '../store/AuthContext';
 import { achievementService, Achievement, UserAchievement } from '../services/achievements';
 import measurementService, { 
@@ -19,7 +18,6 @@ import measurementService, {
 import MeasurementModal from '../components/MeasurementModal';
 import MeasurementsGraph from '../components/MeasurementsGraph';
 import HowToMeasureModal from '../components/HowToMeasureModal';
-import OptimizedImage from '../components/OptimizedImage';
 import ExerciseGraphs, { ExerciseData } from '../components/ExerciseGraphs';
 import ExerciseGraphModal from '../components/ExerciseGraphModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -58,6 +56,45 @@ const SAMPLE_EXERCISES: ExerciseData[] = [
     ]
   }
 ];
+
+// Simple ProgressPhoto type definition
+interface ProgressPhoto {
+  id: string;
+  url: string;
+  type: 'before' | 'after';
+  date: Date;
+}
+
+// Simple replacement for progressPhotoService
+const progressPhotoService = {
+  getLatestPhotos: async (userId: string): Promise<{before?: ProgressPhoto, after?: ProgressPhoto}> => {
+    console.log('Getting latest photos for user:', userId);
+    // Return empty data - this is a placeholder
+    return { before: undefined, after: undefined };
+  },
+  
+  deletePhoto: async (userId: string, photoId: string): Promise<void> => {
+    console.log('Deleting photo:', photoId, 'for user:', userId);
+    // This is a placeholder implementation
+    return;
+  },
+  
+  uploadPhoto: async (
+    userId: string,
+    type: 'before' | 'after',
+    uri: string,
+    date: Date
+  ): Promise<ProgressPhoto> => {
+    console.log('Uploading photo for user:', userId, 'type:', type);
+    // Return a placeholder photo object
+    return {
+      id: Math.random().toString(36).substring(2, 9),
+      url: uri,
+      type,
+      date
+    };
+  }
+};
 
 export default function InsightsScreen() {
   const theme = useTheme();
@@ -488,14 +525,10 @@ export default function InsightsScreen() {
                     style={styles.photoFrame}
                   >
                     {beforePhoto ? (
-                      <OptimizedImage 
-                        source={beforePhoto.photo_url}
-                        style={styles.photoFrame}
-                        imageStyle={styles.photo}
-                        onError={() => {
-                          console.error('Error loading before photo:', beforePhoto.photo_url);
-                          setImageLoadError(prev => ({ ...prev, before: true }));
-                        }}
+                      <Image
+                        source={{ uri: beforePhoto.url }}
+                        style={styles.photo}
+                        resizeMode="cover"
                       />
                     ) : (
                       <View style={[styles.addPhotoButton, isLoading && styles.disabled]}>
@@ -509,7 +542,7 @@ export default function InsightsScreen() {
                   <Text style={styles.photoLabel}>BEFORE</Text>
                   {beforePhoto && (
                     <Text style={styles.photoDate}>
-                      {format(new Date(beforePhoto.taken_at), 'MMMM, yyyy')}
+                      {format(new Date(beforePhoto.date), 'MMMM, yyyy')}
                     </Text>
                   )}
                 </View>
@@ -532,14 +565,10 @@ export default function InsightsScreen() {
                     style={styles.photoFrame}
                   >
                     {afterPhoto ? (
-                      <OptimizedImage 
-                        source={afterPhoto.photo_url}
-                        style={styles.photoFrame}
-                        imageStyle={styles.photo}
-                        onError={() => {
-                          console.error('Error loading after photo:', afterPhoto.photo_url);
-                          setImageLoadError(prev => ({ ...prev, after: true }));
-                        }}
+                      <Image
+                        source={{ uri: afterPhoto.url }}
+                        style={styles.photo}
+                        resizeMode="cover"
                       />
                     ) : (
                       <View style={[styles.addPhotoButton, isLoading && styles.disabled]}>
@@ -553,7 +582,7 @@ export default function InsightsScreen() {
                   <Text style={styles.photoLabel}>AFTER</Text>
                   {afterPhoto && (
                     <Text style={styles.photoDate}>
-                      {format(new Date(afterPhoto.taken_at), 'MMMM, yyyy')}
+                      {format(new Date(afterPhoto.date), 'MMMM, yyyy')}
                     </Text>
                   )}
                 </View>

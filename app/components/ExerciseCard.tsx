@@ -1,8 +1,7 @@
 import React from 'react';
-import { StyleSheet, View, TouchableOpacity, Dimensions, ViewStyle, TextStyle, ImageStyle } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, Dimensions, ViewStyle, TextStyle, ImageStyle, Image } from 'react-native';
 import { Text, Surface } from 'react-native-paper';
 import { COLORS, BORDER_RADIUS } from '../constants/theme';
-import OptimizedImage from './OptimizedImage';
 import { MaterialIcons } from '@expo/vector-icons';
 
 interface ExerciseCardProps {
@@ -37,12 +36,11 @@ const ExerciseCard = ({
       <Surface style={styles.card}>
         <View style={styles.cardContentWrapper}>
           <View style={styles.imageContainer}>
-            <OptimizedImage
+            <Image
               source={image}
               style={styles.image}
-              contentFit="cover"
-              debugLabel={debugLabel}
-              markImportant={true} // Mark exercise images as important to keep in memory
+              resizeMode="cover"
+              testID={debugLabel}
             />
             <TouchableOpacity
               style={styles.favoriteButton}

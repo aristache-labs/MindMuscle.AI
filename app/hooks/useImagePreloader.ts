@@ -1,11 +1,17 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Image } from 'expo-image';
-import { ImageSourcePropType } from 'react-native';
-import { isImagePreloaded, preloadSingleImage } from '../utils/imagePreloader';
+import { useState, useEffect } from 'react';
+import { Platform } from 'react-native';
+import FastImage, { Source, Priority } from 'react-native-fast-image';
+import { Asset } from 'expo-asset';
+import { ImagePriority, DEBUG_IMAGE_PRELOADER } from '../utils/imagePreloader';
 
-// Enable/disable detailed logging
-const DEBUG_IMAGE_PRELOADER = true;
+// Types for the hook options
+export interface PreloadOptions {
+  priority?: 'low' | 'normal' | 'high';
+  batchSize?: number;
+  debugLabel?: string;
+}
 
+// Type for the hook's return value
 export interface PreloadingStatus {
   loaded: boolean;
   error: string | null;
@@ -19,270 +25,178 @@ export interface PreloadingStatus {
   };
 }
 
-interface ImagePreloaderOptions {
-  priority?: boolean;
-  onProgress?: (progress: number) => void;
-  debugLabel?: string; // Add a label for tracking specific preloaders
-}
-
 /**
- * Hook to preload multiple images at once
- * Returns the loading status, error, progress, and counts of the preloading
+ * Hook for preloading a batch of images
+ * 
+ * @param sources Array of image URIs to preload
+ * @param options Configuration options
+ * @returns Status of the preloading process
  */
-export function useImagePreloader(
-  imageSources: (string | ImageSourcePropType)[], 
-  options: ImagePreloaderOptions = { priority: false, debugLabel: 'unlabeled' }
+export default function useImagePreloader(
+  sources: (string | { uri: string })[] | null | undefined,
+  options: PreloadOptions = {}
 ): PreloadingStatus {
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
-  const [completedCount, setCompletedCount] = useState(0);
-  const [totalCount, setTotalCount] = useState(0);
-  const [timing, setTiming] = useState<{
-    startTime: number;
-    endTime: number | null;
-    duration: number | null;
-  }>({
-    startTime: Date.now(),
-    endTime: null,
-    duration: null
-  });
+  // Options with defaults
+  const {
+    priority = 'normal',
+    batchSize = 15,
+    debugLabel = 'useImagePreloader'
+  } = options;
 
-  // Calculate preloaded images and total count
-  const calculateInitialStatus = useCallback(() => {
-    if (!imageSources || imageSources.length === 0) {
-      if (DEBUG_IMAGE_PRELOADER) {
-        console.log(`🔍 [${options.debugLabel}] No images to preload.`);
-      }
-      return { preloaded: 0, total: 0 };
+  // Convert priority string to FastImage priority
+  const fastImagePriority = (() => {
+    switch (priority) {
+      case 'low': return ImagePriority.LOW;
+      case 'high': return ImagePriority.HIGH;
+      default: return ImagePriority.NORMAL;
     }
+  })();
 
-    // Count already preloaded images
-    let preloadedCount = 0;
-    imageSources.forEach((source, index) => {
-      if (typeof source === 'string') {
-        const isPreloaded = isImagePreloaded(source);
-        if (isPreloaded && DEBUG_IMAGE_PRELOADER) {
-          console.log(`✅ [${options.debugLabel}] Image already preloaded (${index + 1}/${imageSources.length}): ${source.substring(0, 50)}${source.length > 50 ? '...' : ''}`);
-        }
-        if (isPreloaded) preloadedCount++;
-      } else {
-        // Non-string sources (require statements) are considered preloaded
-        preloadedCount++;
-        if (DEBUG_IMAGE_PRELOADER) {
-          console.log(`✅ [${options.debugLabel}] Local image already available (${index + 1}/${imageSources.length})`);
-        }
-      }
-    });
-
-    if (DEBUG_IMAGE_PRELOADER) {
-      console.log(`📊 [${options.debugLabel}] Initial status: ${preloadedCount}/${imageSources.length} images already preloaded`);
-    }
-
-    return { preloaded: preloadedCount, total: imageSources.length };
-  }, [imageSources, options.debugLabel]);
-
-  useEffect(() => {
-    let mounted = true;
-    const startTime = Date.now();
-    
-    if (DEBUG_IMAGE_PRELOADER) {
-      console.log(`🚀 [${options.debugLabel}] Starting image preloading (${imageSources.length} images, priority: ${options.priority ? 'high' : 'normal'})`);
-    }
-
-    setTiming({
-      startTime,
+  // State
+  const [status, setStatus] = useState<PreloadingStatus>({
+    loaded: false,
+    error: null,
+    progress: 0,
+    completedCount: 0,
+    totalCount: 0,
+    timing: {
+      startTime: 0,
       endTime: null,
       duration: null
-    });
-    
-    const preloadImages = async () => {
-      // Calculate initial status
-      const { preloaded, total } = calculateInitialStatus();
-      
-      // Update state with initial values
-      if (mounted) {
-        setTotalCount(total);
-        setCompletedCount(preloaded);
-        
-        // If all images are already preloaded or no images to load
-        if (preloaded === total) {
-          const endTime = Date.now();
-          const duration = endTime - startTime;
-          
-          if (DEBUG_IMAGE_PRELOADER) {
-            console.log(`🏁 [${options.debugLabel}] All images already preloaded (${total} images, 0ms)`);
-          }
-          
-          setLoaded(true);
-          setProgress(1);
-          setTiming({
-            startTime,
-            endTime,
-            duration
-          });
-          if (options.onProgress) options.onProgress(1);
-          return;
+    }
+  });
+
+  // Effect to preload images when sources change
+  useEffect(() => {
+    // Skip if no sources
+    if (!sources || sources.length === 0) {
+      setStatus({
+        loaded: true,
+        error: null,
+        progress: 1,
+        completedCount: 0,
+        totalCount: 0,
+        timing: {
+          startTime: Date.now(),
+          endTime: Date.now(),
+          duration: 0
         }
-        
-        // Set initial progress based on already preloaded images
-        const initialProgress = total > 0 ? preloaded / total : 0;
-        setProgress(initialProgress);
-        if (options.onProgress) options.onProgress(initialProgress);
+      });
+      return;
+    }
+
+    // Start preloading
+    const startTime = Date.now();
+    setStatus(prev => ({
+      ...prev,
+      loaded: false,
+      error: null,
+      progress: 0,
+      completedCount: 0,
+      totalCount: sources.length,
+      timing: {
+        startTime,
+        endTime: null,
+        duration: null
       }
+    }));
 
+    if (DEBUG_IMAGE_PRELOADER) {
+      console.log(`🚀 [${debugLabel}] Starting to preload ${sources.length} images with priority ${priority}`);
+    }
+
+    // Process sources into an array of URIs
+    const uris = sources.map(source => 
+      typeof source === 'string' ? source : source.uri
+    ).filter(uri => uri && typeof uri === 'string');
+
+    // Preload function
+    const preloadImages = async () => {
       try {
-        // Filter out already preloaded images
-        const imagesToLoad = imageSources.filter(
-          source => typeof source === 'string' && !isImagePreloaded(source)
-        );
-        
-        if (DEBUG_IMAGE_PRELOADER) {
-          console.log(`🔄 [${options.debugLabel}] Preloading ${imagesToLoad.length} images (${preloaded} already preloaded)`);
+        // Create batches of URIs
+        const batches = [];
+        for (let i = 0; i < uris.length; i += batchSize) {
+          batches.push(uris.slice(i, i + batchSize));
         }
-        
-        // Create a function to update progress
-        const updateProgress = (increment: number, imageIndex: number, imageUrl: string) => {
-          if (mounted) {
-            setCompletedCount(prev => {
-              const newCount = prev + 1;
-              
-              if (DEBUG_IMAGE_PRELOADER) {
-                const timeElapsed = Date.now() - startTime;
-                console.log(`✅ [${options.debugLabel}] Image ${newCount}/${total} loaded (${timeElapsed}ms): ${imageUrl.substring(0, 50)}${imageUrl.length > 50 ? '...' : ''}`);
-              }
-              
-              const newProgress = total > 0 ? newCount / total : 1;
-              setProgress(newProgress);
-              if (options.onProgress) options.onProgress(newProgress);
-              
-              // Check if all images are now loaded
-              if (newCount === total) {
-                const endTime = Date.now();
-                const duration = endTime - startTime;
-                
-                if (DEBUG_IMAGE_PRELOADER) {
-                  console.log(`🏁 [${options.debugLabel}] All images preloaded (${total} images, ${duration}ms)`);
-                }
-                
-                setLoaded(true);
-                setTiming({
-                  startTime,
-                  endTime,
-                  duration
-                });
-              }
-              
-              return newCount;
-            });
+
+        let completedCount = 0;
+
+        // Process each batch
+        for (const batch of batches) {
+          if (Platform.OS === 'web') {
+            // For web, use Asset
+            await Promise.allSettled(
+              batch.map(uri => Asset.fromURI(uri).downloadAsync())
+            );
+          } else {
+            // For native, use FastImage
+            const sources: Source[] = batch.map(uri => ({
+              uri,
+              priority: fastImagePriority
+            }));
+            await FastImage.preload(sources);
           }
-        };
-        
-        // High-priority images should load in parallel
-        if (options.priority) {
-          if (DEBUG_IMAGE_PRELOADER) {
-            console.log(`⚡ [${options.debugLabel}] Using parallel loading for ${imagesToLoad.length} high-priority images`);
-          }
+
+          // Update progress
+          completedCount += batch.length;
+          const progress = Math.min(completedCount / uris.length, 1);
           
-          await Promise.all(
-            imagesToLoad.map(async (source, index) => {
-              try {
-                if (typeof source === 'string') {
-                  const startImageTime = Date.now();
-                  await preloadSingleImage(source);
-                  const imageLoadTime = Date.now() - startImageTime;
-                  
-                  if (DEBUG_IMAGE_PRELOADER) {
-                    console.log(`⏱️ [${options.debugLabel}] Image loaded in ${imageLoadTime}ms`);
-                  }
-                }
-                updateProgress(1, index, typeof source === 'string' ? source : 'local-image');
-              } catch (err) {
-                console.warn(`❌ [${options.debugLabel}] Error preloading image:`, source, err);
-                updateProgress(1, index, typeof source === 'string' ? source : 'local-image'); // Still increment to avoid getting stuck
-              }
-            })
-          );
-        } else {
-          // Regular priority: load images sequentially to reduce bandwidth usage
+          setStatus(prev => ({
+            ...prev,
+            progress,
+            completedCount
+          }));
+
           if (DEBUG_IMAGE_PRELOADER) {
-            console.log(`🔄 [${options.debugLabel}] Using sequential loading for ${imagesToLoad.length} normal-priority images`);
-          }
-          
-          for (let i = 0; i < imagesToLoad.length; i++) {
-            const source = imagesToLoad[i];
-            try {
-              if (typeof source === 'string') {
-                const startImageTime = Date.now();
-                await preloadSingleImage(source);
-                const imageLoadTime = Date.now() - startImageTime;
-                
-                if (DEBUG_IMAGE_PRELOADER) {
-                  console.log(`⏱️ [${options.debugLabel}] Image ${i + 1}/${imagesToLoad.length} loaded in ${imageLoadTime}ms`);
-                }
-              }
-              updateProgress(1, i, typeof source === 'string' ? source : 'local-image');
-            } catch (err) {
-              console.warn(`❌ [${options.debugLabel}] Error preloading image:`, source, err);
-              updateProgress(1, i, typeof source === 'string' ? source : 'local-image'); // Still increment to avoid getting stuck
-            }
+            console.log(`⏱️ [${debugLabel}] Batch completed: ${completedCount}/${uris.length} (${(progress * 100).toFixed(1)}%)`);
           }
         }
 
-        if (mounted) {
-          const endTime = Date.now();
-          const duration = endTime - startTime;
-          
-          setLoaded(true);
-          setProgress(1);
-          setTiming({
-            startTime,
-            endTime,
-            duration
-          });
-          
-          if (DEBUG_IMAGE_PRELOADER) {
-            console.log(`🏁 [${options.debugLabel}] Preloading completed in ${duration}ms`);
-          }
-          
-          if (options.onProgress) options.onProgress(1);
-        }
-      } catch (err) {
+        // All loaded successfully
         const endTime = Date.now();
         const duration = endTime - startTime;
         
-        if (mounted) {
-          setError(err instanceof Error ? err.message : 'Failed to preload images');
-          
-          if (DEBUG_IMAGE_PRELOADER) {
-            console.error(`❌ [${options.debugLabel}] Preloading failed after ${duration}ms:`, err);
-          }
-          
-          // Still mark as loaded to avoid UI getting stuck
-          setLoaded(true);
-          setProgress(1);
-          setTiming({
-            startTime,
+        setStatus(prev => ({
+          ...prev,
+          loaded: true,
+          progress: 1,
+          completedCount: uris.length,
+          timing: {
+            ...prev.timing!,
             endTime,
             duration
-          });
-          if (options.onProgress) options.onProgress(1);
+          }
+        }));
+
+        if (DEBUG_IMAGE_PRELOADER) {
+          console.log(`✅ [${debugLabel}] All images preloaded in ${duration}ms`);
+        }
+      } catch (err) {
+        // Handle error
+        const error = err instanceof Error ? err.message : 'Unknown preloading error';
+        
+        setStatus(prev => ({
+          ...prev,
+          loaded: false,
+          error,
+          timing: {
+            ...prev.timing!,
+            endTime: Date.now(),
+            duration: Date.now() - startTime
+          }
+        }));
+
+        if (DEBUG_IMAGE_PRELOADER) {
+          console.log(`❌ [${debugLabel}] Error preloading images:`, error);
         }
       }
     };
 
+    // Start preloading
     preloadImages();
+    
+    // No cleanup needed
+  }, [sources, priority, batchSize, debugLabel, fastImagePriority]);
 
-    return () => {
-      mounted = false;
-      
-      if (DEBUG_IMAGE_PRELOADER) {
-        console.log(`🛑 [${options.debugLabel}] Preloader unmounted after ${Date.now() - startTime}ms`);
-      }
-    };
-  }, [imageSources, options.priority, options.onProgress, options.debugLabel, calculateInitialStatus]);
-
-  return { loaded, error, progress, completedCount, totalCount, timing };
-}
-
-export default useImagePreloader; 
+  return status;
+} 

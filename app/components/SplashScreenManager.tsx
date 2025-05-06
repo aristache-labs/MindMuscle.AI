@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { AppState, AppStateStatus, Platform } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import InitialLoadingScreen from './InitialLoadingScreen';
-import { STATIC_IMAGES, preloadAllImages, batchPreloadImages, markAsImportantImage } from '@utils/imagePreloader';
 import { useAuth } from '@store/AuthContext';
 import * as Network from 'expo-network';
 import supabase from '@services/supabase';
@@ -10,8 +9,36 @@ import { Asset } from 'expo-asset';
 import { LOADING_MESSAGES } from '@constants/loadingMessages';
 import * as FileSystem from 'expo-file-system';
 
+// Define static images to preload (moved from imagePreloader.ts)
+export const STATIC_IMAGES = {
+  measurements: {
+    weight: require('../../assets/measurements/instructions/weight-instruction.png'),
+    biceps: require('../../assets/measurements/instructions/biceps-instruction.png'),
+    chest: require('../../assets/measurements/instructions/chest-instruction.png'),
+    waist: require('../../assets/measurements/instructions/waist-instruction.png'),
+    abs: require('../../assets/measurements/instructions/abs-instruction.png'),
+    shoulders: require('../../assets/measurements/instructions/shoulders-instruction.png'),
+    thigh: require('../../assets/measurements/instructions/thigh-instruction.png'),
+    calf: require('../../assets/measurements/instructions/calf-instruction.png'),
+  },
+  bodyModel: {
+    front: require('../../assets/body-model_front.png'),
+    back: require('../../assets/body-model_back.png')
+  }
+};
+
+// Track important image URLs
+const IMPORTANT_IMAGE_URLS = new Set<string>();
+
+// Simple function to replace markAsImportantImage
+const markAsImportantImage = (url: string) => {
+  if (!url) return;
+  IMPORTANT_IMAGE_URLS.add(url);
+  console.log(`🔒 Marked as important: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
+};
+
 // Debug flag to control logging
-const DEBUG_SPLASH_SCREEN = true;
+const DEBUG_SPLASH_SCREEN = false;
 
 // Define resources to be preloaded, organized by priority
 const PRELOAD_CONFIG = {
@@ -50,6 +77,109 @@ const safelyHideSplashScreen = async () => {
     }
   } catch (error) {
     console.warn('Error hiding splash screen:', error);
+  }
+};
+
+// Utility to preload static images
+const preloadStaticImages = async () => {
+  console.log('Starting image preloading...');
+  
+  try {
+    // Load static images (from our app bundle)
+    const staticImages = [
+      ...Object.values(STATIC_IMAGES.measurements),
+      ...Object.values(STATIC_IMAGES.bodyModel)
+    ];
+    
+    // Add additional static images if they exist
+    try {
+      // Get SVG files if they exist
+      if ('svg' in STATIC_IMAGES && typeof (STATIC_IMAGES as any).svg === 'object') {
+        Object.values((STATIC_IMAGES as any).svg).forEach(svg => staticImages.push(svg as number));
+      }
+      
+      // Add muscle group SVGs if they exist
+      if ('muscles' in STATIC_IMAGES && typeof (STATIC_IMAGES as any).muscles === 'object') {
+        Object.values((STATIC_IMAGES as any).muscles).forEach(muscle => staticImages.push(muscle as number));
+      }
+      
+      // Check if there are any navigation images
+      if ('navigation' in STATIC_IMAGES && typeof (STATIC_IMAGES as any).navigation === 'object') {
+        staticImages.push(...Object.values((STATIC_IMAGES as any).navigation));
+      }
+    } catch (e) {
+      // Silently continue if additional images aren't available
+    }
+    
+    await Asset.loadAsync(staticImages);
+    console.log('Static images preloaded');
+    return true;
+  } catch (error) {
+    console.error('Image preloading error:', error);
+    return false;
+  }
+};
+
+// Utility to preload batch of images with progress tracking
+const batchPreloadImages = async (
+  imageUrls: string[],
+  batchSize = 15,
+  onProgress?: (progress: number, completed?: number, total?: number) => void
+) => {
+  if (!imageUrls || imageUrls.length === 0) {
+    if (onProgress) onProgress(1, 0, 0);
+    return;
+  }
+  
+  console.log(`Batch preloading ${imageUrls.length} images...`);
+  
+  try {
+    // Process in smaller batches
+    const batches = [];
+    for (let i = 0; i < imageUrls.length; i += batchSize) {
+      batches.push(imageUrls.slice(i, i + batchSize));
+    }
+    
+    let completedCount = 0;
+    
+    for (const batch of batches) {
+      await Promise.allSettled(batch.map(url => Asset.fromURI(url).downloadAsync()));
+      completedCount += batch.length;
+      
+      if (onProgress) {
+        const progress = Math.min(completedCount / imageUrls.length, 1);
+        onProgress(progress, completedCount, imageUrls.length);
+      }
+    }
+    
+    console.log(`Preloaded ${completedCount}/${imageUrls.length} images`);
+  } catch (error) {
+    console.warn('Error preloading image batch:', error);
+  }
+  
+  if (onProgress) {
+    onProgress(1, imageUrls.length, imageUrls.length);
+  }
+};
+
+// Centralized function to retrieve data from Supabase with error handling
+const fetchSupabaseData = async <T extends Record<string, any>>(
+  table: string,
+  query: any,
+  errorMessage: string = `Error fetching ${table}`
+): Promise<T[]> => {
+  try {
+    const { data, error } = await query;
+    
+    if (error) {
+      console.warn(`${errorMessage}:`, error);
+      return [];
+    }
+    
+    return data || [];
+  } catch (error) {
+    console.warn(`${errorMessage}:`, error);
+    return [];
   }
 };
 
@@ -128,454 +258,35 @@ export default function SplashScreenManager({ children }: { children: React.Reac
     }
   };
 
-  // Refresh essential data in background while using the app
-  const refreshEssentialData = async () => {
-    if (DEBUG_SPLASH_SCREEN) {
-      console.log(`🔄 [SplashScreenManager] Refreshing essential data in background`);
-    }
-    
-    try {
-      // This runs silently in the background without UI updates
-      // Refresh recently used content
-      // Refresh exercise data
-      const { data: exercises, error } = await supabase
-        .from('exercises')
-        .select('id, name, image_url, category')
-        .limit(20);
-      
-      if (DEBUG_SPLASH_SCREEN) {
-        if (error) {
-          console.error(`❌ [SplashScreenManager] Failed to refresh exercise data:`, error);
-        } else {
-          console.log(`✅ [SplashScreenManager] Refreshed exercise data: ${exercises?.length || 0} items`);
-        }
-      }
-        
-      if (!error && exercises) {
-        // Refresh user data if logged in
-        if (session?.user) {
-          const { data: userData, error } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
-          
-          if (!error && userData) {
-            // User settings
-            const { data, error } = await supabase
-              .from('user_settings')
-              .select('*')
-              .eq('user_id', session.user.id)
-              .single();
-            
-            if (!error && data) {
-              // User profile
-              const { data: profileData, error } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', session.user.id)
-                .single();
-              
-              if (!error && profileData) {
-                // User's workouts - get ALL, not just recent
-                const { data: workouts, error } = await supabase
-                  .from('workouts')
-                  .select('*')
-                  .eq('user_id', session.user.id)
-                  .order('created_at', { ascending: false });
-                
-                if (!error && workouts) {
-                  // User achievements
-                  const { data: achievements, error } = await supabase
-                    .from('user_achievements')
-                    .select('*')
-                    .eq('user_id', session.user.id);
-                  
-                  if (!error && achievements) {
-                    // Favorite exercises
-                    const { data: favoriteExercises, error } = await supabase
-                      .from('user_favorite_exercises')
-                      .select('exercise_id')
-                      .eq('user_id', session.user.id);
-                    
-                    if (!error && favoriteExercises) {
-                      // Progress photos - get ALL, not just recent
-                      const { data: progressPhotos, error } = await supabase
-                        .from('progress_photos')
-                        .select('*')
-                        .eq('user_id', session.user.id)
-                        .order('created_at', { ascending: false });
-                      
-                      if (!error && progressPhotos) {
-                        // User measurements
-                        const { data: userMeasurements, error } = await supabase
-                          .from('user_measurements')
-                          .select('*')
-                          .eq('user_id', session.user.id)
-                          .order('created_at', { ascending: false });
-                        
-                        if (!error && userMeasurements) {
-                          if (DEBUG_SPLASH_SCREEN) {
-                            console.log(`✅ [SplashScreenManager] Refreshed user data silently in background`);
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    } catch (error) {
-      // Don't show errors to user for background refreshes
-      console.log('Background data refresh error:', error);
-    }
-  };
-
-  // Preload static assets (bundled with the app)
-  const preloadStaticAssets = async () => {
-    try {
-      setLoadingMessage(LOADING_MESSAGES.STATIC_ASSETS);
-      
-      // Create an array of all the static images we need to preload
-      const measurementImages = Object.values(STATIC_IMAGES.measurements);
-      const bodyModelImages = Object.values(STATIC_IMAGES.bodyModel);
-      
-      // Add SVG files if they exist
-      const svgFiles: number[] = [];
-      try {
-        // Get SVG files if they exist in STATIC_IMAGES
-        if ('svg' in STATIC_IMAGES && typeof (STATIC_IMAGES as any).svg === 'object') {
-          Object.values((STATIC_IMAGES as any).svg).forEach(svg => svgFiles.push(svg as number));
-        }
-        
-        // Add muscle group SVGs if they exist
-        if ('muscles' in STATIC_IMAGES && typeof (STATIC_IMAGES as any).muscles === 'object') {
-          Object.values((STATIC_IMAGES as any).muscles).forEach(muscle => svgFiles.push(muscle as number));
-        }
-      } catch (e) {
-        console.log('No SVG files defined in STATIC_IMAGES');
-      }
-      
-      // Combine all static images
-      const staticImagesArray = [
-        ...measurementImages,
-        ...bodyModelImages,
-        ...svgFiles
-      ];
-      
-      // Also check if there are any navigation images we could include
-      try {
-        // @ts-ignore - We're doing this safely with runtime checks
-        if (STATIC_IMAGES.navigation && typeof STATIC_IMAGES.navigation === 'object') {
-          // @ts-ignore - We're doing this safely with runtime checks
-          const navigationImages = Object.values(STATIC_IMAGES.navigation);
-          staticImagesArray.push(...navigationImages);
-        }
-      } catch (e) {
-        // Silently continue if navigation images aren't available
-      }
-      
-      console.log(`Preloading ${staticImagesArray.length} static assets...`);
-      await Asset.loadAsync(staticImagesArray);
-      
-      updateProgress(0.15, LOADING_MESSAGES.STATIC_ASSETS + ' ✓');
-      return true;
-    } catch (error) {
-      console.warn('Error preloading static assets:', error);
-      updateProgress(0.1, 'Continuing with limited assets');
-      return false;
-    }
-  };
-  
-  // Preload remote images (exercises, workout plans)
-  const preloadRemoteImages = async () => {
-    try {
-      setLoadingMessage(LOADING_MESSAGES.IMAGES);
-      
-      // Get exercise images
-      const { data: exercises, error } = await supabase
-        .from('exercises')
-        .select('id, image_url, name, muscle_group')
-        .limit(PRELOAD_CONFIG.EXERCISE_LIMIT);
-      
-      if (error) {
-        console.warn('Error fetching exercises:', error);
-        // Continue without exercises
-      }
-      
-      // Get workout plan images
-      const { data: plans, error: plansError } = await supabase
-        .from('workout_plans')
-        .select('id, image_url, title')
-        .limit(PRELOAD_CONFIG.PLAN_LIMIT);
-      
-      if (plansError) {
-        console.warn('Error fetching workout plans:', plansError);
-        // Continue without plans
-      }
-      
-      // Collect all image URLs
-      const criticalImages: string[] = []; // Must be loaded for app to function
-      const highPriorityImages: string[] = []; // Important for initial screens
-      const normalPriorityImages: string[] = []; // Can be loaded later
-      
-      // Sort plans and exercises by priority
-      plans?.forEach(plan => {
-        if (plan.image_url) {
-          if (plan.title?.toLowerCase().includes('featured')) {
-            criticalImages.push(plan.image_url);
-          } else {
-            highPriorityImages.push(plan.image_url);
-          }
-        }
-      });
-      
-      exercises?.forEach(exercise => {
-        if (exercise.image_url) {
-          // Group exercises by common categories instead of using missing 'category' field
-          if (exercise.muscle_group === 'Chest' || exercise.muscle_group === 'Abs' || 
-              exercise.muscle_group === 'Biceps' || exercise.muscle_group === 'Cardio') {
-            highPriorityImages.push(exercise.image_url);
-          } else {
-            normalPriorityImages.push(exercise.image_url);
-          }
-        }
-      });
-      
-      // Preload critical images first (must finish)
-      await Promise.race([
-        Asset.loadAsync(criticalImages),
-        new Promise(resolve => setTimeout(resolve, 5000))
-      ]);
-      
-      // Preload high priority images next (important but can be skipped if slow)
-      try {
-        await Promise.race([
-          Asset.loadAsync(highPriorityImages),
-          new Promise(resolve => setTimeout(resolve, 5000))
-        ]);
-      } catch (e) {
-        console.log('High priority images timeout - continuing');
-      }
-      
-      // Start loading normal priority images (can be skipped entirely if slow)
-      // Don't await this - it will continue in background
-      try {
-        const preloadPromise = Promise.race([
-          Asset.loadAsync(normalPriorityImages),
-          new Promise<void>((resolve) => setTimeout(() => resolve(), 3000))
-        ]);
-        
-        // Use .then() instead of await to avoid blocking
-        preloadPromise.then(() => {
-          console.log('Normal priority images preloaded successfully');
-        }).catch(error => {
-          console.log('Normal priority images timeout - continuing in background', error);
-        });
-      } catch (error) {
-        // Ignore any errors from background loading
-      }
-      
-      updateProgress(0.15, LOADING_MESSAGES.IMAGES + ' ✓');
-      return true;
-    } catch (error) {
-      console.warn('Error preloading remote images:', error);
-      updateProgress(0.1, 'Continuing with limited image cache');
-      return false;
-    }
-  };
-  
-  
-  // Preload frequently used data
-  const preloadFrequentlyUsedData = async () => {
-    try {
-      setLoadingMessage(LOADING_MESSAGES.DATA);
-      
-      // Create an array of data fetching promises
-      const fetchPromises = [];
-      
-      // SECTION 1: Load ALL exercises - no limits
-      try {
-        const { data: allExercises, error } = await supabase
-          .from('exercises')
-          .select('*'); // Get everything with no limit
-        
-        if (!error && allExercises) {
-          console.log(`📊 Preloaded ${allExercises.length} total exercises`);
-          
-          fetchPromises.push(Promise.resolve(true));
-        }
-      } catch (err) {
-        console.log('Error precaching all exercises:', err);
-      }
-      
-      // SECTION 2: Cache ALL workout plans - no limits
-      try {
-        const { data: allPlans, error } = await supabase
-          .from('workout_plans')
-          .select('*'); // Get everything
-        
-        if (!error && allPlans) {
-          console.log(`📊 Preloaded ${allPlans.length} workout plans`);
-          
-          fetchPromises.push(Promise.resolve(true));
-        }
-      } catch (err) {
-        console.log('Error precaching workout plans:', err);
-      }
-      
-      // SECTION 6: Cache user-specific data if logged in
-      if (session?.user) {
-        // User settings
-        try {
-          const { data, error } = await supabase
-            .from('user_settings')
-            .select('*')
-            .eq('user_id', session.user.id)
-            .single();
-          
-          if (!error && data) {
-            fetchPromises.push(Promise.resolve(true));
-          }
-        } catch (err) {
-          console.log('Error fetching user settings:', err);
-        }
-        
-        // User profile
-        try {
-          const { data, error } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
-          
-          if (!error && data) {
-            fetchPromises.push(Promise.resolve(true));
-          }
-        } catch (err) {
-          console.log('Error fetching user profile:', err);
-        }
-        
-        // User's workouts - get ALL, not just recent
-        try {
-          const { data, error } = await supabase
-            .from('workouts')
-            .select('*')
-            .eq('user_id', session.user.id)
-            .order('created_at', { ascending: false });
-          
-          if (!error && data) {
-            fetchPromises.push(Promise.resolve(true));
-          }
-        } catch (err) {
-          console.log('Error fetching user workouts:', err);
-        }
-        
-        // User achievements
-        try {
-          const { data, error } = await supabase
-            .from('user_achievements')
-            .select('*')
-            .eq('user_id', session.user.id);
-          
-          if (!error && data) {
-            fetchPromises.push(Promise.resolve(true));
-          }
-        } catch (err) {
-          console.log('Error fetching user achievements:', err);
-        }
-        
-        // Favorite exercises
-        try {
-          const { data, error } = await supabase
-            .from('user_favorite_exercises')
-            .select('exercise_id')
-            .eq('user_id', session.user.id);
-            
-          if (!error && data) {
-            fetchPromises.push(Promise.resolve(true));
-          }
-        } catch (err) {
-          console.log('Error fetching favorite exercises:', err);
-        }
-        
-        // Progress photos - get ALL, not just recent
-        try {
-          const { data, error } = await supabase
-            .from('progress_photos')
-            .select('*')
-            .eq('user_id', session.user.id)
-            .order('created_at', { ascending: false });
-            
-          if (!error && data) {
-            fetchPromises.push(Promise.resolve(true));
-          }
-        } catch (err) {
-          console.log('Error fetching progress photos:', err);
-        }
-        
-        // User measurements
-        try {
-          const { data, error } = await supabase
-            .from('user_measurements')
-            .select('*')
-            .eq('user_id', session.user.id)
-            .order('created_at', { ascending: false });
-            
-          if (!error && data) {
-            fetchPromises.push(Promise.resolve(true));
-          }
-        } catch (err) {
-          console.log('Error fetching user measurements:', err);
-        }
-      }
-      
-      // If no promises were added, add a resolved promise to avoid issues
-      if (fetchPromises.length === 0) {
-        fetchPromises.push(Promise.resolve(true));
-      }
-      
-      // Execute all data fetching promises with a timeout
-      await Promise.race([
-        Promise.allSettled(fetchPromises),
-        new Promise(resolve => setTimeout(resolve, PRELOAD_CONFIG.TIMEOUT.DATA * 2)) // Double the timeout
-      ]);
-      
-      updateProgress(0.1, LOADING_MESSAGES.DATA + ' ✓');
-      return true;
-    } catch (error) {
-      console.warn('Error preloading data:', error);
-      updateProgress(0.05, 'Continuing with limited data');
-      return false;
-    }
-  };
-
-  // Add new function to fetch all image URLs
+  // Fetch all image URLs from database
   const fetchAllImageUrls = async () => {
     try {
       // Fetch exercises with images
-      const { data: exercises, error: exercisesError } = await supabase
-        .from('exercises')
-        .select('id, image_url')
-        .not('image_url', 'is', null);
-      
-      if (exercisesError) throw exercisesError;
+      type Exercise = { id: string; image_url: string };
+      const exercises = await fetchSupabaseData<Exercise>(
+        'exercises',
+        supabase
+          .from('exercises')
+          .select('id, image_url')
+          .not('image_url', 'is', null),
+        'Error fetching exercise images'
+      );
 
       // Fetch workout plans with images
-      const { data: plans, error: plansError } = await supabase
-        .from('workout_plans')
-        .select('id, image_url')
-        .not('image_url', 'is', null);
-      
-      if (plansError) throw plansError;
+      type Plan = { id: string; image_url: string };
+      const plans = await fetchSupabaseData<Plan>(
+        'workout_plans',
+        supabase
+          .from('workout_plans')
+          .select('id, image_url')
+          .not('image_url', 'is', null),
+        'Error fetching workout plan images'
+      );
 
       // Collect all image URLs
-      const imageUrls: string[] = [
-        ...exercises?.map(e => e.image_url) || [],
-        ...plans?.map(p => p.image_url) || []
+      const imageUrls = [
+        ...exercises.map(e => e.image_url),
+        ...plans.map(p => p.image_url)
       ].filter(url => url && typeof url === 'string') as string[];
 
       return imageUrls;
@@ -585,7 +296,7 @@ export default function SplashScreenManager({ children }: { children: React.Reac
     }
   };
 
-  // Add new function to fetch user-specific image URLs
+  // Fetch user-specific images for preloading
   const fetchUserSpecificImages = async (userId: string): Promise<string[]> => {
     try {
       // Create arrays for different priority levels
@@ -595,95 +306,90 @@ export default function SplashScreenManager({ children }: { children: React.Reac
       
       // 1. Get progress photos (HIGH PRIORITY - immediately visible on profile)
       setLoadingMessage(LOADING_MESSAGES.PROGRESS_PHOTOS);
-      const { data: progressPhotos, error: progressError } = await supabase
-        .from('progress_photos')
-        .select('photo_url')
-        .eq('user_id', userId)
-        .order('taken_at', { ascending: false })
-        .limit(PRELOAD_CONFIG.USER_DATA_LIMIT);
+      type ProgressPhoto = { photo_url: string };
+      const progressPhotos = await fetchSupabaseData<ProgressPhoto>(
+        'progress_photos',
+        supabase
+          .from('progress_photos')
+          .select('photo_url')
+          .eq('user_id', userId)
+          .order('taken_at', { ascending: false })
+          .limit(PRELOAD_CONFIG.USER_DATA_LIMIT),
+        'Error fetching progress photos'
+      );
       
-      if (!progressError && progressPhotos) {
-        const photoUrls = progressPhotos
-          .map(photo => photo.photo_url)
-          .filter(url => url && typeof url === 'string');
-          
-        // Add to high priority (most recent photos) and medium priority (older photos)
-        if (photoUrls.length > 0) {
-          // Most recent photos (first 2) get high priority
-          highPriorityImages.push(...photoUrls.slice(0, 2));
-          
-          // Rest get medium priority
-          if (photoUrls.length > 2) {
-            mediumPriorityImages.push(...photoUrls.slice(2));
-          }
-          
-          // Mark the most recent photo as important so it stays in memory
-          if (photoUrls.length > 0) {
-            markAsImportantImage(photoUrls[0]);
-          }
-          
-          console.log(`Found ${photoUrls.length} progress photos to preload (${highPriorityImages.length} high priority)`);
+      const photoUrls = progressPhotos
+        .map(photo => photo.photo_url)
+        .filter(url => url && typeof url === 'string');
+        
+      if (photoUrls.length > 0) {
+        // Most recent photos (first 2) get high priority
+        highPriorityImages.push(...photoUrls.slice(0, 2));
+        
+        // Rest get medium priority
+        if (photoUrls.length > 2) {
+          mediumPriorityImages.push(...photoUrls.slice(2));
         }
+        
+        // Mark the most recent photo as important so it stays in memory
+        if (photoUrls.length > 0) {
+          markAsImportantImage(photoUrls[0]);
+        }
+        
+        console.log(`Found ${photoUrls.length} progress photos to preload (${highPriorityImages.length} high priority)`);
       }
       
       // 2. Get favorite exercises (MEDIUM-HIGH PRIORITY - accessed from favorites tab)
       setLoadingMessage(LOADING_MESSAGES.FAVORITE_EXERCISES);
-      const { data: favorites, error: favoritesError } = await supabase
-        .from('user_favorite_exercises')
-        .select('exercise_id')
-        .eq('user_id', userId)
-        .limit(PRELOAD_CONFIG.FAVORITE_EXERCISES_LIMIT);
+      type FavoriteExercise = { exercise_id: string };
+      const favorites = await fetchSupabaseData<FavoriteExercise>(
+        'user_favorite_exercises',
+        supabase
+          .from('user_favorite_exercises')
+          .select('exercise_id')
+          .eq('user_id', userId)
+          .limit(PRELOAD_CONFIG.FAVORITE_EXERCISES_LIMIT),
+        'Error fetching favorite exercises'
+      );
       
-      if (!favoritesError && favorites && favorites.length > 0) {
+      if (favorites.length > 0) {
         // Get details for favorite exercises
         const exerciseIds = favorites.map(fav => fav.exercise_id);
         
-        const { data: favoriteExercises, error: exercisesError } = await supabase
-          .from('exercises')
-          .select('id, image_url, name')
-          .in('id', exerciseIds);
+        type ExerciseDetail = { id: string; image_url: string; name: string };
+        const favoriteExercises = await fetchSupabaseData<ExerciseDetail>(
+          'exercises',
+          supabase
+            .from('exercises')
+            .select('id, image_url, name')
+            .in('id', exerciseIds),
+          'Error fetching favorite exercise details'
+        );
         
-        if (!exercisesError && favoriteExercises) {
-          const exerciseUrls = favoriteExercises
-            .map(ex => ({ id: ex.id, url: ex.image_url, name: ex.name }))
-            .filter(item => item.url && typeof item.url === 'string');
-          
-          // First 5 favorite exercises get high priority
-          highPriorityImages.push(...exerciseUrls.slice(0, 5).map(item => item.url));
-          
-          // Next 10 get medium priority
-          mediumPriorityImages.push(...exerciseUrls.slice(5, 15).map(item => item.url));
-          
-          // Rest get low priority
-          lowPriorityImages.push(...exerciseUrls.slice(15).map(item => item.url));
-          
-          // Mark all favorite exercise images as important
-          exerciseUrls.forEach(item => {
-            if (item.url) {
-              markAsImportantImage(item.url);
-            }
-          });
-          
-          console.log(`Found ${exerciseUrls.length} favorite exercise images to preload (${
-            Math.min(exerciseUrls.length, 5)} high, ${
-            Math.min(Math.max(exerciseUrls.length - 5, 0), 10)} medium, ${
-            Math.max(exerciseUrls.length - 15, 0)} low priority)`);
-        }
-      }
-      
-      // 3. Get recent workout images
-      setLoadingMessage(LOADING_MESSAGES.WORKOUT_HISTORY);
-      const { data: workouts, error: workoutsError } = await supabase
-        .from('workouts')
-        .select('id')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(PRELOAD_CONFIG.USER_DATA_LIMIT);
-      
-      if (!workoutsError && workouts && workouts.length > 0) {
-        // If there are any workout-related images, fetch them here
-        // This is a placeholder for any future workout images
-        console.log(`Found ${workouts.length} workouts (placeholder for any workout images)`);
+        const exerciseUrls = favoriteExercises
+          .map(ex => ({ id: ex.id, url: ex.image_url, name: ex.name }))
+          .filter(item => item.url && typeof item.url === 'string');
+        
+        // First 5 favorite exercises get high priority
+        highPriorityImages.push(...exerciseUrls.slice(0, 5).map(item => item.url));
+        
+        // Next 10 get medium priority
+        mediumPriorityImages.push(...exerciseUrls.slice(5, 15).map(item => item.url));
+        
+        // Rest get low priority
+        lowPriorityImages.push(...exerciseUrls.slice(15).map(item => item.url));
+        
+        // Mark all favorite exercise images as important
+        exerciseUrls.forEach(item => {
+          if (item.url) {
+            markAsImportantImage(item.url);
+          }
+        });
+        
+        console.log(`Found ${exerciseUrls.length} favorite exercise images to preload (${
+          Math.min(exerciseUrls.length, 5)} high, ${
+          Math.min(Math.max(exerciseUrls.length - 5, 0), 10)} medium, ${
+          Math.max(exerciseUrls.length - 15, 0)} low priority)`);
       }
       
       // Set loading message back to general user content
@@ -698,6 +404,139 @@ export default function SplashScreenManager({ children }: { children: React.Reac
     } catch (error) {
       console.warn('Error fetching user-specific images:', error);
       return [];
+    }
+  };
+
+  // Load application data with proper caching
+  const preloadApplicationData = async () => {
+    try {
+      setLoadingMessage(LOADING_MESSAGES.DATA);
+      
+      // SECTION 1: Load ALL exercises - no limits
+      const allExercises = await fetchSupabaseData(
+        'exercises',
+        supabase.from('exercises').select('*'),
+        'Error precaching all exercises'
+      );
+      
+      if (allExercises.length > 0) {
+        console.log(`📊 Preloaded ${allExercises.length} total exercises`);
+      }
+      
+      // SECTION 2: Cache ALL workout plans - no limits
+      const allPlans = await fetchSupabaseData(
+        'workout_plans',
+        supabase.from('workout_plans').select('*'),
+        'Error precaching workout plans'
+      );
+      
+      if (allPlans.length > 0) {
+        console.log(`📊 Preloaded ${allPlans.length} workout plans`);
+      }
+      
+      // SECTION 3: Cache user-specific data if logged in
+      if (session?.user) {
+        // User settings
+        await fetchSupabaseData(
+          'user_settings',
+          supabase
+            .from('user_settings')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .single(),
+          'Error fetching user settings'
+        );
+        
+        // User profile
+        await fetchSupabaseData(
+          'profiles',
+          supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single(),
+          'Error fetching user profile'
+        );
+        
+        // User's workouts - get ALL, not just recent
+        await fetchSupabaseData(
+          'workouts',
+          supabase
+            .from('workouts')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .order('created_at', { ascending: false }),
+          'Error fetching user workouts'
+        );
+        
+        // User achievements
+        await fetchSupabaseData(
+          'user_achievements',
+          supabase
+            .from('user_achievements')
+            .select('*')
+            .eq('user_id', session.user.id),
+          'Error fetching user achievements'
+        );
+        
+        // Favorite exercises
+        await fetchSupabaseData(
+          'user_favorite_exercises',
+          supabase
+            .from('user_favorite_exercises')
+            .select('exercise_id')
+            .eq('user_id', session.user.id),
+          'Error fetching favorite exercises'
+        );
+        
+        // Progress photos - get ALL, not just recent
+        await fetchSupabaseData(
+          'progress_photos',
+          supabase
+            .from('progress_photos')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .order('created_at', { ascending: false }),
+          'Error fetching progress photos'
+        );
+        
+        // User measurements
+        await fetchSupabaseData(
+          'user_measurements',
+          supabase
+            .from('user_measurements')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .order('created_at', { ascending: false }),
+          'Error fetching user measurements'
+        );
+      }
+      
+      updateProgress(0.1, LOADING_MESSAGES.DATA + ' ✓');
+      return true;
+    } catch (error) {
+      console.warn('Error preloading data:', error);
+      updateProgress(0.05, 'Continuing with limited data');
+      return false;
+    }
+  };
+
+  // Refresh essential data when app comes to foreground
+  const refreshEssentialData = async () => {
+    if (DEBUG_SPLASH_SCREEN) {
+      console.log(`🔄 [SplashScreenManager] Refreshing essential data in background`);
+    }
+    
+    try {
+      // This runs silently in the background without UI updates
+      await preloadApplicationData();
+      
+      if (DEBUG_SPLASH_SCREEN) {
+        console.log(`✅ [SplashScreenManager] Refreshed essential data silently in background`);
+      }
+    } catch (error) {
+      // Don't show errors to user for background refreshes
+      console.log('Background data refresh error:', error);
     }
   };
 
@@ -720,7 +559,7 @@ export default function SplashScreenManager({ children }: { children: React.Reac
         try {
           // Handle static assets with a timeout to ensure we don't get stuck
           await Promise.race([
-            preloadAllImages(),
+            preloadStaticImages(),
             new Promise((_, reject) => 
               setTimeout(() => reject(new Error('Static assets timeout')), PRELOAD_CONFIG.TIMEOUT.STATIC_ASSETS)
             )
@@ -794,10 +633,10 @@ export default function SplashScreenManager({ children }: { children: React.Reac
           updateProgress(0.3, LOADING_MESSAGES.CONTENT, 'remoteImagesFallback');
         }
         
-        // Phase 3: Preload data - this is handled internally in preloadFrequentlyUsedData
+        // Phase 3: Preload data - this is handled internally in preloadApplicationData
         try {
           await Promise.race([
-            preloadFrequentlyUsedData(),
+            preloadApplicationData(),
             new Promise((_, reject) => 
               setTimeout(() => reject(new Error('Data loading timeout')), PRELOAD_CONFIG.TIMEOUT.DATA)
             )

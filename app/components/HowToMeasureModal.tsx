@@ -14,9 +14,9 @@ import {
 import { Text, IconButton, Portal, Provider } from 'react-native-paper';
 import { GestureHandlerRootView, ScrollView } from 'react-native-gesture-handler';
 import { MeasurementCategory } from '../services/measurements';
-import OptimizedImage from './OptimizedImage';
-import { STATIC_IMAGES } from '../utils/imagePreloader';
+
 import { COLORS } from '../constants/theme';
+import { STATIC_IMAGES } from './SplashScreenManager';
 
 interface MeasurementInstruction {
   category: MeasurementCategory;
@@ -131,12 +131,10 @@ export default function HowToMeasureModal({ visible, onClose, modalAnim }: Props
                           >
                             <View style={styles.instructionImageContainer}>
                               <View style={styles.imageWrapper}>
-                                <OptimizedImage 
+                                <Image 
                                   source={instruction.icon}
-                                  style={styles.imageWrapper}
-                                  imageStyle={styles.instructionImage}
-                                  contentFit="contain"
-                                  transparent
+                                  style={styles.instructionImage}
+                                  resizeMode="contain"
                                 />
                               </View>
                             </View>

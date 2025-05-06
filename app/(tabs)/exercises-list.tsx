@@ -9,7 +9,36 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import exerciseService, { Exercise, ExerciseCategory } from '../services/exerciseService';
 import { GeneralHeader } from '../components/GeneralHeader';
-import loadTimeTracker from '../utils/loadTimeTracker';
+
+// Simple performance tracking utility
+const loadTimeTracker = {
+  timePoints: new Map<string, { start?: number, end?: number, marks: { time: number, label: string }[] }>(),
+  
+  startLoadTimeTracking: (id: string) => {
+    console.log(`[LoadTracker] Starting tracking for ${id}`);
+    loadTimeTracker.timePoints.set(id, { 
+      start: Date.now(), 
+      marks: [] 
+    });
+  },
+  
+  endLoadTimeTracking: (id: string) => {
+    const timePoint = loadTimeTracker.timePoints.get(id);
+    if (timePoint) {
+      timePoint.end = Date.now();
+      console.log(`[LoadTracker] Completed tracking for ${id}: ${timePoint.end - (timePoint.start || 0)}ms`);
+    }
+  },
+  
+  markLoadTime: (id: string, label: string) => {
+    const timePoint = loadTimeTracker.timePoints.get(id);
+    if (timePoint) {
+      const mark = { time: Date.now(), label };
+      timePoint.marks.push(mark);
+      console.log(`[LoadTracker] ${id} - ${label}: ${mark.time - (timePoint.start || 0)}ms`);
+    }
+  }
+};
 
 // Get screen width for responsive sizing
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -246,33 +275,31 @@ export default function ExercisesListScreen() {
 
   const toggleFavorite = useCallback(async (id: string) => {
     try {
-      const isFavorite = !favoriteIds.has(id);
+      const isFavorite = favoriteIds.has(id);
       
       // Optimistically update the UI
-      setFavoriteIds(prev => {
-        const newSet = new Set(prev);
-        if (isFavorite) {
-          newSet.add(id);
-        } else {
-          newSet.delete(id);
-        }
-        return newSet;
-      });
+      const newFavoriteIds = new Set(favoriteIds);
+      if (isFavorite) {
+        newFavoriteIds.delete(id);
+      } else {
+        newFavoriteIds.add(id);
+      }
+      setFavoriteIds(newFavoriteIds);
       
-      // Update in the database
-      await exerciseService.toggleFavoriteExercise(id, isFavorite);
-    } catch (err) {
-      console.error('Error toggling favorite:', err);
-      // Revert on error
-      setFavoriteIds(prev => {
-        const newSet = new Set(prev);
-        if (newSet.has(id)) {
-          newSet.delete(id);
-        } else {
-          newSet.add(id);
-        }
-        return newSet;
-      });
+      // Update the backend - call the toggle method with isFavorite=!currentState
+      await exerciseService.toggleFavoriteExercise(id, !isFavorite);
+    } catch (error) {
+      console.error(`Error toggling favorite status for exercise ${id}:`, error);
+      
+      // Revert UI change on error
+      // This retrieves the current favorites from the backend to ensure consistency
+      try {
+        const favorites = await exerciseService.getFavoriteExercises();
+        const favoriteIdSet = new Set(favorites.map(fav => fav.id));
+        setFavoriteIds(favoriteIdSet);
+      } catch (favError) {
+        console.error('Error retrieving favorites after failed toggle:', favError);
+      }
     }
   }, [favoriteIds]);
 
@@ -458,16 +485,6 @@ export default function ExercisesListScreen() {
         <Animated.View style={{ paddingTop: contentOffsetAnim }}>
           <FlatList
             data={displayedExercises}
-            renderItem={({ item }) => (
-              <ExerciseCard
-                id={item.id}
-                name={item.name}
-                image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE}
-                isFavorite={favoriteIds.has(item.id)}
-                onPress={() => handleExercisePress(item.id)}
-                onToggleFavorite={() => toggleFavorite(item.id)}
-              />
-            )}
             keyExtractor={item => item.id}
             numColumns={2}
             columnWrapperStyle={styles.columnWrapper}
@@ -480,12 +497,18 @@ export default function ExercisesListScreen() {
                     {CATEGORY_NAMES[currentCategory] || currentCategory.toUpperCase()}
                   </Text>
                 </View>
-              ) : searchQuery.trim() ? (
-                <View style={styles.categoryTitleContainer}>
-                  
-                </View>
               ) : null
             }
+            renderItem={({ item }) => (
+              <ExerciseCard
+                id={item.id}
+                name={item.name}
+                image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE}
+                isFavorite={favoriteIds.has(item.id)}
+                onPress={() => handleExercisePress(item.id)}
+                onToggleFavorite={() => toggleFavorite(item.id)}
+              />
+            )}
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
                 <MaterialIcons name="search-off" size={48} color="rgba(255,255,255,0.5)" />

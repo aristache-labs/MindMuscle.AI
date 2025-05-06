@@ -1,15 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, FlatList, Pressable, ActivityIndicator, Dimensions } from 'react-native';
+import { StyleSheet, View, FlatList, Pressable, ActivityIndicator, Dimensions, Image } from 'react-native';
 import { Text, IconButton, Divider } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import OptimizedImage from '../components/OptimizedImage';
 import { LinearGradient } from 'expo-linear-gradient';
 import workoutPlanService, { WorkoutPlan } from '../services/workoutPlanService';
 import { MaterialIcons } from '@expo/vector-icons';
-import loadTimeTracker from '../utils/loadTimeTracker';
+
 
 const { width } = Dimensions.get('window');
 
@@ -29,13 +28,6 @@ export default function PlansScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [featuredPlan, setFeaturedPlan] = useState<WorkoutPlan | null>(null);
 
-  // For performance tracking
-  useEffect(() => {
-    loadTimeTracker.startLoadTimeTracking('PlansScreen');
-    return () => {
-      loadTimeTracker.endLoadTimeTracking('PlansScreen');
-    };
-  }, []);
 
   // Map for plan images based on the ones in assets/exercises
   const imageMap: { [key: string]: any } = {
@@ -46,22 +38,22 @@ export default function PlansScreen() {
   useEffect(() => {
     async function fetchPlans() {
       try {
-        loadTimeTracker.markLoadTime('PlansScreen', 'fetchPlans started');
+
         setIsLoading(true);
         
         let fetchedPlans: WorkoutPlan[] = [];
         
         // Fetch plans by subcategory if available
         if (subcategoryId) {
-          loadTimeTracker.markLoadTime('PlansScreen', `Fetching plans for subcategory: ${subcategoryId}`);
+
           fetchedPlans = await workoutPlanService.getPlansBySubcategory(subcategoryId.toString());
         } else {
           // Fetch all plans as fallback
-          loadTimeTracker.markLoadTime('PlansScreen', 'Fetching all plans');
+
           fetchedPlans = await workoutPlanService.getAllPlans();
         }
         
-        loadTimeTracker.markLoadTime('PlansScreen', `Plans fetched: ${fetchedPlans.length}`);
+
         
         // Set featured plan (first one or null)
         if (fetchedPlans.length > 0) {
@@ -75,11 +67,11 @@ export default function PlansScreen() {
         
         // Mark UI render time
         setTimeout(() => {
-          loadTimeTracker.markLoadTime('PlansScreen', 'UI fully rendered');
+
         }, 500);
       } catch (error) {
         console.error("Error fetching plans:", error);
-        loadTimeTracker.markLoadTime('PlansScreen', 'Error fetching plans');
+
         setPlans([]);
         setFeaturedPlan(null);
         setIsLoading(false);
@@ -247,10 +239,10 @@ export default function PlansScreen() {
       
       {/* Featured Plan Image */}
       <View style={styles.featuredImageContainer}>
-        <OptimizedImage
+        <Image
           source={featuredImageSource}
           style={styles.featuredImage}
-          contentFit="cover"
+          resizeMode="cover"
         />
         <LinearGradient
           colors={['transparent', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.9)']}

@@ -11,7 +11,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
-  BackHandler
+  BackHandler,
+  Image
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { IconButton, Divider, Surface } from 'react-native-paper';
@@ -30,10 +31,7 @@ import * as FileSystem from 'expo-file-system';
 import { Asset } from 'expo-asset';
 import { useDebounce } from '../hooks/useDebounce';
 import supabase from '../services/supabase';
-import loadTimeTracker from '../utils/loadTimeTracker';
-
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
-import OptimizedImage from '../components/OptimizedImage';
 import MuscleDiagram from '../components/MuscleDiagram';
 import MuscleTags from '../components/MuscleTags';
 import ExerciseInstructions from '../components/ExerciseInstructions';
@@ -66,13 +64,7 @@ export default function ExerciseDetailsScreen({
     ? modalParams 
     : params;
 
-  // For performance tracking
-  useEffect(() => {
-    loadTimeTracker.startLoadTimeTracking('ExerciseDetailsScreen');
-    return () => {
-      loadTimeTracker.endLoadTimeTracking('ExerciseDetailsScreen');
-    };
-  }, []);
+
 
   // State management
   const [activeSection, setActiveSection] = useState<'muscles' | 'instructions'>('muscles');
@@ -181,7 +173,6 @@ export default function ExerciseDetailsScreen({
 
   const loadSvgFiles = async () => {
     try {
-      loadTimeTracker.markLoadTime('ExerciseDetailsScreen', 'Loading SVG files');
       // Load front body SVG
       const frontBodyAsset = Asset.fromModule(require('../../assets/exercises/body_front.svg'));
       await frontBodyAsset.downloadAsync();
@@ -197,16 +188,14 @@ export default function ExerciseDetailsScreen({
         const backBodyContent = await FileSystem.readAsStringAsync(backBodyAsset.localUri);
         setBackBodySvg(backBodyContent);
       }
-      loadTimeTracker.markLoadTime('ExerciseDetailsScreen', 'SVG files loaded');
+
     } catch (error) {
       console.error('Error loading SVG files:', error);
-      loadTimeTracker.markLoadTime('ExerciseDetailsScreen', 'Error loading SVG files');
     }
   };
 
   const fetchExerciseData = async (exerciseId: string) => {
     try {
-      loadTimeTracker.markLoadTime('ExerciseDetailsScreen', `Fetching exercise data for ID: ${exerciseId}`);
       setLoading(true);
       
       // Fetch exercise data from Supabase
@@ -218,12 +207,12 @@ export default function ExerciseDetailsScreen({
       
       if (error) {
         console.error('Error fetching exercise data:', error);
-        loadTimeTracker.markLoadTime('ExerciseDetailsScreen', 'Error fetching exercise data');
+
         return;
       }
       
       if (data) {
-        loadTimeTracker.markLoadTime('ExerciseDetailsScreen', 'Exercise data fetched successfully');
+
         const exerciseInfo = {
           instructions: data.instructions || '',
           primaryMuscles: data.primary_muscles || [],
@@ -234,13 +223,13 @@ export default function ExerciseDetailsScreen({
       }
     } catch (error) {
       console.error('Error fetching exercise data:', error);
-      loadTimeTracker.markLoadTime('ExerciseDetailsScreen', 'Error in fetchExerciseData');
+
     } finally {
       setLoading(false);
       
       // Mark UI render time
       setTimeout(() => {
-        loadTimeTracker.markLoadTime('ExerciseDetailsScreen', 'UI fully rendered');
+
       }, 500);
     }
   };
@@ -248,7 +237,7 @@ export default function ExerciseDetailsScreen({
   // Function to fetch exercise notes
   const fetchExerciseNotes = async (exerciseId: string) => {
     try {
-      loadTimeTracker.markLoadTime('ExerciseDetailsScreen', 'Fetching exercise notes');
+
       const { data, error } = await supabase
         .from('exercise_notes')
         .select('note_content')
@@ -257,19 +246,19 @@ export default function ExerciseDetailsScreen({
 
       if (error) {
         console.error('Error fetching notes:', error);
-        loadTimeTracker.markLoadTime('ExerciseDetailsScreen', 'Error fetching notes');
+
         return;
       }
 
       if (data) {
         setNotes(data.note_content);
-        loadTimeTracker.markLoadTime('ExerciseDetailsScreen', 'Notes fetched successfully');
+
       } else {
         setNotes('');
       }
     } catch (error) {
       console.error('Error fetching notes:', error);
-      loadTimeTracker.markLoadTime('ExerciseDetailsScreen', 'Error in fetchExerciseNotes');
+
     }
   };
 
@@ -337,8 +326,6 @@ export default function ExerciseDetailsScreen({
       const categoryName = params.categoryName || '';
       const planNumber = params.planNumber || '';
       const planTitle = params.planTitle || '';
-
-      console.log('Navigation back to plan-details with accent:', accent);
 
       router.push({
         pathname: "/(tabs)/plan-details",
@@ -511,9 +498,10 @@ export default function ExerciseDetailsScreen({
           >
             {/* Exercise Image/Video */}
             <Pressable style={styles.mediaContainer} onPress={() => {}}>
-              <OptimizedImage 
+              <Image 
                 source={getImageSource()} 
                 style={styles.mediaImage}
+                resizeMode="cover"
               />
               <View style={styles.playButtonOverlay}>
                 <MaterialIcons name="play-circle-filled" size={60} color="rgba(255,255,255,0.8)" />

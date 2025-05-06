@@ -1,20 +1,14 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { StyleSheet, View, SectionList, ImageSourcePropType, Pressable, SectionListRenderItemInfo, SectionListData, Animated, NativeSyntheticEvent, NativeScrollEvent, LayoutChangeEvent, SectionListProps, ViewToken, findNodeHandle, Easing, ScrollView } from 'react-native';
+import { StyleSheet, View, SectionList, ImageSourcePropType, Pressable, SectionListRenderItemInfo, SectionListData, Animated, NativeSyntheticEvent, NativeScrollEvent, LayoutChangeEvent, SectionListProps, ViewToken, findNodeHandle, Easing, ScrollView, Image } from 'react-native';
 import { Text, Chip, IconButton, Surface, Divider, ActivityIndicator } from 'react-native-paper';
 import { COLORS, SPACING, HEADER_HEIGHT, BORDER_RADIUS } from '../constants/theme';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
-import OptimizedImage from '../components/OptimizedImage';
 import { LinearGradient } from 'expo-linear-gradient';
 import supabase, { supabaseUrl } from '../services/supabase';
 import { useRouter } from 'expo-router';
 import { GeneralHeader } from '../components/GeneralHeader';
-import { markAsImportantImage } from '../utils/imagePreloader';
-import loadTimeTracker from '../utils/loadTimeTracker';
-
-// Add debug tracking for discover screen - add after imports
-const DEBUG_NAVIGATION = true;
 
 // Heights
 const FILTER_HEIGHT = 48;
@@ -118,14 +112,10 @@ const WorkoutCard = ({ id, title, subtitle, image, accent, category }: WorkoutPr
     try {
       // If image is a string URL, mark it as important
       if (typeof image === 'string') {
-        if (DEBUG_NAVIGATION) console.log(`🔒 Marking workout card image as important: ${id}`);
-        markAsImportantImage(image);
       } else if (image && typeof image === 'object') {
         // Try to safely extract URI if it exists
         const imgObj = image as any;
         if (imgObj.uri) {
-          if (DEBUG_NAVIGATION) console.log(`🔒 Marking workout card image URI as important: ${id}`);
-          markAsImportantImage(imgObj.uri);
         }
       }
     } catch (err) {
@@ -134,11 +124,6 @@ const WorkoutCard = ({ id, title, subtitle, image, accent, category }: WorkoutPr
   }, [image, id]);
   
   const handlePress = () => {
-    if (DEBUG_NAVIGATION) {
-      console.log(`🔀 NAVIGATION: Navigating from discover to plans with subcategoryId=${id}`);
-      console.log(`🖼️ IMAGE DATA: Navigating with image data`, image);
-    }
-    
     router.push({
       pathname: "plans",
       params: {
@@ -158,12 +143,10 @@ const WorkoutCard = ({ id, title, subtitle, image, accent, category }: WorkoutPr
       <Surface style={styles.card} elevation={2}>
         <View style={styles.cardContentContainer}>
           <View style={styles.cardImageContainer}>
-            <OptimizedImage 
+            <Image 
               source={typeof image === 'string' ? { uri: image } : image as any}
               style={[styles.cardImageContainer, styles.cardImage]}
-              contentFit="cover"
-              debugLabel={`workout-card-${id}`}
-              priority="high"
+              resizeMode="cover"
             />
             <LinearGradient
               colors={['transparent', 'rgba(0,0,0,0.6)', 'rgba(0,0,0,0.8)']}
@@ -348,13 +331,6 @@ export default function DiscoverScreen() {
   const sectionListRef = useRef<any>(null);
   const filterScrollRef = useRef<ScrollView>(null);
   
-  // For performance tracking - add this right after the component starts
-  useEffect(() => {
-    loadTimeTracker.startLoadTimeTracking('DiscoverScreen');
-    return () => {
-      loadTimeTracker.endLoadTimeTracking('DiscoverScreen');
-    };
-  }, []);
 
   // Active filters state
   const [activeFilters, setActiveFilters] = useState<{[key: string]: string[]}>({
@@ -384,7 +360,6 @@ export default function DiscoverScreen() {
   useEffect(() => {
     async function fetchData() {
       try {
-        loadTimeTracker.markLoadTime('DiscoverScreen', 'fetchData started');
         setIsLoading(true);
         
         // Fetch workout categories
@@ -398,7 +373,6 @@ export default function DiscoverScreen() {
           return;
         }
 
-        loadTimeTracker.markLoadTime('DiscoverScreen', 'Categories fetched');
 
         // Fetch workout subcategories
         const { data: subcategoriesData, error: subcategoriesError } = await supabase
@@ -411,7 +385,6 @@ export default function DiscoverScreen() {
           return;
         }
 
-        loadTimeTracker.markLoadTime('DiscoverScreen', 'Subcategories fetched');
 
         // Map the data to our required format
         const categoryNames = (categoriesData as WorkoutCategory[]).map(category => category.name);
@@ -481,13 +454,11 @@ export default function DiscoverScreen() {
         setSections(formattedSections);
         
         // Add before setting isLoading to false
-        loadTimeTracker.markLoadTime('DiscoverScreen', 'Data processing complete');
         
         setIsLoading(false);
         
         // Add this at the end of the successful data fetch
         setTimeout(() => {
-          loadTimeTracker.markLoadTime('DiscoverScreen', 'UI fully rendered');
         }, 500);
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -498,8 +469,6 @@ export default function DiscoverScreen() {
     fetchData();
   }, []);
   
-  // No need to use useImagePreloader as all images are already preloaded during splash screen
-  const imagesPreloaded = true; // All images are already preloaded in SplashScreenManager
 
   // Function to render section headers - hide the first one
   const renderSectionHeader = ({ section }: { section: {title: string, data: WorkoutProgram[]} }) => {

@@ -7,7 +7,6 @@ import { AuthProvider } from './store/AuthContext';
 import { ProfileProvider } from './store/ProfileContext';
 import { ProgressProvider } from './store/ProgressContext';
 import { GamificationProvider } from './store/GamificationContext';
-import { ProgressPhotosProvider } from './store/ProgressPhotosContext';
 import AuthGuard from './components/AuthGuard';
 import * as Sentry from '@sentry/react-native';
 import { initializeSentry } from './services/sentry';
@@ -60,13 +59,11 @@ function RootLayout() {
           <ProfileProvider>
             <ProgressProvider>
               <GamificationProvider>
-                <ProgressPhotosProvider>
                   <SplashScreenManager>
                     <AuthGuard>
                       <Slot />
                     </AuthGuard>
                   </SplashScreenManager>
-                </ProgressPhotosProvider>
               </GamificationProvider>
             </ProgressProvider>
           </ProfileProvider>

@@ -13,7 +13,6 @@ export interface WorkoutPlan {
   duration_weeks: number;  // Calculated/mapped from other data
   days_per_week: number;   // Extracted from subcategory_identifier
   display_order: number;
-  accent_color?: string;
   created_at: string;
   updated_at: string;
   identifier?: string;
@@ -31,7 +30,6 @@ interface RawWorkoutPlan {
   subcategory_id: string;
   difficulty_level: string;
   estimated_duration: number;
-  accent_color: string;
   display_order: number;
   created_at: string;
   updated_at: string;
@@ -118,7 +116,7 @@ const workoutPlanService = {
       .from('workout_plans')
       .select(`
         *,
-        workout_subcategories:subcategory_id (title)
+        workout_subcategories:subcategory_id (title, subtitle, accent_color)
       `)
       .order('display_order', { ascending: true });
 
@@ -130,7 +128,9 @@ const workoutPlanService = {
     // Transform data to include subcategory title
     const plansWithSubcategory = data?.map(plan => ({
       ...plan,
-      subcategory_title: plan.workout_subcategories?.title || ''
+      subcategory_title: plan.workout_subcategories?.title || '',
+      subcategory_subtitle: plan.workout_subcategories?.subtitle || '',
+      accent_color: plan.workout_subcategories?.accent_color || ''
     })) || [];
 
     // Transform each plan to match the interface
@@ -181,7 +181,7 @@ const workoutPlanService = {
         .from('workout_plans')
         .select(`
           *,
-          workout_subcategories:subcategory_id (title)
+          workout_subcategories:subcategory_id (title, subtitle, accent_color)
         `)
         .eq('subcategory_identifier', subcategoryId)
         .order('display_order', { ascending: true });
@@ -199,7 +199,7 @@ const workoutPlanService = {
           .from('workout_plans')
           .select(`
             *,
-            workout_subcategories:subcategory_id (title)
+            workout_subcategories:subcategory_id (title, subtitle, accent_color)
           `)
           .eq('subcategory_id', subcategoryId)
           .order('display_order', { ascending: true });
@@ -213,7 +213,8 @@ const workoutPlanService = {
         const plansWithSubcategory = secondaryData.map(plan => ({
           ...plan,
           subcategory_title: plan.workout_subcategories?.title || (subcategory?.title || ''),
-          subcategory_subtitle: plan.workout_subcategories?.subtitle || (subcategory?.subtitle || '')
+          subcategory_subtitle: plan.workout_subcategories?.subtitle || (subcategory?.subtitle || ''),
+          accent_color: plan.workout_subcategories?.accent_color || ''
         }));
 
         return plansWithSubcategory.map(this.transformResponse);
@@ -223,7 +224,8 @@ const workoutPlanService = {
       const plansWithSubcategory = data.map(plan => ({
         ...plan,
         subcategory_title: plan.workout_subcategories?.title || (subcategory?.title || ''),
-        subcategory_subtitle: plan.workout_subcategories?.subtitle || (subcategory?.subtitle || '')
+        subcategory_subtitle: plan.workout_subcategories?.subtitle || (subcategory?.subtitle || ''),
+        accent_color: plan.workout_subcategories?.accent_color || ''
       }));
 
       // Transform each plan to match the interface
@@ -240,7 +242,7 @@ const workoutPlanService = {
       .from('workout_plans')
       .select(`
         *,
-        workout_subcategories:subcategory_id (title)
+        workout_subcategories:subcategory_id (title, subtitle, accent_color)
       `)
       .eq('id', planId)
       .single();
@@ -252,10 +254,12 @@ const workoutPlanService = {
 
     if (!data) return null;
 
-    // Add subcategory title to plan data
+    // Add subcategory title and subtitle to plan data
     const planWithSubcategory = {
       ...data,
-      subcategory_title: data.workout_subcategories?.title || ''
+      subcategory_title: data.workout_subcategories?.title || '',
+      subcategory_subtitle: data.workout_subcategories?.subtitle || '',
+      accent_color: data.workout_subcategories?.accent_color || ''
     };
 
     return this.transformResponse(planWithSubcategory);

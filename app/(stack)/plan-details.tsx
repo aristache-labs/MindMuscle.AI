@@ -290,7 +290,7 @@ export default function PlanDetailsScreen() {
           {/* Plan Summary */}
           <View style={styles.summaryContainer}>
 
-            <Text style={styles.planTypeLabel}>{plan?.subcategory_subtitle || 'Full Body'}</Text>
+            <Text style={styles.planTypeLabel}>{plan?.subcategory_subtitle || 'Unknown'}</Text>
             
             <View style={styles.statsRow}>
               <View style={styles.statItem}>

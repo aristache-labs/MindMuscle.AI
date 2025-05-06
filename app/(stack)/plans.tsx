@@ -30,11 +30,6 @@ export default function PlansScreen() {
 
   // Map for plan images based on the ones in assets/exercises
   const imageMap: { [key: string]: any } = {
-    'fullbody.jpg': require('../../assets/exercises/fullbody.jpg'),
-    'dumbbell.jpg': require('../../assets/exercises/dumbbell.jpg'),
-    'pushup.jpg': require('../../assets/exercises/pushup.jpg'),
-    'squat.jpg': require('../../assets/exercises/squat.jpg'),
-    'yoga.jpg': require('../../assets/exercises/yoga.jpg'),
     'placeholder.jpg': require('../../assets/exercises/placeholder.jpg'),
   };
 
@@ -125,8 +120,9 @@ export default function PlansScreen() {
     // Get image source with fallback
     const imageSource = getImageSource(item.image_url);
     
-    // Get accent color for vertical bar
-    const accentColor = item.accent_color || accent || COLORS.primary;
+    // Get accent color from params (passed from subcategory) or from the default theme color
+    // Since accent_color is now removed from workout_plans and available only in workout_subcategories
+    const accentColor = accent || COLORS.primary;
     
     return (
       <Pressable 

@@ -144,4 +144,7 @@ const styles = StyleSheet.create({
     height: 0.5,
     marginVertical: 4,
   },
-}); 
+});
+
+// Add default export to fix the warning
+export default MenuHeader; 

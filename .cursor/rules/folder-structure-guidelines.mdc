@@ -12,7 +12,7 @@ alwaysApply: true
 
 ## Project Folder Structure
 
-Regularly update this folder structure each time you create, modify, or delete a file or folder. (Latest: Added plan-details.tsx for displaying workout plan exercises):
+Regularly update this folder structure each time you create, modify, or delete a file or folder. (Latest: Enhanced image preloading with SplashScreenManager for better app performance):
 
 ```
 mindmuscle-ai/
@@ -41,14 +41,14 @@ mindmuscle-ai/
 │   │   ├── GeneralHeader.tsx
 │   │   ├── GlobalGestureHandler
 │   │   ├── HowToMeasureModal
-│   │   ├── InitialLoadingScreen
+│   │   ├── InitialLoadingScreen.tsx
 │   │   ├── MeasurementHistory
 │   │   ├── MeasurementModal
 │   │   ├── MeasurementsGraph
 │   │   ├── MuscleDiagram.tsx
 │   │   ├── MuscleTags.tsx
-│   │   ├── OptimizedImage
-│   │   ├── SplashScreenManager
+│   │   ├── OptimizedImage.tsx
+│   │   ├── SplashScreenManager.tsx
 │   │   ├── SwipeBackHandler
 │   │   ├── ThemedDatePicker
 │   │   ├── ThemedNumberPicker
@@ -56,9 +56,12 @@ mindmuscle-ai/
 │   ├── constants/
 │   ├── docs/
 │   ├── hooks/
+│   │   ├── useImagePreloader.ts
+│   │   └── other hooks...
 │   ├── services/
 │   │   ├── exerciseService.ts
 │   │   ├── profileService.ts
+│   │   ├── progressPhotos.ts
 │   │   ├── supabase.ts
 │   │   └── workoutPlanService.ts
 │   ├── store/
@@ -67,10 +70,11 @@ mindmuscle-ai/
 │   │   ├── GamificationContext
 │   │   ├── ProfileContext
 │   │   ├── ProgressContext
-│   │   ├── ProgressPhotosContext
+│   │   ├── ProgressPhotosContext.tsx
 │   │   └── TaskContext
 │   ├── types/
 │   └── utils/
+│       ├── imagePreloader.ts
 │       └── muscleHighlighter.ts
 ├── assets/
 │   ├── exercises/
@@ -92,6 +96,8 @@ mindmuscle-ai/
 - Update the folder structure immediately after creating, deleting, or moving files.
 - Ensure consistency with naming conventions (PascalCase for components, camelCase for services and utilities, kebab-case for directories).
 - Avoid duplicating existing files or folders by checking the structure carefully.
+- For image handling, use the OptimizedImage component with the imagePreloader utilities to ensure efficient loading.
+- Use SplashScreenManager for proper application initialization and asset preloading.
 
 ---
 

@@ -1,104 +1,149 @@
-import { useCallback, useEffect } from 'react';
-import { View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { AppState, AppStateStatus, Platform } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
-import Constants from 'expo-constants';
+import InitialLoadingScreen from './InitialLoadingScreen';
+import { preloadAllImages, preloadCategories } from '../utils/imagePreloader';
+import { useAuth } from '../store/AuthContext';
+import useImagePreloader from '../hooks/useImagePreloader';
 
-interface SplashScreenManagerProps {
-  isAppReady: boolean;
-  onLayoutRootView: () => Promise<void>;
-  children: React.ReactNode;
-}
-
-/**
- * Component to manage the splash screen lifecycle
- * This handles the splash screen gracefully with proper error handling
- */
-export default function SplashScreenManager({ 
-  isAppReady, 
-  onLayoutRootView,
-  children 
-}: SplashScreenManagerProps) {
-  
-  // Keep splash screen visible while app loads
-  useEffect(() => {
-    const prepare = async () => {
-      try {
-        // Check if we're in Expo Go
-        const isExpoGo = Constants.appOwnership === 'expo';
-        
-        if (isExpoGo) {
-          console.log('Running in Expo Go - using simplified splash screen handling');
-          return;
-        }
-        
-        // Try to prevent auto-hide with a safe guard
-        try {
-          await SplashScreen.preventAutoHideAsync();
-        } catch (err) {
-          console.warn('Could not prevent splash screen auto hide:', err);
-          // Continue execution - this is not critical
-        }
-      } catch (error) {
-        console.warn('Error in splash screen preparation:', error);
-      }
-    };
-    
-    prepare();
-    
-    // Clean up function to hide splash screen if needed
-    return () => {
-      const hideSplash = async () => {
-        try {
-          // Only attempt to hide if app is ready
-          if (isAppReady) {
-            try {
-              await SplashScreen.hideAsync();
-            } catch (err) {
-              console.warn('Could not hide splash screen during cleanup:', err);
-              // Not critical, continue
-            }
-          }
-        } catch (error) {
-          console.warn('Error in splash screen cleanup:', error);
-        }
-      };
-      
-      hideSplash();
-    };
-  }, [isAppReady]);
-  
-  // Hide splash screen once the app is ready
-  const handleLayoutView = useCallback(async () => {
-    if (isAppReady) {
-      try {
-        // Call the onLayoutRootView first
-        await onLayoutRootView();
-        
-        // Check if we're in Expo Go
-        const isExpoGo = Constants.appOwnership === 'expo';
-        
-        if (!isExpoGo) {
-          // Try to hide the splash screen
-          try {
-            await SplashScreen.hideAsync();
-          } catch (err) {
-            console.warn('Could not hide splash screen after layout:', err);
-            // Not critical, continue
-          }
-        }
-      } catch (error) {
-        console.warn('Error in layout handler:', error);
+// Safely attempt to prevent auto-hide with error handling
+const safelyPreventAutoHide = async () => {
+  try {
+    // Only attempt this on real devices, not in Expo Go
+    if (Platform.OS !== 'web') {
+      // Use a try-catch with direct method check to avoid undefined errors
+      if (typeof SplashScreen.preventAutoHideAsync === 'function') {
+        await SplashScreen.preventAutoHideAsync();
+      } else {
+        console.warn('SplashScreen.preventAutoHideAsync is not a function');
       }
     }
-  }, [isAppReady, onLayoutRootView]);
+  } catch (error) {
+    console.warn('Error with splash screen prevention:', error);
+    // Continue execution regardless of error
+  }
+};
+
+// Safely attempt to hide with error handling
+const safelyHideSplashScreen = async () => {
+  try {
+    // Only attempt this on real devices, not in Expo Go
+    if (Platform.OS !== 'web') {
+      // Use a try-catch with direct method check to avoid undefined errors
+      if (typeof SplashScreen.hideAsync === 'function') {
+        await SplashScreen.hideAsync();
+      } else {
+        console.warn('SplashScreen.hideAsync is not a function');
+      }
+    }
+  } catch (error) {
+    console.warn('Error hiding splash screen:', error);
+    // Continue execution regardless of error
+  }
+};
+
+// Execute once on module load
+if (Platform.OS !== 'web') {
+  safelyPreventAutoHide().catch(err => {
+    console.warn('Initial splash screen setup failed:', err);
+  });
+}
+
+export default function SplashScreenManager({ children }: { children: React.ReactNode }) {
+  const [isAppReady, setIsAppReady] = useState(false);
+  const [showLoadingScreen, setShowLoadingScreen] = useState(true);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const { session } = useAuth();
   
+  // Handle background/foreground transitions
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription.remove();
+  }, []);
+  
+  const handleAppStateChange = (nextAppState: AppStateStatus) => {
+    if (nextAppState === 'active') {
+      // Refresh image cache when coming back to the foreground
+      preloadCategories().catch(console.error);
+    }
+  };
+
+  // Track loading progress
+  const updateProgress = (value: number) => {
+    setLoadingProgress((prev) => {
+      // Add small increments, but ensure total progress never exceeds 1
+      const newProgress = Math.min(prev + value, 0.95);
+      return newProgress;
+    });
+  };
+
+  // Preload app resources on initial load
+  useEffect(() => {
+    async function prepare() {
+      try {
+        console.log('🚀 Preparing app resources...');
+        
+        // Start with some initial progress
+        setLoadingProgress(0.05);
+        
+        // Preload static images first (40% of progress)
+        try {
+          await Promise.race([
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Static image preloading timeout')), 5000)),
+            (async () => {
+              await preloadAllImages();
+              updateProgress(0.4);
+            })()
+          ]);
+        } catch (e) {
+          console.warn('Static image preloading timed out, continuing anyway:', e);
+          updateProgress(0.4); // Still increment progress even on timeout
+        }
+        
+        // Mark loading as almost complete
+        setLoadingProgress(0.95);
+        
+        // Small delay to ensure UI is responsive
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Mark loading as complete after small delay
+        setLoadingProgress(1);
+      } catch (e) {
+        console.warn('Error preloading resources:', e);
+        setLoadingProgress(1); // Go to 100% on error so we don't get stuck
+      } finally {
+        // Mark the app as ready
+        setIsAppReady(true);
+        
+        // Safely hide the native splash screen
+        await safelyHideSplashScreen();
+      }
+    }
+
+    prepare();
+  }, []);
+
+  // Hide the loading screen when app is ready
+  const onFinishLoading = () => {
+    setShowLoadingScreen(false);
+  };
+
   if (!isAppReady) {
     return null;
   }
-  
+
   return (
-    <View style={{ flex: 1 }} onLayout={handleLayoutView}>
-      {children}
-    </View>
+    <>
+      {showLoadingScreen ? (
+        <InitialLoadingScreen 
+          onFinish={onFinishLoading}
+          message={session ? "Preparing your workout experience..." : "Welcome to MindMuscle.AI"}
+          duration={5000} // Shorter duration since we've already preloaded assets
+          progressValue={loadingProgress}
+        />
+      ) : (
+        children
+      )}
+    </>
   );
 } 

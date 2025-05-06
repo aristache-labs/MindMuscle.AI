@@ -15,6 +15,9 @@ export interface ProgressPhoto {
 const PHOTOS_BUCKET = 'progress-photos';
 
 export const progressPhotoService = {
+  /**
+   * Uploads a progress photo and preloads it into the image cache
+   */
   async uploadPhoto(
     userId: string, 
     type: 'before' | 'after', 
@@ -56,7 +59,9 @@ export const progressPhotoService = {
 
       // Preload the image immediately after upload to avoid loading placeholders
       try {
+        // Give high priority to ensure this loads fast
         await preloadSingleImage(publicUrl);
+        console.log('✅ Preloaded uploaded photo successfully:', fileName);
       } catch (e) {
         console.warn('Failed to preload uploaded image:', e);
         // Continue anyway as this is not critical
@@ -83,6 +88,9 @@ export const progressPhotoService = {
     }
   },
 
+  /**
+   * Gets the latest before and after photos and preloads them
+   */
   async getLatestPhotos(userId: string): Promise<{ before?: ProgressPhoto; after?: ProgressPhoto }> {
     try {
       const { data, error } = await supabase
@@ -95,13 +103,16 @@ export const progressPhotoService = {
 
       const photos = data as ProgressPhoto[];
       
-      // Preload photos immediately
-      photos.forEach(photo => {
+      // Preload photos immediately with high priority
+      Promise.all(photos.map(photo => {
         if (photo.photo_url) {
-          preloadSingleImage(photo.photo_url).catch(() => {
+          return preloadSingleImage(photo.photo_url).catch(() => {
             // Silently continue if preloading fails
           });
         }
+        return Promise.resolve();
+      })).catch(err => {
+        console.warn('Failed to preload some progress photos:', err);
       });
       
       return {
@@ -113,6 +124,9 @@ export const progressPhotoService = {
     }
   },
 
+  /**
+   * Deletes a photo from storage and database
+   */
   async deletePhoto(userId: string, photoId: string): Promise<void> {
     try {
       // Delete from storage
@@ -135,6 +149,9 @@ export const progressPhotoService = {
     }
   },
 
+  /**
+   * Gets all progress photos for a user and preloads them for fast display
+   */
   async getAllPhotos(userId: string): Promise<ProgressPhoto[]> {
     try {
       const { data, error } = await supabase
@@ -147,14 +164,24 @@ export const progressPhotoService = {
 
       const photos = data as ProgressPhoto[];
       
-      // Preload all photos in the background
-      photos.forEach(photo => {
-        if (photo.photo_url) {
-          preloadSingleImage(photo.photo_url).catch(() => {
-            // Silently continue if preloading fails
-          });
-        }
-      });
+      // Start preloading in the background
+      // We don't await this so we can return the data immediately
+      setTimeout(() => {
+        // Preload sequentially to reduce bandwidth usage
+        const preloadSequentially = async () => {
+          for (const photo of photos) {
+            if (photo.photo_url) {
+              await preloadSingleImage(photo.photo_url).catch(() => {
+                // Continue even if an image fails
+              });
+            }
+          }
+        };
+        
+        preloadSequentially().catch(err => {
+          console.warn('Failed to preload some progress photos in background:', err);
+        });
+      }, 100);
       
       return photos;
     } catch (error) {

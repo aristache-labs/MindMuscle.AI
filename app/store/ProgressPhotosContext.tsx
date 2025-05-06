@@ -1,12 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-interface ProgressPhoto {
-  id: string;
-  type: 'before' | 'after';
-  uri: string;
-  date: string;
-}
+import progressPhotoService, { ProgressPhoto } from '../services/progressPhotos';
+import { useAuth } from './AuthContext';
+import { preloadSingleImage } from '../utils/imagePreloader';
 
 interface ProgressPhotosContextType {
   beforeImage: string | null;
@@ -14,6 +10,7 @@ interface ProgressPhotosContextType {
   setBeforeImage: (uri: string) => Promise<void>;
   setAfterImage: (uri: string) => Promise<void>;
   loading: boolean;
+  refreshPhotos: () => Promise<void>;
 }
 
 const ProgressPhotosContext = createContext<ProgressPhotosContextType>({
@@ -22,30 +19,41 @@ const ProgressPhotosContext = createContext<ProgressPhotosContextType>({
   setBeforeImage: async () => {},
   setAfterImage: async () => {},
   loading: true,
+  refreshPhotos: async () => {},
 });
 
 export const ProgressPhotosProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [beforeImage, setBeforeImageState] = useState<string | null>(null);
   const [afterImage, setAfterImageState] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const { session } = useAuth();
 
+  // Load photos whenever the session changes
   useEffect(() => {
-    loadPhotos();
-  }, []);
+    if (session?.user?.id) {
+      loadPhotos();
+    } else {
+      // Reset state when user logs out
+      setBeforeImageState(null);
+      setAfterImageState(null);
+      setLoading(false);
+    }
+  }, [session]);
 
   const loadPhotos = async () => {
+    if (!session?.user?.id) return;
+    
+    setLoading(true);
     try {
-      const [storedBeforeImage, storedAfterImage] = await Promise.all([
-        AsyncStorage.getItem('beforeImage'),
-        AsyncStorage.getItem('afterImage'),
-      ]);
-
-      if (storedBeforeImage) {
-        setBeforeImageState(storedBeforeImage);
+      // Get latest photos from service
+      const { before, after } = await progressPhotoService.getLatestPhotos(session.user.id);
+      
+      if (before) {
+        setBeforeImageState(before.photo_url);
       }
 
-      if (storedAfterImage) {
-        setAfterImageState(storedAfterImage);
+      if (after) {
+        setAfterImageState(after.photo_url);
       }
     } catch (error) {
       console.error('Error loading progress photos:', error);
@@ -54,19 +62,41 @@ export const ProgressPhotosProvider: React.FC<{ children: React.ReactNode }> = (
     }
   };
 
+  const refreshPhotos = async () => {
+    await loadPhotos();
+  };
+
   const setBeforeImage = async (uri: string) => {
+    if (!session?.user?.id) return;
+    
     try {
-      await AsyncStorage.setItem('beforeImage', uri);
-      setBeforeImageState(uri);
+      // Upload photo using service
+      const photo = await progressPhotoService.uploadPhoto(
+        session.user.id,
+        'before',
+        uri
+      );
+      
+      // Update state with the new URL
+      setBeforeImageState(photo.photo_url);
     } catch (error) {
       console.error('Error saving before image:', error);
     }
   };
 
   const setAfterImage = async (uri: string) => {
+    if (!session?.user?.id) return;
+    
     try {
-      await AsyncStorage.setItem('afterImage', uri);
-      setAfterImageState(uri);
+      // Upload photo using service
+      const photo = await progressPhotoService.uploadPhoto(
+        session.user.id,
+        'after',
+        uri
+      );
+      
+      // Update state with the new URL
+      setAfterImageState(photo.photo_url);
     } catch (error) {
       console.error('Error saving after image:', error);
     }
@@ -80,6 +110,7 @@ export const ProgressPhotosProvider: React.FC<{ children: React.ReactNode }> = (
         setBeforeImage,
         setAfterImage,
         loading,
+        refreshPhotos,
       }}
     >
       {children}

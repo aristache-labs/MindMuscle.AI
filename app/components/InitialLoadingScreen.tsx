@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { View, StyleSheet, Animated, Easing, Dimensions } from 'react-native';
-import { Text } from 'react-native-paper';
+import { Text, ProgressBar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -9,6 +9,7 @@ interface InitialLoadingScreenProps {
   duration?: number;
   message?: string;
   showProgress?: boolean;
+  progressValue?: number;
 }
 
 export default function InitialLoadingScreen({
@@ -16,6 +17,7 @@ export default function InitialLoadingScreen({
   duration = 30000,
   message,
   showProgress = true,
+  progressValue,
 }: InitialLoadingScreenProps) {
   const outerSpinValue = useRef(new Animated.Value(0)).current;
   const innerSpinValue = useRef(new Animated.Value(0)).current;
@@ -24,18 +26,25 @@ export default function InitialLoadingScreen({
   const textScaleValue = useRef(new Animated.Value(1)).current;
   const textOpacityValue = useRef(new Animated.Value(1)).current;
   const [loadingMessage, setLoadingMessage] = useState(message || 'Preparing your workout...');
-  const [progress, setProgress] = useState(0);
+  const [progress, setProgress] = useState(progressValue || 0);
 
   const messages = [
     'Loading exercises...',
     'Just a moment...',
-    'Ai is working...',
+    'AI is working...',
     'Calculating your gains...',
     'Getting pumped up...',
     'Almost there...',
     'Hold on tight...',
     'Finalizing...',
   ];
+
+  // Update progress when progressValue changes
+  useEffect(() => {
+    if (progressValue !== undefined) {
+      setProgress(progressValue);
+    }
+  }, [progressValue]);
 
   const animateText = () => {
     textScaleValue.setValue(0.8);
@@ -109,8 +118,8 @@ export default function InitialLoadingScreen({
 
     startSpinning();
 
-    if (showProgress) {
-      // Progress update
+    if (showProgress && progressValue === undefined) {
+      // Progress update - only if not externally controlled
       const progressInterval = setInterval(() => {
         setProgress((prev) => {
           const newProgress = prev + 1 / (duration / 1000);
@@ -147,8 +156,21 @@ export default function InitialLoadingScreen({
         clearInterval(messageInterval);
         clearTimeout(navigationTimeout);
       };
+    } else if (progressValue !== undefined && progressValue >= 1 && onFinish) {
+      // If external progress is complete, trigger onFinish
+      const finishTimeout = setTimeout(() => {
+        Animated.timing(fadeValue, {
+          toValue: 0,
+          duration: 500,
+          useNativeDriver: true,
+        }).start(() => {
+          if (onFinish) onFinish();
+        });
+      }, 500);
+      
+      return () => clearTimeout(finishTimeout);
     }
-  }, [duration, message, onFinish, showProgress]);
+  }, [duration, message, onFinish, showProgress, progressValue]);
 
   const outerSpin = outerSpinValue.interpolate({
     inputRange: [0, 1],
@@ -215,6 +237,19 @@ export default function InitialLoadingScreen({
             end={{ x: 1, y: 0.5 }}
           />
         </Animated.View>
+        
+        {showProgress && (
+          <View style={styles.progressContainer}>
+            <ProgressBar 
+              progress={progress}
+              color="#00FF62"
+              style={styles.progressBar}
+            />
+            <Text style={styles.progressText}>
+              {Math.round(progress * 100)}%
+            </Text>
+          </View>
+        )}
       </Animated.View>
     </LinearGradient>
   );
@@ -286,5 +321,21 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     borderRadius: 10,
+  },
+  progressContainer: {
+    width: '80%',
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  progressBar: {
+    width: '100%',
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  progressText: {
+    color: '#ffffff',
+    marginTop: 8,
+    fontSize: 12,
   },
 }); 

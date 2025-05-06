@@ -55,6 +55,90 @@ export async function preloadStaticImages(): Promise<void> {
 }
 
 /**
+ * Preloads exercise category images and other frequently accessed images
+ */
+export async function preloadCategories(): Promise<void> {
+  console.log('🔄 Preloading exercise images...');
+  
+  try {
+    // First try to get the schema of the exercises table to see what columns are available
+    const { data: exercisesData, error } = await supabase
+      .from('exercises')
+      .select('*')
+      .limit(1);
+      
+    if (error) {
+      throw error;
+    }
+    
+    // Determine which fields to query based on the schema
+    let query = '*';
+    if (exercisesData && exercisesData.length > 0) {
+      const sampleExercise = exercisesData[0];
+      const availableColumns = Object.keys(sampleExercise);
+      console.log('📊 Available columns in exercises table:', availableColumns);
+      
+      // Select only what we need to minimize data transfer
+      const desiredColumns = ['id'];
+      if (availableColumns.includes('image_url')) {
+        desiredColumns.push('image_url');
+      } else if (availableColumns.includes('imageUrl')) {
+        desiredColumns.push('imageUrl');
+      }
+      
+      // Check for category fields with different possible names
+      const categoryColumns = ['category', 'muscle_group', 'type', 'exerciseType'];
+      for (const col of categoryColumns) {
+        if (availableColumns.includes(col)) {
+          desiredColumns.push(col);
+          break;
+        }
+      }
+      
+      query = desiredColumns.join(', ');
+    }
+    
+    // Now get the actual exercises data with the appropriate columns
+    const { data: exercises, error: fetchError } = await supabase
+      .from('exercises')
+      .select(query)
+      .limit(20);
+      
+    if (fetchError) {
+      throw fetchError;
+    }
+    
+    if (exercises && exercises.length > 0) {
+      console.log(`📦 Found ${exercises.length} exercises to preload`);
+      
+      // Preload exercise images with whatever image field is available
+      let imagesPreloaded = 0;
+      
+      await Promise.all(exercises.map(async (exercise: Record<string, any>, index) => {
+        const imageUrl = exercise.image_url || exercise.imageUrl;
+        if (imageUrl && typeof imageUrl === 'string') {
+          try {
+            await Image.prefetch(imageUrl);
+            preloadedRemoteImages[imageUrl] = true;
+            imagesPreloaded++;
+            console.log(`✅ Loaded exercise image ${index + 1}/${exercises.length}`);
+          } catch (err) {
+            console.warn(`Failed to preload image for exercise ${exercise.id || index}:`, err);
+          }
+        }
+      }));
+      
+      console.log(`🎉 Successfully preloaded ${imagesPreloaded} exercise images`);
+    } else {
+      console.log('⚠️ No exercises found to preload');
+    }
+  } catch (error) {
+    console.error('❌ Failed to preload exercise images:', error);
+    // Don't throw to prevent app initialization issues
+  }
+}
+
+/**
  * Preloads remote images from Supabase buckets
  */
 export async function preloadRemoteImages(): Promise<void> {
@@ -66,6 +150,9 @@ export async function preloadRemoteImages(): Promise<void> {
     
     // Preload exercise preview images
     await preloadExerciseImages();
+    
+    // Preload category images
+    await preloadCategories();
     
     console.log('🎉 Successfully preloaded all remote images');
   } catch (error) {
@@ -187,5 +274,6 @@ export default {
   preloadAllImages,
   preloadSingleImage,
   isImagePreloaded,
+  preloadCategories,
   STATIC_IMAGES 
 }; 

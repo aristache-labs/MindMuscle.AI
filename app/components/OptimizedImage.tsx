@@ -18,6 +18,7 @@ interface OptimizedImageProps {
   onError?: () => void;
   transparent?: boolean;
   priority?: boolean; // Higher priority images will be preloaded immediately
+  skipPreload?: boolean; // Skip preloading attempt for this image (useful when we know it's already preloaded)
 }
 
 export default function OptimizedImage({
@@ -31,16 +32,19 @@ export default function OptimizedImage({
   onError,
   transparent = false,
   priority = false,
+  skipPreload = false,
 }: OptimizedImageProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [hasError, setHasError] = useState(false);
+  
+  // Consider an image loaded if it's not a string URL, or if it's already preloaded
   const [imageLoaded, setImageLoaded] = useState(
-    typeof source !== 'string' || isImagePreloaded(source as string)
+    typeof source !== 'string' || (typeof source === 'string' && isImagePreloaded(source))
   );
 
   // Attempt to preload the image if it's a URL and not already preloaded
   useEffect(() => {
-    if (typeof source === 'string' && !isImagePreloaded(source)) {
+    if (typeof source === 'string' && !isImagePreloaded(source) && !skipPreload) {
       setIsLoading(true);
       
       // Try to preload the image
@@ -48,19 +52,22 @@ export default function OptimizedImage({
         try {
           await preloadSingleImage(source);
           setImageLoaded(true);
+          setIsLoading(false);
         } catch (error) {
           console.warn('Failed to preload image:', source);
-        } finally {
           setIsLoading(false);
         }
       };
       
-      // If priority, load immediately, otherwise load when component mounts
+      // If priority, load immediately, otherwise load with a slight delay to not block UI
       if (priority) {
         loadImage();
+      } else {
+        const timer = setTimeout(loadImage, 100);
+        return () => clearTimeout(timer);
       }
     }
-  }, [source, priority]);
+  }, [source, priority, skipPreload]);
 
   const handleLoad = () => {
     setIsLoading(false);
@@ -83,7 +90,7 @@ export default function OptimizedImage({
       <Image
         style={[StyleSheet.absoluteFill, imageStyle]}
         source={source}
-        placeholder={typeof source === 'string' ? placeholder : undefined}
+        placeholder={typeof source === 'string' && !imageLoaded ? placeholder : undefined}
         contentFit={contentFit}
         transition={transition}
         onLoad={handleLoad}

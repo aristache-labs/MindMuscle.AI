@@ -434,3 +434,14 @@ export function analyzeSvgStructure(svg: string, isBackView: boolean): Record<st
     return { error: String(error) };
   }
 }
+
+// Create an object with all exported functions to provide as default export
+const muscleHighlighter = {
+  MUSCLE_CONFIG,
+  highlightMusclesInSvg,
+  getMuscleColor,
+  extractSvgIds,
+  analyzeSvgStructure
+};
+
+export default muscleHighlighter;

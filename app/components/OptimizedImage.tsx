@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, ActivityIndicator, StyleSheet, StyleProp, ImageStyle, ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
-import { getFromMemoryCache, storeInMemoryCache, isImportantImage, markAsImportantImage, isRemotePrefetched, isImagePreloaded, preloadSingleImage } from '../utils/imagePreloader';
+import { isImportantImage, markAsImportantImage, isImagePreloaded, preloadSingleImage } from '../utils/imagePreloader';
 import { Asset } from 'expo-asset';
 
 const DEBUG_OPTIMIZED_IMAGE = true;
@@ -27,6 +27,16 @@ interface OptimizedImageProps {
   cachePolicy?: 'memory-disk' | 'memory' | 'disk' | 'none';
   placeholderStyle?: StyleProp<ViewStyle>;
   children?: React.ReactNode;
+}
+
+interface ImageTiming {
+  prepareStart: number | null;
+  prepareEnd: number | null;
+  loadStart: number | null;
+  loadEnd: number | null;
+  totalDuration: number | null;
+  prepareDuration: number | null;
+  loadDuration: number | null;
 }
 
 const extractUriFromSource = (source: any): string | null => {
@@ -71,6 +81,24 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<Error | null>(null);
   const [finalSource, setFinalSource] = useState<any>(null);
+  const [timing, setTiming] = useState<ImageTiming>({
+    prepareStart: null,
+    prepareEnd: null,
+    loadStart: null,
+    loadEnd: null,
+    totalDuration: null,
+    prepareDuration: null,
+    loadDuration: null,
+  });
+  
+  // Keep track of component mount state
+  const isMounted = useRef(true);
+  
+  // Extract URI for logging
+  const sourceUri = extractUriFromSource(source);
+  const shortUri = sourceUri ? 
+    `${sourceUri.substring(0, 40)}${sourceUri.length > 40 ? '...' : ''}` :
+    'unknown-source';
   
   // Combined styles for the image container
   const containerStyle: StyleProp<ViewStyle> = [
@@ -89,9 +117,23 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
     width ? { width } : undefined,
     height ? { height } : undefined,
   ];
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
   
   useEffect(() => {
     const prepareSource = async () => {
+      const prepareStart = Date.now();
+      setTiming(prev => ({ ...prev, prepareStart }));
+      
+      if (DEBUG_OPTIMIZED_IMAGE) {
+        console.log(`🔄 [${debugLabel}] Preparing image: ${shortUri}`);
+      }
+      
       setIsLoading(true);
       setLoadError(null);
       
@@ -99,82 +141,239 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
         // Handle different source types
         if (typeof source === 'number') {
           // Local bundled asset
+          if (DEBUG_OPTIMIZED_IMAGE) {
+            console.log(`📦 [${debugLabel}] Local asset (require): ${source}`);
+          }
           setFinalSource(source);
           setIsLoading(false);
+          
+          const prepareEnd = Date.now();
+          const prepareDuration = prepareEnd - prepareStart;
+          setTiming(prev => ({ 
+            ...prev, 
+            prepareEnd, 
+            prepareDuration,
+            totalDuration: prepareDuration 
+          }));
+          
+          if (DEBUG_OPTIMIZED_IMAGE) {
+            console.log(`⏱️ [${debugLabel}] Local asset prepared in ${prepareDuration}ms`);
+          }
           return;
         }
         
         if (typeof source === 'string') {
           // Direct URI string
-          const isPreloaded = isImagePreloaded(source);
-          setFinalSource({ uri: source });
-          setIsLoading(!isPreloaded); // Skip loading state if preloaded
-          
-          // If marked as important and not already preloaded, preload it
-          if (markImportant && !isPreloaded) {
-            preloadSingleImage(source).catch(() => {
-              // Ignore preload errors here since the image will load normally
-            });
-          }
-          return;
-        }
-        
-        if (source && source.uri) {
-          const uri = source.uri;
+          const uri = source;
           const isPreloaded = isImagePreloaded(uri);
+          
+          if (DEBUG_OPTIMIZED_IMAGE) {
+            console.log(`🔍 [${debugLabel}] String URI${isPreloaded ? ' (preloaded)' : ''}: ${shortUri}`);
+          }
           
           setFinalSource({ uri });
           setIsLoading(!isPreloaded); // Skip loading state if preloaded
           
           // If marked as important and not already preloaded, preload it
-          if (markImportant && !isPreloaded) {
-            preloadSingleImage(uri).catch(() => {
-              // Ignore preload errors here since the image will load normally
-            });
+          if (markImportant) {
+            markAsImportantImage(uri);
+            if (DEBUG_OPTIMIZED_IMAGE) {
+              console.log(`🔖 [${debugLabel}] Marked as important: ${shortUri}`);
+            }
+            
+            if (!isPreloaded) {
+              const preloadStart = Date.now();
+              try {
+                await preloadSingleImage(uri);
+                if (DEBUG_OPTIMIZED_IMAGE) {
+                  const preloadDuration = Date.now() - preloadStart;
+                  console.log(`⚡ [${debugLabel}] On-demand preloaded in ${preloadDuration}ms: ${shortUri}`);
+                }
+              } catch (err) {
+                if (DEBUG_OPTIMIZED_IMAGE) {
+                  console.warn(`❌ [${debugLabel}] On-demand preload failed: ${shortUri}`, err);
+                }
+                // Ignore preload errors here since the image will load normally
+              }
+            }
           }
+          
+          const prepareEnd = Date.now();
+          const prepareDuration = prepareEnd - prepareStart;
+          setTiming(prev => ({ 
+            ...prev, 
+            prepareEnd, 
+            prepareDuration,
+            // If preloaded, we can consider the total duration to be the prepare duration
+            ...(isPreloaded ? { totalDuration: prepareDuration } : {})
+          }));
+          
+          if (DEBUG_OPTIMIZED_IMAGE) {
+            console.log(`⏱️ [${debugLabel}] URI prepared in ${prepareDuration}ms${isPreloaded ? ' (preloaded)' : ''}: ${shortUri}`);
+          }
+          
+          return;
+        }
+        
+        if (source && source.uri) {
+          // Object with URI property
+          const uri = source.uri;
+          const isPreloaded = isImagePreloaded(uri);
+          
+          if (DEBUG_OPTIMIZED_IMAGE) {
+            console.log(`🔍 [${debugLabel}] Object URI${isPreloaded ? ' (preloaded)' : ''}: ${shortUri}`);
+          }
+          
+          setFinalSource({ uri });
+          setIsLoading(!isPreloaded); // Skip loading state if preloaded
+          
+          // If marked as important and not already preloaded, preload it
+          if (markImportant) {
+            markAsImportantImage(uri);
+            if (DEBUG_OPTIMIZED_IMAGE) {
+              console.log(`🔖 [${debugLabel}] Marked as important: ${shortUri}`);
+            }
+            
+            if (!isPreloaded) {
+              const preloadStart = Date.now();
+              try {
+                await preloadSingleImage(uri);
+                if (DEBUG_OPTIMIZED_IMAGE) {
+                  const preloadDuration = Date.now() - preloadStart;
+                  console.log(`⚡ [${debugLabel}] On-demand preloaded in ${preloadDuration}ms: ${shortUri}`);
+                }
+              } catch (err) {
+                if (DEBUG_OPTIMIZED_IMAGE) {
+                  console.warn(`❌ [${debugLabel}] On-demand preload failed: ${shortUri}`, err);
+                }
+                // Ignore preload errors here since the image will load normally
+              }
+            }
+          }
+          
+          const prepareEnd = Date.now();
+          const prepareDuration = prepareEnd - prepareStart;
+          setTiming(prev => ({ 
+            ...prev, 
+            prepareEnd, 
+            prepareDuration,
+            // If preloaded, we can consider the total duration to be the prepare duration
+            ...(isPreloaded ? { totalDuration: prepareDuration } : {})
+          }));
+          
+          if (DEBUG_OPTIMIZED_IMAGE) {
+            console.log(`⏱️ [${debugLabel}] Object URI prepared in ${prepareDuration}ms${isPreloaded ? ' (preloaded)' : ''}: ${shortUri}`);
+          }
+          
           return;
         }
         
         // If we get here, use fallback if provided
         if (fallbackSource) {
+          if (DEBUG_OPTIMIZED_IMAGE) {
+            console.log(`⚠️ [${debugLabel}] Using fallback source: ${extractUriFromSource(fallbackSource)}`);
+          }
+          
           setFinalSource(fallbackSource);
           setIsLoading(false);
+          
+          const prepareEnd = Date.now();
+          const prepareDuration = prepareEnd - prepareStart;
+          setTiming(prev => ({ 
+            ...prev, 
+            prepareEnd, 
+            prepareDuration,
+            totalDuration: prepareDuration
+          }));
+          
           return;
         }
         
         throw new Error('Invalid image source');
       } catch (error) {
+        const prepareEnd = Date.now();
+        const prepareDuration = prepareEnd - prepareStart;
+        
         if (DEBUG_OPTIMIZED_IMAGE) {
-          console.error(`❌ [${debugLabel}] Error loading image:`, error);
+          console.error(`❌ [${debugLabel}] Error preparing image (${prepareDuration}ms): ${shortUri}`, error);
         }
+        
         setLoadError(error as Error);
         setIsLoading(false);
+        
+        setTiming(prev => ({ 
+          ...prev, 
+          prepareEnd, 
+          prepareDuration,
+          totalDuration: prepareDuration
+        }));
       }
     };
     
     prepareSource();
-  }, [source, fallbackSource, debugLabel, markImportant]);
+  }, [source, fallbackSource, debugLabel, markImportant, shortUri]);
   
   const handleLoad = () => {
+    if (!isMounted.current) return;
+    
+    const loadEnd = Date.now();
+    const loadDuration = timing.loadStart ? loadEnd - timing.loadStart : null;
+    const totalDuration = timing.prepareStart ? loadEnd - timing.prepareStart : null;
+    
     setIsLoading(false);
+    setTiming(prev => ({ 
+      ...prev, 
+      loadEnd, 
+      loadDuration, 
+      totalDuration 
+    }));
     
     if (DEBUG_OPTIMIZED_IMAGE) {
-      const uri = extractUriFromSource(source);
-      console.log(`✅ [${debugLabel}] Image loaded: ${uri?.substring(0, 50)}${uri && uri.length > 50 ? '...' : ''}`);
+      console.log(`✅ [${debugLabel}] Image loaded: ${shortUri}`);
+      
+      if (loadDuration) {
+        console.log(`⏱️ [${debugLabel}] Load time: ${loadDuration}ms, Total: ${totalDuration}ms`);
+      }
+    }
+  };
+  
+  const handleLoadStart = () => {
+    if (!isMounted.current) return;
+    
+    const loadStart = Date.now();
+    setTiming(prev => ({ ...prev, loadStart }));
+    
+    if (DEBUG_OPTIMIZED_IMAGE) {
+      console.log(`⏳ [${debugLabel}] Image load started: ${shortUri}`);
     }
   };
   
   const handleError = (error: any) => {
+    if (!isMounted.current) return;
+    
+    const loadEnd = Date.now();
+    const loadDuration = timing.loadStart ? loadEnd - timing.loadStart : null;
+    const totalDuration = timing.prepareStart ? loadEnd - timing.prepareStart : null;
+    
     setLoadError(error);
     setIsLoading(false);
     
+    setTiming(prev => ({ 
+      ...prev, 
+      loadEnd, 
+      loadDuration, 
+      totalDuration 
+    }));
+    
     if (DEBUG_OPTIMIZED_IMAGE) {
-      const uri = extractUriFromSource(source);
-      console.log(`❌ [${debugLabel}] Image failed: ${uri?.substring(0, 50)}${uri && uri.length > 50 ? '...' : ''}`);
+      console.error(`❌ [${debugLabel}] Image failed (${loadDuration}ms): ${shortUri}`, error);
     }
     
     // Try fallback if available
     if (fallbackSource && fallbackSource !== finalSource) {
+      if (DEBUG_OPTIMIZED_IMAGE) {
+        console.log(`🔄 [${debugLabel}] Switching to fallback: ${extractUriFromSource(fallbackSource)}`);
+      }
       setFinalSource(fallbackSource);
     }
   };
@@ -188,6 +387,7 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
           contentFit={contentFit || resizeMode as any}
           blurRadius={blurRadius}
           transition={fadeDuration}
+          onLoadStart={handleLoadStart}
           onLoad={handleLoad}
           onError={handleError}
           cachePolicy={cachePolicy}

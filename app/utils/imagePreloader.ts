@@ -5,30 +5,41 @@ import supabase from '../services/supabase';
 import { Image as ReactNativeImage } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 
+/**
+ * IMAGE PRELOADER DEBUGGING
+ * 
+ * To enable detailed debugging across the image loading system, set the following flags:
+ * 
+ * - DEBUG_IMAGE_PRELOADER (this file): Controls logging for the core image preloading utilities
+ * - DEBUG_OPTIMIZED_IMAGE (OptimizedImage.tsx): Controls logging for the OptimizedImage component
+ * - DEBUG_PROGRESS_PHOTOS (ProgressPhotosContext.tsx and services/progressPhotos.ts): Controls logging for progress photos
+ * - DEBUG_SPLASH_SCREEN (SplashScreenManager.tsx): Controls logging for the app initialization and loading screen
+ * 
+ * The logging system uses emoji prefixes for better visual scanning:
+ * - 🚀 Starting operations
+ * - ⏳ Loading/in progress
+ * - ✅ Success
+ * - ❌ Errors
+ * - ⚠️ Warnings
+ * - 📊 Stats/metrics
+ * - ⏱️ Timing information
+ * - 🏁 Completion of operations
+ * 
+ * Timing metrics are reported in milliseconds for all loading operations.
+ */
+
 // Debug configuration
 const DEBUG_IMAGE_PRELOADER = true;
-const DEBUG_MEMORY_CACHE = true;
-
-// Expanded memory cache to improve navigation performance
-const IMAGE_MEMORY_CACHE: Record<string, any> = {};
 
 // Separate tracker for remote prefetched images 
-// (tracks that Image.prefetch was called but doesn't overwrite file URIs)
+// (tracks that Image.prefetch was called)
 const REMOTE_PREFETCHED: Record<string, boolean> = {};
-
-// Create a counter to track cache operations
-let memCacheHits = 0;
-let memCacheMisses = 0;
-let memCacheStores = 0;
 
 // Track important images that should always be kept in memory
 const IMPORTANT_IMAGE_URLS = new Set<string>();
 
 // A set to keep track of which images are currently being preloaded
 const preloadingImages = new Set<string>();
-
-// A map of important image URIs that should always stay in memory
-const importantImages = new Map<string, boolean>();
 
 // A cache for image dimensions to avoid re-requesting
 const imageDimensionsCache = new Map<string, { width: number; height: number }>();
@@ -57,57 +68,15 @@ export const STATIC_IMAGES = {
 // Paths for exercise images in assets folder
 export const EXERCISE_IMAGES_PATH = '../../assets/exercises/';
 
-// Cache for storing preloaded URLs - keep for backward compatibility
-let preloadedRemoteImages: Record<string, boolean> = {};
-
 /**
- * Stores a prefetched image in memory cache with its data
+ * Checks if a remote image URL has been preloaded
  */
-export function storeInMemoryCache(url: string, imageData: any): void {
-  // Don't cache undefined or null data
-  if (!url || !imageData) {
-    if (DEBUG_MEMORY_CACHE) console.log(`🚫 CACHE SKIP: Invalid URL or data for ${url?.substring(0, 40)}`);
-    return;
+export function isImagePreloaded(url: string): boolean {
+  const inRemoteCache = !!REMOTE_PREFETCHED[url];
+  if (DEBUG_IMAGE_PRELOADER && inRemoteCache) {
+    console.log(`✅ PRELOAD CHECK: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''} [Remote:${inRemoteCache}]`);
   }
-  
-  // Check if we already have this in cache
-  const alreadyInCache = !!IMAGE_MEMORY_CACHE[url];
-  
-  // Store in memory cache
-  IMAGE_MEMORY_CACHE[url] = imageData;
-  memCacheStores++;
-  
-  if (DEBUG_MEMORY_CACHE) {
-    if (alreadyInCache) {
-      console.log(`🔄 CACHE UPDATE: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
-    } else {
-      console.log(`➕ CACHE STORE: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
-    }
-    console.log(`📊 CACHE STATS: ${Object.keys(IMAGE_MEMORY_CACHE).length} items (${memCacheHits} hits, ${memCacheMisses} misses, ${memCacheStores} stores)`);
-  }
-}
-
-/**
- * Gets an image from memory cache if available
- */
-export function getFromMemoryCache(url: string): any {
-  if (!url) return null;
-  
-  const cachedData = IMAGE_MEMORY_CACHE[url] || null;
-  
-  if (cachedData) {
-    memCacheHits++;
-    if (DEBUG_MEMORY_CACHE) {
-      console.log(`✅ CACHE HIT: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
-    }
-  } else {
-    memCacheMisses++;
-    if (DEBUG_MEMORY_CACHE) {
-      console.log(`❓ CACHE MISS: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
-    }
-  }
-  
-  return cachedData;
+  return inRemoteCache;
 }
 
 /**
@@ -223,7 +192,7 @@ export async function preloadCategories(): Promise<void> {
 }
 
 /**
- * Preloads remote images from Supabase buckets with memory caching
+ * Preloads remote images from Supabase buckets
  */
 export async function preloadRemoteImages(): Promise<void> {
   console.log('🌐 Starting to preload remote images...');
@@ -247,7 +216,7 @@ export async function preloadRemoteImages(): Promise<void> {
 }
 
 /**
- * Preloads workout plan images from Supabase with memory caching
+ * Preloads workout plan images from Supabase
  */
 async function preloadWorkoutPlanImages(): Promise<void> {
   try {
@@ -276,7 +245,7 @@ async function preloadWorkoutPlanImages(): Promise<void> {
 }
 
 /**
- * Preloads exercise images from Supabase with memory caching
+ * Preloads exercise images from Supabase
  */
 async function preloadExerciseImages(): Promise<void> {
   try {
@@ -305,17 +274,6 @@ async function preloadExerciseImages(): Promise<void> {
 }
 
 /**
- * Checks if a remote image URL has been preloaded
- */
-export function isImagePreloaded(url: string): boolean {
-  const inRemoteCache = !!REMOTE_PREFETCHED[url];
-  if (DEBUG_IMAGE_PRELOADER && inRemoteCache) {
-    console.log(`✅ PRELOAD CHECK: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''} [Remote:${inRemoteCache}]`);
-  }
-  return inRemoteCache;
-}
-
-/**
  * Preloads a batch of images with progress tracking and improved error handling
  * @param imageUrls Array of image URLs to preload
  * @param batchSize Number of images to load in parallel (default: 10)
@@ -325,97 +283,94 @@ export function isImagePreloaded(url: string): boolean {
 export const batchPreloadImages = async (
   imageUrls: string[],
   batchSize = DEFAULT_BATCH_SIZE,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number, completed?: number, total?: number) => void
 ): Promise<void> => {
   if (!imageUrls || imageUrls.length === 0) return;
-
-  const validUrls = imageUrls.filter(url => typeof url === 'string' && url.length > 0);
-  const totalImages = validUrls.length;
-  let loadedImages = 0;
-  let failedImages = 0;
-
-  console.log(`🚀 Starting batch preload of ${totalImages} images...`);
-
-  // Process images in batches
-  for (let i = 0; i < totalImages; i += batchSize) {
+  
+  // Filter out invalid URLs and already preloaded images
+  const validUrls = imageUrls.filter(url => url && typeof url === 'string' && !isImagePreloaded(url));
+  
+  if (validUrls.length === 0) {
+    console.log('🎯 No new images to preload - all images already in cache');
+    if (onProgress) onProgress(1, imageUrls.length, imageUrls.length);
+    return;
+  }
+  
+  console.log(`🔄 Batch preloading ${validUrls.length} images in batches of ${batchSize}`);
+  
+  // Track progress
+  let completedBatches = 0;
+  let completedInCurrentBatch = 0;
+  let totalBatches = Math.ceil(validUrls.length / batchSize);
+  let successfullyLoaded = 0;
+  let failedToLoad = 0;
+  
+  // Report initial progress
+  if (onProgress) {
+    onProgress(0, 0, validUrls.length);
+  }
+  
+  // Process in batches
+  for (let i = 0; i < validUrls.length; i += batchSize) {
     const batch = validUrls.slice(i, i + batchSize);
+    completedInCurrentBatch = 0;
     
-    // Process this batch in parallel with individual timeouts
-    await Promise.all(
-      batch.map(async (url) => {
-        try {
-          // Skip if already preloaded
-          if (isImagePreloaded(url)) {
-            loadedImages++;
-            if (onProgress) {
-              onProgress(loadedImages / totalImages);
-            }
-            return;
-          }
-
-          // Prevent duplicate loading attempts
-          if (preloadingImages.has(url)) {
-            return;
-          }
-
-          preloadingImages.add(url);
-
+    try {
+      // Load each image in the batch
+      const results = await Promise.allSettled(
+        batch.map(async (url) => {
           try {
-            // Set a timeout for each image
-            await Promise.race([
-              preloadSingleImage(url),
-              new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Image load timeout')), 10000)
-              )
-            ]);
-
-            // Try to get dimensions for better layout calculations
-            if (url.startsWith('http')) {
-              try {
-                await getImageDimensions(url);
-              } catch (e) {
-                // Non-critical error, continue without dimensions
-                console.warn(`Could not get dimensions for ${url}`);
-              }
+            await preloadSingleImage(url);
+            completedInCurrentBatch++;
+            successfullyLoaded++;
+            
+            // Report progress for each image
+            const totalCompleted = completedBatches * batchSize + completedInCurrentBatch;
+            const progress = totalCompleted / validUrls.length;
+            if (onProgress) {
+              onProgress(progress, totalCompleted, validUrls.length);
             }
-
-            loadedImages++;
-          } finally {
-            preloadingImages.delete(url);
+            
+            return true;
+          } catch (error) {
+            failedToLoad++;
+            return false;
           }
-        } catch (err) {
-          console.warn(`Failed to preload image: ${url}`, err);
-          failedImages++;
-        } finally {
-          if (onProgress) {
-            onProgress((loadedImages + failedImages) / totalImages);
-          }
-        }
-      })
-    );
-    
-    // Small delay between batches to prevent overwhelming the network
-    if (i + batchSize < totalImages) {
-      await new Promise(resolve => setTimeout(resolve, DEFAULT_BATCH_DELAY));
+        })
+      );
+      
+      // Count successful loads in this batch
+      const successCount = results.filter(r => r.status === 'fulfilled' && r.value === true).length;
+      console.log(`✅ Batch ${completedBatches + 1}/${totalBatches} completed: ${successCount}/${batch.length} images loaded`);
+    } catch (error) {
+      console.warn(`⚠️ Error loading batch ${completedBatches + 1}:`, error);
     }
-
-    // Log progress every few batches
-    if ((i + batchSize) % (batchSize * 5) === 0 || i + batchSize >= totalImages) {
-      console.log(`📊 Preload progress:
-        Processed: ${Math.min(i + batchSize, totalImages)}/${totalImages}
-        Loaded: ${loadedImages}
-        Failed: ${failedImages}
-      `);
+    
+    completedBatches++;
+    
+    // Report progress after each batch
+    const progress = Math.min(completedBatches / totalBatches, 1);
+    if (onProgress) {
+      onProgress(progress, completedBatches * batchSize, validUrls.length);
     }
   }
-
-  // Log completion stats
-  console.log(`✅ Image preloading complete:
-    Total: ${totalImages}
-    Successfully Loaded: ${loadedImages}
-    Failed: ${failedImages}
+  
+  const totalImages = validUrls.length;
+  const loadedImages = successfullyLoaded;
+  
+  console.log(`
+    🎉 Image preloading complete:
+    Total requested: ${imageUrls.length}
+    Valid to load: ${validUrls.length}
+    Successfully loaded: ${loadedImages}
+    Failed: ${failedToLoad}
     Success Rate: ${((loadedImages / totalImages) * 100).toFixed(1)}%
   `);
+  
+  // Final progress callback
+  if (onProgress) {
+    onProgress(1, totalImages, totalImages);
+  }
 };
 
 /**
@@ -434,6 +389,13 @@ export const preloadSingleImage = async (url: string): Promise<boolean> => {
     }
     return true;
   }
+
+  // Prevent duplicate loading attempts
+  if (preloadingImages.has(url)) {
+    return true;
+  }
+
+  preloadingImages.add(url);
 
   try {
     if (DEBUG_IMAGE_PRELOADER) {
@@ -474,6 +436,8 @@ export const preloadSingleImage = async (url: string): Promise<boolean> => {
   } catch (error) {
     console.warn(`❌ Failed to preload image: ${url}`, error);
     return false;
+  } finally {
+    preloadingImages.delete(url);
   }
 };
 
@@ -508,7 +472,7 @@ export async function preloadAllImages(): Promise<void> {
 export function markAsImportantImage(url: string): void {
   if (!url) return;
   IMPORTANT_IMAGE_URLS.add(url);
-  if (DEBUG_MEMORY_CACHE) {
+  if (DEBUG_IMAGE_PRELOADER) {
     console.log(`🔒 MARKED IMPORTANT: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
     console.log(`📊 IMPORTANT IMAGES: ${IMPORTANT_IMAGE_URLS.size} total`);
   }

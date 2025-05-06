@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AppState, AppStateStatus, Platform } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import InitialLoadingScreen from './InitialLoadingScreen';
-import { STATIC_IMAGES, preloadAllImages, batchPreloadImages } from '@utils/imagePreloader';
+import { STATIC_IMAGES, preloadAllImages, batchPreloadImages, markAsImportantImage } from '@utils/imagePreloader';
 import { useAuth } from '@store/AuthContext';
 import * as Network from 'expo-network';
 import supabase from '@services/supabase';
@@ -10,17 +10,22 @@ import { Asset } from 'expo-asset';
 import { LOADING_MESSAGES } from '@constants/loadingMessages';
 import * as FileSystem from 'expo-file-system';
 
+// Debug flag to control logging
+const DEBUG_SPLASH_SCREEN = true;
+
 // Define resources to be preloaded, organized by priority
 const PRELOAD_CONFIG = {
   EXERCISE_LIMIT: Infinity, // No limit - load all exercises
   PLAN_LIMIT: Infinity, // No limit - load all plans
+  USER_DATA_LIMIT: 50, // Load recent user data (progress photos, workout history)
+  FAVORITE_EXERCISES_LIMIT: Infinity, // Load all favorite exercises for the user
 
   SCREENS_CONTENT_LIMIT: 100, // Increased from 20
   TIMEOUT: {
     STATIC_ASSETS: 4000,
     REMOTE_IMAGES: 30000, // Increased from 15000 to allow more time for loading all images
     DATA: 20000, // Increased from 8000 for loading all data
-
+    USER_SPECIFIC: 10000, // Timeout for user-specific data
     CONTENT: 15000 // Increased from 8000
   },
   BATCH_SIZE: 15 // Number of images to load in parallel
@@ -60,6 +65,14 @@ export default function SplashScreenManager({ children }: { children: React.Reac
   const [showLoadingScreen, setShowLoadingScreen] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [loadingMessage, setLoadingMessage] = useState(LOADING_MESSAGES.START);
+  const [timingMetrics, setTimingMetrics] = useState<Record<string, number>>({
+    start: Date.now(),
+    staticAssets: 0,
+    remoteImages: 0,
+    userData: 0,
+    allData: 0,
+    total: 0
+  });
   const { session } = useAuth();
   
   // Handle background/foreground transitions
@@ -82,20 +95,45 @@ export default function SplashScreenManager({ children }: { children: React.Reac
     }
   };
 
-  // Track loading progress
-  const updateProgress = (value: number, message?: string) => {
+  // Track loading progress with enhanced logging
+  const updateProgress = (value: number, message?: string, source?: string) => {
+    const timestamp = Date.now();
+    
     setLoadingProgress((prev) => {
       const newProgress = Math.min(prev + value, 0.95);
+      
+      if (DEBUG_SPLASH_SCREEN) {
+        const percentComplete = (newProgress * 100).toFixed(1);
+        const elapsed = timestamp - timingMetrics.start;
+        
+        console.log(`⏱️ [SplashScreenManager] Progress update: ${percentComplete}% (+${(value * 100).toFixed(1)}%)${source ? ` from ${source}` : ''} | ${elapsed}ms`);
+        
+        // Record timing for this milestone
+        if (source) {
+          setTimingMetrics(prev => ({
+            ...prev,
+            [source]: elapsed
+          }));
+        }
+      }
+      
       return newProgress;
     });
     
     if (message) {
       setLoadingMessage(message);
+      if (DEBUG_SPLASH_SCREEN) {
+        console.log(`🔤 [SplashScreenManager] Message update: "${message}"`);
+      }
     }
   };
 
   // Refresh essential data in background while using the app
   const refreshEssentialData = async () => {
+    if (DEBUG_SPLASH_SCREEN) {
+      console.log(`🔄 [SplashScreenManager] Refreshing essential data in background`);
+    }
+    
     try {
       // This runs silently in the background without UI updates
       // Refresh recently used content
@@ -104,6 +142,14 @@ export default function SplashScreenManager({ children }: { children: React.Reac
         .from('exercises')
         .select('id, name, image_url, category')
         .limit(20);
+      
+      if (DEBUG_SPLASH_SCREEN) {
+        if (error) {
+          console.error(`❌ [SplashScreenManager] Failed to refresh exercise data:`, error);
+        } else {
+          console.log(`✅ [SplashScreenManager] Refreshed exercise data: ${exercises?.length || 0} items`);
+        }
+      }
         
       if (!error && exercises) {
         // Refresh user data if logged in
@@ -169,22 +215,9 @@ export default function SplashScreenManager({ children }: { children: React.Reac
                           .order('created_at', { ascending: false });
                         
                         if (!error && userMeasurements) {
-                          // Collect all data
-                          // const data = {
-                          //   user: profileData,
-                          //   settings: data,
-                          //   workouts: workouts,
-                          //   achievements: achievements,
-                          //   favoriteExercises: favoriteExercises,
-                          //   progressPhotos: progressPhotos,
-                          //   userMeasurements: userMeasurements
-                          // };
-                          
-                          // Set state with collected data
-                          setLoadingProgress(0.95);
-                          setLoadingMessage(LOADING_MESSAGES.AUTHENTICATED);
-                          setIsAppReady(true);
-                          await safelyHideSplashScreen();
+                          if (DEBUG_SPLASH_SCREEN) {
+                            console.log(`✅ [SplashScreenManager] Refreshed user data silently in background`);
+                          }
                         }
                       }
                     }
@@ -552,133 +585,340 @@ export default function SplashScreenManager({ children }: { children: React.Reac
     }
   };
 
-  // Update the prepare function in useEffect
+  // Add new function to fetch user-specific image URLs
+  const fetchUserSpecificImages = async (userId: string): Promise<string[]> => {
+    try {
+      // Create arrays for different priority levels
+      const highPriorityImages: string[] = [];
+      const mediumPriorityImages: string[] = [];
+      const lowPriorityImages: string[] = [];
+      
+      // 1. Get progress photos (HIGH PRIORITY - immediately visible on profile)
+      setLoadingMessage(LOADING_MESSAGES.PROGRESS_PHOTOS);
+      const { data: progressPhotos, error: progressError } = await supabase
+        .from('progress_photos')
+        .select('photo_url')
+        .eq('user_id', userId)
+        .order('taken_at', { ascending: false })
+        .limit(PRELOAD_CONFIG.USER_DATA_LIMIT);
+      
+      if (!progressError && progressPhotos) {
+        const photoUrls = progressPhotos
+          .map(photo => photo.photo_url)
+          .filter(url => url && typeof url === 'string');
+          
+        // Add to high priority (most recent photos) and medium priority (older photos)
+        if (photoUrls.length > 0) {
+          // Most recent photos (first 2) get high priority
+          highPriorityImages.push(...photoUrls.slice(0, 2));
+          
+          // Rest get medium priority
+          if (photoUrls.length > 2) {
+            mediumPriorityImages.push(...photoUrls.slice(2));
+          }
+          
+          // Mark the most recent photo as important so it stays in memory
+          if (photoUrls.length > 0) {
+            markAsImportantImage(photoUrls[0]);
+          }
+          
+          console.log(`Found ${photoUrls.length} progress photos to preload (${highPriorityImages.length} high priority)`);
+        }
+      }
+      
+      // 2. Get favorite exercises (MEDIUM-HIGH PRIORITY - accessed from favorites tab)
+      setLoadingMessage(LOADING_MESSAGES.FAVORITE_EXERCISES);
+      const { data: favorites, error: favoritesError } = await supabase
+        .from('user_favorite_exercises')
+        .select('exercise_id')
+        .eq('user_id', userId)
+        .limit(PRELOAD_CONFIG.FAVORITE_EXERCISES_LIMIT);
+      
+      if (!favoritesError && favorites && favorites.length > 0) {
+        // Get details for favorite exercises
+        const exerciseIds = favorites.map(fav => fav.exercise_id);
+        
+        const { data: favoriteExercises, error: exercisesError } = await supabase
+          .from('exercises')
+          .select('id, image_url, name')
+          .in('id', exerciseIds);
+        
+        if (!exercisesError && favoriteExercises) {
+          const exerciseUrls = favoriteExercises
+            .map(ex => ({ id: ex.id, url: ex.image_url, name: ex.name }))
+            .filter(item => item.url && typeof item.url === 'string');
+          
+          // First 5 favorite exercises get high priority
+          highPriorityImages.push(...exerciseUrls.slice(0, 5).map(item => item.url));
+          
+          // Next 10 get medium priority
+          mediumPriorityImages.push(...exerciseUrls.slice(5, 15).map(item => item.url));
+          
+          // Rest get low priority
+          lowPriorityImages.push(...exerciseUrls.slice(15).map(item => item.url));
+          
+          // Mark all favorite exercise images as important
+          exerciseUrls.forEach(item => {
+            if (item.url) {
+              markAsImportantImage(item.url);
+            }
+          });
+          
+          console.log(`Found ${exerciseUrls.length} favorite exercise images to preload (${
+            Math.min(exerciseUrls.length, 5)} high, ${
+            Math.min(Math.max(exerciseUrls.length - 5, 0), 10)} medium, ${
+            Math.max(exerciseUrls.length - 15, 0)} low priority)`);
+        }
+      }
+      
+      // 3. Get recent workout images
+      setLoadingMessage(LOADING_MESSAGES.WORKOUT_HISTORY);
+      const { data: workouts, error: workoutsError } = await supabase
+        .from('workouts')
+        .select('id')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(PRELOAD_CONFIG.USER_DATA_LIMIT);
+      
+      if (!workoutsError && workouts && workouts.length > 0) {
+        // If there are any workout-related images, fetch them here
+        // This is a placeholder for any future workout images
+        console.log(`Found ${workouts.length} workouts (placeholder for any workout images)`);
+      }
+      
+      // Set loading message back to general user content
+      setLoadingMessage(LOADING_MESSAGES.USER_CONTENT);
+      
+      // Return combined images in priority order
+      return [
+        ...highPriorityImages, 
+        ...mediumPriorityImages, 
+        ...lowPriorityImages
+      ].filter(url => url && typeof url === 'string');
+    } catch (error) {
+      console.warn('Error fetching user-specific images:', error);
+      return [];
+    }
+  };
+
+  // Prepare the app - load all assets and data
   useEffect(() => {
     async function prepare() {
-      const startTime = Date.now();
+      if (DEBUG_SPLASH_SCREEN) {
+        console.log(`🚀 [SplashScreenManager] Starting app preparation at ${new Date().toISOString()}`);
+        console.log(`📊 [SplashScreenManager] App config: batch size=${PRELOAD_CONFIG.BATCH_SIZE}, timeouts=${JSON.stringify(PRELOAD_CONFIG.TIMEOUT)}`);
+      }
+      
       try {
-        console.log('🚀 Preparing app resources...');
+        // Start with a small delay to ensure splash screen is displayed
+        await new Promise(resolve => setTimeout(resolve, 200));
         
-        setLoadingProgress(0.05);
-        setLoadingMessage(LOADING_MESSAGES.START);
+        // Phase 1: Preload all static assets (bundled with the app)
+        const staticAssetsStart = Date.now();
+        setTimingMetrics(prev => ({ ...prev, staticAssetsStart }));
         
-        // Check network connectivity
-        let isConnected = false;
         try {
-          const networkState = await Network.getNetworkStateAsync();
-          isConnected = !!networkState.isConnected && !!networkState.isInternetReachable;
-        } catch (error) {
-          console.warn('Failed to check network state:', error);
-          isConnected = true; // Assume connected if check fails
+          // Handle static assets with a timeout to ensure we don't get stuck
+          await Promise.race([
+            preloadAllImages(),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Static assets timeout')), PRELOAD_CONFIG.TIMEOUT.STATIC_ASSETS)
+            )
+          ]);
+          
+          const staticAssetsDuration = Date.now() - staticAssetsStart;
+          if (DEBUG_SPLASH_SCREEN) {
+            console.log(`⏱️ [SplashScreenManager] Static assets loaded in ${staticAssetsDuration}ms`);
+          }
+          
+          setTimingMetrics(prev => ({ 
+            ...prev, 
+            staticAssetsEnd: Date.now(),
+            staticAssetsDuration
+          }));
+          
+          updateProgress(0.1, LOADING_MESSAGES.REMOTE_ASSETS, 'staticAssets');
+        } catch (err) {
+          console.warn('Static assets preloading timed out, continuing with app load:', err);
+          updateProgress(0.1, LOADING_MESSAGES.REMOTE_ASSETS, 'staticAssets');
         }
         
-        // Always preload static assets first (even offline)
-        await Promise.race([
-          preloadStaticAssets(),
-          new Promise(resolve => setTimeout(resolve, PRELOAD_CONFIG.TIMEOUT.STATIC_ASSETS))
-        ]);
+        // Phase 2: Load remote images and data
+        const remoteImagesStart = Date.now();
+        setTimingMetrics(prev => ({ ...prev, remoteImagesStart }));
         
-        // Only preload remote resources if connected
-        if (isConnected) {
+        try {
+          // Try to preload remote images with a timeout
+          await Promise.race([
+            (async () => {
+              // Get all the image URLs to preload
+              const urls = await fetchAllImageUrls();
+              
+              if (DEBUG_SPLASH_SCREEN) {
+                console.log(`📊 [SplashScreenManager] Retrieved ${urls.length} image URLs to preload`);
+              }
+              
+              // Batch preload them all
+              await batchPreloadImages(
+                urls, 
+                PRELOAD_CONFIG.BATCH_SIZE,
+                (progress, completed, total) => {
+                  const normalizedProgress = progress * 0.3; // 30% of total progress
+                  updateProgress(normalizedProgress, LOADING_MESSAGES.REMOTE_ASSETS, 'remoteAssetsBatch');
+                  
+                  if (DEBUG_SPLASH_SCREEN && completed && total) {
+                    console.log(`📊 [SplashScreenManager] Remote images progress: ${completed}/${total} (${(progress * 100).toFixed(1)}%)`);
+                  }
+                }
+              );
+            })(),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Remote images timeout')), PRELOAD_CONFIG.TIMEOUT.REMOTE_IMAGES)
+            )
+          ]);
+          
+          const remoteImagesDuration = Date.now() - remoteImagesStart;
+          if (DEBUG_SPLASH_SCREEN) {
+            console.log(`⏱️ [SplashScreenManager] Remote images loaded in ${remoteImagesDuration}ms`);
+          }
+          
+          setTimingMetrics(prev => ({ 
+            ...prev, 
+            remoteImagesEnd: Date.now(),
+            remoteImagesDuration
+          }));
+          
+          updateProgress(0.3, LOADING_MESSAGES.CONTENT, 'remoteImages');
+        } catch (err) {
+          console.warn('Remote images preloading timed out, continuing with app load:', err);
+          updateProgress(0.3, LOADING_MESSAGES.CONTENT, 'remoteImagesFallback');
+        }
+        
+        // Phase 3: Preload data - this is handled internally in preloadFrequentlyUsedData
+        try {
+          await Promise.race([
+            preloadFrequentlyUsedData(),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Data loading timeout')), PRELOAD_CONFIG.TIMEOUT.DATA)
+            )
+          ]);
+        } catch (err) {
+          console.warn('Data preloading timed out, continuing with app load:', err);
+        }
+        
+        // Phase 4: Load user-specific content if signed in
+        if (session?.user) {
+          const userDataStart = Date.now();
+          setTimingMetrics(prev => ({ ...prev, userDataStart }));
+          
           try {
-            // Cache ALL database tables up front
-            setLoadingMessage('Caching all application data...');
-            
-            // Preload frequently used data
+            // Try to preload user-specific content with a timeout
             await Promise.race([
-              preloadFrequentlyUsedData(),
-              new Promise(resolve => setTimeout(resolve, PRELOAD_CONFIG.TIMEOUT.DATA * 2))
+              (async () => {
+                // Fetch user-specific images
+                const userImages = await fetchUserSpecificImages(session.user.id);
+                
+                if (DEBUG_SPLASH_SCREEN) {
+                  console.log(`📊 [SplashScreenManager] Retrieved ${userImages.length} user-specific images to preload`);
+                }
+                
+                // Preload with high priority
+                if (userImages.length > 0) {
+                  await batchPreloadImages(
+                    userImages,
+                    PRELOAD_CONFIG.BATCH_SIZE,
+                    (progress, completed, total) => {
+                      const normalizedProgress = progress * 0.1; // 10% of total
+                      updateProgress(normalizedProgress, LOADING_MESSAGES.USER_CONTENT, 'userImages');
+                      
+                      if (DEBUG_SPLASH_SCREEN && completed && total) {
+                        console.log(`📊 [SplashScreenManager] User images progress: ${completed}/${total} (${(progress * 100).toFixed(1)}%)`);
+                      }
+                    }
+                  );
+                }
+              })(),
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('User data timeout')), PRELOAD_CONFIG.TIMEOUT.USER_SPECIFIC)
+              )
             ]);
             
-            // Fetch and preload ALL images
-            setLoadingMessage('Preparing to load all images...');
-            
-            // Get all image URLs
-            const allImageUrls = await fetchAllImageUrls();
-            console.log(`🖼️ Found ${allImageUrls.length} total images to preload`);
-            
-            // Load SVG assets first
-            const svgAssets: number[] = [];
-            try {
-              if ('svg' in STATIC_IMAGES && typeof (STATIC_IMAGES as any).svg === 'object') {
-                Object.values((STATIC_IMAGES as any).svg).forEach(svg => svgAssets.push(svg as number));
-              }
-              if ('muscles' in STATIC_IMAGES && typeof (STATIC_IMAGES as any).muscles === 'object') {
-                Object.values((STATIC_IMAGES as any).muscles).forEach(muscle => svgAssets.push(muscle as number));
-              }
-              await Asset.loadAsync(svgAssets);
-              console.log(`✅ Loaded ${svgAssets.length} SVG assets`);
-            } catch (e) {
-              console.warn('Error loading SVG assets:', e);
+            const userDataDuration = Date.now() - userDataStart;
+            if (DEBUG_SPLASH_SCREEN) {
+              console.log(`⏱️ [SplashScreenManager] User data loaded in ${userDataDuration}ms`);
             }
             
-            // Preload all remote images in batches
-            setLoadingMessage('Loading all application images...');
-            await batchPreloadImages(
-              allImageUrls,
-              PRELOAD_CONFIG.BATCH_SIZE,
-              (progress) => {
-                setLoadingProgress(0.4 + progress * 0.4); // 40-80% of total loading
-                setLoadingMessage(`Loading images... (${Math.round(progress * 100)}%)`);
-              }
-            );
+            setTimingMetrics(prev => ({
+              ...prev,
+              userDataEnd: Date.now(),
+              userDataDuration
+            }));
             
-            setLoadingMessage('Image preloading complete');
-            
-          } catch (e) {
-            console.warn('Remote resource preloading error:', e);
-            updateProgress(0.3, 'Continuing with limited cache'); 
+            updateProgress(0.1, LOADING_MESSAGES.AUTHENTICATED, 'userData');
+          } catch (err) {
+            console.warn('User-specific content preloading timed out, continuing with app load:', err);
+            updateProgress(0.1, LOADING_MESSAGES.AUTHENTICATED, 'userDataFallback');
           }
-        } else {
-          updateProgress(0.3, LOADING_MESSAGES.OFFLINE);
         }
         
-        // Finalize loading
-        setLoadingProgress(0.95);
-        setLoadingMessage(LOADING_MESSAGES.ALMOST_READY);
+        // Final update to loading and timing status
+        const totalDuration = Date.now() - timingMetrics.start;
+        setTimingMetrics(prev => ({
+          ...prev,
+          end: Date.now(),
+          totalDuration
+        }));
         
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // Complete progress and set app as ready
+        updateProgress(0.15, LOADING_MESSAGES.COMPLETE, 'finalization');
         
-        setLoadingProgress(1);
-        setLoadingMessage(LOADING_MESSAGES.READY);
+        if (DEBUG_SPLASH_SCREEN) {
+          console.log(`🏁 [SplashScreenManager] App preparation completed in ${totalDuration}ms`);
+          console.log(`📊 [SplashScreenManager] Timing summary:`, {
+            staticAssets: `${timingMetrics.staticAssetsDuration || 0}ms`,
+            remoteImages: `${timingMetrics.remoteImagesDuration || 0}ms`,
+            userData: `${timingMetrics.userDataDuration || 0}ms`,
+            total: `${totalDuration}ms`
+          });
+        }
         
-        const endTime = Date.now();
-        const loadTime = ((endTime - startTime) / 1000).toFixed(2);
-        console.log(`✅ App resources preloaded in ${loadTime}s - Ready to start the app`);
-      } catch (e) {
-        console.warn('Error preloading resources:', e);
-        setLoadingProgress(1);
-        setLoadingMessage(LOADING_MESSAGES.LIMITED);
-      } finally {
+        // Set as ready and hide loading screen
         setIsAppReady(true);
-        await safelyHideSplashScreen();
+        setTimeout(() => {
+          setShowLoadingScreen(false);
+          setTimeout(() => {
+            safelyHideSplashScreen();
+          }, 100);
+        }, 500);
+      } catch (e) {
+        console.warn('Error preparing app:', e);
+        // Still set app as ready even on error to prevent getting stuck
+        setIsAppReady(true);
+        setShowLoadingScreen(false);
+        safelyHideSplashScreen();
       }
     }
-
+    
     prepare();
-  }, []);
+  }, [session]);
 
-  // Hide the loading screen when app is ready
   const onFinishLoading = () => {
+    if (DEBUG_SPLASH_SCREEN) {
+      console.log(`🏁 [SplashScreenManager] Loading finished, hiding splash screen`);
+    }
     setShowLoadingScreen(false);
   };
 
-  if (!isAppReady) {
-    return null;
+  // Render the app with loading screen when needed
+  if (!isAppReady || showLoadingScreen) {
+    return (
+      <InitialLoadingScreen 
+        progressValue={loadingProgress} 
+        message={loadingMessage}
+        onFinish={onFinishLoading}
+      />
+    );
   }
 
-  return (
-    <>
-      {showLoadingScreen ? (
-        <InitialLoadingScreen 
-          onFinish={onFinishLoading}
-          message={loadingMessage || (session ? LOADING_MESSAGES.AUTHENTICATED : LOADING_MESSAGES.DEFAULT)}
-          duration={4000}
-          progressValue={loadingProgress}
-        />
-      ) : (
-        children
-      )}
-    </>
-  );
+  return <>{children}</>;
 } 

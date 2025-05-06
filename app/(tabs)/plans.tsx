@@ -89,11 +89,17 @@ export default function PlansScreen() {
   const handlePlanPress = (planId: string, planTitle: string, index: number) => {
     // Navigate to the plan details screen with the planId and planNumber
     router.push({
-      pathname: '/plan-details',
+      pathname: "/(tabs)/plan-details",
       params: { 
         planId, 
         planTitle,
-        planNumber: index + 1
+        planNumber: index + 1,
+        subcategoryId: subcategoryId, // Pass subcategoryId for back navigation
+        accent: accent, // Pass accent color for maintaining color scheme
+        subcategoryName: subcategoryName,
+        subcategoryTitle: subcategoryTitle,
+        subcategorySubtitle: subcategorySubtitle,
+        categoryName: categoryName
       }
     });
   };

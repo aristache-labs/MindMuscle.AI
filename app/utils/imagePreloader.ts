@@ -3,6 +3,25 @@ import { ImageSourcePropType } from 'react-native';
 import { Image } from 'expo-image';
 import supabase from '../services/supabase';
 
+// Debug configuration
+const DEBUG_IMAGE_PRELOADER = true;
+const DEBUG_MEMORY_CACHE = true;
+
+// Expanded memory cache to improve navigation performance
+const IMAGE_MEMORY_CACHE: Record<string, any> = {};
+
+// Separate tracker for remote prefetched images 
+// (tracks that Image.prefetch was called but doesn't overwrite file URIs)
+const REMOTE_PREFETCHED: Record<string, boolean> = {};
+
+// Create a counter to track cache operations
+let memCacheHits = 0;
+let memCacheMisses = 0;
+let memCacheStores = 0;
+
+// Track important images that should always be kept in memory
+const IMPORTANT_IMAGE_URLS = new Set<string>();
+
 export const STATIC_IMAGES = {
   measurements: {
     weight: require('../../assets/measurements/instructions/weight-instruction.png'),
@@ -23,8 +42,58 @@ export const STATIC_IMAGES = {
 // Paths for exercise images in assets folder
 export const EXERCISE_IMAGES_PATH = '../../assets/exercises/';
 
-// Cache for storing preloaded URLs
+// Cache for storing preloaded URLs - keep for backward compatibility
 let preloadedRemoteImages: Record<string, boolean> = {};
+
+/**
+ * Stores a prefetched image in memory cache with its data
+ */
+export function storeInMemoryCache(url: string, imageData: any): void {
+  // Don't cache undefined or null data
+  if (!url || !imageData) {
+    if (DEBUG_MEMORY_CACHE) console.log(`🚫 CACHE SKIP: Invalid URL or data for ${url?.substring(0, 40)}`);
+    return;
+  }
+  
+  // Check if we already have this in cache
+  const alreadyInCache = !!IMAGE_MEMORY_CACHE[url];
+  
+  // Store in memory cache
+  IMAGE_MEMORY_CACHE[url] = imageData;
+  memCacheStores++;
+  
+  if (DEBUG_MEMORY_CACHE) {
+    if (alreadyInCache) {
+      console.log(`🔄 CACHE UPDATE: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
+    } else {
+      console.log(`➕ CACHE STORE: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
+    }
+    console.log(`📊 CACHE STATS: ${Object.keys(IMAGE_MEMORY_CACHE).length} items (${memCacheHits} hits, ${memCacheMisses} misses, ${memCacheStores} stores)`);
+  }
+}
+
+/**
+ * Gets an image from memory cache if available
+ */
+export function getFromMemoryCache(url: string): any {
+  if (!url) return null;
+  
+  const cachedData = IMAGE_MEMORY_CACHE[url] || null;
+  
+  if (cachedData) {
+    memCacheHits++;
+    if (DEBUG_MEMORY_CACHE) {
+      console.log(`✅ CACHE HIT: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
+    }
+  } else {
+    memCacheMisses++;
+    if (DEBUG_MEMORY_CACHE) {
+      console.log(`❓ CACHE MISS: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
+    }
+  }
+  
+  return cachedData;
+}
 
 /**
  * Preloads all static images bundled with the app
@@ -119,7 +188,7 @@ export async function preloadCategories(): Promise<void> {
         if (imageUrl && typeof imageUrl === 'string') {
           try {
             await Image.prefetch(imageUrl);
-            preloadedRemoteImages[imageUrl] = true;
+            REMOTE_PREFETCHED[imageUrl] = true;
             imagesPreloaded++;
             console.log(`✅ Loaded exercise image ${index + 1}/${exercises.length}`);
           } catch (err) {
@@ -139,7 +208,7 @@ export async function preloadCategories(): Promise<void> {
 }
 
 /**
- * Preloads remote images from Supabase buckets
+ * Preloads remote images from Supabase buckets with memory caching
  */
 export async function preloadRemoteImages(): Promise<void> {
   console.log('🌐 Starting to preload remote images...');
@@ -163,14 +232,14 @@ export async function preloadRemoteImages(): Promise<void> {
 }
 
 /**
- * Preloads workout plan images from Supabase
+ * Preloads workout plan images from Supabase with memory caching
  */
 async function preloadWorkoutPlanImages(): Promise<void> {
   try {
     const { data: plans, error } = await supabase
       .from('workout_plans')
       .select('id, image_url')
-      .limit(10); // Limit to first 10 plans for performance
+      .limit(20); // Increased from 10 to 20 for better coverage
     
     if (error) {
       throw error;
@@ -181,8 +250,7 @@ async function preloadWorkoutPlanImages(): Promise<void> {
       
       await Promise.all(plans.map(async (plan, index) => {
         if (plan.image_url) {
-          await Image.prefetch(plan.image_url);
-          preloadedRemoteImages[plan.image_url] = true;
+          await preloadSingleImage(plan.image_url);
           console.log(`✅ Loaded workout plan image ${index + 1}/${plans.length}`);
         }
       }));
@@ -193,14 +261,14 @@ async function preloadWorkoutPlanImages(): Promise<void> {
 }
 
 /**
- * Preloads exercise images from Supabase
+ * Preloads exercise images from Supabase with memory caching
  */
 async function preloadExerciseImages(): Promise<void> {
   try {
     const { data: exercises, error } = await supabase
       .from('exercises')
       .select('id, image_url')
-      .limit(20); // Limit to first 20 exercises for performance
+      .limit(30); // Increased from 20 to 30 for better coverage
     
     if (error) {
       throw error;
@@ -211,8 +279,7 @@ async function preloadExerciseImages(): Promise<void> {
       
       await Promise.all(exercises.map(async (exercise, index) => {
         if (exercise.image_url) {
-          await Image.prefetch(exercise.image_url);
-          preloadedRemoteImages[exercise.image_url] = true;
+          await preloadSingleImage(exercise.image_url);
           console.log(`✅ Loaded exercise image ${index + 1}/${exercises.length}`);
         }
       }));
@@ -226,20 +293,39 @@ async function preloadExerciseImages(): Promise<void> {
  * Checks if a remote image URL has been preloaded
  */
 export function isImagePreloaded(url: string): boolean {
-  return !!preloadedRemoteImages[url];
+  const inRemoteCache = !!REMOTE_PREFETCHED[url];
+  if (DEBUG_IMAGE_PRELOADER && inRemoteCache) {
+    console.log(`✅ PRELOAD CHECK: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''} [Remote:${inRemoteCache}]`);
+  }
+  return inRemoteCache;
 }
 
 /**
- * Preloads a single remote image on demand
+ * Preloads a single remote image on demand and stores in memory cache
  */
-export async function preloadSingleImage(url: string): Promise<void> {
-  if (!url || preloadedRemoteImages[url]) return;
+export async function preloadSingleImage(url: string): Promise<boolean | void> {
+  if (!url) {
+    if (DEBUG_IMAGE_PRELOADER) console.log(`❌ PRELOAD SKIP: Empty URL`);
+    return;
+  }
+  
+  // Skip if already preloaded
+  if (REMOTE_PREFETCHED[url]) {
+    if (DEBUG_IMAGE_PRELOADER) console.log(`✅ PRELOAD SKIP: Already cached ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
+    return;
+  }
   
   try {
-    await Image.prefetch(url);
-    preloadedRemoteImages[url] = true;
+    if (DEBUG_IMAGE_PRELOADER) console.log(`🔄 PRELOAD START: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
+    
+    const result = await Image.prefetch(url);
+    REMOTE_PREFETCHED[url] = true;
+    
+    if (DEBUG_IMAGE_PRELOADER) console.log(`✅ PRELOAD SUCCESS: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
+    
+    return result;
   } catch (error) {
-    console.warn(`Failed to preload image: ${url}`, error);
+    console.warn(`❌ PRELOAD ERROR: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`, error);
   }
 }
 
@@ -268,12 +354,59 @@ export async function preloadAllImages(): Promise<void> {
   }
 }
 
-export default { 
-  preloadStaticImages, 
+/**
+ * Mark an image URL as important for navigation - it will be kept in memory
+ */
+export function markAsImportantImage(url: string): void {
+  if (!url) return;
+  IMPORTANT_IMAGE_URLS.add(url);
+  if (DEBUG_MEMORY_CACHE) {
+    console.log(`🔒 MARKED IMPORTANT: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
+    console.log(`📊 IMPORTANT IMAGES: ${IMPORTANT_IMAGE_URLS.size} total`);
+  }
+  if (!REMOTE_PREFETCHED[url]) {
+    preloadSingleImage(url).catch(err => {
+      console.warn(`Failed to preload important image: ${url}`, err);
+    });
+  }
+}
+
+/**
+ * Check if an image is marked as important
+ */
+export function isImportantImage(url: string): boolean {
+  return IMPORTANT_IMAGE_URLS.has(url);
+}
+
+/**
+ * Check if an image has been prefetched via Expo Image.prefetch
+ */
+export function isRemotePrefetched(url: string): boolean {
+  return !!REMOTE_PREFETCHED[url];
+}
+
+/**
+ * Mark an image as prefetched without downloading
+ */
+export function markAsRemotePrefetched(url: string): void {
+  if (!url) return;
+  REMOTE_PREFETCHED[url] = true;
+}
+
+// Create an ImagePreloader object to export as default
+const ImagePreloader = {
+  STATIC_IMAGES,
+  preloadStaticImages,
+  preloadCategories,
   preloadRemoteImages,
   preloadAllImages,
-  preloadSingleImage,
   isImagePreloaded,
-  preloadCategories,
-  STATIC_IMAGES 
-}; 
+  preloadSingleImage,
+  markAsImportantImage,
+  isImportantImage,
+  isRemotePrefetched,
+  markAsRemotePrefetched
+};
+
+console.log('🧩 imagePreloader loaded');
+export default ImagePreloader; 

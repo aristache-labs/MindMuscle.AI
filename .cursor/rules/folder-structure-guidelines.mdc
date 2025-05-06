@@ -12,7 +12,7 @@ alwaysApply: true
 
 ## Project Folder Structure
 
-Regularly update this folder structure each time you create, modify, or delete a file or folder. (Latest: Enhanced image preloading with SplashScreenManager for better app performance):
+Regularly update this folder structure each time you create, modify, or delete a file or folder. (Latest: Hid bottom tab navigation on plan and exercise detail screens):
 
 ```
 mindmuscle-ai/
@@ -29,6 +29,16 @@ mindmuscle-ai/
 │   │   ├── plan-details.tsx
 │   │   └── plans.tsx
 │   ├── (tabs)/
+│   │   ├── _layout.tsx             # Modified to conditionally hide bottom tab bar
+│   │   ├── index.tsx
+│   │   ├── discover.tsx
+│   │   ├── exercises.tsx
+│   │   ├── plans.tsx               # Tab bar hidden on this screen
+│   │   ├── plan-details.tsx        # Tab bar hidden on this screen
+│   │   ├── exercises-list.tsx      # Tab bar hidden on this screen
+│   │   ├── exercise-details.tsx    # Tab bar hidden on this screen
+│   │   ├── insights.tsx
+│   │   └── profile.tsx
 │   ├── coaching/
 │   ├── components/
 │   │   ├── Achievements.tsx
@@ -98,6 +108,7 @@ mindmuscle-ai/
 - Avoid duplicating existing files or folders by checking the structure carefully.
 - For image handling, use the OptimizedImage component with the imagePreloader utilities to ensure efficient loading.
 - Use SplashScreenManager for proper application initialization and asset preloading.
+- The bottom tab navigation is hidden on specific screens (plans, plan-details, exercises-list, exercise-details) for a cleaner UI.
 
 ---
 

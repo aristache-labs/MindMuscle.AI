@@ -1,7 +1,7 @@
 import { Tabs } from 'expo-router';
 import { useColorScheme, View, Platform, Pressable, Text, Dimensions } from 'react-native';
 import { useAuth } from '../store/AuthContext';
-import { useRouter } from 'expo-router';
+import { useRouter, usePathname } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { logger } from '../utils/logger';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -19,6 +19,14 @@ import { COLORS } from '../constants/theme';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const TAB_BAR_HEIGHT = 75;
 const PADDING = 16;
+
+// List of screens that should hide the tab bar
+const HIDE_TAB_BAR_SCREENS = [
+  '/plans',
+  '/plan-details', 
+  '/exercises-list', 
+  '/exercise-details'
+];
 
 interface TabBarButtonProps {
   isFocused: boolean;
@@ -103,6 +111,17 @@ const TabBarButton = ({ isFocused, onPress, icon, label }: TabBarButtonProps) =>
 
 const FloatingTabBar = ({ state, navigation, descriptors }: any) => {
   const insets = useSafeAreaInsets();
+  const pathname = usePathname();
+  
+  // Check if current path should hide the tab bar
+  const shouldHideTabBar = HIDE_TAB_BAR_SCREENS.some(screen => 
+    pathname.includes(screen)
+  );
+  
+  // Don't render the tab bar if it should be hidden
+  if (shouldHideTabBar) {
+    return null;
+  }
   
   return (
     <View

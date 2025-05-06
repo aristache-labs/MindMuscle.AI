@@ -3,6 +3,7 @@ import { Image } from 'expo-image';
 import { ImageSourcePropType } from 'react-native';
 import { isImagePreloaded, preloadSingleImage } from '../utils/imagePreloader';
 
+
 export interface PreloadingStatus {
   loaded: boolean;
   error: string | null;

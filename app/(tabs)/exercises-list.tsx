@@ -246,15 +246,16 @@ export default function ExercisesListScreen() {
   }, [favoriteIds]);
 
   const handleExercisePress = (exerciseId: string) => {
-    // Find the exercise details to pass as params
-    const exercise = allExercises.find(ex => ex.id === exerciseId);
+    // Find the exercise to get details
+    const exercise = displayedExercises.find(ex => ex.id === exerciseId);
     if (exercise) {
       router.push({
-        pathname: '/exercise-details',
+        pathname: "/(tabs)/exercise-details",
         params: {
-          id: exercise.id,
+          id: exerciseId,
           name: exercise.name,
-          image: exercise.image_url || '',
+          image: exercise.image_url || 'placeholder.jpg',
+          fromScreen: fromScreen
         }
       });
     }
@@ -377,7 +378,7 @@ export default function ExercisesListScreen() {
           <Text style={styles.messageText}>{error}</Text>
           <TouchableOpacity 
             style={styles.retryButton}
-            onPress={() => router.replace(`/exercises-list?categoryId=${currentCategory}`)}
+            onPress={() => router.replace(`/(tabs)/exercises-list?categoryId=${currentCategory}`)}
           >
             <Text style={styles.retryText}>Retry</Text>
           </TouchableOpacity>

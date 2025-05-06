@@ -7,10 +7,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import OptimizedImage from '../components/OptimizedImage';
 import { useImagePreloader } from '../hooks/useImagePreloader';
+import { markAsImportantImage } from '../utils/imagePreloader';
 import { LinearGradient } from 'expo-linear-gradient';
 import supabase, { supabaseUrl } from '../services/supabase';
 import { useRouter } from 'expo-router';
 import { GeneralHeader } from '../components/GeneralHeader';
+
+// Add debug tracking for discover screen - add after imports
+const DEBUG_NAVIGATION = true;
 
 // Heights
 const FILTER_HEIGHT = 48;
@@ -109,9 +113,34 @@ interface WorkoutProgram {
 const WorkoutCard = ({ id, title, subtitle, image, accent, category }: WorkoutProgram) => {
   const router = useRouter();
   
+  // Add this at the start of the component to mark images as important
+  useEffect(() => {
+    try {
+      // If image is a string URL, mark it as important
+      if (typeof image === 'string') {
+        if (DEBUG_NAVIGATION) console.log(`🔒 Marking workout card image as important: ${id}`);
+        markAsImportantImage(image);
+      } else if (image && typeof image === 'object') {
+        // Try to safely extract URI if it exists
+        const imgObj = image as any;
+        if (imgObj.uri) {
+          if (DEBUG_NAVIGATION) console.log(`🔒 Marking workout card image URI as important: ${id}`);
+          markAsImportantImage(imgObj.uri);
+        }
+      }
+    } catch (err) {
+      console.warn('Error marking image as important:', err);
+    }
+  }, [image, id]);
+  
   const handlePress = () => {
+    if (DEBUG_NAVIGATION) {
+      console.log(`🔀 NAVIGATION: Navigating from discover to plans with subcategoryId=${id}`);
+      console.log(`🖼️ IMAGE DATA: Navigating with image data`, image);
+    }
+    
     router.push({
-      pathname: "/(stack)/plans",
+      pathname: "plans",
       params: {
         subcategoryId: id,
         title,
@@ -134,6 +163,8 @@ const WorkoutCard = ({ id, title, subtitle, image, accent, category }: WorkoutPr
               style={styles.cardImageContainer}
               imageStyle={styles.cardImage}
               contentFit="cover"
+              debugLabel={`workout-card-${id}`}
+              priority="high"
             />
             <LinearGradient
               colors={['transparent', 'rgba(0,0,0,0.6)', 'rgba(0,0,0,0.8)']}
@@ -604,6 +635,16 @@ export default function DiscoverScreen() {
       );
     });
   };
+
+  // Add after the existing hooks
+  useEffect(() => {
+    if (DEBUG_NAVIGATION) {
+      console.log('📱 SCREEN: Discover screen mounted');
+      return () => {
+        console.log('📱 SCREEN: Discover screen unmounted');
+      };
+    }
+  }, []);
 
   if (isLoading) {
     return (

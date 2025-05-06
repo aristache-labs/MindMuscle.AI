@@ -12,12 +12,18 @@ import workoutPlanService, { WorkoutPlan, PlanExercise } from '../services/worko
 
 const { width } = Dimensions.get('window');
 
+// Add debug tracking for plan details screen
+const DEBUG_NAVIGATION = true;
+
 export default function PlanDetailsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
   const planId = params.planId as string;
   const planNumber = params.planNumber as string;
+  
+  // Get accent color from params or default to primary color
+  const accentColor = params.accent as string || COLORS.primary;
   
   const [plan, setPlan] = useState<WorkoutPlan | null>(null);
   const [exercises, setExercises] = useState<PlanExercise[]>([]);
@@ -81,13 +87,39 @@ export default function PlanDetailsScreen() {
   }, [planId]);
 
   const handleBackPress = () => {
-    router.back();
+    if (DEBUG_NAVIGATION) {
+      console.log('🔀 NAVIGATION: Going back from plan-details screen');
+    }
+    
+    // Always use explicit navigation to plans screen instead of router.back()
+    // We need to preserve the subcategoryId if it was passed to ensure proper data loading
+    const subcategoryId = params.subcategoryId as string;
+    const accent = params.accent as string;
+    const title = params.subcategoryTitle as string || params.planTitle as string;
+    const subcategoryName = params.subcategoryName as string;
+    const subcategoryTitle = params.subcategoryTitle as string;
+    const subcategorySubtitle = params.subcategorySubtitle as string;
+    const categoryName = params.categoryName as string;
+    
+    // Always navigate to plans - explicitly set the path to ensure proper navigation
+    router.push({
+      pathname: "/(tabs)/plans",
+      params: subcategoryId ? { 
+        subcategoryId,
+        accent, // Pass the accent color to preserve it when navigating back
+        title,
+        subcategoryName,
+        subcategoryTitle,
+        subcategorySubtitle,
+        categoryName
+      } : {}
+    });
   };
 
   const handleStartWorkout = () => {
     // Navigate to workout screen with plan details
     // This will be implemented in a future step
-    router.push('/');
+    router.push('/(tabs)/index');
   };
   
   // Navigate to exercise details screen
@@ -118,13 +150,28 @@ export default function PlanDetailsScreen() {
         imageUrl = 'placeholder_default';
       }
       
+      // Get accent color from params
+      const accent = params.accent as string;
+      const subcategoryId = params.subcategoryId as string;
+      const subcategoryName = params.subcategoryName as string;
+      const subcategoryTitle = params.subcategoryTitle as string;
+      const subcategorySubtitle = params.subcategorySubtitle as string; 
+      const categoryName = params.categoryName as string;
+      
       router.push({
-        pathname: '/exercise-details',
+        pathname: "/(tabs)/exercise-details",
         params: {
           id: exercise.exercise_id,
           name: exercise.name || 'Exercise',
           image: imageUrl,
-          fromPlanDetails: 'true'
+          fromPlanDetails: 'true',
+          planId: planId, // Pass the plan ID for navigation back to plan details
+          accent: accent, // Pass the accent color to preserve color scheme
+          subcategoryId,
+          subcategoryName,
+          subcategoryTitle,
+          subcategorySubtitle,
+          categoryName
         }
       });
     }
@@ -207,42 +254,7 @@ export default function PlanDetailsScreen() {
           )}
         </View>
         <View style={styles.exerciseRight}>
-          {exercise.primary_muscles && (
-            <View style={styles.muscleIconsContainer}>
-              {exercise.primary_muscles.some(m => m.toLowerCase().includes('chest')) && (
-                <MaterialCommunityIcons
-                  name="human-male"
-                  size={24}
-                  color={COLORS.primary}
-                  style={styles.muscleIcon}
-                />
-              )}
-              {exercise.primary_muscles.some(m => m.toLowerCase().includes('quad') || m.toLowerCase().includes('leg')) && (
-                <MaterialCommunityIcons
-                  name="human-male-height"
-                  size={24}
-                  color={COLORS.primary}
-                  style={styles.muscleIcon}
-                />
-              )}
-              {exercise.primary_muscles.some(m => m.toLowerCase().includes('back') || m.toLowerCase().includes('lat')) && (
-                <MaterialCommunityIcons
-                  name="human-handsdown"
-                  size={24}
-                  color={COLORS.primary}
-                  style={styles.muscleIcon}
-                />
-              )}
-              {exercise.primary_muscles.some(m => m.toLowerCase().includes('arm') || m.toLowerCase().includes('bicep') || m.toLowerCase().includes('tricep')) && (
-                <MaterialCommunityIcons
-                  name="arm-flex"
-                  size={24}
-                  color={COLORS.primary}
-                  style={styles.muscleIcon}
-                />
-              )}
-            </View>
-          )}
+          {/* Muscle icons removed */}
         </View>
       </Pressable>
     );
@@ -253,6 +265,11 @@ export default function PlanDetailsScreen() {
   
   // Determine if we should show the start plan button
   const shouldShowStartButton = (exercises.length > 0 && !isLoading);
+
+  // Debug accent color
+  useEffect(() => {
+    console.log('Plan Details - Accent Color:', params.accent);
+  }, [params.accent]);
 
   return (
     <View style={styles.container}>
@@ -503,16 +520,10 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   exerciseRight: {
-    width: 60,
+    width: 20,
     alignItems: 'center',
     justifyContent: 'center',
     paddingRight: SPACING.sm,
-  },
-  muscleIconsContainer: {
-    alignItems: 'center',
-  },
-  muscleIcon: {
-    marginBottom: 6,
   },
   emptyContainer: {
     padding: SPACING.xl,

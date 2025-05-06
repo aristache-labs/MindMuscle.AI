@@ -172,13 +172,10 @@ export default function ExercisesScreen() {
   const scrollY = useRef(new Animated.Value(0)).current;
   const scrollIndicatorY = useRef(new Animated.Value(0)).current;
 
-  // Preload body model images
-  const bodyModelImages = [
-    require('../../assets/body-model_front.png'),
-    require('../../assets/body-model_back.png')
-  ];
-  const { loaded: imagesPreloaded } = useImagePreloader(bodyModelImages);
-
+  // Directly reference body model images without preloading via hook
+  const frontBodyModel = require('../../assets/body-model_front.png');
+  const backBodyModel = require('../../assets/body-model_back.png');
+  
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
@@ -269,14 +266,14 @@ export default function ExercisesScreen() {
     const categoryId = muscleGroupName;
     
     router.push({
-      pathname: '/(stack)/exercises-list',
+      pathname: '/(tabs)/exercises-list',
       params: { categoryId, fromScreen: 'exercises' }
     });
   };
 
   const navigateToAllExercises = () => {
     router.push({
-      pathname: '/(stack)/exercises-list',
+      pathname: '/(tabs)/exercises-list',
       params: { showAllCategories: 'true', openSearch: 'true', fromScreen: 'exercises' }
     });
   };
@@ -356,33 +353,34 @@ export default function ExercisesScreen() {
           >
             <Animated.View style={[styles.modelContainer, { opacity: fadeAnim }]}>
               <View style={styles.imagesContainer}>
-                <OptimizedImage
-                  source={require('../../assets/body-model_front.png')}
-                  style={[
-                    styles.bodyModel,
-                    {
-                      opacity: currentView === 'front' ? 1 : 0,
-                      position: 'absolute',
-                    }
-                  ]}
-                  imageStyle={styles.bodyModel}
-                  contentFit="contain"
-                  onLoad={() => setIsImageLoaded(true)}
-                  transparent
+                {/* Front body model */}
+                <Image 
+                  source={frontBodyModel}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    position: 'absolute',
+                    opacity: currentView === 'front' ? 1 : 0,
+                    resizeMode: 'contain'
+                  }}
+                  onLoad={() => {
+                    setIsImageLoaded(true);
+                  }}
                 />
-                <OptimizedImage
-                  source={require('../../assets/body-model_back.png')}
-                  style={[
-                    styles.bodyModel,
-                    {
-                      opacity: currentView === 'back' ? 1 : 0,
-                      position: 'absolute',
-                    }
-                  ]}
-                  imageStyle={styles.bodyModel}
-                  contentFit="contain"
-                  onLoad={() => setIsImageLoaded(true)}
-                  transparent
+                
+                {/* Back body model */}
+                <Image
+                  source={backBodyModel}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    position: 'absolute',
+                    opacity: currentView === 'back' ? 1 : 0,
+                    resizeMode: 'contain'
+                  }}
+                  onLoad={() => {
+                    setIsImageLoaded(true);
+                  }}
                 />
               </View>
               
@@ -523,6 +521,7 @@ const styles = StyleSheet.create({
     bottom: 35,
     position: 'relative',
     paddingTop: 50, // Add space for the search button
+    minHeight: '100%',
   },
   modelContainer: {
     flex: 1,
@@ -537,10 +536,12 @@ const styles = StyleSheet.create({
     position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'transparent'
   },
   bodyModel: {
     width: '100%',
     height: '100%',
+    resizeMode: 'contain',
   },
   muscleMarker: {
     position: 'absolute',

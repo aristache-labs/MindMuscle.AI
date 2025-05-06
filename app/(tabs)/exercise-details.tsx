@@ -10,7 +10,8 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Keyboard
+  Keyboard,
+  BackHandler
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { IconButton, Divider, Surface } from 'react-native-paper';
@@ -88,6 +89,7 @@ export default function ExerciseDetailsScreen({
   const debouncedNotes = useDebounce(notes, 1000);
 
   const scrollViewRef = useRef<ScrollView>(null);
+  const textInputRef = useRef<TextInput>(null);
   
   // Fetch exercise data from Supabase and SVG files
   useEffect(() => {
@@ -127,6 +129,44 @@ export default function ExerciseDetailsScreen({
 
     return () => {
       keyboardDidShowListener.remove();
+    };
+  }, []);
+
+  // Handle back button press to dismiss keyboard
+  useEffect(() => {
+    // Function to dismiss keyboard when pressing back
+    const handleBackButtonPress = () => {
+      if (textInputRef.current && Keyboard.isVisible()) {
+        textInputRef.current.blur();
+        return true; // Prevent default back action while keyboard is visible
+      }
+      return false; // Allow default back action
+    };
+
+    // Add back button handler
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      handleBackButtonPress
+    );
+
+    // Clean up on unmount
+    return () => {
+      backHandler.remove();
+      // Also blur the input when unmounting to prevent auto-focus when returning
+      if (textInputRef.current) {
+        textInputRef.current.blur();
+      }
+    };
+  }, []);
+
+  // Blur text input when navigating away
+  useEffect(() => {
+    return () => {
+      // Ensure the keyboard is dismissed when unmounting
+      Keyboard.dismiss();
+      if (textInputRef.current) {
+        textInputRef.current.blur();
+      }
     };
   }, []);
 
@@ -253,8 +293,45 @@ export default function ExerciseDetailsScreen({
 
   // Update the handleBackPress function to use onModalClose when in modal mode
   const handleBackPress = () => {
+    // Dismiss keyboard and blur input first
+    Keyboard.dismiss();
+    if (textInputRef.current) {
+      textInputRef.current.blur();
+    }
+
     if (isModal && onModalClose) {
       onModalClose();
+    } else if (params.fromPlanDetails === 'true') {
+      // If coming from plan-details, go back to plan-details explicitly
+      const planId = params.planId || '';
+      const accent = params.accent || '';
+      const subcategoryId = params.subcategoryId || '';
+      const subcategoryName = params.subcategoryName || '';
+      const subcategoryTitle = params.subcategoryTitle || '';
+      const subcategorySubtitle = params.subcategorySubtitle || '';
+      const categoryName = params.categoryName || '';
+      const planNumber = params.planNumber || '';
+      const planTitle = params.planTitle || '';
+
+      console.log('Navigation back to plan-details with accent:', accent);
+
+      router.push({
+        pathname: "/(tabs)/plan-details",
+        params: { 
+          planId,
+          accent, // Pass accent color back to maintain color scheme
+          subcategoryId,
+          subcategoryName,
+          subcategoryTitle,
+          subcategorySubtitle,
+          categoryName,
+          planNumber,
+          planTitle
+        }
+      });
+    } else if (params.fromScreen === 'exercises') {
+      // If coming from exercises tab, navigate back to exercises explicitly
+      router.push('/(tabs)/exercises');
     } else {
       router.back();
     }
@@ -506,12 +583,14 @@ export default function ExerciseDetailsScreen({
                 onChangeText={setNotes}
                 multiline
                 textAlignVertical="top"
+                autoFocus={false}
                 onFocus={() => {
                   // Scroll to the input when it receives focus
                   setTimeout(() => {
                     scrollViewRef.current?.scrollToEnd({ animated: true });
                   }, 100);
                 }}
+                ref={textInputRef}
               />
             </Surface>
             

@@ -4,6 +4,9 @@ import { Text, ProgressBar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
+// Import shared loading messages
+import { LOADING_MESSAGES } from '@constants/loadingMessages';
+
 interface InitialLoadingScreenProps {
   onFinish?: () => void;
   duration?: number;
@@ -25,19 +28,9 @@ export default function InitialLoadingScreen({
   const fadeValue = useRef(new Animated.Value(0)).current;
   const textScaleValue = useRef(new Animated.Value(1)).current;
   const textOpacityValue = useRef(new Animated.Value(1)).current;
-  const [loadingMessage, setLoadingMessage] = useState(message || 'Preparing your workout...');
+  const [loadingMessage, setLoadingMessage] = useState(message || LOADING_MESSAGES.DEFAULT_WORKOUT);
   const [progress, setProgress] = useState(progressValue || 0);
-
-  const messages = [
-    'Loading exercises...',
-    'Just a moment...',
-    'AI is working...',
-    'Calculating your gains...',
-    'Getting pumped up...',
-    'Almost there...',
-    'Hold on tight...',
-    'Finalizing...',
-  ];
+  const [prevMessage, setPrevMessage] = useState('');
 
   // Update progress when progressValue changes
   useEffect(() => {
@@ -45,6 +38,18 @@ export default function InitialLoadingScreen({
       setProgress(progressValue);
     }
   }, [progressValue]);
+
+  // Update message when message prop changes
+  useEffect(() => {
+    if (message && message !== prevMessage) {
+      // Only animate text if this is not the first message
+      if (prevMessage) {
+        animateText();
+      }
+      setLoadingMessage(message);
+      setPrevMessage(message);
+    }
+  }, [message, prevMessage]);
 
   const animateText = () => {
     textScaleValue.setValue(0.8);
@@ -127,12 +132,16 @@ export default function InitialLoadingScreen({
         });
       }, 1000);
 
-      // Message rotation with animation
+      // Message rotation with animation - only if no message prop is provided
       const messageInterval = setInterval(() => {
         if (!message) {
-          setLoadingMessage((prev) => {
-            const currentIndex = messages.indexOf(prev);
-            const nextMessage = messages[(currentIndex + 1) % messages.length];
+          setLoadingMessage((prev: string) => {
+            const currentIndex = LOADING_MESSAGES.ROTATION.indexOf(prev);
+            const nextIndex = (currentIndex + 1) % LOADING_MESSAGES.ROTATION.length;
+            // If current message not found in rotation, start from beginning
+            const nextMessage = currentIndex === -1 
+              ? LOADING_MESSAGES.ROTATION[0] 
+              : LOADING_MESSAGES.ROTATION[nextIndex];
             animateText();
             return nextMessage;
           });
@@ -166,7 +175,7 @@ export default function InitialLoadingScreen({
         }).start(() => {
           if (onFinish) onFinish();
         });
-      }, 500);
+      }, 1000); // Wait a bit longer to show 100% completion
       
       return () => clearTimeout(finishTimeout);
     }

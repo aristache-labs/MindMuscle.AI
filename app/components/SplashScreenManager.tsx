@@ -2,10 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { AppState, AppStateStatus, Platform } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import InitialLoadingScreen from './InitialLoadingScreen';
-import { STATIC_IMAGES } from '@utils/imagePreloader';
+import { STATIC_IMAGES, preloadAllImages, batchPreloadImages } from '@utils/imagePreloader';
 import { useAuth } from '@store/AuthContext';
 import * as Network from 'expo-network';
-import cacheManager from '../utils/cacheManager';
 import supabase from '@services/supabase';
 import { Asset } from 'expo-asset';
 import { LOADING_MESSAGES } from '@constants/loadingMessages';
@@ -15,15 +14,16 @@ import * as FileSystem from 'expo-file-system';
 const PRELOAD_CONFIG = {
   EXERCISE_LIMIT: Infinity, // No limit - load all exercises
   PLAN_LIMIT: Infinity, // No limit - load all plans
-  VIDEO_LIMIT: Infinity, // No limit - load all videos
+
   SCREENS_CONTENT_LIMIT: 100, // Increased from 20
   TIMEOUT: {
     STATIC_ASSETS: 4000,
     REMOTE_IMAGES: 30000, // Increased from 15000 to allow more time for loading all images
     DATA: 20000, // Increased from 8000 for loading all data
-    VIDEOS: 20000, // Increased to match data timeout
+
     CONTENT: 15000 // Increased from 8000
-  }
+  },
+  BATCH_SIZE: 15 // Number of images to load in parallel
 };
 
 // Safely attempt to prevent auto-hide with error handling
@@ -99,25 +99,15 @@ export default function SplashScreenManager({ children }: { children: React.Reac
     try {
       // This runs silently in the background without UI updates
       // Refresh recently used content
-      await cacheManager.initialize();
-      
       // Refresh exercise data
-      try {
-        const { data: exercises, error } = await supabase
-          .from('exercises')
-          .select('id, name, image_url, category')
-          .limit(20);
-          
-        if (!error && exercises) {
-          await cacheManager.cacheData('exercises_recent', exercises);
-        }
-      } catch (err) {
-        console.log('Silent background refresh - exercise data error:', err);
-      }
-
-      // Refresh user data if logged in
-      if (session?.user) {
-        try {
+      const { data: exercises, error } = await supabase
+        .from('exercises')
+        .select('id, name, image_url, category')
+        .limit(20);
+        
+      if (!error && exercises) {
+        // Refresh user data if logged in
+        if (session?.user) {
           const { data: userData, error } = await supabase
             .from('profiles')
             .select('*')
@@ -125,10 +115,84 @@ export default function SplashScreenManager({ children }: { children: React.Reac
             .single();
           
           if (!error && userData) {
-            await cacheManager.cacheData(`profile_${session.user.id}`, userData);
+            // User settings
+            const { data, error } = await supabase
+              .from('user_settings')
+              .select('*')
+              .eq('user_id', session.user.id)
+              .single();
+            
+            if (!error && data) {
+              // User profile
+              const { data: profileData, error } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', session.user.id)
+                .single();
+              
+              if (!error && profileData) {
+                // User's workouts - get ALL, not just recent
+                const { data: workouts, error } = await supabase
+                  .from('workouts')
+                  .select('*')
+                  .eq('user_id', session.user.id)
+                  .order('created_at', { ascending: false });
+                
+                if (!error && workouts) {
+                  // User achievements
+                  const { data: achievements, error } = await supabase
+                    .from('user_achievements')
+                    .select('*')
+                    .eq('user_id', session.user.id);
+                  
+                  if (!error && achievements) {
+                    // Favorite exercises
+                    const { data: favoriteExercises, error } = await supabase
+                      .from('user_favorite_exercises')
+                      .select('exercise_id')
+                      .eq('user_id', session.user.id);
+                    
+                    if (!error && favoriteExercises) {
+                      // Progress photos - get ALL, not just recent
+                      const { data: progressPhotos, error } = await supabase
+                        .from('progress_photos')
+                        .select('*')
+                        .eq('user_id', session.user.id)
+                        .order('created_at', { ascending: false });
+                      
+                      if (!error && progressPhotos) {
+                        // User measurements
+                        const { data: userMeasurements, error } = await supabase
+                          .from('user_measurements')
+                          .select('*')
+                          .eq('user_id', session.user.id)
+                          .order('created_at', { ascending: false });
+                        
+                        if (!error && userMeasurements) {
+                          // Collect all data
+                          // const data = {
+                          //   user: profileData,
+                          //   settings: data,
+                          //   workouts: workouts,
+                          //   achievements: achievements,
+                          //   favoriteExercises: favoriteExercises,
+                          //   progressPhotos: progressPhotos,
+                          //   userMeasurements: userMeasurements
+                          // };
+                          
+                          // Set state with collected data
+                          setLoadingProgress(0.95);
+                          setLoadingMessage(LOADING_MESSAGES.AUTHENTICATED);
+                          setIsAppReady(true);
+                          await safelyHideSplashScreen();
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
-        } catch (err) {
-          console.log('Silent background refresh - user data error:', err);
         }
       }
     } catch (error) {
@@ -220,30 +284,6 @@ export default function SplashScreenManager({ children }: { children: React.Reac
         // Continue without plans
       }
       
-      // Cache the exercise and plan data
-      if (exercises) {
-        await cacheManager.cacheData('exercises', exercises);
-        
-        // Also cache exercises by muscle group for faster access
-        const exercisesByGroup: Record<string, any[]> = {};
-        exercises.forEach(exercise => {
-          const group = exercise.muscle_group || 'Other';
-          if (!exercisesByGroup[group]) {
-            exercisesByGroup[group] = [];
-          }
-          exercisesByGroup[group].push(exercise);
-        });
-        
-        // Cache each muscle group separately
-        for (const [group, groupExercises] of Object.entries(exercisesByGroup)) {
-          await cacheManager.cacheData(`exercises_${group}`, groupExercises);
-        }
-      }
-      
-      if (plans) {
-        await cacheManager.cacheData('workout_plans', plans);
-      }
-      
       // Collect all image URLs
       const criticalImages: string[] = []; // Must be loaded for app to function
       const highPriorityImages: string[] = []; // Important for initial screens
@@ -273,20 +313,15 @@ export default function SplashScreenManager({ children }: { children: React.Reac
       });
       
       // Preload critical images first (must finish)
-      await cacheManager.preloadImages(
-        criticalImages,
-        (progress: number) => {
-          setLoadingProgress(0.1 + progress * 0.1); // 10-20%
-        }
-      );
+      await Promise.race([
+        Asset.loadAsync(criticalImages),
+        new Promise(resolve => setTimeout(resolve, 5000))
+      ]);
       
       // Preload high priority images next (important but can be skipped if slow)
       try {
         await Promise.race([
-          cacheManager.preloadImages(highPriorityImages, (progress: number) => {
-            const scaledProgress = 0.25 + (progress * 0.15);
-            setLoadingProgress(scaledProgress);
-          }),
+          Asset.loadAsync(highPriorityImages),
           new Promise(resolve => setTimeout(resolve, 5000))
         ]);
       } catch (e) {
@@ -297,7 +332,7 @@ export default function SplashScreenManager({ children }: { children: React.Reac
       // Don't await this - it will continue in background
       try {
         const preloadPromise = Promise.race([
-          cacheManager.preloadImages(normalPriorityImages),
+          Asset.loadAsync(normalPriorityImages),
           new Promise<void>((resolve) => setTimeout(() => resolve(), 3000))
         ]);
         
@@ -320,49 +355,6 @@ export default function SplashScreenManager({ children }: { children: React.Reac
     }
   };
   
-  // Preload video content
-  const preloadVideoContent = async () => {
-    try {
-      setLoadingMessage('Preparing video content...');
-      
-      // Get video URLs from exercise videos or tutorials
-      const { data: videos, error } = await supabase
-        .from('exercise_videos')
-        .select('id, video_url, thumbnail_url, exercise_id')
-        .limit(PRELOAD_CONFIG.VIDEO_LIMIT);
-      
-      if (error) {
-        console.log('No exercise_videos table found, skipping video preload');
-        return true;
-      }
-      
-      if (!videos || videos.length === 0) {
-        return true;
-      }
-      
-      // Cache video metadata
-      await cacheManager.cacheData('exercise_videos', videos);
-      
-      // Preload video thumbnails (not the actual videos)
-      const thumbnails = videos
-        .filter(video => video.thumbnail_url)
-        .map(video => video.thumbnail_url);
-      
-      if (thumbnails.length > 0) {
-        await cacheManager.preloadImages(thumbnails, (progress: number) => {
-          const scaledProgress = 0.4 + (progress * 0.1);
-          setLoadingProgress(scaledProgress);
-        });
-      }
-      
-      updateProgress(0.05, 'Video thumbnails loaded');
-      return true;
-    } catch (error) {
-      console.warn('Error preloading video content:', error);
-      updateProgress(0.03, 'Continuing without video cache');
-      return false;
-    }
-  };
   
   // Preload frequently used data
   const preloadFrequentlyUsedData = async () => {
@@ -379,26 +371,7 @@ export default function SplashScreenManager({ children }: { children: React.Reac
           .select('*'); // Get everything with no limit
         
         if (!error && allExercises) {
-          // Cache all exercises
-          await cacheManager.cacheData('exercises', allExercises);
-          await cacheManager.cacheData('all_exercises', allExercises);
           console.log(`📊 Preloaded ${allExercises.length} total exercises`);
-          
-          // Also group exercises by muscle group for faster access
-          const exercisesByGroup: Record<string, any[]> = {};
-          allExercises.forEach(exercise => {
-            const group = exercise.muscle_group || 'Other';
-            if (!exercisesByGroup[group]) {
-              exercisesByGroup[group] = [];
-            }
-            exercisesByGroup[group].push(exercise);
-          });
-          
-          // Cache each muscle group separately
-          for (const [group, groupExercises] of Object.entries(exercisesByGroup)) {
-            await cacheManager.cacheData(`exercises_${group}`, groupExercises);
-            console.log(`📊 Cached ${groupExercises.length} exercises for ${group}`);
-          }
           
           fetchPromises.push(Promise.resolve(true));
         }
@@ -413,110 +386,12 @@ export default function SplashScreenManager({ children }: { children: React.Reac
           .select('*'); // Get everything
         
         if (!error && allPlans) {
-          await cacheManager.cacheData('all_workout_plans', allPlans);
-          await cacheManager.cacheData('workout_plans', allPlans);
           console.log(`📊 Preloaded ${allPlans.length} workout plans`);
-          
-          // Group plans by subcategory for faster access
-          const plansBySubcategory: Record<string, any[]> = {};
-          allPlans.forEach(plan => {
-            const subcategory = plan.subcategory_identifier || 'default';
-            if (!plansBySubcategory[subcategory]) {
-              plansBySubcategory[subcategory] = [];
-            }
-            plansBySubcategory[subcategory].push(plan);
-          });
-          
-          // Cache each subcategory separately
-          for (const [subcategory, subcategoryPlans] of Object.entries(plansBySubcategory)) {
-            await cacheManager.cacheData(`workout_plans_${subcategory}`, subcategoryPlans);
-          }
           
           fetchPromises.push(Promise.resolve(true));
         }
       } catch (err) {
         console.log('Error precaching workout plans:', err);
-      }
-      
-      // SECTION 3: Cache ALL exercise_videos - no limits
-      try {
-        const { data: allVideos, error } = await supabase
-          .from('exercise_videos')
-          .select('*'); // Get everything
-        
-        if (!error && allVideos) {
-          await cacheManager.cacheData('exercise_videos', allVideos);
-          console.log(`📊 Preloaded ${allVideos.length} exercise videos`);
-          
-          // Group videos by exercise_id for faster access
-          const videosByExercise: Record<string, any[]> = {};
-          allVideos.forEach(video => {
-            const exerciseId = video.exercise_id || 'default';
-            if (!videosByExercise[exerciseId]) {
-              videosByExercise[exerciseId] = [];
-            }
-            videosByExercise[exerciseId].push(video);
-          });
-          
-          // Cache each exercise's videos separately
-          for (const [exerciseId, exerciseVideos] of Object.entries(videosByExercise)) {
-            await cacheManager.cacheData(`exercise_videos_${exerciseId}`, exerciseVideos);
-          }
-          
-          fetchPromises.push(Promise.resolve(true));
-        }
-      } catch (err) {
-        console.log('Error precaching exercise videos:', err);
-      }
-      
-      // SECTION 4: Cache ALL categories and subcategories
-      try {
-        // Load workout categories
-        const { data: categories, error } = await supabase
-          .from('workout_plan_categories')
-          .select('*');
-        
-        if (!error && categories) {
-          await cacheManager.cacheData('workout_plan_categories', categories);
-          fetchPromises.push(Promise.resolve(true));
-        }
-        
-        // Load workout subcategories
-        const { data: subcategories, error: subcatError } = await supabase
-          .from('workout_plan_subcategories')
-          .select('*');
-        
-        if (!subcatError && subcategories) {
-          await cacheManager.cacheData('workout_plan_subcategories', subcategories);
-          fetchPromises.push(Promise.resolve(true));
-        }
-        
-        // Load exercise categories
-        const { data: exCategories, error: exCatError } = await supabase
-          .from('exercise_categories')
-          .select('*');
-        
-        if (!exCatError && exCategories) {
-          await cacheManager.cacheData('exercise_categories', exCategories);
-          fetchPromises.push(Promise.resolve(true));
-        }
-      } catch (err) {
-        console.log('Error precaching categories/subcategories:', err);
-      }
-      
-      // SECTION 5: Cache featured workout plans
-      try {
-        const { data, error } = await supabase
-          .from('workout_plans')
-          .select('*')
-          .eq('featured', true);
-        
-        if (!error && data) {
-          await cacheManager.cacheData('featured_workout_plans', data);
-          fetchPromises.push(Promise.resolve(true));
-        }
-      } catch (err) {
-        console.log('Error fetching featured workout plans:', err);
       }
       
       // SECTION 6: Cache user-specific data if logged in
@@ -530,7 +405,6 @@ export default function SplashScreenManager({ children }: { children: React.Reac
             .single();
           
           if (!error && data) {
-            await cacheManager.cacheData(`user_settings_${session.user.id}`, data);
             fetchPromises.push(Promise.resolve(true));
           }
         } catch (err) {
@@ -546,7 +420,6 @@ export default function SplashScreenManager({ children }: { children: React.Reac
             .single();
           
           if (!error && data) {
-            await cacheManager.cacheData(`profile_${session.user.id}`, data);
             fetchPromises.push(Promise.resolve(true));
           }
         } catch (err) {
@@ -562,8 +435,6 @@ export default function SplashScreenManager({ children }: { children: React.Reac
             .order('created_at', { ascending: false });
           
           if (!error && data) {
-            await cacheManager.cacheData(`workouts_${session.user.id}`, data);
-            await cacheManager.cacheData(`recent_workouts_${session.user.id}`, data.slice(0, 10));
             fetchPromises.push(Promise.resolve(true));
           }
         } catch (err) {
@@ -578,7 +449,6 @@ export default function SplashScreenManager({ children }: { children: React.Reac
             .eq('user_id', session.user.id);
           
           if (!error && data) {
-            await cacheManager.cacheData(`achievements_${session.user.id}`, data);
             fetchPromises.push(Promise.resolve(true));
           }
         } catch (err) {
@@ -593,7 +463,6 @@ export default function SplashScreenManager({ children }: { children: React.Reac
             .eq('user_id', session.user.id);
             
           if (!error && data) {
-            await cacheManager.cacheData(`favorite_exercises_${session.user.id}`, data);
             fetchPromises.push(Promise.resolve(true));
           }
         } catch (err) {
@@ -609,7 +478,6 @@ export default function SplashScreenManager({ children }: { children: React.Reac
             .order('created_at', { ascending: false });
             
           if (!error && data) {
-            await cacheManager.cacheData(`progress_photos_${session.user.id}`, data);
             fetchPromises.push(Promise.resolve(true));
           }
         } catch (err) {
@@ -625,7 +493,6 @@ export default function SplashScreenManager({ children }: { children: React.Reac
             .order('created_at', { ascending: false });
             
           if (!error && data) {
-            await cacheManager.cacheData(`user_measurements_${session.user.id}`, data);
             fetchPromises.push(Promise.resolve(true));
           }
         } catch (err) {
@@ -653,19 +520,47 @@ export default function SplashScreenManager({ children }: { children: React.Reac
     }
   };
 
-  // Preload app resources on initial load
+  // Add new function to fetch all image URLs
+  const fetchAllImageUrls = async () => {
+    try {
+      // Fetch exercises with images
+      const { data: exercises, error: exercisesError } = await supabase
+        .from('exercises')
+        .select('id, image_url')
+        .not('image_url', 'is', null);
+      
+      if (exercisesError) throw exercisesError;
+
+      // Fetch workout plans with images
+      const { data: plans, error: plansError } = await supabase
+        .from('workout_plans')
+        .select('id, image_url')
+        .not('image_url', 'is', null);
+      
+      if (plansError) throw plansError;
+
+      // Collect all image URLs
+      const imageUrls: string[] = [
+        ...exercises?.map(e => e.image_url) || [],
+        ...plans?.map(p => p.image_url) || []
+      ].filter(url => url && typeof url === 'string') as string[];
+
+      return imageUrls;
+    } catch (error) {
+      console.warn('Error fetching image URLs:', error);
+      return [];
+    }
+  };
+
+  // Update the prepare function in useEffect
   useEffect(() => {
     async function prepare() {
       const startTime = Date.now();
       try {
         console.log('🚀 Preparing app resources...');
         
-        // Start with some initial progress
         setLoadingProgress(0.05);
         setLoadingMessage(LOADING_MESSAGES.START);
-        
-        // Initialize cache system
-        await cacheManager.initialize();
         
         // Check network connectivity
         let isConnected = false;
@@ -686,110 +581,50 @@ export default function SplashScreenManager({ children }: { children: React.Reac
         // Only preload remote resources if connected
         if (isConnected) {
           try {
-            // Cache ALL database tables up front with extended timeouts
+            // Cache ALL database tables up front
             setLoadingMessage('Caching all application data...');
             
-            // Preload frequently used data with increased limits and timeouts
+            // Preload frequently used data
             await Promise.race([
               preloadFrequentlyUsedData(),
-              new Promise(resolve => setTimeout(resolve, PRELOAD_CONFIG.TIMEOUT.DATA * 2)) // Double the timeout
+              new Promise(resolve => setTimeout(resolve, PRELOAD_CONFIG.TIMEOUT.DATA * 2))
             ]);
             
-            // Preload ALL exercise and plan images in one go
-            setLoadingMessage('Preloading all images...');
+            // Fetch and preload ALL images
+            setLoadingMessage('Preparing to load all images...');
+            
+            // Get all image URLs
+            const allImageUrls = await fetchAllImageUrls();
+            console.log(`🖼️ Found ${allImageUrls.length} total images to preload`);
+            
+            // Load SVG assets first
+            const svgAssets: number[] = [];
             try {
-              // Get all exercise images from the cache
-              const allExercises = await cacheManager.getCachedData<any[]>('all_exercises') || [];
-              const allPlans = await cacheManager.getCachedData<any[]>('all_workout_plans') || [];
-              const exerciseVideos = await cacheManager.getCachedData<any[]>('exercise_videos') || [];
-
-              // Collect all image URLs
-              const exerciseImageUrls = allExercises
-                .filter((ex) => ex.image_url).map((ex) => ex.image_url);
-              
-              const planImageUrls = allPlans
-                .filter((p) => p.image_url).map((p) => p.image_url);
-                
-              const videoThumbnailUrls = exerciseVideos
-                .filter((v) => v.thumbnail_url).map((v) => v.thumbnail_url);
-              
-              // Include any SVGs or muscle diagrams
-              const svgAssets: number[] = [];
-              try {
-                // Get SVG files if they exist in STATIC_IMAGES
-                if ('svg' in STATIC_IMAGES && typeof (STATIC_IMAGES as any).svg === 'object') {
-                  Object.values((STATIC_IMAGES as any).svg).forEach(svg => svgAssets.push(svg as number));
-                }
-                
-                // Add muscle group SVGs if they exist
-                if ('muscles' in STATIC_IMAGES && typeof (STATIC_IMAGES as any).muscles === 'object') {
-                  Object.values((STATIC_IMAGES as any).muscles).forEach(muscle => svgAssets.push(muscle as number));
-                }
-              } catch (e) {
-                console.log('No SVG files defined in STATIC_IMAGES');
+              if ('svg' in STATIC_IMAGES && typeof (STATIC_IMAGES as any).svg === 'object') {
+                Object.values((STATIC_IMAGES as any).svg).forEach(svg => svgAssets.push(svg as number));
               }
-              
-              const totalImages = exerciseImageUrls.length + planImageUrls.length + videoThumbnailUrls.length;
-              console.log(`🖼️ Preloading ${totalImages} total images and ${svgAssets.length} SVG assets`);
-              
-              // Load SVG assets first
+              if ('muscles' in STATIC_IMAGES && typeof (STATIC_IMAGES as any).muscles === 'object') {
+                Object.values((STATIC_IMAGES as any).muscles).forEach(muscle => svgAssets.push(muscle as number));
+              }
               await Asset.loadAsync(svgAssets);
-              
-              // Then load all remote images in batches to avoid overwhelming the network
-              const BATCH_SIZE = 15;
-              
-              // Function to load a batch of images with progress reporting
-              const loadBatch = async (urls: string[], startProgress: number, endProgress: number) => {
-                for (let i = 0; i < urls.length; i += BATCH_SIZE) {
-                  const batch = urls.slice(i, i + BATCH_SIZE);
-                  const batchProgress = i / urls.length;
-                  const progressRange = endProgress - startProgress;
-                  
-                  setLoadingProgress(startProgress + batchProgress * progressRange);
-                  setLoadingMessage(`Loading images... (${i + batch.length}/${urls.length})`);
-                  
-                  await Promise.race([
-                    cacheManager.preloadImages(batch, (progress: number) => {
-                      const scaledProgress = startProgress + 
-                        (batchProgress * progressRange) + 
-                        (progress * progressRange / Math.ceil(urls.length / BATCH_SIZE));
-                      setLoadingProgress(scaledProgress);
-                    }),
-                    new Promise(resolve => setTimeout(resolve, 4000)) // 4s timeout per batch
-                  ]);
-                }
-              };
-              
-              // Load exercise images (0.40 - 0.60)
-              await loadBatch(exerciseImageUrls, 0.40, 0.60);
-              
-              // Load plan images (0.60 - 0.75)
-              await loadBatch(planImageUrls, 0.60, 0.75);
-              
-              // Load video thumbnails (0.75 - 0.85)
-              await loadBatch(videoThumbnailUrls, 0.75, 0.85);
-              
-              setLoadingMessage('Image preloading complete');
-              
+              console.log(`✅ Loaded ${svgAssets.length} SVG assets`);
             } catch (e) {
-              console.warn('Complete image preloading error:', e);
-              updateProgress(0.1, 'Continuing with limited image cache');
+              console.warn('Error loading SVG assets:', e);
             }
             
-            // Explicitly prefetch all exercise data for faster navigation
-            setLoadingMessage('Optimizing for navigation...');
-            try {
-              await Promise.race([
-                cacheManager.prefetchExerciseListData({
-                  includeImages: true, 
-                  categoryLimit: 1000 // Set high limit to include all exercises
-                }),
-                new Promise(resolve => setTimeout(resolve, 5000))
-              ]);
-              updateProgress(0.05, 'Exercise data ready');
-            } catch (e) {
-              console.warn('Exercise list prefetch error:', e);
-            }
+            // Preload all remote images in batches
+            setLoadingMessage('Loading all application images...');
+            await batchPreloadImages(
+              allImageUrls,
+              PRELOAD_CONFIG.BATCH_SIZE,
+              (progress) => {
+                setLoadingProgress(0.4 + progress * 0.4); // 40-80% of total loading
+                setLoadingMessage(`Loading images... (${Math.round(progress * 100)}%)`);
+              }
+            );
+            
+            setLoadingMessage('Image preloading complete');
+            
           } catch (e) {
             console.warn('Remote resource preloading error:', e);
             updateProgress(0.3, 'Continuing with limited cache'); 

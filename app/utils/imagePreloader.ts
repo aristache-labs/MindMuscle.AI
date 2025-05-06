@@ -316,33 +316,166 @@ export function isImagePreloaded(url: string): boolean {
 }
 
 /**
- * Preloads a single remote image on demand and stores in memory cache
+ * Preloads a batch of images with progress tracking and improved error handling
+ * @param imageUrls Array of image URLs to preload
+ * @param batchSize Number of images to load in parallel (default: 10)
+ * @param onProgress Optional callback to track progress
+ * @returns Promise that resolves when all images are preloaded
  */
-export async function preloadSingleImage(url: string): Promise<boolean | void> {
-  if (!url) {
-    if (DEBUG_IMAGE_PRELOADER) console.log(`❌ PRELOAD SKIP: Empty URL`);
-    return;
+export const batchPreloadImages = async (
+  imageUrls: string[],
+  batchSize = DEFAULT_BATCH_SIZE,
+  onProgress?: (progress: number) => void
+): Promise<void> => {
+  if (!imageUrls || imageUrls.length === 0) return;
+
+  const validUrls = imageUrls.filter(url => typeof url === 'string' && url.length > 0);
+  const totalImages = validUrls.length;
+  let loadedImages = 0;
+  let failedImages = 0;
+
+  console.log(`🚀 Starting batch preload of ${totalImages} images...`);
+
+  // Process images in batches
+  for (let i = 0; i < totalImages; i += batchSize) {
+    const batch = validUrls.slice(i, i + batchSize);
+    
+    // Process this batch in parallel with individual timeouts
+    await Promise.all(
+      batch.map(async (url) => {
+        try {
+          // Skip if already preloaded
+          if (isImagePreloaded(url)) {
+            loadedImages++;
+            if (onProgress) {
+              onProgress(loadedImages / totalImages);
+            }
+            return;
+          }
+
+          // Prevent duplicate loading attempts
+          if (preloadingImages.has(url)) {
+            return;
+          }
+
+          preloadingImages.add(url);
+
+          try {
+            // Set a timeout for each image
+            await Promise.race([
+              preloadSingleImage(url),
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Image load timeout')), 10000)
+              )
+            ]);
+
+            // Try to get dimensions for better layout calculations
+            if (url.startsWith('http')) {
+              try {
+                await getImageDimensions(url);
+              } catch (e) {
+                // Non-critical error, continue without dimensions
+                console.warn(`Could not get dimensions for ${url}`);
+              }
+            }
+
+            loadedImages++;
+          } finally {
+            preloadingImages.delete(url);
+          }
+        } catch (err) {
+          console.warn(`Failed to preload image: ${url}`, err);
+          failedImages++;
+        } finally {
+          if (onProgress) {
+            onProgress((loadedImages + failedImages) / totalImages);
+          }
+        }
+      })
+    );
+    
+    // Small delay between batches to prevent overwhelming the network
+    if (i + batchSize < totalImages) {
+      await new Promise(resolve => setTimeout(resolve, DEFAULT_BATCH_DELAY));
+    }
+
+    // Log progress every few batches
+    if ((i + batchSize) % (batchSize * 5) === 0 || i + batchSize >= totalImages) {
+      console.log(`📊 Preload progress:
+        Processed: ${Math.min(i + batchSize, totalImages)}/${totalImages}
+        Loaded: ${loadedImages}
+        Failed: ${failedImages}
+      `);
+    }
   }
-  
+
+  // Log completion stats
+  console.log(`✅ Image preloading complete:
+    Total: ${totalImages}
+    Successfully Loaded: ${loadedImages}
+    Failed: ${failedImages}
+    Success Rate: ${((loadedImages / totalImages) * 100).toFixed(1)}%
+  `);
+};
+
+/**
+ * Preloads a single image with improved error handling
+ */
+export const preloadSingleImage = async (url: string): Promise<boolean> => {
+  if (!url) {
+    console.warn('Invalid URL provided to preloadSingleImage');
+    return false;
+  }
+
   // Skip if already preloaded
   if (REMOTE_PREFETCHED[url]) {
-    if (DEBUG_IMAGE_PRELOADER) console.log(`✅ PRELOAD SKIP: Already cached ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
-    return;
+    if (DEBUG_IMAGE_PRELOADER) {
+      console.log(`✅ Already preloaded: ${url.substring(0, 40)}...`);
+    }
+    return true;
   }
-  
+
   try {
-    if (DEBUG_IMAGE_PRELOADER) console.log(`🔄 PRELOAD START: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
-    
-    const result = await Image.prefetch(url);
-    REMOTE_PREFETCHED[url] = true;
-    
-    if (DEBUG_IMAGE_PRELOADER) console.log(`✅ PRELOAD SUCCESS: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
-    
-    return result;
+    if (DEBUG_IMAGE_PRELOADER) {
+      console.log(`🔄 Preloading: ${url.substring(0, 40)}...`);
+    }
+
+    // For remote URLs, use Image.prefetch
+    if (url.startsWith('http')) {
+      await Image.prefetch(url);
+      REMOTE_PREFETCHED[url] = true;
+      
+      // Try to get dimensions for better layout calculations
+      try {
+        await getImageDimensions(url);
+      } catch (e) {
+        // Non-critical error, continue without dimensions
+        console.warn(`Could not get dimensions for ${url}`);
+      }
+    } 
+    // For local files, verify they exist
+    else if (url.startsWith('file') || url.startsWith('content')) {
+      const fileInfo = await FileSystem.getInfoAsync(url);
+      if (!fileInfo.exists) {
+        throw new Error(`Local file does not exist: ${url}`);
+      }
+      REMOTE_PREFETCHED[url] = true;
+    }
+    // For asset numbers, use Asset.loadAsync
+    else if (!isNaN(Number(url))) {
+      await Asset.loadAsync(Number(url));
+      REMOTE_PREFETCHED[url] = true;
+    }
+
+    if (DEBUG_IMAGE_PRELOADER) {
+      console.log(`✅ Successfully preloaded: ${url.substring(0, 40)}...`);
+    }
+    return true;
   } catch (error) {
-    console.warn(`❌ PRELOAD ERROR: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`, error);
+    console.warn(`❌ Failed to preload image: ${url}`, error);
+    return false;
   }
-}
+};
 
 /**
  * Main preload function that handles both static and remote images
@@ -409,90 +542,6 @@ export function markAsRemotePrefetched(url: string): void {
 }
 
 /**
- * Preloads images by batches to avoid overwhelming the device
- * @param imageUrls Array of image URLs to preload
- * @param batchSize Number of images to load in parallel (default: 10)
- * @param onProgress Optional callback to track progress
- * @returns Promise that resolves when all images are preloaded
- */
-export const batchPreloadImages = async (
-  imageUrls: string[],
-  batchSize = DEFAULT_BATCH_SIZE,
-  onProgress?: (progress: number) => void
-): Promise<void> => {
-  if (!imageUrls || imageUrls.length === 0) return;
-
-  const validUrls = imageUrls.filter(url => typeof url === 'string' && url.length > 0);
-  const totalImages = validUrls.length;
-  let loadedImages = 0;
-
-  // Process images in batches
-  for (let i = 0; i < totalImages; i += batchSize) {
-    const batch = validUrls.slice(i, i + batchSize);
-    
-    // Process this batch in parallel
-    await Promise.all(
-      batch.map(async (url) => {
-        await preloadAndCacheImage(url);
-        loadedImages++;
-        
-        if (onProgress) {
-          onProgress(loadedImages / totalImages);
-        }
-      })
-    );
-    
-    // Small delay between batches to avoid UI jank
-    if (i + batchSize < totalImages) {
-      await new Promise(resolve => setTimeout(resolve, DEFAULT_BATCH_DELAY));
-    }
-  }
-};
-
-/**
- * Preloads a single image and caches its dimensions
- * @param imageUrl URL of the image to preload
- * @returns Promise that resolves when the image is loaded
- */
-export const preloadAndCacheImage = async (imageUrl: string): Promise<void> => {
-  if (!imageUrl || typeof imageUrl !== 'string' || preloadingImages.has(imageUrl)) {
-    return;
-  }
-  
-  try {
-    preloadingImages.add(imageUrl);
-
-    // Determine if this is a URL, file URI, or asset
-    if (imageUrl.startsWith('http') || imageUrl.startsWith('https')) {
-      // Remote image - prefetch and store dimensions
-      await Image.prefetch(imageUrl);
-      
-      // Get image dimensions if not already cached
-      if (!imageDimensionsCache.has(imageUrl)) {
-        await getImageDimensions(imageUrl);
-      }
-    } else if (imageUrl.startsWith('file') || imageUrl.startsWith('content')) {
-      // Local file URI - just check if exists and get size if possible
-      try {
-        const fileInfo = await FileSystem.getInfoAsync(imageUrl);
-        if (fileInfo.exists) {
-          // File exists, try to get dimensions
-          await getImageDimensions(imageUrl);
-        }
-      } catch (e) {
-        console.warn('Error accessing local image file:', e);
-      }
-    } else {
-      // Assume it's a local bundled asset - nothing to prefetch
-    }
-  } catch (error) {
-    console.warn('Error preloading image:', imageUrl, error);
-  } finally {
-    preloadingImages.delete(imageUrl);
-  }
-};
-
-/**
  * Get image dimensions and cache them
  * @param imageUrl URL of the image
  * @returns Promise with image dimensions
@@ -533,7 +582,6 @@ const ImagePreloader = {
   isRemotePrefetched,
   markAsRemotePrefetched,
   batchPreloadImages,
-  preloadAndCacheImage,
   getImageDimensions
 };
 

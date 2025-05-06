@@ -3,6 +3,7 @@ import supabase from './supabase';
 import { format } from 'date-fns';
 import { Platform } from 'react-native';
 import { preloadSingleImage } from '../utils/imagePreloader';
+import storageService, { STORAGE_BUCKETS } from './storage';
 
 export interface ProgressPhoto {
   id: string;
@@ -11,8 +12,6 @@ export interface ProgressPhoto {
   photo_url: string;
   taken_at: string;
 }
-
-const PHOTOS_BUCKET = 'progress-photos';
 
 export const progressPhotoService = {
   /**
@@ -25,37 +24,21 @@ export const progressPhotoService = {
     takenAt: Date = new Date()
   ): Promise<ProgressPhoto> {
     try {
-      // Read the file as base64
-      const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64
-      });
-
-      // Convert base64 to Uint8Array for upload
-      const binaryString = atob(base64);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-
       // Generate filename
       const fileName = `${userId}_${type}_${Date.now()}.jpg`;
       const filePath = `${userId}/${fileName}`;
 
-      // Upload to Supabase Storage
-      const { data, error } = await supabase.storage
-        .from(PHOTOS_BUCKET)
-        .upload(filePath, bytes, {
+      // Upload to Supabase Storage using the storage service
+      const { publicUrl } = await storageService.uploadFromUri(
+        STORAGE_BUCKETS.PROGRESS_PHOTOS,
+        filePath,
+        uri,
+        {
           contentType: 'image/jpeg',
           cacheControl: '3600',
-          upsert: true // Replace if exists
-        });
-
-      if (error) throw error;
-
-      // Get the public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from(PHOTOS_BUCKET)
-        .getPublicUrl(filePath);
+          upsert: true
+        }
+      );
 
       // Preload the image immediately after upload to avoid loading placeholders
       try {
@@ -129,12 +112,11 @@ export const progressPhotoService = {
    */
   async deletePhoto(userId: string, photoId: string): Promise<void> {
     try {
-      // Delete from storage
-      const { error: storageError } = await supabase.storage
-        .from(PHOTOS_BUCKET)
-        .remove([`${userId}/${photoId}`]);
-
-      if (storageError) throw storageError;
+      // Delete from storage using the storage service
+      await storageService.deleteFile(
+        STORAGE_BUCKETS.PROGRESS_PHOTOS,
+        `${userId}/${photoId}`
+      );
 
       // Delete from database
       const { error: dbError } = await supabase

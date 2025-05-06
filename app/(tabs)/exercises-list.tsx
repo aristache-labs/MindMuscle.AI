@@ -9,7 +9,6 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import exerciseService, { Exercise, ExerciseCategory } from '../services/exerciseService';
 import { GeneralHeader } from '../components/GeneralHeader';
-import cacheManager from '../utils/cacheManager';
 import loadTimeTracker from '../utils/loadTimeTracker';
 
 // Get screen width for responsive sizing
@@ -131,45 +130,15 @@ export default function ExercisesListScreen() {
         
         // Try to load from cache first for better performance
         if (currentCategory !== 'all') {
-          loadTimeTracker.markLoadTime('ExercisesListScreen', `Trying cache for category: ${currentCategory}`);
-          // Try to get category-specific cache
-          const cachedData = await cacheManager.getCachedData<Exercise[]>(`exercises_${currentCategory}`);
-          if (cachedData && cachedData.length > 0) {
-            loadTimeTracker.markLoadTime('ExercisesListScreen', `Using cached data for ${currentCategory}`);
-            console.log(`Using cached data for ${currentCategory}`);
-            exercisesData = cachedData;
-          } else {
-            loadTimeTracker.markLoadTime('ExercisesListScreen', `Cache miss for ${currentCategory}, loading from API`);
-            console.log(`Cache miss for ${currentCategory}, loading from API`);
-            exercisesData = await exerciseService.getExercisesByCategory(currentCategory as ExerciseCategory);
-          }
+          loadTimeTracker.markLoadTime('ExercisesListScreen', `Loading from API for category: ${currentCategory}`);
+          exercisesData = await exerciseService.getExercisesByCategory(currentCategory as ExerciseCategory);
         }
         
-        // Try to get all exercises from cache
-        loadTimeTracker.markLoadTime('ExercisesListScreen', 'Trying cache for all exercises');
-        const cachedAllExercises = await cacheManager.getCachedData<Exercise[]>('all_exercises_minimal');
-        if (cachedAllExercises && cachedAllExercises.length > 0) {
-          loadTimeTracker.markLoadTime('ExercisesListScreen', 'Using cached all exercises data');
-          console.log('Using cached data for all exercises');
-          allExercisesData = cachedAllExercises;
-          
-          // If we need all exercises and haven't loaded them specifically
-          if (currentCategory === 'all') {
-            exercisesData = allExercisesData;
-          }
-        } else {
-          // Load all exercises from API
-          loadTimeTracker.markLoadTime('ExercisesListScreen', 'Cache miss for all exercises, loading from API');
-          console.log('Cache miss for all exercises, loading from API');
-          allExercisesData = await exerciseService.getExercisesByCategory('all');
-          
-          // If we need all exercises
-          if (currentCategory === 'all') {
-            exercisesData = allExercisesData;
-          }
-          
-          // Cache this for next time
-          await cacheManager.cacheData('all_exercises_minimal', allExercisesData);
+        // Always load all exercises from API
+        loadTimeTracker.markLoadTime('ExercisesListScreen', 'Loading all exercises from API');
+        allExercisesData = await exerciseService.getExercisesByCategory('all');
+        if (currentCategory === 'all') {
+          exercisesData = allExercisesData;
         }
         
         // Update state

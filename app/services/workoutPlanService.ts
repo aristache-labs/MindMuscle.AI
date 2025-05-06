@@ -1,5 +1,6 @@
 import supabase from './supabase';
 import { supabaseUrl } from './supabase';
+import storageService, { STORAGE_BUCKETS } from './storage';
 
 // Updated interface to match the actual database schema
 export interface WorkoutPlan {
@@ -71,21 +72,19 @@ const workoutPlanService = {
     const daysMatch = plan.subcategory_identifier.match(/(\d+)_days?_week/);
     const daysPerWeek = daysMatch ? parseInt(daysMatch[1], 10) : 3; // Default to 3 if not found
     
-    // Calculate duration_weeks based on estimated_duration (this is just an example)
-    // In a real app, you might want to use different logic or store this in the database
+    // Calculate duration_weeks based on estimated_duration
     const durationWeeks = 4; // Default to 4 weeks for all plans
     
     // Process image URL if it exists
     let imageUrl = plan.image_url;
     
     // If we have an image URL from the database that doesn't start with http,
-    // but isn't one of our fallback images, it might be a public Supabase storage URL
+    // but isn't one of our fallback images, it's in the plans bucket
     if (imageUrl && !imageUrl.startsWith('http') && 
         !['fullbody.jpg', 'dumbbell.jpg', 'pushup.jpg', 'squat.jpg', 'yoga.jpg', 'placeholder.jpg'].includes(imageUrl)) {
       
-      // Assume it's in Supabase storage and construct the full URL
-      // This URL format may need adjustment based on your actual Supabase storage setup
-      imageUrl = `${supabaseUrl}/storage/v1/object/public/images/${imageUrl}`;
+      // Use the storage service to get the public URL
+      imageUrl = storageService.getPublicUrl(STORAGE_BUCKETS.PLANS, imageUrl);
     }
     // If no image URL, assign a default image based on title
     else if (!imageUrl) {
@@ -410,6 +409,37 @@ const workoutPlanService = {
       return result;
     } catch (error) {
       return [];
+    }
+  },
+
+  // Add a new function to upload plan images
+  async uploadPlanImage(imageUri: string, planId: string): Promise<string> {
+    try {
+      const filePath = `${planId}/cover.jpg`;
+      const { publicUrl } = await storageService.uploadFromUri(
+        STORAGE_BUCKETS.PLANS,
+        filePath,
+        imageUri,
+        {
+          contentType: 'image/jpeg',
+          cacheControl: '3600',
+          upsert: true
+        }
+      );
+      return publicUrl;
+    } catch (error) {
+      console.error('Error uploading plan image:', error);
+      throw error;
+    }
+  },
+
+  // Add a function to delete plan images
+  async deletePlanImage(planId: string): Promise<void> {
+    try {
+      await storageService.deleteFile(STORAGE_BUCKETS.PLANS, `${planId}/cover.jpg`);
+    } catch (error) {
+      console.error('Error deleting plan image:', error);
+      throw error;
     }
   }
 };

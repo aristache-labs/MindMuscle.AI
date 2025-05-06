@@ -10,7 +10,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import supabase, { supabaseUrl } from '../services/supabase';
 import { useRouter } from 'expo-router';
 import { GeneralHeader } from '../components/GeneralHeader';
-import cacheManager from '../utils/cacheManager';
 import { markAsImportantImage } from '../utils/imagePreloader';
 import loadTimeTracker from '../utils/loadTimeTracker';
 

@@ -11,6 +11,7 @@ import supabase from '../services/supabase';
 import * as ImagePicker from 'expo-image-picker';
 import { decode } from 'base64-arraybuffer';
 import { GeneralHeader } from '../components/GeneralHeader';
+import storageService, { STORAGE_BUCKETS } from '../services/storage';
 
 interface MenuItemProps {
   icon: string;
@@ -93,13 +94,7 @@ export default function ProfileScreen() {
       const urlParts = avatarUrl.split('/');
       const filePath = urlParts[urlParts.length - 2] + '/' + urlParts[urlParts.length - 1];
       
-      const { error } = await supabase.storage
-        .from('avatars')
-        .remove([filePath]);
-
-      if (error) {
-        console.error('Error deleting old avatar:', error);
-      }
+      await storageService.deleteFile(STORAGE_BUCKETS.AVATARS, filePath);
     } catch (error) {
       console.error('Error deleting old avatar:', error);
     }
@@ -125,22 +120,17 @@ export default function ProfileScreen() {
           await deleteOldAvatar(user.user_metadata.avatar_url);
         }
 
-        // Upload new image to Supabase Storage
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('avatars')
-          .upload(filePath, decode(file.base64!), {
+        // Upload new image using storage service
+        const { publicUrl } = await storageService.uploadFromUri(
+          STORAGE_BUCKETS.AVATARS,
+          filePath,
+          file.uri,
+          {
             contentType: 'image/jpeg',
+            cacheControl: '3600',
             upsert: true
-          });
-
-        if (uploadError) {
-          throw uploadError;
-        }
-
-        // Get public URL
-        const { data: { publicUrl } } = supabase.storage
-          .from('avatars')
-          .getPublicUrl(filePath);
+          }
+        );
 
         // Update user metadata with new avatar URL
         await updateUserMetadata({

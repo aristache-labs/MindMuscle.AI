@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, FlatList, Pressable, ActivityIndicator, Dimensions, Image } from 'react-native';
+import { StyleSheet, View, FlatList, Pressable, ActivityIndicator, Dimensions } from 'react-native';
 import { Text, IconButton, Divider } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -8,7 +8,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import workoutPlanService, { WorkoutPlan } from '../services/workoutPlanService';
 import { MaterialIcons } from '@expo/vector-icons';
-
+import OptimizedImage from '../components/OptimizedImage';
+import { markAsImportantImage, batchPreloadImages, ImagePriority } from '../utils/imagePreloader';
 
 const { width } = Dimensions.get('window');
 
@@ -27,7 +28,7 @@ export default function PlansScreen() {
   const [plans, setPlans] = useState<WorkoutPlan[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [featuredPlan, setFeaturedPlan] = useState<WorkoutPlan | null>(null);
-
+  const [imagesPreloaded, setImagesPreloaded] = useState(false);
 
   // Map for plan images based on the ones in assets/exercises
   const imageMap: { [key: string]: any } = {
@@ -38,22 +39,17 @@ export default function PlansScreen() {
   useEffect(() => {
     async function fetchPlans() {
       try {
-
         setIsLoading(true);
         
         let fetchedPlans: WorkoutPlan[] = [];
         
         // Fetch plans by subcategory if available
         if (subcategoryId) {
-
           fetchedPlans = await workoutPlanService.getPlansBySubcategory(subcategoryId.toString());
         } else {
           // Fetch all plans as fallback
-
           fetchedPlans = await workoutPlanService.getAllPlans();
         }
-        
-
         
         // Set featured plan (first one or null)
         if (fetchedPlans.length > 0) {
@@ -65,13 +61,35 @@ export default function PlansScreen() {
         setPlans(fetchedPlans);
         setIsLoading(false);
         
-        // Mark UI render time
-        setTimeout(() => {
-
-        }, 500);
+        // Preload images to improve performance
+        if (fetchedPlans.length > 0) {
+          const imagesToPreload = fetchedPlans
+            .map(plan => plan.image_url)
+            .filter((url): url is string => {
+              return !!url && typeof url === 'string' && url.startsWith('http');
+            });
+          
+          if (imagesToPreload.length > 0) {
+            // Mark featured plan image as important for immediate display
+            if (fetchedPlans[0]?.image_url && typeof fetchedPlans[0].image_url === 'string') {
+              markAsImportantImage(fetchedPlans[0].image_url);
+            }
+            
+            // Batch preload other images
+            batchPreloadImages(
+              imagesToPreload, 
+              ImagePriority.HIGH, 
+              5,
+              (progress) => {
+                if (progress === 1) {
+                  setImagesPreloaded(true);
+                }
+              }
+            );
+          }
+        }
       } catch (error) {
         console.error("Error fetching plans:", error);
-
         setPlans([]);
         setFeaturedPlan(null);
         setIsLoading(false);
@@ -239,10 +257,18 @@ export default function PlansScreen() {
       
       {/* Featured Plan Image */}
       <View style={styles.featuredImageContainer}>
-        <Image
+        <OptimizedImage
           source={featuredImageSource}
           style={styles.featuredImage}
           resizeMode="cover"
+          priority="high"
+          cachePolicy="immutable"
+          isImportant={true}
+          showLoader={isLoading && !imagesPreloaded}
+          loaderColor={COLORS.primary}
+          loaderSize="large"
+          fallback={imageMap['placeholder.jpg']}
+          debugLabel="FeaturedPlanImage"
         />
         <LinearGradient
           colors={['transparent', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.9)']}

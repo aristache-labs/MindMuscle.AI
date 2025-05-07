@@ -14,6 +14,7 @@ import Constants from 'expo-constants';
 import { MeasurementsProvider } from './store/MeasurementsContext';
 import SplashScreenManager from './components/SplashScreenManager';
 import * as SplashScreen from 'expo-splash-screen';
+import { QueryProvider } from './components/QueryProvider';
 
 // Initialize SplashScreen as early as possible
 try {
@@ -53,23 +54,25 @@ function RootLayout() {
   }
 
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <MeasurementsProvider>
-          <ProfileProvider>
-            <ProgressProvider>
-              <GamificationProvider>
-                  <SplashScreenManager>
-                    <AuthGuard>
-                      <Slot />
-                    </AuthGuard>
-                  </SplashScreenManager>
-              </GamificationProvider>
-            </ProgressProvider>
-          </ProfileProvider>
-        </MeasurementsProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <QueryProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <MeasurementsProvider>
+            <ProfileProvider>
+              <ProgressProvider>
+                <GamificationProvider>
+                    <SplashScreenManager>
+                      <AuthGuard>
+                        <Slot />
+                      </AuthGuard>
+                    </SplashScreenManager>
+                </GamificationProvider>
+              </ProgressProvider>
+            </ProfileProvider>
+          </MeasurementsProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </QueryProvider>
   );
 }
 

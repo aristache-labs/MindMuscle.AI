@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { StyleSheet, View, SectionList, ImageSourcePropType, Pressable, SectionListRenderItemInfo, SectionListData, Animated, NativeSyntheticEvent, NativeScrollEvent, LayoutChangeEvent, SectionListProps, ViewToken, findNodeHandle, Easing, ScrollView, Image } from 'react-native';
+import { StyleSheet, View, SectionList, ImageSourcePropType, Pressable, SectionListRenderItemInfo, SectionListData, Animated, NativeSyntheticEvent, NativeScrollEvent, LayoutChangeEvent, SectionListProps, ViewToken, findNodeHandle, Easing, ScrollView } from 'react-native';
 import { Text, Chip, IconButton, Surface, Divider, ActivityIndicator } from 'react-native-paper';
 import { COLORS, SPACING, HEADER_HEIGHT, BORDER_RADIUS } from '../constants/theme';
 import { StatusBar } from 'expo-status-bar';
@@ -9,6 +9,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import supabase, { supabaseUrl } from '../services/supabase';
 import { useRouter } from 'expo-router';
 import { GeneralHeader } from '../components/GeneralHeader';
+import OptimizedImage from '../components/OptimizedImage';
+import { markAsImportantImage } from '../utils/imagePreloader';
+import { batchPreloadImages, ImagePriority, strategicPreloadImages, PreloadStrategy } from '../utils/imagePreloader';
+import useIntelligentPreloader from '../hooks/useIntelligentPreloader';
 
 // Heights
 const FILTER_HEIGHT = 48;
@@ -104,26 +108,18 @@ interface WorkoutProgram {
 }
 
 // Workout card component
-const WorkoutCard = ({ id, title, subtitle, image, accent, category }: WorkoutProgram) => {
+const WorkoutCard = React.memo(({ id, title, subtitle, image, accent, category }: WorkoutProgram) => {
   const router = useRouter();
   
-  // Add this at the start of the component to mark images as important
-  useEffect(() => {
-    try {
-      // If image is a string URL, mark it as important
-      if (typeof image === 'string') {
-      } else if (image && typeof image === 'object') {
-        // Try to safely extract URI if it exists
-        const imgObj = image as any;
-        if (imgObj.uri) {
-        }
-      }
-    } catch (err) {
-      console.warn('Error marking image as important:', err);
-    }
-  }, [image, id]);
-  
   const handlePress = () => {
+    // Preload the plans screen and mark the current image as important before navigation
+    if (typeof image === 'string') {
+      markAsImportantImage(image);
+    } else if (image && typeof image === 'object' && 'uri' in image) {
+      const uri = (image as any).uri;
+      if (uri) markAsImportantImage(uri);
+    }
+    
     router.push({
       pathname: "plans",
       params: {
@@ -143,10 +139,15 @@ const WorkoutCard = ({ id, title, subtitle, image, accent, category }: WorkoutPr
       <Surface style={styles.card} elevation={2}>
         <View style={styles.cardContentContainer}>
           <View style={styles.cardImageContainer}>
-            <Image 
-              source={typeof image === 'string' ? { uri: image } : image as any}
+            <OptimizedImage 
+              source={typeof image === 'string' ? { uri: image } : image}
               style={[styles.cardImageContainer, styles.cardImage]}
               resizeMode="cover"
+              priority="high"
+              cachePolicy="immutable"
+              isImportant={true}
+              debugLabel={`DiscoverCard-${id}`}
+              fallback={require('../../assets/exercises/fullbody.jpg')}
             />
             <LinearGradient
               colors={['transparent', 'rgba(0,0,0,0.6)', 'rgba(0,0,0,0.8)']}
@@ -163,7 +164,7 @@ const WorkoutCard = ({ id, title, subtitle, image, accent, category }: WorkoutPr
       </Surface>
     </Pressable>
   );
-};
+});
 
 // Define base styles
 const styles = StyleSheet.create({
@@ -331,7 +332,59 @@ export default function DiscoverScreen() {
   const sectionListRef = useRef<any>(null);
   const filterScrollRef = useRef<ScrollView>(null);
   
-
+  // Track visible items for intelligent prefetching
+  const [visibleItemIds, setVisibleItemIds] = useState<string[]>([]);
+  
+  // Image preloading state
+  const [imageUrlsToPreload, setImageUrlsToPreload] = useState<string[]>([]);
+  
+  // Use intelligent preloader
+  const preloader = useIntelligentPreloader(
+    imageUrlsToPreload,
+    {
+      screenId: 'discover',
+      enablePredictiveLoading: true,
+      cacheManagement: 'balanced',
+      debug: false
+    }
+  );
+  
+  // Handle viewability changes to load images intelligently
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    // Get IDs of visible items
+    const visibleIds = viewableItems.map(item => (item.item as WorkoutProgram).id);
+    setVisibleItemIds(visibleIds);
+    
+    // Extract and preload images for items that just became visible
+    const visibleImageUrls: string[] = [];
+    viewableItems.forEach(viewableItem => {
+      const program = viewableItem.item as WorkoutProgram;
+      if (program && program.image) {
+        if (typeof program.image === 'string') {
+          visibleImageUrls.push(program.image);
+        } else if (typeof program.image === 'object' && program.image && 'uri' in program.image) {
+          const uri = program.image.uri as string;
+          if (uri) {
+            visibleImageUrls.push(uri);
+            // Mark as important for immediate loading
+            markAsImportantImage(uri);
+          }
+        }
+      }
+    });
+    
+    // Preload visible images with high priority
+    if (visibleImageUrls.length > 0) {
+      strategicPreloadImages(visibleImageUrls, PreloadStrategy.CRITICAL);
+    }
+  }).current;
+  
+  // Configure viewability 
+  const viewabilityConfig = {
+    itemVisiblePercentThreshold: 30, // Item is considered visible when 30% of it is visible
+    minimumViewTime: 300 // Item needs to be visible for at least 300ms
+  };
+  
   // Active filters state
   const [activeFilters, setActiveFilters] = useState<{[key: string]: string[]}>({
     equipment: [],
@@ -355,6 +408,17 @@ export default function DiscoverScreen() {
   const filterHeaderH = FILTER_HEIGHT;
   const totalHeaderH = HEADER_HEIGHT + filterHeaderH;
   const categoryBarTop = insets.top + HEADER_HEIGHT + filterHeaderH;
+
+  // Define a constant item layout to improve SectionList performance
+  const getItemLayout = (data: any, index: number) => {
+    // Fixed height for items simplifies calculations and improves performance
+    const itemHeight = CARD_HEIGHT + 6 + 16; // Card height + margin + padding
+    return {
+      length: itemHeight,
+      offset: itemHeight * index,
+      index
+    };
+  };
 
   // Fetch workout categories and subcategories from Supabase
   useEffect(() => {
@@ -424,8 +488,9 @@ export default function DiscoverScreen() {
             }
             // Otherwise, assume it's in Supabase storage
             else {
-              // Use the Supabase URL format for storage
-              const storageUrl = `${supabaseUrl}/storage/v1/object/public/images/${subcat.image_url}`;
+              // Use the Supabase URL format for storage with cache control
+              const cacheVersion = '1.0';
+              const storageUrl = `${supabaseUrl}/storage/v1/object/public/images/${subcat.image_url}?v=${cacheVersion}`;
               imageSource = { uri: storageUrl };
             }
           } else {
@@ -443,6 +508,31 @@ export default function DiscoverScreen() {
           };
         });
 
+        // Extract image URLs for intelligent preloading
+        const urls: string[] = [];
+        mappedPrograms.forEach(program => {
+          if (typeof program.image === 'string') {
+            urls.push(program.image);
+          } else if (program.image && typeof program.image === 'object' && 'uri' in program.image) {
+            const uri = program.image.uri as string | undefined;
+            if (typeof uri === 'string') {
+              urls.push(uri);
+            }
+          }
+        });
+        
+        // Set URLs for intelligent preloader
+        setImageUrlsToPreload(urls);
+        
+        // Preload first batch of visible images immediately with high priority
+        const initialVisibleImages = urls.slice(0, 8); // First 8 images likely to be visible
+        if (initialVisibleImages.length > 0) {
+          strategicPreloadImages(
+            initialVisibleImages,
+            PreloadStrategy.CRITICAL
+          );
+        }
+
         setWorkoutPrograms(mappedPrograms);
 
         // Create sections for the SectionList
@@ -453,13 +543,10 @@ export default function DiscoverScreen() {
 
         setSections(formattedSections);
         
-        // Add before setting isLoading to false
-        
         setIsLoading(false);
         
-        // Add this at the end of the successful data fetch
-        setTimeout(() => {
-        }, 500);
+        // Prefetch plans and exercise-details screens as they're likely to be visited next
+        preloader.predictiveLoadForScreens(['plans', 'exercises-list']);
       } catch (error) {
         console.error('Error fetching data:', error);
         setIsLoading(false);
@@ -481,6 +568,13 @@ export default function DiscoverScreen() {
       </View>
     );
   };
+
+  // Memoize renderItem to prevent unnecessary recreation
+  const renderItem = useCallback(({ item }: { item: WorkoutProgram }) => (
+    <View style={styles.programItem}>
+      <WorkoutCard {...item} />
+    </View>
+  ), []);
 
   if (isLoading) {
     return (
@@ -575,11 +669,7 @@ export default function DiscoverScreen() {
         style={{ flex: 1, marginTop: insets.top + HEADER_HEIGHT + FILTER_HEIGHT }}
         sections={sections}
         keyExtractor={(item: WorkoutProgram) => item.id}
-        renderItem={({ item }: { item: WorkoutProgram }) => (
-          <View style={styles.programItem}>
-            <WorkoutCard {...item} />
-          </View>
-        )}
+        renderItem={renderItem}
         renderSectionHeader={renderSectionHeader}
         stickySectionHeadersEnabled={false}
         onScroll={Animated.event(
@@ -592,6 +682,9 @@ export default function DiscoverScreen() {
           paddingTop: CATEGORY_HEIGHT,
           paddingBottom: insets.bottom + SPACING.md + 60, // Added extra padding for bottom tab bar
         }}
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
+        getItemLayout={getItemLayout}
       />
     </View>
   );

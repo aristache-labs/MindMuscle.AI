@@ -9,7 +9,7 @@ export default function ImagePreloaderWrapper() {
 }
 
 // Debug flag - set to false to reduce logging
-export const DEBUG_IMAGE_PRELOADER = true;
+export const DEBUG_IMAGE_PRELOADER = false;
 
 // Safely handle FastImage - dynamically import to prevent crashes
 let FastImage: any = null;
@@ -56,13 +56,32 @@ export const CachePolicy = {
 
 // Type definitions for Source and Priority
 export type Priority = 'low' | 'normal' | 'high';
-export type Source = { uri: string; priority?: Priority; cache?: string };
+export type Source = { 
+  uri: string; 
+  priority?: Priority; 
+  cache?: string;
+  headers?: Record<string, string>;
+};
 
 // Keep track of already marked images to avoid duplicate processing
 const cachedImportantImages = new Set<string>();
 
 // Cache for preloaded images
 const preloadedImageCache = new Map<string, boolean>();
+
+// Cache control parameters
+const CACHE_CONFIG = {
+  MAX_SIZE: 200,           // Maximum number of images to keep in memory cache
+  VERSION: '1.0',          // Cache version - increment when images change
+  EXPIRY: 24 * 60 * 60000, // Cache expiry time in ms (24 hours)
+};
+
+// Strategic preloading levels
+export enum PreloadStrategy {
+  CRITICAL = 'critical',   // Must load immediately (current screen)
+  ANTICIPATORY = 'anticipatory', // Likely to be needed soon (next screens)
+  PREFETCH = 'prefetch'    // Load during idle time (future screens)
+}
 
 /**
  * Safely preload images with automatic fallback to Asset API
@@ -96,6 +115,13 @@ export const safePreloadImages = async (
     
     // Mark as preloaded
     preloadedImageCache.set(source.uri, true);
+    
+    // Limit cache size using LRU-like approach
+    if (preloadedImageCache.size > CACHE_CONFIG.MAX_SIZE) {
+      const firstKey = preloadedImageCache.keys().next().value;
+      if (firstKey) preloadedImageCache.delete(firstKey);
+    }
+    
     return true;
   });
   
@@ -125,8 +151,29 @@ export const safePreloadImages = async (
   }
   
   try {
+    // Add cache headers and version control parameters to each source
+    const sourcesWithCacheControl = sourcesToLoad.map(source => {
+      if (source && source.uri) {
+        // Add cache control headers for network requests
+        const uri = source.uri.includes('?') 
+          ? `${source.uri}&v=${CACHE_CONFIG.VERSION}` 
+          : `${source.uri}?v=${CACHE_CONFIG.VERSION}`;
+        
+        return {
+          ...source,
+          uri,
+          headers: {
+            ...source.headers,
+            'Cache-Control': 'max-age=31536000', // 1 year
+            'Pragma': 'cache'
+          }
+        };
+      }
+      return source;
+    });
+    
     // Use the native FastImage preloader if available
-    return FastImage.preload(sourcesToLoad);
+    return FastImage.preload(sourcesWithCacheControl);
   } catch (error) {
     if (DEBUG_IMAGE_PRELOADER) {
       console.warn('Error using FastImage.preload, falling back to Asset:', error);
@@ -149,17 +196,17 @@ export const safePreloadImages = async (
 };
 
 /**
- * Preload a batch of images with progress tracking
+ * Preload a batch of images with progress tracking and strategic priority
  * 
  * @param imageUrls Array of image URLs to preload
- * @param priority Priority level for preloading (default: NORMAL)
- * @param batchSize Number of images to load in parallel (default: 15)
+ * @param strategy Preload strategy determining priority and batch size
+ * @param batchSize Number of images to load in parallel (default: based on strategy)
  * @param onProgress Optional callback for tracking progress
  */
-export const batchPreloadImages = async (
+export const strategicPreloadImages = async (
   imageUrls: string[],
-  priority: Priority | any = ImagePriority.NORMAL,
-  batchSize = 15,
+  strategy: PreloadStrategy = PreloadStrategy.ANTICIPATORY,
+  batchSize?: number,
   onProgress?: (progress: number, completed?: number, total?: number) => void
 ): Promise<void> => {
   // Early return for empty array
@@ -177,21 +224,43 @@ export const batchPreloadImages = async (
     return;
   }
   
+  // Set priority and batch size based on strategy
+  let priority: Priority;
+  let defaultBatchSize: number;
+  
+  switch (strategy) {
+    case PreloadStrategy.CRITICAL:
+      priority = 'high';
+      defaultBatchSize = 5; // Smaller batches for critical images
+      break;
+    case PreloadStrategy.PREFETCH:
+      priority = 'low';
+      defaultBatchSize = 20; // Larger batches for background prefetching
+      break;
+    case PreloadStrategy.ANTICIPATORY:
+    default:
+      priority = 'normal';
+      defaultBatchSize = 10;
+  }
+  
+  // Use provided batch size or default based on strategy
+  const actualBatchSize = batchSize || defaultBatchSize;
+  
   if (DEBUG_IMAGE_PRELOADER) {
-    console.log(`🚀 Batch preloading ${urlsToLoad.length} images with priority ${priority}...`);
+    console.log(`🚀 Strategic preloading (${strategy}): ${urlsToLoad.length} images with priority ${priority}...`);
   }
   
   try {
-    // Process in smaller batches
+    // Process in batches
     const batches = [];
-    for (let i = 0; i < urlsToLoad.length; i += batchSize) {
-      batches.push(urlsToLoad.slice(i, i + batchSize));
+    for (let i = 0; i < urlsToLoad.length; i += actualBatchSize) {
+      batches.push(urlsToLoad.slice(i, i + actualBatchSize));
     }
     
     let completedCount = 0;
     
     for (const batch of batches) {
-      // Convert URLs to source objects
+      // Convert URLs to source objects with priority
       const sources: Source[] = batch.map(url => ({ 
         uri: url,
         priority 
@@ -223,6 +292,9 @@ export const batchPreloadImages = async (
     onProgress(1, urlsToLoad.length, urlsToLoad.length);
   }
 };
+
+// Keep batchPreloadImages for backward compatibility
+export const batchPreloadImages = strategicPreloadImages;
 
 /**
  * Utility function to mark important images that should remain in memory

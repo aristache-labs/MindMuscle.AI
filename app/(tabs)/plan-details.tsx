@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Pressable, ActivityIndicator, Dimensions, Image } from 'react-native';
+import { StyleSheet, View, ScrollView, Pressable, ActivityIndicator, Dimensions } from 'react-native';
 import { Text, IconButton, Divider, Button } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -8,6 +8,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import workoutPlanService, { WorkoutPlan, PlanExercise } from '../services/workoutPlanService';
+import OptimizedImage from '../components/OptimizedImage';
+import { markAsImportantImage, batchPreloadImages, ImagePriority } from '../utils/imagePreloader';
 
 const { width } = Dimensions.get('window');
 
@@ -29,7 +31,7 @@ export default function PlanDetailsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [totalDuration, setTotalDuration] = useState(0);
   const [totalCalories, setTotalCalories] = useState(0);
-
+  const [imagesPreloaded, setImagesPreloaded] = useState(false);
 
   // Map for fallback exercise images based on the ones in assets/exercises
   const fallbackImageMap: { [key: string]: any } = {
@@ -73,16 +75,36 @@ export default function PlanDetailsScreen() {
               
               setTotalDuration(Math.ceil(duration / 60));
               setTotalCalories(calories);
+              
+              // Preload exercise images for better performance
+              const imagesToPreload = exercisesData
+                .map(exercise => exercise.image_url)
+                .filter((url): url is string => {
+                  return !!url && typeof url === 'string' && url.startsWith('http');
+                });
+                
+              if (imagesToPreload.length > 0) {
+                batchPreloadImages(
+                  imagesToPreload,
+                  ImagePriority.HIGH,
+                  5,
+                  (progress) => {
+                    if (progress === 1) {
+                      setImagesPreloaded(true);
+                    }
+                  }
+                );
+              }
             }
-          } else {
+            
+            // Mark plan image as important if available
+            if (planData.image_url && typeof planData.image_url === 'string') {
+              markAsImportantImage(planData.image_url);
+            }
           }
         }
         
         setIsLoading(false);
-        
-        // Mark UI render time
-        setTimeout(() => {
-        }, 500);
       } catch (error) {
         console.error('Error in fetchPlanDetails:', error);
         setIsLoading(false);
@@ -234,6 +256,9 @@ export default function PlanDetailsScreen() {
       return null;
     }
 
+    const imageSource = getImageSource(exercise);
+    const debugLabel = `Exercise-${exercise.id || index}`;
+
     return (
       <Pressable 
         key={exercise.id || `exercise-${index}`}
@@ -242,25 +267,30 @@ export default function PlanDetailsScreen() {
         android_ripple={{ color: 'rgba(255,255,255,0.1)' }}
       >
         <View style={styles.exerciseLeft}>
-          <Image
-            source={getImageSource(exercise)}
+          <OptimizedImage
+            source={imageSource}
             style={styles.exerciseImage}
             resizeMode="cover"
+            priority="normal"
+            cachePolicy="immutable"
+            showLoader={!imagesPreloaded}
+            fallback={fallbackImageMap['placeholder.jpg']}
+            debugLabel={debugLabel}
           />
         </View>
-        <View style={styles.exerciseCenter}>
+        <View style={styles.exerciseMiddle}>
           <Text style={styles.exerciseName}>{exercise.name}</Text>
           <Text style={styles.exerciseDetails}>
-            {exercise.sets || 3} sets × {exercise.reps || '8-10'} reps
+            {exercise.sets} sets · {exercise.reps} reps
+            {exercise.rest_time ? ` · ${exercise.rest_time}s rest` : ''}
           </Text>
-          {exercise.rest_time && (
-            <Text style={styles.restTimeText}>
-              Rest: {exercise.rest_time}s
-            </Text>
-          )}
         </View>
         <View style={styles.exerciseRight}>
-          {/* Muscle icons removed */}
+          <IconButton
+            icon="chevron-right"
+            size={24}
+            iconColor={COLORS.text}
+          />
         </View>
       </Pressable>
     );
@@ -336,18 +366,13 @@ export default function PlanDetailsScreen() {
           
           {/* Exercises List */}
           <View style={styles.exercisesContainer}>
-            {exercises.length > 0 ? (
-              <>
-                {exercises.map((exercise, index) => (
-                  renderExerciseItem(exercise, index)
-                ))}
-              </>
+            <Text style={styles.exercisesTitle}>Exercises</Text>
+            {isLoading ? (
+              <ActivityIndicator size="large" color={accentColor} style={styles.loadingIndicator} />
+            ) : exercises.length > 0 ? (
+              exercises.map((exercise, index) => renderExerciseItem(exercise, index))
             ) : (
-              <View style={styles.emptyContainer}>
-                <MaterialCommunityIcons name="dumbbell" size={64} color="rgba(255,255,255,0.5)" />
-                <Text style={styles.emptyText}>No exercises in this plan</Text>
-                <Text style={styles.emptySubtext}>Exercises will be available soon</Text>
-              </View>
+              <Text style={styles.noExercisesText}>No exercises available for this plan.</Text>
             )}
           </View>
         </ScrollView>
@@ -500,7 +525,7 @@ const styles = StyleSheet.create({
     width: 90,
     height: 90,
   },
-  exerciseCenter: {
+  exerciseMiddle: {
     flex: 1,
     paddingHorizontal: SPACING.md,
     justifyContent: 'center',
@@ -514,11 +539,6 @@ const styles = StyleSheet.create({
     color: `${COLORS.text}B3`, // 70% opacity
     fontSize: 13,
     marginTop: 4,
-  },
-  restTimeText: {
-    color: `${COLORS.text}80`, // 50% opacity
-    fontSize: 12,
-    marginTop: 2,
   },
   exerciseRight: {
     width: 20,
@@ -570,5 +590,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderColor: COLORS.primary,
     borderWidth: 1,
+  },
+  exercisesTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    marginBottom: SPACING.md,
+  },
+  loadingIndicator: {
+    marginTop: SPACING.md,
+  },
+  noExercisesText: {
+    color: COLORS.text,
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginTop: SPACING.md,
   },
 }); 

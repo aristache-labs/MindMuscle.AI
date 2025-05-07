@@ -7,13 +7,21 @@ import {
   ViewStyle,
   ImageStyle,
   Platform,
-  Image as RNImage
+  Image as RNImage,
+  Dimensions
 } from 'react-native';
 import { Image, ImageContentFit } from 'expo-image';
 import { ImagePriority, CachePolicy, markAsImportantImage } from '../utils/imagePreloader';
 
+// Get screen dimensions for optimization
+const screenWidth = Dimensions.get('window').width;
+const screenHeight = Dimensions.get('window').height;
+
 // Debug flag - set to false to reduce logging
 export const DEBUG_OPTIMIZED_IMAGE = false;
+
+// Cache size limit to prevent memory issues
+const MAX_CACHE_SIZE = 200;
 
 // Dynamic import for FastImage to prevent crashes on platforms where it's not available
 let FastImage: any = null;
@@ -37,6 +45,83 @@ try {
 
 // Cache for previously loaded images to prevent unnecessary reloads
 const imageCache = new Map<string, boolean>();
+
+// LRU cache management (simple implementation)
+const addToCache = (uri: string) => {
+  // Prevent cache from growing too large
+  if (imageCache.size > MAX_CACHE_SIZE) {
+    // Remove oldest entry (in a real LRU we'd track usage, this is simplified)
+    const firstKey = imageCache.keys().next().value;
+    if (firstKey) {
+      imageCache.delete(firstKey);
+    }
+  }
+  
+  // Add to cache
+  imageCache.set(uri, true);
+};
+
+// Helper to determine appropriate image dimensions
+const getOptimalImageDimensions = (style: any): { width: number, height: number } => {
+  let width: number | string = 300; // Default width 
+  let height: number | string = 300; // Default height
+  
+  if (style) {
+    // Extract width/height from style array
+    if (Array.isArray(style)) {
+      for (const styleItem of style) {
+        if (styleItem && typeof styleItem === 'object') {
+          if (styleItem.width) width = styleItem.width;
+          if (styleItem.height) height = styleItem.height;
+        }
+      }
+    } 
+    // Extract from object style
+    else if (typeof style === 'object') {
+      if (style.width) width = style.width;
+      if (style.height) height = style.height;
+    }
+  }
+  
+  // Handle percentage values
+  if (typeof width === 'string' && width.endsWith('%')) {
+    const percentage = parseFloat(width) / 100;
+    width = screenWidth * percentage;
+  } else if (typeof width === 'string') {
+    width = parseFloat(width) || 300;
+  }
+  
+  if (typeof height === 'string' && height.endsWith('%')) {
+    const percentage = parseFloat(height) / 100;
+    height = screenHeight * percentage;
+  } else if (typeof height === 'string') {
+    height = parseFloat(height) || 300;
+  }
+  
+  return { width: Number(width), height: Number(height) };
+};
+
+// Function to add dimensions to image URI
+const optimizeImageUri = (uri: string, dimensions: { width: number, height: number }): string => {
+  if (!uri) return uri;
+  
+  // Don't optimize local assets or data URIs
+  if (uri.startsWith('data:') || !uri.startsWith('http')) {
+    return uri;
+  }
+  
+  // Round dimensions to the nearest 50px for better CDN caching
+  const width = Math.ceil(dimensions.width / 50) * 50;
+  const height = Math.ceil(dimensions.height / 50) * 50;
+  
+  // Apply reasonable limits to prevent excessive dimensions
+  const maxWidth = Math.min(width, 1200);
+  const maxHeight = Math.min(height, 1200);
+  
+  // Add dimensions to URL
+  const separator = uri.includes('?') ? '&' : '?';
+  return `${uri}${separator}width=${maxWidth}&height=${maxHeight}&fit=cover`;
+};
 
 // Performance tracking interface
 interface ImageTiming {
@@ -98,10 +183,16 @@ export default function OptimizedImage({
       return source;
     }
 
+    // Get optimal dimensions based on style
+    const dimensions = getOptimalImageDimensions(style);
+
     // Handle string URI
     if (typeof source === 'string') {
+      // Apply dimension optimization to remote URLs
+      const optimizedUri = optimizeImageUri(source, dimensions);
+      
       return {
-        uri: source,
+        uri: optimizedUri,
         priority: getPriority(priority),
         cache: getCachePolicy(cachePolicy),
       };
@@ -110,17 +201,21 @@ export default function OptimizedImage({
     // Handle Source object
     if (typeof source === 'object' && source !== null && 'uri' in source) {
       const uri = source.uri;
+      
+      // Apply dimension optimization to remote URLs
+      const optimizedUri = optimizeImageUri(uri, dimensions);
+      
       return {
-        uri,
+        ...source,
+        uri: optimizedUri,
         priority: getPriority(priority),
-        cache: getCachePolicy(cachePolicy),
-        ...source
+        cache: getCachePolicy(cachePolicy)
       };
     }
 
     // Handle other cases
     return source;
-  }, [source, priority, cachePolicy]);
+  }, [source, priority, cachePolicy, style]);
 
   // Check if image is in cache
   useEffect(() => {
@@ -213,9 +308,9 @@ export default function OptimizedImage({
       loadDuration 
     }));
     
-    // Add to cache
+    // Add to cache using improved caching mechanism
     if (typeof processedSource === 'object' && processedSource?.uri) {
-      imageCache.set(processedSource.uri, true);
+      addToCache(processedSource.uri);
     }
     
     if (onLoadEnd) {

@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Workout, WorkoutExercise, WorkoutSet } from '../types/workout';
+import { ExerciseInWorkout } from '../types/exercise';
 import { useState, useEffect } from 'react';
 import supabase from './supabase';
 
@@ -47,6 +48,7 @@ export const workoutService = {
         id: Date.now().toString(),
         createdAt: now,
         updatedAt: now,
+        exercises: workout.exercises ? workout.exercises as ExerciseInWorkout[] : [],
       };
       
       await AsyncStorage.setItem(
@@ -70,9 +72,15 @@ export const workoutService = {
         throw new Error('Workout not found');
       }
       
+      let exercisesArray = workout.exercises;
+      if (exercisesArray) {
+        exercisesArray = exercisesArray as ExerciseInWorkout[];
+      }
+      
       const updatedWorkout = {
         ...workouts[index],
         ...workout,
+        exercises: exercisesArray || workouts[index].exercises,
         updatedAt: new Date().toISOString(),
       };
       
@@ -101,14 +109,14 @@ export const workoutService = {
     }
   },
 
-  async addExerciseToWorkout(workoutId: string, exercise: Omit<WorkoutExercise, 'id' | 'sets'>): Promise<Workout> {
+  async addExerciseToWorkout(workoutId: string, exercise: Omit<WorkoutExercise, 'id' | 'sets'> & { name: string }): Promise<Workout> {
     try {
       const workout = await this.getWorkoutById(workoutId);
       if (!workout) {
         throw new Error('Workout not found');
       }
 
-      const newExercise: WorkoutExercise = {
+      const newExercise: ExerciseInWorkout = {
         ...exercise,
         id: Date.now().toString(),
         sets: [],
@@ -144,7 +152,7 @@ export const workoutService = {
         id: Date.now().toString(),
       };
 
-      const updatedExercises = [...workout.exercises];
+      const updatedExercises = [...workout.exercises] as ExerciseInWorkout[];
       updatedExercises[exerciseIndex] = {
         ...updatedExercises[exerciseIndex],
         sets: [...updatedExercises[exerciseIndex].sets, newSet],
@@ -193,7 +201,7 @@ export const workoutService = {
         throw new Error('Set not found in exercise');
       }
 
-      const updatedExercises = [...workout.exercises];
+      const updatedExercises = [...workout.exercises] as ExerciseInWorkout[];
       updatedExercises[exerciseIndex] = {
         ...updatedExercises[exerciseIndex],
         sets: [

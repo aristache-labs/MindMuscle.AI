@@ -9,15 +9,31 @@ import {
   Platform,
   Image as RNImage
 } from 'react-native';
-import FastImage from 'react-native-fast-image';
 import { Image, ImageContentFit } from 'expo-image';
 import { ImagePriority, CachePolicy, markAsImportantImage } from '../utils/imagePreloader';
 
 // Debug flag
 export const DEBUG_OPTIMIZED_IMAGE = true;
 
-// Check if FastImage is available
-const isFastImageAvailable = !!FastImage && typeof FastImage.preload === 'function';
+// Dynamic import for FastImage to prevent crashes on platforms where it's not available
+let FastImage: any = null;
+let isFastImageAvailable = false;
+
+// Try to load FastImage (will be undefined if not installed or linked)
+try {
+  FastImage = require('react-native-fast-image').default;
+  // Additional check to make sure the module is properly linked
+  isFastImageAvailable = !!FastImage && typeof FastImage.preload === 'function' && !('bubblingEventTypes' in FastImage);
+  
+  if (DEBUG_OPTIMIZED_IMAGE) {
+    console.log(`FastImage ${isFastImageAvailable ? 'is' : 'is not'} available for use`);
+  }
+} catch (e) {
+  if (DEBUG_OPTIMIZED_IMAGE) {
+    console.log('FastImage import failed:', e);
+  }
+  isFastImageAvailable = false;
+}
 
 // Performance tracking interface
 interface ImageTiming {
@@ -120,10 +136,19 @@ export default function OptimizedImage({
   
   // Mark as important if needed
   useEffect(() => {
-    if (isImportant && typeof processedSource === 'object' && processedSource !== null && 'uri' in processedSource && processedSource.uri) {
-      markAsImportantImage(processedSource.uri);
+    if (isImportant && 
+        typeof processedSource === 'object' && 
+        processedSource !== null && 
+        'uri' in processedSource && 
+        processedSource.uri) {
+      // Use a setTimeout to prevent synchronous state updates from causing render loops
+      const timer = setTimeout(() => {
+        markAsImportantImage(processedSource.uri);
+      }, 0);
+      
+      return () => clearTimeout(timer);
     }
-  }, [isImportant, processedSource]);
+  }, [isImportant, processedSource?.uri]);
   
   // Handle load start
   const handleLoadStart = () => {
@@ -180,21 +205,25 @@ export default function OptimizedImage({
   
   // Convert priority string to FastImage priority
   function getPriority(prio: string): any {
+    if (!isFastImageAvailable) return prio;
+    
     switch (prio) {
-      case 'low': return ImagePriority.LOW;
-      case 'high': return ImagePriority.HIGH;
+      case 'low': return FastImage.priority.low;
+      case 'high': return FastImage.priority.high;
       case 'normal':
-      default: return ImagePriority.NORMAL;
+      default: return FastImage.priority.normal;
     }
   }
   
   // Convert cache policy string to FastImage cache policy
   function getCachePolicy(policy: string): any {
+    if (!isFastImageAvailable) return policy;
+    
     switch (policy) {
-      case 'web': return CachePolicy.WEB;
-      case 'cacheOnly': return CachePolicy.CACHE_ONLY;
+      case 'web': return FastImage.cacheControl.web;
+      case 'cacheOnly': return FastImage.cacheControl.cacheOnly;
       case 'immutable':
-      default: return CachePolicy.IMMUTABLE;
+      default: return FastImage.cacheControl.immutable;
     }
   }
   
@@ -247,28 +276,21 @@ export default function OptimizedImage({
           onError={() => handleError(new Error('Image load failed'))}
         />
       ) : isFastImageAvailable ? (
-        // Use FastImage for native platforms if available
+        // Use FastImage for native platforms if available and properly linked
         <FastImage
           source={processedSource}
-          style={[styles.image, style as any]}
+          style={[styles.image, style]}
           resizeMode={getResizeMode(resizeMode)}
           onLoadStart={handleLoadStart}
           onLoad={handleLoadEnd}
           onError={() => handleError(new Error('Image load failed'))}
-          fallback={error && fallbackSource !== null}
-        >
-          {error && fallbackSource && (
-            <FastImage
-              source={fallbackSource}
-              style={StyleSheet.absoluteFill}
-              resizeMode={getResizeMode(resizeMode)}
-            />
-          )}
-        </FastImage>
+        />
       ) : (
-        // Fallback to React Native Image if FastImage is not available
+        // Fallback to React Native's Image component when FastImage is not available
         <RNImage
-          source={processedSource}
+          source={typeof processedSource === 'object' && processedSource !== null && 'uri' in processedSource 
+            ? { uri: processedSource.uri }
+            : processedSource}
           style={[styles.image, style]}
           resizeMode={getResizeMode(resizeMode) as any}
           onLoadStart={handleLoadStart}
@@ -276,10 +298,21 @@ export default function OptimizedImage({
           onError={() => handleError(new Error('Image load failed'))}
         />
       )}
-      
-      {loading && showLoader && (
+
+      {error && fallbackSource && (
+        <RNImage
+          source={fallbackSource}
+          style={[styles.image, style, styles.fallbackImage]}
+          resizeMode={getResizeMode(resizeMode) as any}
+        />
+      )}
+
+      {showLoader && loading && (
         <View style={styles.loaderContainer}>
-          <ActivityIndicator size={loaderSize} color={loaderColor} />
+          <ActivityIndicator 
+            size={loaderSize}
+            color={loaderColor}
+          />
         </View>
       )}
     </View>
@@ -288,17 +321,24 @@ export default function OptimizedImage({
 
 const styles = StyleSheet.create({
   container: {
+    position: 'relative',
     overflow: 'hidden',
-    backgroundColor: 'transparent',
   },
   image: {
     width: '100%',
     height: '100%',
   },
+  fallbackImage: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
   loaderContainer: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.05)',
-  },
+    backgroundColor: 'rgba(0, 0, 0, 0.1)',
+  }
 }); 

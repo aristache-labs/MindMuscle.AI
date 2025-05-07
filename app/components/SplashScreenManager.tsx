@@ -11,6 +11,10 @@ import { storage } from '../services/firebase';
 import { Asset } from 'expo-asset';
 import { LOADING_MESSAGES } from '../constants/loadingMessages';
 import * as FileSystem from 'expo-file-system';
+import { safePreloadImages } from '../utils/imagePreloader';
+
+// Rename the exported function to avoid naming conflicts
+import { markAsImportantImage as markImageAsImportant } from '../utils/imagePreloader';
 
 // Define storage bucket constants for compatibility with previous code
 export const STORAGE_BUCKETS = {
@@ -160,7 +164,12 @@ const batchPreloadImages = async (
     let completedCount = 0;
     
     for (const batch of batches) {
-      await Promise.allSettled(batch.map(url => Asset.fromURI(url).downloadAsync()));
+      // Convert to source objects for safePreloadImages
+      const sources = batch.map(url => ({ uri: url }));
+      
+      // Use safePreloadImages which handles errors and fallbacks internally
+      await safePreloadImages(sources);
+      
       completedCount += batch.length;
       
       if (onProgress) {
@@ -358,12 +367,47 @@ export default function SplashScreenManager({ children }: { children: React.Reac
 
   // Fetch user-specific images for preloading
   const fetchUserSpecificImages = async (userId: string): Promise<string[]> => {
+    if (!userId) return [];
+    
     try {
+      const promises = [];
+      let results: string[] = [];
+      
+      // First try to get avatar from user metadata
+      try {
+        const { data: userData, error: userError } = await supabase.auth.getUser();
+        if (!userError && userData?.user?.user_metadata?.avatar_url) {
+          const avatarUrl = userData.user.user_metadata.avatar_url;
+          // Mark user avatar as important and add to the results 
+          if (avatarUrl) {
+            markImageAsImportant(avatarUrl);
+            results.push(avatarUrl);
+          }
+        } else {
+          // If not in metadata, try to fetch from firebase
+          try {
+            // Import firebase avatar service if it exists
+            const firebaseAvatarService = require('../services/firebaseAvatarService').default;
+            if (firebaseAvatarService && typeof firebaseAvatarService.getUserAvatar === 'function') {
+              const userAvatar = await firebaseAvatarService.getUserAvatar(userId);
+              if (userAvatar?.url) {
+                markImageAsImportant(userAvatar.url);
+                results.push(userAvatar.url);
+              }
+            }
+          } catch (e) {
+            console.warn('Firebase avatar service not available:', e);
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to fetch user avatar:', error);
+      }
+      
       // Create arrays for different priority levels
       const highPriorityImages: string[] = [];
       const mediumPriorityImages: string[] = [];
       const lowPriorityImages: string[] = [];
-      
+        
       // 1. Get progress photos from Firebase storage (HIGH PRIORITY - immediately visible on profile)
       setLoadingMessage(LOADING_MESSAGES.PROGRESS_PHOTOS);
       try {
@@ -387,7 +431,7 @@ export default function SplashScreenManager({ children }: { children: React.Reac
             
             // Mark the most recent photo as important so it stays in memory
             if (filteredUrls.length > 0) {
-              markAsImportantImage(filteredUrls[0]);
+              markImageAsImportant(filteredUrls[0]);
             }
             
             console.log(`Found ${filteredUrls.length} progress photos to preload (${highPriorityImages.length} high priority)`);
@@ -397,81 +441,17 @@ export default function SplashScreenManager({ children }: { children: React.Reac
         console.warn('Error fetching progress photos:', error);
       }
       
-      // Check if user_favorite_exercises table exists
-      try {
-        const { count: favoritesTableExists } = await supabase
-          .from('user_favorite_exercises')
-          .select('*', { count: 'exact', head: true });
-        
-        if (favoritesTableExists !== null) {
-          // 2. Get favorite exercises (MEDIUM-HIGH PRIORITY - accessed from favorites tab)
-          setLoadingMessage(LOADING_MESSAGES.FAVORITE_EXERCISES);
-          type FavoriteExercise = { exercise_id: string };
-          const favorites = await fetchSupabaseData<FavoriteExercise>(
-            'user_favorite_exercises',
-            supabase
-              .from('user_favorite_exercises')
-              .select('exercise_id')
-              .eq('user_id', userId)
-              .limit(PRELOAD_CONFIG.FAVORITE_EXERCISES_LIMIT),
-            'Error fetching favorite exercises'
-          );
-          
-          if (favorites.length > 0) {
-            // Get details for favorite exercises
-            const exerciseIds = favorites.map(fav => fav.exercise_id);
-            
-            type ExerciseDetail = { id: string; image_url: string; name: string };
-            const favoriteExercises = await fetchSupabaseData<ExerciseDetail>(
-              'exercises',
-              supabase
-                .from('exercises')
-                .select('id, image_url, name')
-                .in('id', exerciseIds),
-              'Error fetching favorite exercise details'
-            );
-            
-            const exerciseUrls = favoriteExercises
-              .map(ex => ({ id: ex.id, url: ex.image_url, name: ex.name }))
-              .filter(item => item.url && typeof item.url === 'string');
-            
-            // First 5 favorite exercises get high priority
-            highPriorityImages.push(...exerciseUrls.slice(0, 5).map(item => item.url));
-            
-            // Next 10 get medium priority
-            mediumPriorityImages.push(...exerciseUrls.slice(5, 15).map(item => item.url));
-            
-            // Rest get low priority
-            lowPriorityImages.push(...exerciseUrls.slice(15).map(item => item.url));
-            
-            // Mark all favorite exercise images as important
-            exerciseUrls.forEach(item => {
-              if (item.url) {
-                markAsImportantImage(item.url);
-              }
-            });
-            
-            console.log(`Found ${exerciseUrls.length} favorite exercise images to preload (${
-              Math.min(exerciseUrls.length, 5)} high, ${
-              Math.min(Math.max(exerciseUrls.length - 5, 0), 10)} medium, ${
-              Math.max(exerciseUrls.length - 15, 0)} low priority)`);
-          }
-        }
-      } catch (error) {
-        console.warn('Error fetching favorite exercises:', error);
-      }
+      // Add our avatar to high priority images
+      highPriorityImages.push(...results);
       
-      // Set loading message back to general user content
-      setLoadingMessage(LOADING_MESSAGES.USER_CONTENT);
-      
-      // Return combined images in priority order
+      // Return combined images in priority order, with avatar included
       return [
         ...highPriorityImages, 
         ...mediumPriorityImages, 
         ...lowPriorityImages
       ].filter(url => url && typeof url === 'string');
     } catch (error) {
-      console.warn('Error fetching user-specific images:', error);
+      console.warn('Error fetching user specific images:', error);
       return [];
     }
   };

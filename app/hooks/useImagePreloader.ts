@@ -1,8 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
-import FastImage, { Source, Priority } from 'react-native-fast-image';
 import { Asset } from 'expo-asset';
-import { ImagePriority, DEBUG_IMAGE_PRELOADER } from '../utils/imagePreloader';
+import { 
+  ImagePriority, 
+  safePreloadImages, 
+  isFastImageAvailable, 
+  DEBUG_IMAGE_PRELOADER,
+  type Source,
+  type Priority
+} from '../utils/imagePreloader';
 
 // Types for the hook options
 export interface PreloadOptions {
@@ -43,8 +49,11 @@ export default function useImagePreloader(
     debugLabel = 'useImagePreloader'
   } = options;
 
-  // Convert priority string to FastImage priority
-  const fastImagePriority = (() => {
+  // Use a ref to track if preloading has started to prevent duplicate loading
+  const preloadingStarted = useRef(false);
+
+  // Convert priority string to appropriate priority
+  const imagePriority = (() => {
     switch (priority) {
       case 'low': return ImagePriority.LOW;
       case 'high': return ImagePriority.HIGH;
@@ -66,27 +75,29 @@ export default function useImagePreloader(
     }
   });
 
-  // Check if FastImage is available
-  const isFastImageAvailable = !!FastImage && typeof FastImage.preload === 'function';
-
   // Effect to preload images when sources change
   useEffect(() => {
-    // Skip if no sources
-    if (!sources || sources.length === 0) {
-      setStatus({
-        loaded: true,
-        error: null,
-        progress: 1,
-        completedCount: 0,
-        totalCount: 0,
-        timing: {
-          startTime: Date.now(),
-          endTime: Date.now(),
-          duration: 0
-        }
-      });
+    // Skip if already started or no sources
+    if (preloadingStarted.current || !Array.isArray(sources) || sources.length === 0) {
+      if (!Array.isArray(sources) || sources.length === 0) {
+        setStatus({
+          loaded: true,
+          error: null,
+          progress: 1,
+          completedCount: 0,
+          totalCount: 0,
+          timing: {
+            startTime: Date.now(),
+            endTime: Date.now(),
+            duration: 0
+          }
+        });
+      }
       return;
     }
+
+    // Mark as started to prevent duplicate loads
+    preloadingStarted.current = true;
 
     // Start preloading
     const startTime = Date.now();
@@ -126,28 +137,14 @@ export default function useImagePreloader(
 
         // Process each batch
         for (const batch of batches) {
-          // Always use Asset for web or when FastImage is unavailable
-          if (Platform.OS === 'web' || !isFastImageAvailable) {
-            // For web or when FastImage is unavailable, use Asset
-            await Promise.allSettled(
-              batch.map(uri => Asset.fromURI(uri).downloadAsync())
-            );
-          } else {
-            try {
-              // For native with FastImage available, use FastImage
-              const sources: Source[] = batch.map(uri => ({
-                uri,
-                priority: fastImagePriority
-              }));
-              await FastImage.preload(sources);
-            } catch (err) {
-              // If FastImage fails, fallback to Asset
-              console.warn(`[${debugLabel}] FastImage preload failed, falling back to Asset:`, err);
-              await Promise.allSettled(
-                batch.map(uri => Asset.fromURI(uri).downloadAsync())
-              );
-            }
-          }
+          // Convert to sources format
+          const sources: Source[] = batch.map(uri => ({
+            uri,
+            priority: imagePriority as Priority
+          }));
+          
+          // Use our safe preload function
+          await safePreloadImages(sources);
 
           // Update progress
           completedCount += batch.length;
@@ -207,8 +204,11 @@ export default function useImagePreloader(
     // Start preloading
     preloadImages();
     
-    // No cleanup needed
-  }, [sources, priority, batchSize, debugLabel, fastImagePriority, isFastImageAvailable]);
+    // Reset the preloading flag when sources change
+    return () => {
+      preloadingStarted.current = false;
+    };
+  }, [sources ? JSON.stringify(sources) : '']); // Stringify sources to prevent infinite loops
 
   return status;
 } 

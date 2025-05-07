@@ -11,6 +11,9 @@ import supabase from '../services/supabase';
 import { GeneralHeader } from '../components/GeneralHeader';
 import * as ImagePicker from 'expo-image-picker';
 import firebaseAvatarService, { UserAvatar } from '../services/firebaseAvatarService';
+import OptimizedImage from '../components/OptimizedImage';
+import { batchPreloadImages, ImagePriority, markAsImportantImage } from '../utils/imagePreloader';
+import useImagePreloader from '../hooks/useImagePreloader';
 
 
 interface MenuItemProps {
@@ -61,6 +64,15 @@ export default function ProfileScreen() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const { user, refreshUser, signOut } = useAuth();
+  
+  // Preload avatar image when URL is available
+  const { loaded: avatarPreloaded } = useImagePreloader(
+    avatarUrl ? [avatarUrl] : [],
+    { 
+      priority: 'high', 
+      debugLabel: 'ProfileAvatar' 
+    }
+  );
 
   // Refresh user data when screen is mounted or becomes active
   useEffect(() => {
@@ -90,22 +102,42 @@ export default function ProfileScreen() {
       
       // First check if it's in the user metadata (fastest)
       if (user.user_metadata?.avatar_url) {
-        setAvatarUrl(user.user_metadata.avatar_url);
+        const avatarUri = user.user_metadata.avatar_url;
+        // Only update if the URL has changed
+        if (avatarUrl !== avatarUri) {
+          setAvatarUrl(avatarUri);
+          
+          // Just mark as important - no need to preload again
+          markAsImportantImage(avatarUri);
+        }
         return;
       }
       
       // Otherwise fetch from the service
       const userAvatar = await firebaseAvatarService.getUserAvatar(user.id);
       if (userAvatar) {
-        setAvatarUrl(userAvatar.url);
+        const avatarUri = userAvatar.url;
+        // Only update if the URL has changed
+        if (avatarUrl !== avatarUri) {
+          setAvatarUrl(avatarUri);
+          
+          // Just mark as important - no need to preload again
+          markAsImportantImage(avatarUri);
+        }
       } else {
-        setAvatarUrl(null);
+        // Only update if the URL has changed
+        if (avatarUrl !== null) {
+          setAvatarUrl(null);
+        }
       }
     } catch (error) {
       console.error('Error loading user avatar:', error);
-      setAvatarUrl(null);
+      // Only update if the URL has changed
+      if (avatarUrl !== null) {
+        setAvatarUrl(null);
+      }
     }
-  }, [user]);
+  }, [user, avatarUrl]);
 
   // Get user's full name and email from metadata, fallback to defaults if not set
   const userFullName = user?.user_metadata?.name || user?.email?.split('@')[0] || 'User';
@@ -207,11 +239,19 @@ export default function ProfileScreen() {
                 <ActivityIndicator size="large" color={COLORS.primary} />
               </View>
             ) : avatarUrl && !imageLoadError ? (
-              <Image
+              <OptimizedImage
                 source={{ uri: avatarUrl }}
                 style={styles.avatar}
-                onError={() => {
-                  console.error('Error loading avatar image');
+                priority="high"
+                cachePolicy="web"
+                isImportant={true}
+                debugLabel="ProfileAvatar"
+                showLoader={true}
+                loaderColor={COLORS.primary}
+                resizeMode="cover"
+                fallback={require('../../assets/placeholder.jpg')}
+                onError={(error) => {
+                  console.error('Error loading avatar image:', error);
                   setImageLoadError(true);
                 }}
               />

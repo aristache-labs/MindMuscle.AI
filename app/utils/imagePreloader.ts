@@ -196,6 +196,35 @@ export const markAsImportantImage = (uri: string): void => {
         
         if (DEBUG_IMAGE_PRELOADER) {
           console.log(`🔒 Also marked as important with FastImage: ${uri.substring(0, 40)}${uri.length > 40 ? '...' : ''}`);
+          // Add this to debug RLS policy issues with Supabase storage
+          if (uri.includes('supabase') && uri.includes('storage')) {
+            console.log(`🔍 STORAGE URL DEBUG - Full URL: ${uri}`);
+            
+            // Extract bucket and path to help debug RLS issues
+            try {
+              const urlParts = uri.split('/');
+              const bucketIndex = urlParts.findIndex(part => 
+                ['avatars', 'progress-photos', 'plans'].includes(part)
+              );
+              
+              if (bucketIndex >= 0) {
+                const bucket = urlParts[bucketIndex];
+                const pathParts = urlParts.slice(bucketIndex + 1);
+                const path = pathParts.join('/');
+                
+                console.log(`🔍 STORAGE URL DEBUG - Bucket: ${bucket}, Path: ${path}`);
+                
+                // If this is an avatar, provide more detailed RLS debugging
+                if (bucket === 'avatars') {
+                  const userId = pathParts[0]?.split('?')[0];
+                  console.log(`🔍 STORAGE URL DEBUG - Avatar owner userId: ${userId}`);
+                  console.log(`🔍 STORAGE URL DEBUG - RLS should check: auth.uid()::text = '${userId}'`);
+                }
+              }
+            } catch (parseErr) {
+              console.warn('Error parsing storage URL for debugging:', parseErr);
+            }
+          }
         }
       } catch (fastImageError) {
         // Silently continue if FastImage fails, we already used Asset

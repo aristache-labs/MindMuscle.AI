@@ -2,12 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { AppState, AppStateStatus, Platform } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import InitialLoadingScreen from './InitialLoadingScreen';
-import { useAuth } from '@store/AuthContext';
+import { useAuth } from '../store/AuthContext';
 import * as Network from 'expo-network';
-import supabase from '@services/supabase';
-import storageService, { STORAGE_BUCKETS } from '@services/storage';
+import supabase from '../services/supabase';
+import { storageService, STORAGE_BUCKETS, StorageFile } from '../services/storage';
 import { Asset } from 'expo-asset';
-import { LOADING_MESSAGES } from '@constants/loadingMessages';
+import { LOADING_MESSAGES } from '../constants/loadingMessages';
 import * as FileSystem from 'expo-file-system';
 
 // Define static images to preload (moved from imagePreloader.ts)
@@ -313,11 +313,11 @@ export default function SplashScreenManager({ children }: { children: React.Reac
         
         if (progressPhotos && progressPhotos.length > 0) {
           // Get public URLs for these files
-          const photoUrls = progressPhotos.map(photo => 
+          const photoUrls = progressPhotos.map((photo: StorageFile) => 
             storageService.getPublicUrl(STORAGE_BUCKETS.PROGRESS_PHOTOS, `${userId}/${photo.name}`)
           );
           
-          const filteredUrls = photoUrls.filter(url => url && typeof url === 'string');
+          const filteredUrls = photoUrls.filter((url: string) => url && typeof url === 'string');
           
           if (filteredUrls.length > 0) {
             // Most recent photos (first 2) get high priority

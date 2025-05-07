@@ -1,6 +1,6 @@
 import supabase from './supabase';
 import { supabaseUrl } from './supabase';
-import storageService, { STORAGE_BUCKETS } from './storage';
+import { storageService, STORAGE_BUCKETS } from './storage';
 
 // Updated interface to match the actual database schema
 export interface WorkoutPlan {

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, ScrollView, Pressable, Platform } from 'react-native';
-import { Text, Switch, Avatar, Button, IconButton, Divider, ActivityIndicator } from 'react-native-paper';
+import { Text, Avatar, Button, IconButton } from 'react-native-paper';
 import { COLORS, SPACING, BORDER_RADIUS, HEADER_HEIGHT } from '../constants/theme';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -8,10 +8,8 @@ import { Link, useRouter, usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../store/AuthContext';
 import supabase from '../services/supabase';
-import * as ImagePicker from 'expo-image-picker';
-import { decode } from 'base64-arraybuffer';
 import { GeneralHeader } from '../components/GeneralHeader';
-import storageService, { STORAGE_BUCKETS } from '../services/storage';
+
 
 interface MenuItemProps {
   icon: string;
@@ -54,22 +52,10 @@ const MenuItem = ({ icon, title, onPress, rightElement, isLast }: MenuItemProps)
 
 export default function ProfileScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const [imageError, setImageError] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
-  const { user, refreshUser, updateUserMetadata, signOut } = useAuth();
-
-  // Request permissions on component mount
-  useEffect(() => {
-    (async () => {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        alert('Sorry, we need camera roll permissions to upload profile images!');
-      }
-    })();
-  }, []);
+  const { user, refreshUser, signOut } = useAuth();
 
   // Refresh user data when screen is mounted or becomes active
   useEffect(() => {
@@ -88,107 +74,12 @@ export default function ProfileScreen() {
     refreshData();
   }, [pathname]);
 
-  const deleteOldAvatar = async (avatarUrl: string) => {
-    try {
-      // Extract the file path from the URL
-      const urlParts = avatarUrl.split('/');
-      const filePath = urlParts[urlParts.length - 2] + '/' + urlParts[urlParts.length - 1];
-      
-      await storageService.deleteFile(STORAGE_BUCKETS.AVATARS, filePath);
-    } catch (error) {
-      console.error('Error deleting old avatar:', error);
-    }
-  };
-
-  const handleImageUpload = async () => {
-    try {
-      setUploadingImage(true);
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-        base64: true,
-      });
-
-      if (!result.canceled && result.assets[0] && user) {
-        const file = result.assets[0];
-        const filePath = `${user.id}/profile.jpg`;
-
-        // Delete old avatar if it exists
-        if (user.user_metadata?.avatar_url) {
-          await deleteOldAvatar(user.user_metadata.avatar_url);
-        }
-
-        // Upload new image using storage service
-        const { publicUrl } = await storageService.uploadFromUri(
-          STORAGE_BUCKETS.AVATARS,
-          filePath,
-          file.uri,
-          {
-            contentType: 'image/jpeg',
-            cacheControl: '3600',
-            upsert: true
-          }
-        );
-
-        // Update user metadata with new avatar URL
-        await updateUserMetadata({
-          ...user.user_metadata,
-          avatar_url: publicUrl
-        });
-
-        // Refresh user data to get updated avatar
-        await refreshUser();
-        setImageError(false);
-      }
-    } catch (error) {
-      console.error('Error uploading image:', error);
-      alert('Error uploading image. Please try again.');
-    } finally {
-      setUploadingImage(false);
-    }
-  };
-
-  const handleImageError = () => {
-    setImageError(true);
-  };
-
-  // Get user's full name and avatar from metadata, fallback to defaults if not set
+  // Get user's full name and email from metadata, fallback to defaults if not set
   const userFullName = user?.user_metadata?.name || user?.email?.split('@')[0] || 'User';
   const userEmail = user?.email || '';
-  const userAvatar = user?.user_metadata?.avatar_url;
 
   const handleEditProfile = () => {
     router.push('/(auth)/edit-profile');
-  };
-
-  const updateProfile = async (profileData: {
-    dateOfBirth?: string;
-    gender?: string;
-    heightCm?: number;
-    weightKg?: number;
-  }) => {
-    if (!user) {
-      throw new Error('User not authenticated');
-    }
-
-    try {
-      const { data, error } = await supabase
-        .rpc('upsert_profile_details', {
-          p_user_id: user.id,
-          p_date_of_birth: profileData.dateOfBirth,
-          p_gender: profileData.gender,
-          p_height_cm: profileData.heightCm,
-          p_weight_kg: profileData.weightKg
-        });
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error updating profile:', error);
-      throw error;
-    }
   };
 
   return (
@@ -224,30 +115,13 @@ export default function ProfileScreen() {
       >
         {/* Profile Section */}
         <View style={styles.profileSection}>
-          <Pressable style={styles.avatarContainer} onPress={handleImageUpload} disabled={uploadingImage}>
-            {uploadingImage ? (
-              <View style={[styles.avatar, styles.avatarLoading]}>
-                <ActivityIndicator size="large" color={COLORS.primary} />
-              </View>
-            ) : userAvatar && !imageError ? (
-              <Avatar.Image 
-                size={100} 
-                source={{ uri: userAvatar }} 
-                style={styles.avatar}
-                onError={handleImageError}
-              />
-            ) : (
-              <Avatar.Icon 
-                size={100} 
-                icon="account"
-                style={[styles.avatar, styles.avatarPlaceholder]}
-                color={COLORS.disabled}
-              />
-            )}
-            <View style={styles.editIcon}>
-              <MaterialCommunityIcons name="camera" size={14} color={COLORS.text} />
-            </View>
-          </Pressable>
+          {/* Default user avatar icon */}
+          <Avatar.Icon 
+            size={100} 
+            icon="account"
+            style={styles.avatarPlaceholder}
+            color={COLORS.disabled}
+          />
           <Text variant="titleLarge" style={styles.name}>{userFullName}</Text>
           <Text variant="bodyMedium" style={styles.email}>{userEmail}</Text>
           
@@ -407,35 +281,10 @@ const styles = StyleSheet.create({
     paddingTop: SPACING.md,
     paddingHorizontal: SPACING.md,
   },
-  avatarContainer: {
-    position: 'relative',
-    marginBottom: SPACING.lg,
-    marginTop: SPACING.md,
-  },
-  avatar: {
-    backgroundColor: '#2A2A2A',
-  },
   avatarPlaceholder: {
     backgroundColor: '#2A2A2A',
-  },
-  avatarLoading: {
-    backgroundColor: '#2A2A2A',
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-  },
-  editIcon: {
-    position: 'absolute',
-    bottom: 4,
-    right: 4,
-    backgroundColor: COLORS.primary,
-    borderRadius: BORDER_RADIUS.round,
-    width: 24,
-    height: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginBottom: SPACING.lg,
+    marginTop: SPACING.md,
   },
   name: {
     color: COLORS.text,

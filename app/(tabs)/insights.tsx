@@ -3,18 +3,14 @@ import { StyleSheet, View, ScrollView, Dimensions, Pressable, Image, Modal, Acti
 import { Text, Surface, Chip, useTheme, IconButton, Button, Provider } from 'react-native-paper';
 import { useProgress } from '../store/ProgressContext';
 import { Calendar } from 'react-native-calendars';
-import { format, addMonths, subMonths } from 'date-fns';
-import { COLORS, SPACING, BORDER_RADIUS, HEADER_HEIGHT } from '../constants/theme';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { format, addMonths } from 'date-fns';
+import { COLORS, SPACING, HEADER_HEIGHT } from '../constants/theme';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../store/AuthContext';
 import { achievementService, Achievement, UserAchievement } from '../services/achievements';
-import measurementService, { 
-  Measurement, 
-  MeasurementCategory, 
-  MEASUREMENT_CATEGORIES 
-} from '../services/measurements';
+import measurementService, { MeasurementCategory} from '../services/measurements';
 import MeasurementModal from '../components/MeasurementModal';
 import MeasurementsGraph from '../components/MeasurementsGraph';
 import HowToMeasureModal from '../components/HowToMeasureModal';

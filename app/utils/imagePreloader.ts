@@ -1,7 +1,14 @@
 import { Asset } from 'expo-asset';
 import { Platform } from 'react-native';
+import React from 'react';
 
-// Debug flag - Set to true to enable verbose logging
+// Add a default export React component to satisfy Expo Router
+export default function ImagePreloaderWrapper() {
+  // This component is never actually rendered, it's just here to satisfy Expo Router
+  return null;
+}
+
+// Debug flag - set to false to reduce logging
 export const DEBUG_IMAGE_PRELOADER = true;
 
 // Safely handle FastImage - dynamically import to prevent crashes
@@ -54,6 +61,9 @@ export type Source = { uri: string; priority?: Priority; cache?: string };
 // Keep track of already marked images to avoid duplicate processing
 const cachedImportantImages = new Set<string>();
 
+// Cache for preloaded images
+const preloadedImageCache = new Map<string, boolean>();
+
 /**
  * Safely preload images with automatic fallback to Asset API
  * @param sources Array of image sources to preload
@@ -75,11 +85,30 @@ export const safePreloadImages = async (
     return source;
   });
   
+  // Filter out already preloaded images
+  const sourcesToLoad = processedSources.filter(source => {
+    if (!source || !source.uri) return false;
+    
+    // Skip if already preloaded
+    if (preloadedImageCache.has(source.uri)) {
+      return false;
+    }
+    
+    // Mark as preloaded
+    preloadedImageCache.set(source.uri, true);
+    return true;
+  });
+  
+  // Skip if all images are already preloaded
+  if (sourcesToLoad.length === 0) {
+    return Promise.resolve([]);
+  }
+  
   // Always use Asset for web or when FastImage is unavailable
   if (!isFastImageAvailable) {
     // If FastImage is not available, use Asset
     return Promise.all(
-      processedSources.map(source => {
+      sourcesToLoad.map(source => {
         if (source && source.uri) {
           return Asset.fromURI(source.uri).downloadAsync()
             .catch(err => {
@@ -97,7 +126,7 @@ export const safePreloadImages = async (
   
   try {
     // Use the native FastImage preloader if available
-    return FastImage.preload(processedSources);
+    return FastImage.preload(sourcesToLoad);
   } catch (error) {
     if (DEBUG_IMAGE_PRELOADER) {
       console.warn('Error using FastImage.preload, falling back to Asset:', error);
@@ -105,7 +134,7 @@ export const safePreloadImages = async (
     
     // Fallback to Asset on error
     return Promise.all(
-      processedSources.map(source => {
+      sourcesToLoad.map(source => {
         if (source && source.uri) {
           return Asset.fromURI(source.uri).downloadAsync()
             .catch(err => {
@@ -139,15 +168,24 @@ export const batchPreloadImages = async (
     return;
   }
   
+  // Filter out already preloaded images
+  const urlsToLoad = imageUrls.filter(url => !preloadedImageCache.has(url));
+  
+  // Skip if all images are already preloaded
+  if (urlsToLoad.length === 0) {
+    if (onProgress) onProgress(1, imageUrls.length, imageUrls.length);
+    return;
+  }
+  
   if (DEBUG_IMAGE_PRELOADER) {
-    console.log(`🚀 Batch preloading ${imageUrls.length} images with priority ${priority}...`);
+    console.log(`🚀 Batch preloading ${urlsToLoad.length} images with priority ${priority}...`);
   }
   
   try {
     // Process in smaller batches
     const batches = [];
-    for (let i = 0; i < imageUrls.length; i += batchSize) {
-      batches.push(imageUrls.slice(i, i + batchSize));
+    for (let i = 0; i < urlsToLoad.length; i += batchSize) {
+      batches.push(urlsToLoad.slice(i, i + batchSize));
     }
     
     let completedCount = 0;
@@ -165,24 +203,24 @@ export const batchPreloadImages = async (
       completedCount += batch.length;
       
       if (onProgress) {
-        const progress = Math.min(completedCount / imageUrls.length, 1);
-        onProgress(progress, completedCount, imageUrls.length);
+        const progress = Math.min(completedCount / urlsToLoad.length, 1);
+        onProgress(progress, completedCount, urlsToLoad.length);
       }
       
       if (DEBUG_IMAGE_PRELOADER) {
-        console.log(`⏱️ Preloaded batch: ${completedCount}/${imageUrls.length} images`);
+        console.log(`⏱️ Preloaded batch: ${completedCount}/${urlsToLoad.length} images`);
       }
     }
     
     if (DEBUG_IMAGE_PRELOADER) {
-      console.log(`✅ Preloaded ${completedCount}/${imageUrls.length} images successfully`);
+      console.log(`✅ Preloaded ${completedCount}/${urlsToLoad.length} images successfully`);
     }
   } catch (error) {
     console.warn('❌ Error preloading image batch:', error);
   }
   
   if (onProgress) {
-    onProgress(1, imageUrls.length, imageUrls.length);
+    onProgress(1, urlsToLoad.length, urlsToLoad.length);
   }
 };
 
@@ -203,6 +241,7 @@ export const markAsImportantImage = (uri: string): void => {
   
   // Add to cache
   cachedImportantImages.add(uri);
+  preloadedImageCache.set(uri, true);
   
   // Always use Asset API as the primary method for marking images as important
   try {

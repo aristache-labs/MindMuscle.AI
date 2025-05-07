@@ -10,11 +10,15 @@ import {
   type Priority
 } from '../utils/imagePreloader';
 
+// Cache for already preloaded images
+const preloadedImagesCache = new Map<string, boolean>();
+
 // Types for the hook options
 export interface PreloadOptions {
   priority?: 'low' | 'normal' | 'high';
   batchSize?: number;
   debugLabel?: string;
+  skipIfCached?: boolean;
 }
 
 // Type for the hook's return value
@@ -46,7 +50,8 @@ export default function useImagePreloader(
   const {
     priority = 'normal',
     batchSize = 15,
-    debugLabel = 'useImagePreloader'
+    debugLabel = 'useImagePreloader',
+    skipIfCached = true
   } = options;
 
   // Use a ref to track if preloading has started to prevent duplicate loading
@@ -99,6 +104,33 @@ export default function useImagePreloader(
     // Mark as started to prevent duplicate loads
     preloadingStarted.current = true;
 
+    // Process sources into an array of URIs
+    const uris = sources.map(source => 
+      typeof source === 'string' ? source : source.uri
+    ).filter(uri => uri && typeof uri === 'string');
+    
+    // Filter out already preloaded images if skipIfCached is true
+    const urisToLoad = skipIfCached 
+      ? uris.filter(uri => !preloadedImagesCache.has(uri)) 
+      : uris;
+    
+    // If all images are already preloaded, return early
+    if (urisToLoad.length === 0) {
+      setStatus({
+        loaded: true,
+        error: null,
+        progress: 1,
+        completedCount: uris.length,
+        totalCount: uris.length,
+        timing: {
+          startTime: Date.now(),
+          endTime: Date.now(),
+          duration: 0
+        }
+      });
+      return;
+    }
+
     // Start preloading
     const startTime = Date.now();
     setStatus(prev => ({
@@ -107,7 +139,7 @@ export default function useImagePreloader(
       error: null,
       progress: 0,
       completedCount: 0,
-      totalCount: sources.length,
+      totalCount: urisToLoad.length,
       timing: {
         startTime,
         endTime: null,
@@ -116,21 +148,16 @@ export default function useImagePreloader(
     }));
 
     if (DEBUG_IMAGE_PRELOADER) {
-      console.log(`🚀 [${debugLabel}] Starting to preload ${sources.length} images with priority ${priority}`);
+      console.log(`🚀 [${debugLabel}] Starting to preload ${urisToLoad.length} images with priority ${priority}`);
     }
-
-    // Process sources into an array of URIs
-    const uris = sources.map(source => 
-      typeof source === 'string' ? source : source.uri
-    ).filter(uri => uri && typeof uri === 'string');
 
     // Preload function
     const preloadImages = async () => {
       try {
         // Create batches of URIs
         const batches = [];
-        for (let i = 0; i < uris.length; i += batchSize) {
-          batches.push(uris.slice(i, i + batchSize));
+        for (let i = 0; i < urisToLoad.length; i += batchSize) {
+          batches.push(urisToLoad.slice(i, i + batchSize));
         }
 
         let completedCount = 0;
@@ -146,9 +173,14 @@ export default function useImagePreloader(
           // Use our safe preload function
           await safePreloadImages(sources);
 
+          // Add to cache
+          batch.forEach(uri => {
+            preloadedImagesCache.set(uri, true);
+          });
+
           // Update progress
           completedCount += batch.length;
-          const progress = Math.min(completedCount / uris.length, 1);
+          const progress = Math.min(completedCount / urisToLoad.length, 1);
           
           setStatus(prev => ({
             ...prev,
@@ -157,7 +189,7 @@ export default function useImagePreloader(
           }));
 
           if (DEBUG_IMAGE_PRELOADER) {
-            console.log(`⏱️ [${debugLabel}] Batch completed: ${completedCount}/${uris.length} (${(progress * 100).toFixed(1)}%)`);
+            console.log(`⏱️ [${debugLabel}] Batch completed: ${completedCount}/${urisToLoad.length} (${(progress * 100).toFixed(1)}%)`);
           }
         }
 
@@ -169,7 +201,7 @@ export default function useImagePreloader(
           ...prev,
           loaded: true,
           progress: 1,
-          completedCount: uris.length,
+          completedCount: urisToLoad.length,
           timing: {
             ...prev.timing!,
             endTime,

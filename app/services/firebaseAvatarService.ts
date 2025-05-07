@@ -2,6 +2,7 @@ import * as FileSystem from 'expo-file-system';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { storage } from './firebase';
 import supabase from './supabase';
+import { Asset } from 'expo-asset';
 
 // Simple function to generate a unique ID without using crypto
 function generateUniqueId(): string {
@@ -13,22 +14,35 @@ export interface UserAvatar {
   userId: string;
 }
 
+// Cache for avatar URLs to avoid repeated database queries
+const avatarCache = new Map<string, UserAvatar>();
+// Cache for preloaded avatars
+const preloadedAvatarCache = new Map<string, boolean>();
+
 class FirebaseAvatarService {
   /**
    * Get the current avatar for a user
    */
   async getUserAvatar(userId: string): Promise<UserAvatar | null> {
     try {
-      console.log(`Fetching avatar for user: ${userId}`);
+      // Check cache first
+      if (avatarCache.has(userId)) {
+        return avatarCache.get(userId) || null;
+      }
       
       // Try to get the avatar URL from user metadata first (fastest)
       const { data: userData, error: userError } = await supabase.auth.getUser();
       
       if (!userError && userData?.user?.user_metadata?.avatar_url) {
-        return {
+        const avatar = {
           url: userData.user.user_metadata.avatar_url,
           userId: userId
         };
+        
+        // Cache the result
+        avatarCache.set(userId, avatar);
+        
+        return avatar;
       }
       
       // If not in metadata, check user_profile_details table
@@ -44,16 +58,61 @@ class FirebaseAvatarService {
       }
 
       if (profileData?.avatar_url) {
-        return {
+        const avatar = {
           url: profileData.avatar_url,
           userId: userId
         };
+        
+        // Cache the result
+        avatarCache.set(userId, avatar);
+        
+        return avatar;
       }
 
       return null;
     } catch (error) {
       console.error('Error fetching user avatar:', error);
       return null; // Return null instead of throwing to avoid crashes
+    }
+  }
+
+  /**
+   * Preload the user's avatar for faster display
+   * @param userId User ID to preload avatar for
+   * @param timeout Optional timeout in milliseconds
+   * @returns Promise that resolves when preloading is complete
+   */
+  async preloadAvatar(userId: string, timeout: number = 5000): Promise<boolean> {
+    try {
+      // Skip if already preloaded
+      if (preloadedAvatarCache.has(userId)) {
+        return true;
+      }
+      
+      // Get the avatar URL
+      const avatar = await this.getUserAvatar(userId);
+      if (!avatar || !avatar.url) {
+        return false;
+      }
+      
+      // Use Asset API for preloading with timeout
+      try {
+        const avatarAsset = Asset.fromURI(avatar.url);
+        await Promise.race([
+          avatarAsset.downloadAsync(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Avatar preload timeout')), timeout))
+        ]);
+        
+        // Mark as preloaded
+        preloadedAvatarCache.set(userId, true);
+        return true;
+      } catch (error) {
+        console.warn('Error preloading avatar with Asset API:', error);
+        return false;
+      }
+    } catch (error) {
+      console.warn('Error in preloadAvatar:', error);
+      return false;
     }
   }
 
@@ -65,8 +124,6 @@ class FirebaseAvatarService {
     uri: string
   ): Promise<UserAvatar> {
     try {
-      console.log(`Uploading avatar for user: ${userId} to Firebase Storage`);
-      
       // Generate a unique file name with timestamp
       const timestamp = Date.now();
       const filename = `${timestamp}_avatar.jpg`;
@@ -78,9 +135,6 @@ class FirebaseAvatarService {
       
       // Create a temporary Firebase upload URL - include the API key for auth
       const uploadURL = `https://firebasestorage.googleapis.com/v0/b/${storageBucket}/o?name=${encodeURIComponent(filePath)}&key=${apiKey}`;
-      
-      // Use Expo FileSystem to upload directly
-      console.log(`Starting direct upload to Firebase path: ${filePath}`);
       
       // We'll check if the file is local or remote
       let fileToUpload = uri;
@@ -101,9 +155,6 @@ class FirebaseAvatarService {
         }
       });
       
-      // Log the full response for debugging
-      console.log('Upload response:', JSON.stringify(uploadResponse, null, 2));
-      
       if (uploadResponse.status !== 200) {
         console.error('Upload response:', uploadResponse);
         throw new Error(`Upload failed with status: ${uploadResponse.status}`);
@@ -113,7 +164,6 @@ class FirebaseAvatarService {
       let responseData;
       try {
         responseData = JSON.parse(uploadResponse.body);
-        console.log('Parsed response data:', JSON.stringify(responseData, null, 2));
       } catch (parseError) {
         console.error('Error parsing response:', parseError);
         console.log('Raw response body:', uploadResponse.body);
@@ -129,8 +179,6 @@ class FirebaseAvatarService {
       
       // Construct the download URL with both token and API key
       const downloadURL = `https://firebasestorage.googleapis.com/v0/b/${storageBucket}/o/${encodeURIComponent(filePath)}?alt=media&token=${downloadToken}&key=${apiKey}`;
-      
-      console.log(`File uploaded successfully, download URL: ${downloadURL}`);
       
       // Try to get previous avatar URL to delete the file
       await this.deleteOldAvatarImage(userId);
@@ -187,13 +235,33 @@ class FirebaseAvatarService {
         // Continue anyway, as the avatar is still saved in the user_profile_details table
       }
       
-      return {
+      const avatar = {
         url: downloadURL,
         userId
       };
+      
+      // Update cache
+      avatarCache.set(userId, avatar);
+      // Clear preload cache since we have a new avatar
+      preloadedAvatarCache.delete(userId);
+      
+      return avatar;
     } catch (error) {
       console.error('Error uploading avatar to Firebase:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Clear the avatar cache for a specific user or all users
+   */
+  clearCache(userId?: string): void {
+    if (userId) {
+      avatarCache.delete(userId);
+      preloadedAvatarCache.delete(userId);
+    } else {
+      avatarCache.clear();
+      preloadedAvatarCache.clear();
     }
   }
 
@@ -237,10 +305,11 @@ class FirebaseAvatarService {
         }
         
         // Delete from Firebase Storage
-        console.log(`Deleting old avatar from Firebase Storage: ${storagePath}`);
         const photoRef = ref(storage, storagePath);
         await deleteObject(photoRef);
-        console.log('Old avatar deleted successfully');
+        
+        // Clear cache for this user
+        this.clearCache(userId);
       } catch (storageError) {
         console.error('Error deleting old avatar from Firebase Storage:', storageError);
         // Continue even if deletion fails
@@ -252,6 +321,4 @@ class FirebaseAvatarService {
   }
 }
 
-// Export a singleton instance
-const firebaseAvatarService = new FirebaseAvatarService();
-export default firebaseAvatarService; 
+export default new FirebaseAvatarService(); 

@@ -12,8 +12,8 @@ import {
 import { Image, ImageContentFit } from 'expo-image';
 import { ImagePriority, CachePolicy, markAsImportantImage } from '../utils/imagePreloader';
 
-// Debug flag
-export const DEBUG_OPTIMIZED_IMAGE = true;
+// Debug flag - set to false to reduce logging
+export const DEBUG_OPTIMIZED_IMAGE = false;
 
 // Dynamic import for FastImage to prevent crashes on platforms where it's not available
 let FastImage: any = null;
@@ -34,6 +34,9 @@ try {
   }
   isFastImageAvailable = false;
 }
+
+// Cache for previously loaded images to prevent unnecessary reloads
+const imageCache = new Map<string, boolean>();
 
 // Performance tracking interface
 interface ImageTiming {
@@ -119,6 +122,28 @@ export default function OptimizedImage({
     return source;
   }, [source, priority, cachePolicy]);
 
+  // Check if image is in cache
+  useEffect(() => {
+    if (typeof processedSource === 'object' && processedSource?.uri) {
+      const uri = processedSource.uri;
+      // If image is already in cache, skip loading state
+      if (imageCache.has(uri)) {
+        setLoading(false);
+        
+        // If the image is already in cache, we can consider it loaded immediately
+        if (DEBUG_OPTIMIZED_IMAGE) {
+          const label = debugLabel || 'OptimizedImage';
+          console.log(`⚡ [${label}] Image already in cache, skipping loading state`);
+        }
+        
+        // Call onLoadEnd callback if provided
+        if (onLoadEnd) {
+          onLoadEnd();
+        }
+      }
+    }
+  }, [processedSource, debugLabel, onLoadEnd]);
+
   // Process fallback source
   const fallbackSource = useMemo(() => {
     if (!fallback) return null;
@@ -152,6 +177,16 @@ export default function OptimizedImage({
   
   // Handle load start
   const handleLoadStart = () => {
+    // Check if image is already in cache
+    if (typeof processedSource === 'object' && processedSource?.uri && imageCache.has(processedSource.uri)) {
+      // Skip loading state for cached images
+      if (DEBUG_OPTIMIZED_IMAGE) {
+        const label = debugLabel || 'OptimizedImage';
+        console.log(`⚡ [${label}] Image load skipped (already in cache)`);
+      }
+      return;
+    }
+    
     setLoading(true);
     setError(false);
     setTiming(prev => ({ ...prev, loadStart: Date.now() }));
@@ -177,6 +212,11 @@ export default function OptimizedImage({
       loadEnd: now,
       loadDuration 
     }));
+    
+    // Add to cache
+    if (typeof processedSource === 'object' && processedSource?.uri) {
+      imageCache.set(processedSource.uri, true);
+    }
     
     if (onLoadEnd) {
       onLoadEnd();

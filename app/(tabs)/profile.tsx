@@ -93,7 +93,7 @@ export default function ProfileScreen() {
     refreshData();
   }, [pathname]);
 
-  // Load user avatar
+  // Load user avatar with caching
   const loadUserAvatar = useCallback(async () => {
     if (!user?.id) return;
     
@@ -243,7 +243,7 @@ export default function ProfileScreen() {
                 source={{ uri: avatarUrl }}
                 style={styles.avatar}
                 priority="high"
-                cachePolicy="web"
+                cachePolicy="immutable"
                 isImportant={true}
                 debugLabel="ProfileAvatar"
                 showLoader={true}

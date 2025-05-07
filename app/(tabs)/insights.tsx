@@ -20,6 +20,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMeasurements } from '../store/MeasurementsContext';
 import { GeneralHeader } from '../components/GeneralHeader';
 import firebaseProgressPhotoService, { ProgressPhoto } from '../services/firebaseProgressPhotos';
+import OptimizedImage from '../components/OptimizedImage';
+import useImagePreloader from '../hooks/useImagePreloader';
+import { markAsImportantImage, ImagePriority } from '../utils/imagePreloader';
 
 const TIME_FILTERS = [
   { label: '1W', value: '1w' },
@@ -87,6 +90,31 @@ export default function InsightsScreen() {
   // Animation state for background scale and modal slide
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const modalAnim = useRef(new Animated.Value(Dimensions.get('window').height)).current;
+
+  // Preload progress photos when they're available
+  const progressPhotosToPreload = React.useMemo(() => {
+    const urls: string[] = [];
+    if (beforePhoto?.url) urls.push(beforePhoto.url);
+    if (afterPhoto?.url) urls.push(afterPhoto.url);
+    return urls;
+  }, [beforePhoto?.url, afterPhoto?.url]);
+
+  // Use the image preloader hook to preload progress photos
+  const { loaded: photosLoaded } = useImagePreloader(progressPhotosToPreload, {
+    priority: 'high',
+    debugLabel: 'InsightsProgressPhotos',
+    skipIfCached: true
+  });
+
+  // Mark progress photos as important to keep them in memory
+  useEffect(() => {
+    if (beforePhoto?.url) {
+      markAsImportantImage(beforePhoto.url);
+    }
+    if (afterPhoto?.url) {
+      markAsImportantImage(afterPhoto.url);
+    }
+  }, [beforePhoto?.url, afterPhoto?.url]);
 
   // Animated modal open/close handlers
   const openHowToMeasure = () => {
@@ -163,8 +191,23 @@ export default function InsightsScreen() {
     try {
       setIsLoading(true);
       const latestPhotos = await firebaseProgressPhotoService.getLatestPhotos(user.id);
-      setBeforePhoto(latestPhotos.before);
-      setAfterPhoto(latestPhotos.after);
+      
+      // Only update state if the URLs have changed to avoid unnecessary re-renders
+      if (latestPhotos.before?.url !== beforePhoto?.url) {
+        setBeforePhoto(latestPhotos.before);
+      }
+      
+      if (latestPhotos.after?.url !== afterPhoto?.url) {
+        setAfterPhoto(latestPhotos.after);
+      }
+      
+      // Preload the photos immediately when we get them
+      if (latestPhotos.before?.url) {
+        markAsImportantImage(latestPhotos.before.url);
+      }
+      if (latestPhotos.after?.url) {
+        markAsImportantImage(latestPhotos.after.url);
+      }
     } catch (error) {
       console.error('Error loading saved photos:', error);
     } finally {
@@ -345,12 +388,6 @@ export default function InsightsScreen() {
     console.log('Set goal for exercise:', exerciseId);
   };
 
-  console.log('Rendering InsightsScreen with photos:', { 
-    beforePhoto: beforePhoto ? 'exists' : 'none', 
-    afterPhoto: afterPhoto ? 'exists' : 'none',
-    imageLoadError
-  });
-
   return (
     <Provider>
       <View style={styles.container}>
@@ -509,10 +546,16 @@ export default function InsightsScreen() {
                     style={styles.photoFrame}
                   >
                     {beforePhoto && beforePhoto.url ? (
-                      <Image
+                      <OptimizedImage
                         source={{ uri: beforePhoto.url }}
                         style={styles.photo}
                         resizeMode="cover"
+                        priority="high"
+                        cachePolicy="immutable"
+                        isImportant={true}
+                        showLoader={true}
+                        loaderColor={theme.colors.primary}
+                        fallback={require('../../assets/placeholder.jpg')}
                         onError={() => {
                           console.log('Before photo error loading');
                           setImageLoadError(prev => ({ ...prev, before: true }));
@@ -557,10 +600,16 @@ export default function InsightsScreen() {
                     style={styles.photoFrame}
                   >
                     {afterPhoto && afterPhoto.url ? (
-                      <Image
+                      <OptimizedImage
                         source={{ uri: afterPhoto.url }}
                         style={styles.photo}
                         resizeMode="cover"
+                        priority="high"
+                        cachePolicy="immutable"
+                        isImportant={true}
+                        showLoader={true}
+                        loaderColor={theme.colors.primary}
+                        fallback={require('../../assets/placeholder.jpg')}
                         onError={() => {
                           console.log('After photo error loading');
                           setImageLoadError(prev => ({ ...prev, after: true }));

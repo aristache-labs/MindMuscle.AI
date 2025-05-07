@@ -12,8 +12,6 @@ import { Asset } from 'expo-asset';
 import { LOADING_MESSAGES } from '../constants/loadingMessages';
 import * as FileSystem from 'expo-file-system';
 import { safePreloadImages } from '../utils/imagePreloader';
-
-// Rename the exported function to avoid naming conflicts
 import { markAsImportantImage as markImageAsImportant } from '../utils/imagePreloader';
 
 // Define storage bucket constants for compatibility with previous code
@@ -74,7 +72,8 @@ const PRELOAD_CONFIG = {
     REMOTE_IMAGES: 30000, // Increased from 15000 to allow more time for loading all images
     DATA: 20000, // Increased from 8000 for loading all data
     USER_SPECIFIC: 10000, // Timeout for user-specific data
-    CONTENT: 15000 // Increased from 8000
+    CONTENT: 15000, // Increased from 8000
+    AVATAR: 5000 // Specific timeout for avatar preloading
   },
   BATCH_SIZE: 15 // Number of images to load in parallel
 };
@@ -375,32 +374,32 @@ export default function SplashScreenManager({ children }: { children: React.Reac
       
       // First try to get avatar from user metadata
       try {
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (!userError && userData?.user?.user_metadata?.avatar_url) {
-          const avatarUrl = userData.user.user_metadata.avatar_url;
-          // Mark user avatar as important and add to the results 
-          if (avatarUrl) {
-            markImageAsImportant(avatarUrl);
-            results.push(avatarUrl);
+        // Import firebase avatar service
+        const firebaseAvatarService = require('../services/firebaseAvatarService').default;
+        
+        // Use the dedicated preload function if available
+        if (firebaseAvatarService && typeof firebaseAvatarService.preloadAvatar === 'function') {
+          const success = await firebaseAvatarService.preloadAvatar(userId, PRELOAD_CONFIG.TIMEOUT.AVATAR);
+          if (success) {
+            console.log('Avatar preloaded successfully with dedicated function');
+            
+            // Get the avatar to add to results
+            const userAvatar = await firebaseAvatarService.getUserAvatar(userId);
+            if (userAvatar?.url) {
+              results.push(userAvatar.url);
+            }
+          } else {
+            // Fallback to traditional method
+            await preloadAvatarTraditional(userId);
           }
         } else {
-          // If not in metadata, try to fetch from firebase
-          try {
-            // Import firebase avatar service if it exists
-            const firebaseAvatarService = require('../services/firebaseAvatarService').default;
-            if (firebaseAvatarService && typeof firebaseAvatarService.getUserAvatar === 'function') {
-              const userAvatar = await firebaseAvatarService.getUserAvatar(userId);
-              if (userAvatar?.url) {
-                markImageAsImportant(userAvatar.url);
-                results.push(userAvatar.url);
-              }
-            }
-          } catch (e) {
-            console.warn('Firebase avatar service not available:', e);
-          }
+          // Fallback to traditional method
+          await preloadAvatarTraditional(userId);
         }
       } catch (error) {
-        console.warn('Failed to fetch user avatar:', error);
+        console.warn('Failed to preload avatar:', error);
+        // Fallback to traditional method
+        await preloadAvatarTraditional(userId);
       }
       
       // Create arrays for different priority levels
@@ -411,6 +410,50 @@ export default function SplashScreenManager({ children }: { children: React.Reac
       // 1. Get progress photos from Firebase storage (HIGH PRIORITY - immediately visible on profile)
       setLoadingMessage(LOADING_MESSAGES.PROGRESS_PHOTOS);
       try {
+        // First try to get the latest before/after photos for quick display in insights
+        const latestPhotos = await firebaseProgressPhotoService.getLatestPhotos(userId);
+        
+        // Add latest before/after photos to high priority and mark as important
+        if (latestPhotos.before?.url) {
+          highPriorityImages.push(latestPhotos.before.url);
+          markImageAsImportant(latestPhotos.before.url);
+          console.log('Latest before photo marked as important and added to high priority');
+          
+          // Aggressively preload with Asset API for immediate availability
+          try {
+            const beforeAsset = Asset.fromURI(latestPhotos.before.url);
+            await Promise.race([
+              beforeAsset.downloadAsync(),
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Before photo preload timeout')), PRELOAD_CONFIG.TIMEOUT.AVATAR)
+              )
+            ]);
+            console.log('Before photo fully preloaded with Asset API');
+          } catch (error) {
+            console.warn('Before photo aggressive preload failed:', error);
+          }
+        }
+        
+        if (latestPhotos.after?.url) {
+          highPriorityImages.push(latestPhotos.after.url);
+          markImageAsImportant(latestPhotos.after.url);
+          console.log('Latest after photo marked as important and added to high priority');
+          
+          // Aggressively preload with Asset API for immediate availability
+          try {
+            const afterAsset = Asset.fromURI(latestPhotos.after.url);
+            await Promise.race([
+              afterAsset.downloadAsync(),
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('After photo preload timeout')), PRELOAD_CONFIG.TIMEOUT.AVATAR)
+              )
+            ]);
+            console.log('After photo fully preloaded with Asset API');
+          } catch (error) {
+            console.warn('After photo aggressive preload failed:', error);
+          }
+        }
+        
         // Get all progress photos directly from Supabase table (these point to Firebase storage)
         const progressPhotos = await firebaseProgressPhotoService.getAllPhotos(userId);
         
@@ -421,20 +464,18 @@ export default function SplashScreenManager({ children }: { children: React.Reac
           const filteredUrls = photoUrls.filter((url: string) => url && typeof url === 'string');
           
           if (filteredUrls.length > 0) {
-            // Most recent photos (first 2) get high priority
-            highPriorityImages.push(...filteredUrls.slice(0, 2));
+            // Filter out the already added latest photos to avoid duplication
+            const remainingPhotos = filteredUrls.filter(url => 
+              (!latestPhotos.before?.url || url !== latestPhotos.before.url) && 
+              (!latestPhotos.after?.url || url !== latestPhotos.after.url)
+            );
             
-            // Rest get medium priority
-            if (filteredUrls.length > 2) {
-              mediumPriorityImages.push(...filteredUrls.slice(2));
+            // Add remaining photos to medium priority
+            if (remainingPhotos.length > 0) {
+              mediumPriorityImages.push(...remainingPhotos);
             }
             
-            // Mark the most recent photo as important so it stays in memory
-            if (filteredUrls.length > 0) {
-              markImageAsImportant(filteredUrls[0]);
-            }
-            
-            console.log(`Found ${filteredUrls.length} progress photos to preload (${highPriorityImages.length} high priority)`);
+            console.log(`Found ${filteredUrls.length} progress photos to preload (${highPriorityImages.length} high priority, ${mediumPriorityImages.length} medium priority)`);
           }
         }
       } catch (error) {
@@ -454,6 +495,72 @@ export default function SplashScreenManager({ children }: { children: React.Reac
       console.warn('Error fetching user specific images:', error);
       return [];
     }
+  };
+  
+  // Traditional method to preload avatar (used as fallback)
+  const preloadAvatarTraditional = async (userId: string): Promise<string[]> => {
+    const results: string[] = [];
+    
+    try {
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (!userError && userData?.user?.user_metadata?.avatar_url) {
+        const avatarUrl = userData.user.user_metadata.avatar_url;
+        // Mark user avatar as important and add to the results 
+        if (avatarUrl) {
+          // Aggressively preload avatar with Asset API for immediate availability
+          try {
+            const avatarAsset = Asset.fromURI(avatarUrl);
+            await Promise.race([
+              avatarAsset.downloadAsync(),
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Avatar preload timeout')), PRELOAD_CONFIG.TIMEOUT.AVATAR)
+              )
+            ]);
+            console.log('Avatar preloaded successfully with Asset API');
+          } catch (error) {
+            console.warn('Avatar preload with Asset API failed, falling back to markAsImportant:', error);
+          }
+          
+          // Mark as important regardless of Asset preload success
+          markImageAsImportant(avatarUrl);
+          results.push(avatarUrl);
+        }
+      } else {
+        // If not in metadata, try to fetch from firebase
+        try {
+          // Import firebase avatar service if it exists
+          const firebaseAvatarService = require('../services/firebaseAvatarService').default;
+          if (firebaseAvatarService && typeof firebaseAvatarService.getUserAvatar === 'function') {
+            const userAvatar = await firebaseAvatarService.getUserAvatar(userId);
+            if (userAvatar?.url) {
+              // Aggressively preload avatar with Asset API for immediate availability
+              try {
+                const avatarAsset = Asset.fromURI(userAvatar.url);
+                await Promise.race([
+                  avatarAsset.downloadAsync(),
+                  new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Avatar preload timeout')), PRELOAD_CONFIG.TIMEOUT.AVATAR)
+                  )
+                ]);
+                console.log('Avatar preloaded successfully with Asset API');
+              } catch (error) {
+                console.warn('Avatar preload with Asset API failed, falling back to markAsImportant:', error);
+              }
+              
+              // Mark as important regardless of Asset preload success
+              markImageAsImportant(userAvatar.url);
+              results.push(userAvatar.url);
+            }
+          }
+        } catch (e) {
+          console.warn('Firebase avatar service not available:', e);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to fetch user avatar:', error);
+    }
+    
+    return results;
   };
 
   // Load application data with proper caching
@@ -594,6 +701,90 @@ export default function SplashScreenManager({ children }: { children: React.Reac
     }
   };
 
+  // Fully preload critical images (avatar, before/after photos)
+  const preloadCriticalImages = async (userId: string): Promise<boolean> => {
+    if (!userId) return false;
+    
+    try {
+      console.log('Starting critical image preloading...');
+      const criticalImages: string[] = [];
+      let success = true;
+      
+      // 1. Avatar
+      try {
+        const firebaseAvatarService = require('../services/firebaseAvatarService').default;
+        const avatar = await firebaseAvatarService.getUserAvatar(userId);
+        
+        if (avatar?.url) {
+          criticalImages.push(avatar.url);
+          
+          // Aggressively preload avatar
+          try {
+            console.log(`Aggressively preloading avatar: ${avatar.url.substring(0, 40)}...`);
+            const avatarAsset = Asset.fromURI(avatar.url);
+            await avatarAsset.downloadAsync();
+            console.log('Avatar fully preloaded and ready for display');
+          } catch (error) {
+            console.warn('Avatar aggressive preload failed:', error);
+            success = false;
+          }
+        }
+      } catch (error) {
+        console.warn('Error preloading avatar:', error);
+        success = false;
+      }
+      
+      // 2. Before/After photos
+      try {
+        const latestPhotos = await firebaseProgressPhotoService.getLatestPhotos(userId);
+        
+        if (latestPhotos.before?.url) {
+          criticalImages.push(latestPhotos.before.url);
+          
+          // Aggressively preload before photo
+          try {
+            console.log(`Aggressively preloading before photo: ${latestPhotos.before.url.substring(0, 40)}...`);
+            const beforeAsset = Asset.fromURI(latestPhotos.before.url);
+            await beforeAsset.downloadAsync();
+            console.log('Before photo fully preloaded and ready for display');
+          } catch (error) {
+            console.warn('Before photo aggressive preload failed:', error);
+            success = false;
+          }
+        }
+        
+        if (latestPhotos.after?.url) {
+          criticalImages.push(latestPhotos.after.url);
+          
+          // Aggressively preload after photo
+          try {
+            console.log(`Aggressively preloading after photo: ${latestPhotos.after.url.substring(0, 40)}...`);
+            const afterAsset = Asset.fromURI(latestPhotos.after.url);
+            await afterAsset.downloadAsync();
+            console.log('After photo fully preloaded and ready for display');
+          } catch (error) {
+            console.warn('After photo aggressive preload failed:', error);
+            success = false;
+          }
+        }
+      } catch (error) {
+        console.warn('Error preloading before/after photos:', error);
+        success = false;
+      }
+      
+      // Mark all critical images as important
+      criticalImages.forEach(url => {
+        markImageAsImportant(url);
+      });
+      
+      console.log(`Critical image preloading ${success ? 'completed successfully' : 'had some failures'}`);
+      return success;
+    } catch (error) {
+      console.warn('Error in critical image preloading:', error);
+      return false;
+    }
+  };
+
   // Prepare the app - load all assets and data
   useEffect(() => {
     async function prepare() {
@@ -708,7 +899,10 @@ export default function SplashScreenManager({ children }: { children: React.Reac
             // Try to preload user-specific content with a timeout
             await Promise.race([
               (async () => {
-                // Fetch user-specific images
+                // First preload critical images (avatar, before/after photos)
+                await preloadCriticalImages(session.user.id);
+                
+                // Then fetch and preload all user-specific images
                 const userImages = await fetchUserSpecificImages(session.user.id);
                 
                 if (DEBUG_SPLASH_SCREEN) {
@@ -775,8 +969,13 @@ export default function SplashScreenManager({ children }: { children: React.Reac
           });
         }
         
-        // Set as ready and hide loading screen
+        // Set as ready but add a small delay to ensure images are fully loaded and rendered
         setIsAppReady(true);
+        
+        // Add a small delay before hiding the splash screen to ensure images are fully loaded
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Finally hide the loading screen
         setTimeout(() => {
           setShowLoadingScreen(false);
           setTimeout(() => {

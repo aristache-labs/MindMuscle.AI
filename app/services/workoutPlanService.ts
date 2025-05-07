@@ -1,6 +1,14 @@
 import supabase from './supabase';
 import { supabaseUrl } from './supabase';
-import { storageService, STORAGE_BUCKETS } from './storage';
+import { STORAGE_BUCKETS } from '../components/SplashScreenManager';
+import { ref, uploadBytes, deleteObject } from 'firebase/storage';
+import { storage } from './firebase';
+import * as FileSystem from 'expo-file-system';
+
+// Simple function to generate a unique ID without using crypto
+function generateUniqueId(): string {
+  return `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+}
 
 // Updated interface to match the actual database schema
 export interface WorkoutPlan {
@@ -83,8 +91,11 @@ const workoutPlanService = {
     if (imageUrl && !imageUrl.startsWith('http') && 
         !['fullbody.jpg', 'dumbbell.jpg', 'pushup.jpg', 'squat.jpg', 'yoga.jpg', 'placeholder.jpg'].includes(imageUrl)) {
       
-      // Use the storage service to get the public URL
-      imageUrl = storageService.getPublicUrl(STORAGE_BUCKETS.PLANS, imageUrl);
+      // For Firebase storage, construct the URL directly
+      const storageBucket = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET;
+      const apiKey = process.env.EXPO_PUBLIC_FIREBASE_API_KEY;
+      const filePath = `${STORAGE_BUCKETS.PLANS}/${imageUrl}`;
+      imageUrl = `https://firebasestorage.googleapis.com/v0/b/${storageBucket}/o/${encodeURIComponent(filePath)}?alt=media&key=${apiKey}`;
     }
     // If no image URL, assign a default image based on title
     else if (!imageUrl) {
@@ -412,21 +423,71 @@ const workoutPlanService = {
     }
   },
 
-  // Add a new function to upload plan images
+  // Add a new function to upload plan images to Firebase
   async uploadPlanImage(imageUri: string, planId: string): Promise<string> {
     try {
-      const filePath = `${planId}/cover.jpg`;
-      const { publicUrl } = await storageService.uploadFromUri(
-        STORAGE_BUCKETS.PLANS,
-        filePath,
-        imageUri,
-        {
-          contentType: 'image/jpeg',
-          cacheControl: '3600',
-          upsert: true
+      console.log(`Uploading plan image to Firebase Storage: ${planId}`);
+      
+      // Generate a unique file name with timestamp
+      const timestamp = Date.now();
+      const filePath = `${STORAGE_BUCKETS.PLANS}/${planId}/cover.jpg`;
+      
+      // Get Firebase storage bucket and API key from environment variables
+      const storageBucket = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET;
+      const apiKey = process.env.EXPO_PUBLIC_FIREBASE_API_KEY;
+      
+      // Create a temporary Firebase upload URL - include the API key for auth
+      const uploadURL = `https://firebasestorage.googleapis.com/v0/b/${storageBucket}/o?name=${encodeURIComponent(filePath)}&key=${apiKey}`;
+      
+      // Use Expo FileSystem to upload directly
+      console.log(`Starting direct upload to Firebase path: ${filePath}`);
+      
+      // We'll check if the file is local or remote
+      let fileToUpload = imageUri;
+      
+      // If it's a remote URL, we need to download it first
+      if (imageUri.startsWith('http')) {
+        const tempLocalUri = FileSystem.cacheDirectory + 'cover.jpg';
+        const { uri: downloadedUri } = await FileSystem.downloadAsync(imageUri, tempLocalUri);
+        fileToUpload = downloadedUri;
+      }
+      
+      // Upload using FileSystem uploadAsync
+      const uploadResponse = await FileSystem.uploadAsync(uploadURL, fileToUpload, {
+        httpMethod: 'POST',
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+        headers: {
+          'Content-Type': 'image/jpeg',
         }
-      );
-      return publicUrl;
+      });
+      
+      if (uploadResponse.status !== 200) {
+        console.error('Upload response:', uploadResponse);
+        throw new Error(`Upload failed with status: ${uploadResponse.status}`);
+      }
+      
+      // Parse the response to get the download token
+      let responseData;
+      try {
+        responseData = JSON.parse(uploadResponse.body);
+      } catch (parseError) {
+        console.error('Error parsing response:', parseError);
+        console.log('Raw response body:', uploadResponse.body);
+        throw new Error('Failed to parse server response');
+      }
+      
+      // Check if the download token exists
+      const downloadToken = responseData.downloadTokens;
+      if (!downloadToken) {
+        console.error('No download token in response:', responseData);
+        throw new Error('No download token in response');
+      }
+      
+      // Construct the download URL with both token and API key
+      const downloadURL = `https://firebasestorage.googleapis.com/v0/b/${storageBucket}/o/${encodeURIComponent(filePath)}?alt=media&token=${downloadToken}&key=${apiKey}`;
+      
+      console.log(`File uploaded successfully, download URL: ${downloadURL}`);
+      return downloadURL;
     } catch (error) {
       console.error('Error uploading plan image:', error);
       throw error;
@@ -436,7 +497,18 @@ const workoutPlanService = {
   // Add a function to delete plan images
   async deletePlanImage(planId: string): Promise<void> {
     try {
-      await storageService.deleteFile(STORAGE_BUCKETS.PLANS, `${planId}/cover.jpg`);
+      console.log(`Deleting plan image from Firebase Storage: ${planId}`);
+      
+      const filePath = `${STORAGE_BUCKETS.PLANS}/${planId}/cover.jpg`;
+      const fileRef = ref(storage, filePath);
+      
+      try {
+        await deleteObject(fileRef);
+        console.log(`Successfully deleted file: ${filePath}`);
+      } catch (storageError) {
+        console.error(`Error deleting file from Firebase Storage: ${storageError}`);
+        // Continue even if deletion fails
+      }
     } catch (error) {
       console.error('Error deleting plan image:', error);
       throw error;

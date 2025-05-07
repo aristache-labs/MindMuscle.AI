@@ -5,10 +5,26 @@ import InitialLoadingScreen from './InitialLoadingScreen';
 import { useAuth } from '../store/AuthContext';
 import * as Network from 'expo-network';
 import supabase from '../services/supabase';
-import { storageService, STORAGE_BUCKETS, StorageFile } from '../services/storage';
+import firebaseProgressPhotoService from '../services/firebaseProgressPhotos';
+import { ref, listAll, getDownloadURL } from 'firebase/storage';
+import { storage } from '../services/firebase';
 import { Asset } from 'expo-asset';
 import { LOADING_MESSAGES } from '../constants/loadingMessages';
 import * as FileSystem from 'expo-file-system';
+
+// Define storage bucket constants for compatibility with previous code
+export const STORAGE_BUCKETS = {
+  PROGRESS_PHOTOS: 'progress-photos',
+  PLANS: 'plans',
+  EXERCISES: 'exercises'
+};
+
+// Define interfaces for file metadata
+export interface StorageFile {
+  name: string;
+  id: string;
+  metadata?: Record<string, any>;
+}
 
 // Define static images to preload (moved from imagePreloader.ts)
 export const STATIC_IMAGES = {
@@ -184,6 +200,49 @@ const fetchSupabaseData = async <T extends Record<string, any>>(
   }
 };
 
+// Firebase utility to list files
+async function listFirebaseFiles(path: string): Promise<StorageFile[]> {
+  try {
+    const folderRef = ref(storage, path);
+    const result = await listAll(folderRef);
+    
+    // Convert to StorageFile format for compatibility
+    const files = await Promise.all(
+      result.items.map(async (item) => {
+        try {
+          const url = await getDownloadURL(item);
+          
+          return {
+            name: item.name,
+            id: item.name, // Firebase doesn't have separate IDs, using name
+            metadata: {
+              path: item.fullPath,
+              downloadUrl: url
+            }
+          };
+        } catch (err) {
+          return {
+            name: item.name,
+            id: item.name
+          };
+        }
+      })
+    );
+    
+    return files;
+  } catch (error) {
+    console.error(`Error listing files from Firebase path ${path}:`, error);
+    return [];
+  }
+}
+
+// Firebase utility to get public URL
+function getFirebasePublicUrl(path: string): string {
+  const storageBucket = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET;
+  const apiKey = process.env.EXPO_PUBLIC_FIREBASE_API_KEY;
+  return `https://firebasestorage.googleapis.com/v0/b/${storageBucket}/o/${encodeURIComponent(path)}?alt=media&key=${apiKey}`;
+}
+
 // Execute once on module load
 if (Platform.OS !== 'web') {
   safelyPreventAutoHide().catch(err => {
@@ -305,17 +364,15 @@ export default function SplashScreenManager({ children }: { children: React.Reac
       const mediumPriorityImages: string[] = [];
       const lowPriorityImages: string[] = [];
       
-      // 1. Get progress photos from storage (HIGH PRIORITY - immediately visible on profile)
+      // 1. Get progress photos from Firebase storage (HIGH PRIORITY - immediately visible on profile)
       setLoadingMessage(LOADING_MESSAGES.PROGRESS_PHOTOS);
       try {
-        // Get files from progress-photos bucket for this user using the storage service
-        const progressPhotos = await storageService.listFiles(STORAGE_BUCKETS.PROGRESS_PHOTOS, userId);
+        // Get all progress photos directly from Supabase table (these point to Firebase storage)
+        const progressPhotos = await firebaseProgressPhotoService.getAllPhotos(userId);
         
         if (progressPhotos && progressPhotos.length > 0) {
-          // Get public URLs for these files
-          const photoUrls = progressPhotos.map((photo: StorageFile) => 
-            storageService.getPublicUrl(STORAGE_BUCKETS.PROGRESS_PHOTOS, `${userId}/${photo.name}`)
-          );
+          // Get URLs for all photos
+          const photoUrls = progressPhotos.map(photo => photo.url);
           
           const filteredUrls = photoUrls.filter((url: string) => url && typeof url === 'string');
           
@@ -337,7 +394,7 @@ export default function SplashScreenManager({ children }: { children: React.Reac
           }
         }
       } catch (error) {
-        console.warn('Error fetching progress photos from storage:', error);
+        console.warn('Error fetching progress photos:', error);
       }
       
       // Check if user_favorite_exercises table exists
@@ -459,19 +516,16 @@ export default function SplashScreenManager({ children }: { children: React.Reac
           'Error fetching user profile'
         );
         
-        // Check available storage buckets for user content
+        // Check available photos for user content
         try {
-          // Check if user has any progress photos
-          const userPhotos = await storageService.listFiles(
-            STORAGE_BUCKETS.PROGRESS_PHOTOS, 
-            session.user.id
-          );
+          // Get all progress photos directly from the service
+          const userPhotos = await firebaseProgressPhotoService.getAllPhotos(session.user.id);
           
           if (userPhotos && userPhotos.length > 0) {
-            console.log(`📊 Found ${userPhotos.length} progress photos in storage`);
+            console.log(`📊 Found ${userPhotos.length} progress photos`);
           }
         } catch (error) {
-          console.warn('Error checking storage for progress photos:', error);
+          console.warn('Error checking Firebase for progress photos:', error);
         }
         
         // Check if user_favorite_exercises table exists and fetch if it does

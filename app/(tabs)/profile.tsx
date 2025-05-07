@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, ScrollView, Pressable, Platform } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { StyleSheet, View, ScrollView, Pressable, Platform, Image, ActivityIndicator } from 'react-native';
 import { Text, Avatar, Button, IconButton } from 'react-native-paper';
 import { COLORS, SPACING, BORDER_RADIUS, HEADER_HEIGHT } from '../constants/theme';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -9,6 +9,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../store/AuthContext';
 import supabase from '../services/supabase';
 import { GeneralHeader } from '../components/GeneralHeader';
+import * as ImagePicker from 'expo-image-picker';
+import firebaseAvatarService, { UserAvatar } from '../services/firebaseAvatarService';
 
 
 interface MenuItemProps {
@@ -52,6 +54,9 @@ const MenuItem = ({ icon, title, onPress, rightElement, isLast }: MenuItemProps)
 
 export default function ProfileScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [loadingAvatar, setLoadingAvatar] = useState(false);
+  const [imageLoadError, setImageLoadError] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
@@ -64,6 +69,8 @@ export default function ProfileScreen() {
         setIsRefreshing(true);
         try {
           await refreshUser();
+          // Load user avatar
+          await loadUserAvatar();
         } catch (error) {
           console.error('Error refreshing user data:', error);
         } finally {
@@ -74,12 +81,86 @@ export default function ProfileScreen() {
     refreshData();
   }, [pathname]);
 
+  // Load user avatar
+  const loadUserAvatar = useCallback(async () => {
+    if (!user?.id) return;
+    
+    try {
+      setImageLoadError(false);
+      
+      // First check if it's in the user metadata (fastest)
+      if (user.user_metadata?.avatar_url) {
+        setAvatarUrl(user.user_metadata.avatar_url);
+        return;
+      }
+      
+      // Otherwise fetch from the service
+      const userAvatar = await firebaseAvatarService.getUserAvatar(user.id);
+      if (userAvatar) {
+        setAvatarUrl(userAvatar.url);
+      } else {
+        setAvatarUrl(null);
+      }
+    } catch (error) {
+      console.error('Error loading user avatar:', error);
+      setAvatarUrl(null);
+    }
+  }, [user]);
+
   // Get user's full name and email from metadata, fallback to defaults if not set
   const userFullName = user?.user_metadata?.name || user?.email?.split('@')[0] || 'User';
   const userEmail = user?.email || '';
 
   const handleEditProfile = () => {
     router.push('/(auth)/edit-profile');
+  };
+
+  // Handle avatar upload
+  const handleAvatarPress = async () => {
+    if (!user?.id) {
+      alert('Please sign in to update your avatar');
+      return;
+    }
+
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        alert('Sorry, we need camera roll permissions to make this work!');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        try {
+          setLoadingAvatar(true);
+          const uploadedAvatar = await firebaseAvatarService.uploadAvatar(
+            user.id,
+            result.assets[0].uri
+          );
+          
+          setAvatarUrl(uploadedAvatar.url);
+          console.log('Avatar updated successfully');
+          
+          // Update local user object to reflect changes immediately
+          refreshUser();
+        } catch (error) {
+          console.error('Error uploading avatar:', error);
+          alert('Failed to upload avatar. Please try again.');
+        } finally {
+          setLoadingAvatar(false);
+        }
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      alert('Failed to select image. Please try again.');
+    }
   };
 
   return (
@@ -115,13 +196,37 @@ export default function ProfileScreen() {
       >
         {/* Profile Section */}
         <View style={styles.profileSection}>
-          {/* Default user avatar icon */}
-          <Avatar.Icon 
-            size={100} 
-            icon="account"
-            style={styles.avatarPlaceholder}
-            color={COLORS.disabled}
-          />
+          {/* Avatar with upload functionality */}
+          <Pressable 
+            onPress={handleAvatarPress}
+            style={styles.avatarContainer}
+            disabled={loadingAvatar}
+          >
+            {loadingAvatar ? (
+              <View style={styles.avatarPlaceholder}>
+                <ActivityIndicator size="large" color={COLORS.primary} />
+              </View>
+            ) : avatarUrl && !imageLoadError ? (
+              <Image
+                source={{ uri: avatarUrl }}
+                style={styles.avatar}
+                onError={() => {
+                  console.error('Error loading avatar image');
+                  setImageLoadError(true);
+                }}
+              />
+            ) : (
+              <Avatar.Icon 
+                size={100} 
+                icon="account"
+                style={styles.avatarPlaceholder}
+                color={COLORS.disabled}
+              />
+            )}
+            <View style={styles.avatarEditBadge}>
+              <MaterialCommunityIcons name="camera" size={18} color="#fff" />
+            </View>
+          </Pressable>
           <Text variant="titleLarge" style={styles.name}>{userFullName}</Text>
           <Text variant="bodyMedium" style={styles.email}>{userEmail}</Text>
           
@@ -281,10 +386,43 @@ const styles = StyleSheet.create({
     paddingTop: SPACING.md,
     paddingHorizontal: SPACING.md,
   },
-  avatarPlaceholder: {
-    backgroundColor: '#2A2A2A',
+  avatarContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     marginBottom: SPACING.lg,
     marginTop: SPACING.md,
+    position: 'relative',
+  },
+  avatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+  },
+  avatarPlaceholder: {
+    backgroundColor: '#2A2A2A',
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(107, 78, 255, 0.3)',
+  },
+  avatarEditBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: COLORS.primary,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#2A2A2A',
   },
   name: {
     color: COLORS.text,

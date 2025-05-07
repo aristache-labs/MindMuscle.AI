@@ -21,6 +21,8 @@
     "@react-native-async-storage/async-storage": "^1.23.1",
     "@react-native-community/datetimepicker": "^8.3.0",
     "@react-native-community/slider": "^4.5.6",
+    "@react-native-firebase/app": "^22.1.0",
+    "@react-native-firebase/storage": "^22.1.0",
     "@react-native-picker/picker": "^2.11.0",
     "@react-navigation/bottom-tabs": "^6.5.11",
     "@react-navigation/native": "^6.1.18",
@@ -31,6 +33,7 @@
     "@types/base64-arraybuffer": "^0.1.0",
     "@types/date-fns": "^2.5.3",
     "@types/node": "^22.14.1",
+    "@types/uuid": "^10.0.0",
     "base-64": "^1.0.0",
     "base64-arraybuffer": "^1.0.2",
     "buffer": "^6.0.3",
@@ -56,6 +59,7 @@
     "expo-sqlite": "~15.1.4",
     "expo-status-bar": "~2.0.1",
     "expo-system-ui": "^4.0.9",
+    "firebase": "^11.7.0",
     "framer-motion": "^12.8.0",
     "moti": "^0.30.0",
     "openai": "^4.28.0",
@@ -81,6 +85,7 @@
     "react-native-vector-icons": "^10.0.3",
     "sentry-expo": "~7.0.0",
     "svgo": "^3.3.2",
+    "uuid": "^11.1.0",
     "victory-native": "^36.7.0"
   },
   "devDependencies": {

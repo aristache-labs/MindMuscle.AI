@@ -19,6 +19,7 @@ import ExerciseGraphModal from '../components/ExerciseGraphModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMeasurements } from '../store/MeasurementsContext';
 import { GeneralHeader } from '../components/GeneralHeader';
+import firebaseProgressPhotoService, { ProgressPhoto } from '../services/firebaseProgressPhotos';
 
 const TIME_FILTERS = [
   { label: '1W', value: '1w' },
@@ -52,45 +53,6 @@ const SAMPLE_EXERCISES: ExerciseData[] = [
     ]
   }
 ];
-
-// Simple ProgressPhoto type definition
-interface ProgressPhoto {
-  id: string;
-  url: string;
-  type: 'before' | 'after';
-  date: Date;
-}
-
-// Simple replacement for progressPhotoService
-const progressPhotoService = {
-  getLatestPhotos: async (userId: string): Promise<{before?: ProgressPhoto, after?: ProgressPhoto}> => {
-    console.log('Getting latest photos for user:', userId);
-    // Return empty data - this is a placeholder
-    return { before: undefined, after: undefined };
-  },
-  
-  deletePhoto: async (userId: string, photoId: string): Promise<void> => {
-    console.log('Deleting photo:', photoId, 'for user:', userId);
-    // This is a placeholder implementation
-    return;
-  },
-  
-  uploadPhoto: async (
-    userId: string,
-    type: 'before' | 'after',
-    uri: string,
-    date: Date
-  ): Promise<ProgressPhoto> => {
-    console.log('Uploading photo for user:', userId, 'type:', type);
-    // Return a placeholder photo object
-    return {
-      id: Math.random().toString(36).substring(2, 9),
-      url: uri,
-      type,
-      date
-    };
-  }
-};
 
 export default function InsightsScreen() {
   const theme = useTheme();
@@ -200,7 +162,7 @@ export default function InsightsScreen() {
     
     try {
       setIsLoading(true);
-      const latestPhotos = await progressPhotoService.getLatestPhotos(user.id);
+      const latestPhotos = await firebaseProgressPhotoService.getLatestPhotos(user.id);
       setBeforePhoto(latestPhotos.before);
       setAfterPhoto(latestPhotos.after);
     } catch (error) {
@@ -225,44 +187,64 @@ export default function InsightsScreen() {
 
     // Delete existing photo if it exists
     try {
-      if ((type === 'before' && beforePhoto) || (type === 'after' && afterPhoto)) {
+      if ((type === 'before' && beforePhoto?.id) || (type === 'after' && afterPhoto?.id)) {
+        setIsLoading(true);
         const photoToDelete = type === 'before' ? beforePhoto : afterPhoto;
-        if (photoToDelete) {
-          await progressPhotoService.deletePhoto(user.id, photoToDelete.id);
+        
+        if (photoToDelete?.id) {
+          console.log(`Deleting existing ${type} photo with ID: ${photoToDelete.id}`);
+          await firebaseProgressPhotoService.deletePhoto(user.id, photoToDelete.id);
+          
+          // Clear the state for the deleted photo type
+          if (type === 'before') {
+            setBeforePhoto(undefined);
+          } else {
+            setAfterPhoto(undefined);
+          }
         }
       }
     } catch (error) {
       console.error('Error deleting existing photo:', error);
+      // Continue with uploading a new photo even if deletion failed
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [3, 4],
-      quality: 0.8,
-    });
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [3, 4],
+        quality: 0.8,
+      });
 
-    if (!result.canceled) {
-      try {
-        setIsLoading(true);
-        const photo = await progressPhotoService.uploadPhoto(
-          user.id,
-          type,
-          result.assets[0].uri,
-          new Date()
-        );
-        
-        if (type === 'before') {
-          setBeforePhoto(photo);
-        } else {
-          setAfterPhoto(photo);
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        try {
+          setIsLoading(true);
+          console.log(`Uploading new ${type} photo from URI: ${result.assets[0].uri.substring(0, 50)}...`);
+          
+          const photo = await firebaseProgressPhotoService.uploadPhoto(
+            user.id,
+            type,
+            result.assets[0].uri,
+            new Date()
+          );
+          
+          console.log(`Successfully uploaded ${type} photo with ID: ${photo.id}`);
+          
+          if (type === 'before') {
+            setBeforePhoto(photo);
+          } else {
+            setAfterPhoto(photo);
+          }
+        } catch (error) {
+          console.error('Error uploading photo:', error);
+          alert('Failed to upload photo. Please try again.');
         }
-      } catch (error) {
-        console.error('Error uploading photo:', error);
-        alert('Failed to upload photo. Please try again.');
-      } finally {
-        setIsLoading(false);
       }
+    } catch (pickError) {
+      console.error('Error picking image:', pickError);
+      alert('Failed to select photo. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -362,6 +344,12 @@ export default function InsightsScreen() {
     // TODO: Implement goal setting functionality
     console.log('Set goal for exercise:', exerciseId);
   };
+
+  console.log('Rendering InsightsScreen with photos:', { 
+    beforePhoto: beforePhoto ? 'exists' : 'none', 
+    afterPhoto: afterPhoto ? 'exists' : 'none',
+    imageLoadError
+  });
 
   return (
     <Provider>
@@ -520,15 +508,23 @@ export default function InsightsScreen() {
                     onPress={() => handlePhotoPress('before')} 
                     style={styles.photoFrame}
                   >
-                    {beforePhoto ? (
+                    {beforePhoto && beforePhoto.url ? (
                       <Image
                         source={{ uri: beforePhoto.url }}
                         style={styles.photo}
                         resizeMode="cover"
+                        onError={() => {
+                          console.log('Before photo error loading');
+                          setImageLoadError(prev => ({ ...prev, before: true }));
+                        }}
                       />
                     ) : (
                       <View style={[styles.addPhotoButton, isLoading && styles.disabled]}>
-                        <IconButton icon="camera-plus" size={32} iconColor={theme.colors.primary} />
+                        <IconButton 
+                          icon="camera-plus" 
+                          size={32} 
+                          iconColor={theme.colors.primary} 
+                        />
                         <Text style={[styles.addPhotoText, { color: theme.colors.primary }]}>
                           Add Photo
                         </Text>
@@ -536,7 +532,7 @@ export default function InsightsScreen() {
                     )}
                   </Pressable>
                   <Text style={styles.photoLabel}>BEFORE</Text>
-                  {beforePhoto && (
+                  {beforePhoto && beforePhoto.date && (
                     <Text style={styles.photoDate}>
                       {format(new Date(beforePhoto.date), 'MMMM, yyyy')}
                     </Text>
@@ -560,15 +556,23 @@ export default function InsightsScreen() {
                     onPress={() => handlePhotoPress('after')} 
                     style={styles.photoFrame}
                   >
-                    {afterPhoto ? (
+                    {afterPhoto && afterPhoto.url ? (
                       <Image
                         source={{ uri: afterPhoto.url }}
                         style={styles.photo}
                         resizeMode="cover"
+                        onError={() => {
+                          console.log('After photo error loading');
+                          setImageLoadError(prev => ({ ...prev, after: true }));
+                        }}
                       />
                     ) : (
                       <View style={[styles.addPhotoButton, isLoading && styles.disabled]}>
-                        <IconButton icon="camera-plus" size={32} iconColor={theme.colors.primary} />
+                        <IconButton 
+                          icon="camera-plus" 
+                          size={32} 
+                          iconColor={theme.colors.primary} 
+                        />
                         <Text style={[styles.addPhotoText, { color: theme.colors.primary }]}>
                           Add Photo
                         </Text>
@@ -576,7 +580,7 @@ export default function InsightsScreen() {
                     )}
                   </Pressable>
                   <Text style={styles.photoLabel}>AFTER</Text>
-                  {afterPhoto && (
+                  {afterPhoto && afterPhoto.date && (
                     <Text style={styles.photoDate}>
                       {format(new Date(afterPhoto.date), 'MMMM, yyyy')}
                     </Text>
@@ -980,7 +984,7 @@ const styles = StyleSheet.create({
   },
   addPhotoButton: {
     width: '100%',
-    aspectRatio: 3/4,
+    height: '100%',
     borderRadius: 12,
     backgroundColor: 'rgba(107, 78, 255, 0.1)',
     borderWidth: 2,

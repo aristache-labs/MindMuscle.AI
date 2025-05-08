@@ -315,6 +315,18 @@ export default function useIntelligentPreloader(
     }
   };
   
+  // Wrapper function for clearImageCache that matches the expected void return type
+  const handleClearCache = async (): Promise<void> => {
+    try {
+      await clearImageCache();
+      // Return nothing to match the Promise<void> type
+    } catch (error) {
+      console.warn('Error clearing image cache:', error);
+      // Re-throw the error to maintain the Promise rejection
+      throw error;
+    }
+  };
+  
   return {
     screenId,
     totalImages: totalImagesRef.current,
@@ -323,6 +335,6 @@ export default function useIntelligentPreloader(
     prefetchImagesLoaded,
     progress,
     predictiveLoadForScreens,
-    clearCache: clearImageCache
+    clearCache: handleClearCache
   };
 } 

@@ -11,7 +11,13 @@ import {
   Dimensions
 } from 'react-native';
 import { Image, ImageContentFit } from 'expo-image';
-import { ImagePriority, CachePolicy, markAsImportantImage } from '../utils/imagePreloader';
+import { 
+  ImagePriority, 
+  CachePolicy, 
+  markAsImportantImage,
+  addImageToCache,
+  isImageCached 
+} from '../utils/imagePreloader';
 
 // Get screen dimensions for optimization
 const screenWidth = Dimensions.get('window').width;
@@ -19,9 +25,6 @@ const screenHeight = Dimensions.get('window').height;
 
 // Debug flag - set to false to reduce logging
 export const DEBUG_OPTIMIZED_IMAGE = false;
-
-// Cache size limit to prevent memory issues
-const MAX_CACHE_SIZE = 200;
 
 // Dynamic import for FastImage to prevent crashes on platforms where it's not available
 let FastImage: any = null;
@@ -42,24 +45,6 @@ try {
   }
   isFastImageAvailable = false;
 }
-
-// Cache for previously loaded images to prevent unnecessary reloads
-const imageCache = new Map<string, boolean>();
-
-// LRU cache management (simple implementation)
-const addToCache = (uri: string) => {
-  // Prevent cache from growing too large
-  if (imageCache.size > MAX_CACHE_SIZE) {
-    // Remove oldest entry (in a real LRU we'd track usage, this is simplified)
-    const firstKey = imageCache.keys().next().value;
-    if (firstKey) {
-      imageCache.delete(firstKey);
-    }
-  }
-  
-  // Add to cache
-  imageCache.set(uri, true);
-};
 
 // Helper to determine appropriate image dimensions
 const getOptimalImageDimensions = (style: any): { width: number, height: number } => {
@@ -123,6 +108,28 @@ const optimizeImageUri = (uri: string, dimensions: { width: number, height: numb
   return `${uri}${separator}width=${maxWidth}&height=${maxHeight}&fit=cover`;
 };
 
+// Calculate estimated image size based on dimensions and format
+const calculateEstimatedSize = (uri: string, dimensions: { width: number, height: number }): number => {
+  const pixelCount = dimensions.width * dimensions.height;
+  
+  // Estimate bytes based on pixel count and image format (rough estimation)
+  const bytesPerPixel = 4; // Assume RGBA
+  let estimatedBytes = pixelCount * bytesPerPixel;
+  
+  // Adjust based on image format (if we can detect it)
+  if (uri.endsWith('.jpg') || uri.endsWith('.jpeg')) {
+    estimatedBytes = Math.ceil(estimatedBytes * 0.25); // JPG compression
+  } else if (uri.endsWith('.png')) {
+    estimatedBytes = Math.ceil(estimatedBytes * 0.5); // PNG compression
+  } else if (uri.endsWith('.webp')) {
+    estimatedBytes = Math.ceil(estimatedBytes * 0.2); // WebP is efficient
+  } else if (uri.endsWith('.gif')) {
+    estimatedBytes = Math.ceil(estimatedBytes * 0.7); // GIFs can be large
+  }
+  
+  return Math.max(1024, estimatedBytes); // Minimum 1KB
+};
+
 // Performance tracking interface
 interface ImageTiming {
   loadStart: number;
@@ -143,6 +150,8 @@ export interface OptimizedImageProps {
   loaderSize?: 'small' | 'large';
   isImportant?: boolean;
   debugLabel?: string;
+  retentionPriority?: 'low' | 'normal' | 'high';
+  estimatedSize?: number;
   onLoadStart?: () => void;
   onLoadEnd?: () => void;
   onError?: (error: Error) => void;
@@ -162,6 +171,8 @@ export default function OptimizedImage({
   loaderSize = 'small',
   isImportant = false,
   debugLabel,
+  retentionPriority = 'normal',
+  estimatedSize,
   onLoadStart,
   onLoadEnd,
   onError,
@@ -222,7 +233,7 @@ export default function OptimizedImage({
     if (typeof processedSource === 'object' && processedSource?.uri) {
       const uri = processedSource.uri;
       // If image is already in cache, skip loading state
-      if (imageCache.has(uri)) {
+      if (isImageCached(uri)) {
         setLoading(false);
         
         // If the image is already in cache, we can consider it loaded immediately
@@ -273,7 +284,7 @@ export default function OptimizedImage({
   // Handle load start
   const handleLoadStart = () => {
     // Check if image is already in cache
-    if (typeof processedSource === 'object' && processedSource?.uri && imageCache.has(processedSource.uri)) {
+    if (typeof processedSource === 'object' && processedSource?.uri && isImageCached(processedSource.uri)) {
       // Skip loading state for cached images
       if (DEBUG_OPTIMIZED_IMAGE) {
         const label = debugLabel || 'OptimizedImage';
@@ -310,7 +321,20 @@ export default function OptimizedImage({
     
     // Add to cache using improved caching mechanism
     if (typeof processedSource === 'object' && processedSource?.uri) {
-      addToCache(processedSource.uri);
+      const uri = processedSource.uri;
+      
+      // Calculate image size if not provided
+      const dimensions = getOptimalImageDimensions(style);
+      const size = estimatedSize || calculateEstimatedSize(uri, dimensions);
+      
+      // Special handling for high retention priority
+      if (retentionPriority === 'high') {
+        // Mark as important to keep in cache longer (size 0 means "don't purge")
+        addImageToCache(uri, 0);
+      } else {
+        // Normal caching with estimated size
+        addImageToCache(uri, size);
+      }
     }
     
     if (onLoadEnd) {

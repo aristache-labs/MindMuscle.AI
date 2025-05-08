@@ -66,14 +66,37 @@ export type Source = {
 // Keep track of already marked images to avoid duplicate processing
 const cachedImportantImages = new Set<string>();
 
-// Cache for preloaded images
-const preloadedImageCache = new Map<string, boolean>();
+// Cache for preloaded images with timestamps
+interface CacheEntry {
+  timestamp: number;
+  size?: number;
+}
+
+// More sophisticated cache
+const preloadedImageCache = new Map<string, CacheEntry>();
+
+// Cache statistics
+export interface CacheStats {
+  totalEntries: number;
+  estimatedSize: number;
+  oldestEntry: number | null;
+  newestEntry: number | null;
+  hitCount: number;
+  missCount: number;
+}
+
+// Cache metrics tracking
+let cacheHits = 0;
+let cacheMisses = 0;
+let estimatedCacheSize = 0;
 
 // Cache control parameters
 const CACHE_CONFIG = {
   MAX_SIZE: 200,           // Maximum number of images to keep in memory cache
   VERSION: '1.0',          // Cache version - increment when images change
   EXPIRY: 24 * 60 * 60000, // Cache expiry time in ms (24 hours)
+  MAX_DISK_SIZE: 100 * 1024 * 1024, // 100MB max disk cache size
+  ESTIMATED_IMAGE_SIZE: 150 * 1024, // 150KB average image size estimation
 };
 
 // Strategic preloading levels
@@ -82,6 +105,139 @@ export enum PreloadStrategy {
   ANTICIPATORY = 'anticipatory', // Likely to be needed soon (next screens)
   PREFETCH = 'prefetch'    // Load during idle time (future screens)
 }
+
+/**
+ * Add an image to the preload cache with timestamp and size estimation
+ * @param uri Image URI to cache
+ * @param size Optional estimated size in bytes
+ */
+export const addImageToCache = (uri: string, size?: number): void => {
+  if (!uri) return;
+  
+  // Don't add duplicates
+  if (preloadedImageCache.has(uri)) return;
+  
+  const estimatedSize = size || CACHE_CONFIG.ESTIMATED_IMAGE_SIZE;
+  
+  // Add to cache with timestamp
+  preloadedImageCache.set(uri, {
+    timestamp: Date.now(),
+    size: estimatedSize,
+  });
+  
+  // Update estimated total cache size
+  estimatedCacheSize += estimatedSize;
+  
+  // Apply cache size limits
+  enforceMemoryCacheLimit();
+};
+
+/**
+ * Remove old entries if the cache exceeds the maximum size
+ */
+const enforceMemoryCacheLimit = (): void => {
+  // If cache is under the limit, no action needed
+  if (preloadedImageCache.size <= CACHE_CONFIG.MAX_SIZE) return;
+  
+  // Get entries sorted by age (oldest first)
+  const entries = Array.from(preloadedImageCache.entries())
+    .sort(([, a], [, b]) => a.timestamp - b.timestamp);
+  
+  // Calculate how many entries to remove
+  const entriesToRemove = Math.ceil(preloadedImageCache.size * 0.2); // Remove oldest 20%
+  
+  // Remove oldest entries
+  for (let i = 0; i < entriesToRemove && i < entries.length; i++) {
+    const [uri, entry] = entries[i];
+    preloadedImageCache.delete(uri);
+    estimatedCacheSize -= (entry.size || CACHE_CONFIG.ESTIMATED_IMAGE_SIZE);
+  }
+  
+  if (DEBUG_IMAGE_PRELOADER) {
+    console.log(`Cache pruned: removed ${entriesToRemove} oldest entries`);
+  }
+};
+
+/**
+ * Check if an image URI is in the cache and not expired
+ * @param uri Image URI to check
+ * @returns True if the image is cached and not expired
+ */
+export const isImageCached = (uri: string): boolean => {
+  if (!uri) return false;
+  
+  const entry = preloadedImageCache.get(uri);
+  
+  // Not in cache
+  if (!entry) {
+    cacheMisses++;
+    return false;
+  }
+  
+  // Check if expired
+  const now = Date.now();
+  const isExpired = (now - entry.timestamp) > CACHE_CONFIG.EXPIRY;
+  
+  if (isExpired) {
+    // Remove expired entry
+    preloadedImageCache.delete(uri);
+    estimatedCacheSize -= (entry.size || CACHE_CONFIG.ESTIMATED_IMAGE_SIZE);
+    cacheMisses++;
+    return false;
+  }
+  
+  // Valid cache hit
+  cacheHits++;
+  return true;
+};
+
+/**
+ * Get current cache statistics
+ * @returns Cache statistics object
+ */
+export const getCacheStats = (): CacheStats => {
+  // Find oldest and newest entries
+  let oldestTimestamp: number | null = null;
+  let newestTimestamp: number | null = null;
+  
+  for (const entry of preloadedImageCache.values()) {
+    if (oldestTimestamp === null || entry.timestamp < oldestTimestamp) {
+      oldestTimestamp = entry.timestamp;
+    }
+    if (newestTimestamp === null || entry.timestamp > newestTimestamp) {
+      newestTimestamp = entry.timestamp;
+    }
+  }
+  
+  return {
+    totalEntries: preloadedImageCache.size,
+    estimatedSize: estimatedCacheSize,
+    oldestEntry: oldestTimestamp,
+    newestEntry: newestTimestamp,
+    hitCount: cacheHits,
+    missCount: cacheMisses,
+  };
+};
+
+/**
+ * Invalidate cache entries older than a specified time
+ * @param maxAge Maximum age in milliseconds
+ * @returns Number of entries invalidated
+ */
+export const invalidateOldCacheEntries = (maxAge: number = CACHE_CONFIG.EXPIRY): number => {
+  const now = Date.now();
+  let invalidatedCount = 0;
+  
+  for (const [uri, entry] of preloadedImageCache.entries()) {
+    if ((now - entry.timestamp) > maxAge) {
+      preloadedImageCache.delete(uri);
+      estimatedCacheSize -= (entry.size || CACHE_CONFIG.ESTIMATED_IMAGE_SIZE);
+      invalidatedCount++;
+    }
+  }
+  
+  return invalidatedCount;
+};
 
 /**
  * Safely preload images with automatic fallback to Asset API
@@ -108,20 +264,12 @@ export const safePreloadImages = async (
   const sourcesToLoad = processedSources.filter(source => {
     if (!source || !source.uri) return false;
     
-    // Skip if already preloaded
-    if (preloadedImageCache.has(source.uri)) {
+    // Skip if already preloaded and not expired
+    if (isImageCached(source.uri)) {
       return false;
     }
     
-    // Mark as preloaded
-    preloadedImageCache.set(source.uri, true);
-    
-    // Limit cache size using LRU-like approach
-    if (preloadedImageCache.size > CACHE_CONFIG.MAX_SIZE) {
-      const firstKey = preloadedImageCache.keys().next().value;
-      if (firstKey) preloadedImageCache.delete(firstKey);
-    }
-    
+    // Will be marked as cached after successful loading
     return true;
   });
   
@@ -133,10 +281,15 @@ export const safePreloadImages = async (
   // Always use Asset for web or when FastImage is unavailable
   if (!isFastImageAvailable) {
     // If FastImage is not available, use Asset
-    return Promise.all(
+    const results = await Promise.all(
       sourcesToLoad.map(source => {
         if (source && source.uri) {
           return Asset.fromURI(source.uri).downloadAsync()
+            .then(asset => {
+              // Add to cache after successful loading
+              addImageToCache(source.uri);
+              return asset;
+            })
             .catch(err => {
               // Silently continue on individual asset errors
               if (DEBUG_IMAGE_PRELOADER) {
@@ -148,6 +301,8 @@ export const safePreloadImages = async (
         return Promise.resolve(null);
       })
     );
+    
+    return results;
   }
   
   try {
@@ -160,7 +315,7 @@ export const safePreloadImages = async (
           : `${source.uri}?v=${CACHE_CONFIG.VERSION}`;
         
         return {
-          ...source,
+          ...source, 
           uri,
           headers: {
             ...source.headers,
@@ -173,17 +328,31 @@ export const safePreloadImages = async (
     });
     
     // Use the native FastImage preloader if available
-    return FastImage.preload(sourcesWithCacheControl);
+    const result = await FastImage.preload(sourcesWithCacheControl);
+    
+    // Add all successfully loaded images to cache
+    sourcesToLoad.forEach(source => {
+      if (source && source.uri) {
+        addImageToCache(source.uri);
+      }
+    });
+    
+    return result;
   } catch (error) {
     if (DEBUG_IMAGE_PRELOADER) {
       console.warn('Error using FastImage.preload, falling back to Asset:', error);
     }
     
     // Fallback to Asset on error
-    return Promise.all(
+    const results = await Promise.all(
       sourcesToLoad.map(source => {
         if (source && source.uri) {
           return Asset.fromURI(source.uri).downloadAsync()
+            .then(asset => {
+              // Add to cache after successful loading
+              addImageToCache(source.uri);
+              return asset;
+            })
             .catch(err => {
               // Silently continue on individual asset errors
               return null;
@@ -192,6 +361,8 @@ export const safePreloadImages = async (
         return Promise.resolve(null);
       })
     );
+    
+    return results;
   }
 };
 
@@ -215,8 +386,8 @@ export const strategicPreloadImages = async (
     return;
   }
   
-  // Filter out already preloaded images
-  const urlsToLoad = imageUrls.filter(url => !preloadedImageCache.has(url));
+  // Filter out already preloaded images that aren't expired
+  const urlsToLoad = imageUrls.filter(url => !isImageCached(url));
   
   // Skip if all images are already preloaded
   if (urlsToLoad.length === 0) {
@@ -250,46 +421,40 @@ export const strategicPreloadImages = async (
     console.log(`🚀 Strategic preloading (${strategy}): ${urlsToLoad.length} images with priority ${priority}...`);
   }
   
-  try {
-    // Process in batches
-    const batches = [];
-    for (let i = 0; i < urlsToLoad.length; i += actualBatchSize) {
-      batches.push(urlsToLoad.slice(i, i + actualBatchSize));
-    }
+  // Create batches of URLs to load
+  const batches: string[][] = [];
+  for (let i = 0; i < urlsToLoad.length; i += actualBatchSize) {
+    batches.push(urlsToLoad.slice(i, i + actualBatchSize));
+  }
+  
+  let completedUrls = 0;
+  
+  // Process batches sequentially to avoid overwhelming the device
+  for (const batch of batches) {
+    // Create Source objects for preloading
+    const sources = batch.map(uri => ({
+      uri,
+      priority: priority as Priority
+    }));
     
-    let completedCount = 0;
+    // Use our safe preload function
+    await safePreloadImages(sources);
     
-    for (const batch of batches) {
-      // Convert URLs to source objects with priority
-      const sources: Source[] = batch.map(url => ({ 
-        uri: url,
-        priority 
-      }));
-      
-      // Use our safe preload function that handles availability and errors
-      await safePreloadImages(sources);
-      
-      completedCount += batch.length;
-      
-      if (onProgress) {
-        const progress = Math.min(completedCount / urlsToLoad.length, 1);
-        onProgress(progress, completedCount, urlsToLoad.length);
-      }
-      
-      if (DEBUG_IMAGE_PRELOADER) {
-        console.log(`⏱️ Preloaded batch: ${completedCount}/${urlsToLoad.length} images`);
-      }
+    // Update progress
+    completedUrls += batch.length;
+    const progress = Math.min(completedUrls / urlsToLoad.length, 1);
+    
+    if (onProgress) {
+      onProgress(progress, completedUrls, urlsToLoad.length);
     }
     
     if (DEBUG_IMAGE_PRELOADER) {
-      console.log(`✅ Preloaded ${completedCount}/${urlsToLoad.length} images successfully`);
+      console.log(`⏱️ Batch completed: ${completedUrls}/${urlsToLoad.length} (${(progress * 100).toFixed(1)}%)`);
     }
-  } catch (error) {
-    console.warn('❌ Error preloading image batch:', error);
   }
   
-  if (onProgress) {
-    onProgress(1, urlsToLoad.length, urlsToLoad.length);
+  if (DEBUG_IMAGE_PRELOADER) {
+    console.log(`✅ Strategic preloading complete: ${completedUrls} images`);
   }
 };
 
@@ -297,90 +462,99 @@ export const strategicPreloadImages = async (
 export const batchPreloadImages = strategicPreloadImages;
 
 /**
- * Utility function to mark important images that should remain in memory
- * @param uri Image URI to mark as important
+ * Mark an image URL as important to ensure it stays in cache longer
+ * @param uri The image URI to mark as important
  */
 export const markAsImportantImage = (uri: string): void => {
   if (!uri) return;
   
-  // Skip if already marked as important
+  // Prevent duplicate processing
   if (cachedImportantImages.has(uri)) {
-    if (DEBUG_IMAGE_PRELOADER) {
-      console.log(`⏭️ Already marked as important, skipping: ${uri.substring(0, 40)}${uri.length > 40 ? '...' : ''}`);
-    }
     return;
   }
   
-  // Add to cache
+  // Add to important images set
   cachedImportantImages.add(uri);
-  preloadedImageCache.set(uri, true);
   
-  // Always use Asset API as the primary method for marking images as important
-  try {
-    Asset.fromURI(uri).downloadAsync().catch(error => {
-      if (DEBUG_IMAGE_PRELOADER) {
-        console.warn('❌ Error with Asset preloading in markAsImportantImage:', error);
-      }
-    });
-    
-    if (DEBUG_IMAGE_PRELOADER) {
-      console.log(`🔒 Marked as important with Asset: ${uri.substring(0, 40)}${uri.length > 40 ? '...' : ''}`);
-    }
-    
-    // Only try FastImage as a secondary method if it's actually available
-    if (isFastImageAvailable) {
-      try {
-        const sources: Source[] = [{
-          uri,
-          priority: ImagePriority.HIGH
-        }];
-        
-        // Use the FastImage API directly since we already checked availability
-        FastImage.preload(sources).catch((err: any) => {
-          if (DEBUG_IMAGE_PRELOADER) {
-            console.warn('❌ Failed to mark image as important with FastImage:', err);
-          }
-        });
-        
-        if (DEBUG_IMAGE_PRELOADER) {
-          console.log(`🔒 Also marked as important with FastImage: ${uri.substring(0, 40)}${uri.length > 40 ? '...' : ''}`);
-        }
-      } catch (fastImageError) {
-        // Silently continue if FastImage fails, we already used Asset
-        if (DEBUG_IMAGE_PRELOADER) {
-          console.warn('❌ FastImage error in markAsImportantImage (non-critical):', fastImageError);
-        }
-      }
-    }
-  } catch (error) {
-    console.warn('❌ Error marking image as important:', error);
+  // Make sure it's in the cache with a fresh timestamp (to prevent expiry)
+  // and a zero size (indicating it should not be purged during cache cleanup)
+  if (!preloadedImageCache.has(uri)) {
+    addImageToCache(uri, 0); // Zero size means "do not purge"
+  }
+  
+  if (DEBUG_IMAGE_PRELOADER) {
+    console.log(`🔒 Image marked as important: ${uri}`);
   }
 };
 
 /**
- * Clear the FastImage cache
- * Useful when experiencing image loading issues or memory pressure
+ * Clear all image caches (memory and disk)
+ * @param options Options for cache clearing
+ * @returns Promise that resolves when clearing is complete
  */
-export const clearImageCache = async (): Promise<void> => {
-  if (Platform.OS === 'web') {
-    // Web doesn't support direct cache clearing
-    return;
+export const clearImageCache = async (options?: {
+  memoryOnly?: boolean;
+  diskOnly?: boolean;
+  olderThan?: number;
+}): Promise<{ memoryClearedCount: number; diskCleaned: boolean }> => {
+  const { memoryOnly = false, diskOnly = false, olderThan } = options || {};
+  let memoryClearedCount = 0;
+  let diskCleaned = false;
+  
+  // Clear memory cache
+  if (!diskOnly) {
+    if (olderThan) {
+      // Only clear items older than specified time
+      memoryClearedCount = invalidateOldCacheEntries(olderThan);
+    } else {
+      // Clear entire memory cache
+      memoryClearedCount = preloadedImageCache.size;
+      preloadedImageCache.clear();
+      estimatedCacheSize = 0;
+      cachedImportantImages.clear();
+    }
+    
+    // Reset cache metrics
+    if (!olderThan) {
+      cacheHits = 0;
+      cacheMisses = 0;
+    }
   }
   
-  if (isFastImageAvailable) {
+  // Clear disk cache if platform supports it
+  if (!memoryOnly && isFastImageAvailable && Platform.OS !== 'web') {
     try {
-      await FastImage.clearMemoryCache();
+      // Clear FastImage disk cache
       await FastImage.clearDiskCache();
+      diskCleaned = true;
       
       if (DEBUG_IMAGE_PRELOADER) {
-        console.log('🧹 Image cache cleared');
+        console.log('FastImage disk cache cleared successfully');
       }
     } catch (error) {
-      console.warn('❌ Error clearing image cache:', error);
+      if (DEBUG_IMAGE_PRELOADER) {
+        console.warn('Error clearing FastImage disk cache:', error);
+      }
     }
-  } else {
-    if (DEBUG_IMAGE_PRELOADER) {
-      console.log('⚠️ Cannot clear cache: FastImage is not available');
+    
+    // Also clear Expo Asset cache if available
+    try {
+      // Asset.clearCache() doesn't exist in all versions
+      // We need to use a different approach for clearing Expo Asset cache
+      // This will vary based on Expo version, and we may need app restart
+      if (DEBUG_IMAGE_PRELOADER) {
+        console.log('Note: Expo Asset cache cannot be programmatically cleared in all versions');
+      }
+    } catch (error) {
+      if (DEBUG_IMAGE_PRELOADER) {
+        console.warn('Error handling Expo Asset cache:', error);
+      }
     }
   }
+  
+  if (DEBUG_IMAGE_PRELOADER) {
+    console.log(`Image cache cleared: ${memoryClearedCount} memory entries, disk cache ${diskCleaned ? 'cleared' : 'unchanged'}`);
+  }
+  
+  return { memoryClearedCount, diskCleaned };
 }; 

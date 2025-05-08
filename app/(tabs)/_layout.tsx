@@ -123,6 +123,15 @@ const FloatingTabBar = ({ state, navigation, descriptors }: any) => {
     return null;
   }
   
+  // Define tab configurations
+  const tabConfig = [
+    { routeName: 'index', icon: 'home', label: 'Home' },
+    { routeName: 'discover', icon: 'search', label: 'Discover' },
+    { routeName: 'exercises', icon: 'barbell', label: 'Exercises', isCenterButton: true },
+    { routeName: 'insights', icon: 'stats-chart', label: 'Insight' },
+    { routeName: 'profile', icon: 'person', label: 'Profile' }
+  ];
+  
   return (
     <View
       style={{
@@ -144,9 +153,13 @@ const FloatingTabBar = ({ state, navigation, descriptors }: any) => {
         height: '120%',
       }}>
         <View style={{ flexDirection: 'row', width: '38%', justifyContent: 'space-between' }}>
-          {state.routes.slice(0, 2).map((route: any, index: number) => {
+          {tabConfig.slice(0, 2).map((tab, index) => {
+            const route = state.routes.find((r: any) => r.name === tab.routeName);
+            if (!route) return null;
+            
             const { options } = descriptors[route.key];
-            const isFocused = state.index === index;
+            const isFocused = state.index === state.routes.indexOf(route);
+            
             return (
               <TabBarButton
                 key={route.key}
@@ -161,17 +174,20 @@ const FloatingTabBar = ({ state, navigation, descriptors }: any) => {
                     navigation.navigate(route.name);
                   }
                 }}
-                icon={route.name === 'index' ? 'home' : 'search'}
-                label={route.name === 'index' ? 'Home' : 'Discover'}
+                icon={tab.icon as any}
+                label={tab.label}
               />
             );
           })}
         </View>
 
         <View style={{ flexDirection: 'row', width: '38%', justifyContent: 'space-between' }}>
-          {state.routes.slice(3).map((route: any, index: number) => {
-            const actualIndex = index + 3;
-            const isFocused = state.index === actualIndex;
+          {tabConfig.slice(3, 5).map((tab) => {
+            const route = state.routes.find((r: any) => r.name === tab.routeName);
+            if (!route) return null;
+            
+            const isFocused = state.index === state.routes.indexOf(route);
+            
             return (
               <TabBarButton
                 key={route.key}
@@ -186,16 +202,20 @@ const FloatingTabBar = ({ state, navigation, descriptors }: any) => {
                     navigation.navigate(route.name);
                   }
                 }}
-                icon={route.name === 'insights' ? 'stats-chart' : 'person'}
-                label={route.name === 'insights' ? 'Insight' : 'Profile'}
+                icon={tab.icon as any}
+                label={tab.label}
               />
             );
           })}
         </View>
 
-        {state.routes.map((route: any, index: number) => {
-          if (route.name === 'exercises') {
-            const isFocused = state.index === index;
+        {tabConfig.map((tab) => {
+          if (tab.isCenterButton) {
+            const route = state.routes.find((r: any) => r.name === tab.routeName);
+            if (!route) return null;
+            
+            const isFocused = state.index === state.routes.indexOf(route);
+            
             return (
               <View 
                 key={route.key}
@@ -268,7 +288,7 @@ const FloatingTabBar = ({ state, navigation, descriptors }: any) => {
                           opacity: 1,
                           marginTop: 0,
                         }}>
-                          Exercises
+                          {tab.label}
                         </Text>
                       </View>
                     </LinearGradient>

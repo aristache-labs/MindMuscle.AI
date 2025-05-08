@@ -83,8 +83,9 @@ const PREDICTIVE_NAVIGATION: Record<string, string[]> = {
   'home': ['discover', 'exercises', 'profile'],
   'discover': ['plans', 'exercises-list'],
   'exercises': ['exercise-details', 'plans'],
+  'insights': ['achievements', 'howtomeasuremodal'],
   'plans': ['plan-details', 'exercises'],
-  'profile': ['achievements', 'settings'],
+  'profile': ['settings'],
   
   // Nested screens
   'exercises-list': ['exercise-details'],
@@ -110,9 +111,7 @@ const SCREEN_TO_IMAGE_PATHS: Record<string, string[]> = {
     'assets/exercises/legs.jpg'
   ],
   'plans': [
-    'assets/plans/beginner.jpg',
-    'assets/plans/intermediate.jpg',
-    'assets/plans/advanced.jpg'
+    // Removed non-existent assets
   ],
   'profile': [
     'assets/profile/avatar-default.jpg',
@@ -250,7 +249,7 @@ export default function useIntelligentPreloader(
       return;
     }
     
-    // Preload anticipated next screen images
+    // Preload the next screen images with medium priority
     await strategicPreloadImages(
       nextScreenImages,
       PreloadStrategy.ANTICIPATORY,
@@ -258,77 +257,114 @@ export default function useIntelligentPreloader(
       (progress, completed, total) => {
         if (completed) {
           setAnticipatoryImagesLoaded(completed);
-          // Overall progress includes 30% weight for anticipatory images
-          setProgress(0.7 + (progress * 0.3));
+          // Overall progress is weighted 20% for anticipatory images
+          // Combined with critical (70%), leaves 10% for prefetch
+          setProgress(0.7 + (progress * 0.2));
         }
       }
     );
     
-    // Prefetch further predicted screens in background
-    InteractionManager.runAfterInteractions(() => {
-      const furtherScreens = nextScreens.flatMap(
-        screen => PREDICTIVE_NAVIGATION[screen] || []
-      );
-      
-      const furtherImages: string[] = [];
-      furtherScreens.forEach(screenId => {
-        const screenImages = SCREEN_TO_IMAGE_PATHS[screenId] || [];
-        furtherImages.push(...screenImages);
+    if (debug) {
+      console.log(`✅ Loaded ${nextScreenImages.length} anticipatory images for screens: ${nextScreens.join(', ')}`);
+    }
+    
+    // For aggressive prefetching, try to load even more distant screens
+    if (cacheManagement === 'aggressive') {
+      const secondLevelScreens: string[] = [];
+      nextScreens.forEach(screen => {
+        const furtherScreens = PREDICTIVE_NAVIGATION[screen] || [];
+        furtherScreens.forEach(furtherScreen => {
+          // Avoid duplicates and already loaded screens
+          if (!secondLevelScreens.includes(furtherScreen) && 
+              !nextScreens.includes(furtherScreen) &&
+              furtherScreen !== currentScreen.current) {
+            secondLevelScreens.push(furtherScreen);
+          }
+        });
       });
       
-      if (furtherImages.length > 0) {
-        strategicPreloadImages(
-          furtherImages,
+      if (secondLevelScreens.length > 0 && debug) {
+        console.log(`🔍 Second-level predicted screens: ${secondLevelScreens.join(', ')}`);
+      }
+      
+      // Collect images for second-level screens
+      const prefetchImages: string[] = [];
+      secondLevelScreens.forEach(screenId => {
+        const screenImages = SCREEN_TO_IMAGE_PATHS[screenId] || [];
+        prefetchImages.push(...screenImages);
+      });
+      
+      if (prefetchImages.length > 0) {
+        // Preload with lowest priority
+        await strategicPreloadImages(
+          prefetchImages,
           PreloadStrategy.PREFETCH,
           undefined,
-          (progress, completed) => {
+          (progress, completed, total) => {
             if (completed) {
               setPrefetchImagesLoaded(completed);
+              // Final 10% of progress
+              setProgress(0.9 + (progress * 0.1));
             }
           }
         );
+        
+        if (debug) {
+          console.log(`✅ Prefetched ${prefetchImages.length} images for second-level screens`);
+        }
+      }
+    }
+  };
+  
+  // Manually trigger predictive loading for specific screens
+  const predictiveLoadForScreens = (screenIds: string[]) => {
+    if (!screenIds || screenIds.length === 0) {
+      return;
+    }
+    
+    InteractionManager.runAfterInteractions(async () => {
+      const imagesToLoad: string[] = [];
+      
+      // Collect images for requested screens
+      screenIds.forEach(screenId => {
+        const screenImages = SCREEN_TO_IMAGE_PATHS[screenId] || [];
+        imagesToLoad.push(...screenImages);
+      });
+      
+      if (imagesToLoad.length === 0) {
+        return;
+      }
+      
+      if (debug) {
+        console.log(`🚀 Strategic preloading (${screenIds.join(', ')}): ${imagesToLoad.length} images with priority high...`);
+      }
+      
+      // Use critical strategy for manual loading
+      await strategicPreloadImages(imagesToLoad, PreloadStrategy.CRITICAL);
+      
+      if (debug) {
+        console.log(`✅ Strategic preloading complete: ${imagesToLoad.length} images`);
       }
     });
   };
   
-  // Function to manually trigger predictive loading for specific screens
-  const predictiveLoadForScreens = (screenIds: string[]) => {
-    if (!screenIds || screenIds.length === 0) return;
-    
-    const imagesToLoad: string[] = [];
-    
-    screenIds.forEach(screenId => {
-      const screenImages = SCREEN_TO_IMAGE_PATHS[screenId] || [];
-      imagesToLoad.push(...screenImages);
-      
-      // Also mark as important for immediate availability
-      screenImages.forEach(image => {
-        markAsImportantImage(image);
-      });
-    });
-    
-    if (imagesToLoad.length > 0) {
-      strategicPreloadImages(
-        imagesToLoad,
-        PreloadStrategy.ANTICIPATORY
-      );
-    }
-  };
-  
-  // Wrapper function for clearImageCache that matches the expected void return type
+  // Clear cache helper
   const handleClearCache = async (): Promise<void> => {
     try {
-      await clearImageCache();
-      // Return nothing to match the Promise<void> type
+      const result = await clearImageCache({
+        olderThan: cacheManagement === 'aggressive' ? undefined : 24 * 60 * 60 * 1000, // 24 hours for non-aggressive mode
+      });
+      
+      if (debug) {
+        console.log(`🧹 Cache cleared: ${result.memoryClearedCount} entries, disk cache ${result.diskCleaned ? 'cleaned' : 'unchanged'}`);
+      }
     } catch (error) {
-      console.warn('Error clearing image cache:', error);
-      // Re-throw the error to maintain the Promise rejection
-      throw error;
+      console.warn('Failed to clear cache:', error);
     }
   };
   
   return {
-    screenId,
+    screenId: currentScreen.current,
     totalImages: totalImagesRef.current,
     criticalImagesLoaded,
     anticipatoryImagesLoaded,

@@ -24,7 +24,7 @@ const screenWidth = Dimensions.get('window').width;
 const screenHeight = Dimensions.get('window').height;
 
 // Debug flag - set to false to reduce logging
-export const DEBUG_OPTIMIZED_IMAGE = false;
+export const DEBUG_OPTIMIZED_IMAGE = true;
 
 // Dynamic import for FastImage to prevent crashes on platforms where it's not available
 let FastImage: any = null;
@@ -37,13 +37,32 @@ try {
   isFastImageAvailable = !!FastImage && typeof FastImage.preload === 'function' && !('bubblingEventTypes' in FastImage);
   
   if (DEBUG_OPTIMIZED_IMAGE) {
-    console.log(`FastImage ${isFastImageAvailable ? 'is' : 'is not'} available for use`);
+    console.log(`📱 [OptimizedImage] Image renderer: ${isFastImageAvailable ? 'FastImage is available ✅' : 'FastImage is not available ❌'}`);
+    if (!isFastImageAvailable) {
+      console.log(`📱 [OptimizedImage] Fallback: Using expo-image in ${Platform.OS === 'web' ? 'web' : 'native'} environment`);
+    }
   }
 } catch (e) {
   if (DEBUG_OPTIMIZED_IMAGE) {
-    console.log('FastImage import failed:', e);
+    console.log('📱 [OptimizedImage] FastImage import failed:', e);
+    console.log('📱 [OptimizedImage] Fallback: Using expo-image in Expo Go environment');
   }
   isFastImageAvailable = false;
+}
+
+// Track usage statistics
+let imageRenderCount = 0;
+let fastImageUsageCount = 0;
+let expoImageUsageCount = 0;
+
+// Log usage statistics periodically
+if (DEBUG_OPTIMIZED_IMAGE) {
+  // Setup interval to log image usage statistics every 10 seconds
+  setInterval(() => {
+    if (imageRenderCount > 0) {
+      console.log(`📊 [OptimizedImage] Rendering stats - Total: ${imageRenderCount}, FastImage: ${fastImageUsageCount} (${Math.round(fastImageUsageCount/imageRenderCount*100)}%), expo-image: ${expoImageUsageCount} (${Math.round(expoImageUsageCount/imageRenderCount*100)}%)`);
+    }
+  }, 10000); // 10 seconds
 }
 
 // Helper to determine appropriate image dimensions
@@ -181,6 +200,7 @@ export default function OptimizedImage({
   // State
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [isCached, setIsCached] = useState(false);
   const [timing, setTiming] = useState<ImageTiming>({
     loadStart: 0,
     loadEnd: null,
@@ -228,12 +248,16 @@ export default function OptimizedImage({
     return source;
   }, [source, priority, cachePolicy, style]);
 
-  // Check if image is in cache
+  // Check if image is in cache immediately when source changes
   useEffect(() => {
     if (typeof processedSource === 'object' && processedSource?.uri) {
       const uri = processedSource.uri;
+      // Check if image is already in cache
+      const cached = isImageCached(uri);
+      setIsCached(cached);
+      
       // If image is already in cache, skip loading state
-      if (isImageCached(uri)) {
+      if (cached) {
         setLoading(false);
         
         // If the image is already in cache, we can consider it loaded immediately
@@ -288,7 +312,21 @@ export default function OptimizedImage({
       // Skip loading state for cached images
       if (DEBUG_OPTIMIZED_IMAGE) {
         const label = debugLabel || 'OptimizedImage';
-        console.log(`⚡ [${label}] Image load skipped (already in cache)`);
+        console.log(`⚡ [${label}] Image already in cache, skipping loading state`);
+      }
+      setIsCached(true);
+      setLoading(false); // Immediately set loading to false
+      
+      // For cached images, set zero loading time
+      setTiming({
+        loadStart: Date.now(),
+        loadEnd: Date.now(),
+        loadDuration: 0
+      });
+      
+      // Call onLoadEnd immediately for cached images
+      if (onLoadEnd) {
+        onLoadEnd();
       }
       return;
     }
@@ -312,7 +350,9 @@ export default function OptimizedImage({
     setLoading(false);
     
     const now = Date.now();
-    const loadDuration = now - timing.loadStart;
+    // Calculate the actual duration in milliseconds
+    const loadDuration = timing.loadStart > 0 ? now - timing.loadStart : 0;
+    
     setTiming(prev => ({ 
       ...prev, 
       loadEnd: now,
@@ -343,7 +383,30 @@ export default function OptimizedImage({
     
     if (DEBUG_OPTIMIZED_IMAGE) {
       const label = debugLabel || 'OptimizedImage';
-      console.log(`✅ [${label}] Image loaded in ${loadDuration}ms`);
+      
+      // Skip logging for zero duration (already cached images)
+      if (loadDuration === 0) {
+        console.log(`⚡ [${label}] Image load skipped (already in cache)`);
+        return;
+      }
+      
+      // Format the duration in appropriate units (ms, seconds, or minutes)
+      let formattedDuration = '';
+      if (loadDuration >= 60000) {
+        // Show in minutes and seconds if >= 1 minute
+        const minutes = Math.floor(loadDuration / 60000);
+        const seconds = Math.floor((loadDuration % 60000) / 1000);
+        formattedDuration = `${minutes}m ${seconds}s (${loadDuration}ms)`;
+      } else if (loadDuration >= 1000) {
+        // Show in seconds if >= 1 second
+        const seconds = (loadDuration / 1000).toFixed(2);
+        formattedDuration = `${seconds}s (${loadDuration}ms)`;
+      } else {
+        // Show in milliseconds only if < 1 second
+        formattedDuration = `${loadDuration}ms`;
+      }
+      
+      console.log(`✅ [${label}] Image loaded in ${formattedDuration}`);
     }
   };
   
@@ -423,50 +486,189 @@ export default function OptimizedImage({
   // Render component
   return (
     <View style={[styles.container, containerStyle]} testID={testID}>
-      {Platform.OS === 'web' ? (
-        // Use Image component from expo-image for web
-        <Image
-          source={processedSource}
-          style={[styles.image, style]}
-          contentFit={getContentFit(resizeMode)}
-          transition={300}
-          onLoadStart={handleLoadStart}
-          onLoad={handleLoadEnd}
-          onError={() => handleError(new Error('Image load failed'))}
-        />
-      ) : isFastImageAvailable ? (
-        // Use FastImage for native platforms if available and properly linked
-        <FastImage
-          source={processedSource}
-          style={[styles.image, style]}
-          resizeMode={getResizeMode(resizeMode)}
-          onLoadStart={handleLoadStart}
-          onLoad={handleLoadEnd}
-          onError={() => handleError(new Error('Image load failed'))}
-        />
+      {Platform.OS === 'web' || !isFastImageAvailable ? (
+        // Use Image component from expo-image for web or when FastImage is not available
+        (() => {
+          if (DEBUG_OPTIMIZED_IMAGE) {
+            expoImageUsageCount++;
+            imageRenderCount++;
+            const sourceType = typeof processedSource;
+            const sourceDisplay = sourceType === 'number' ? 
+              'Local Asset (require)' : 
+              sourceType === 'object' && processedSource?.uri ? 
+                processedSource.uri?.includes('supabase.co') ? 
+                  (() => {
+                    // Extract the path and filename without query parameters
+                    const fullPath = processedSource.uri;
+                    const urlParts = fullPath.split('?')[0]; // Remove query parameters
+                    
+                    // Extract path components
+                    const pathParts = urlParts.split('/');
+                    const filename = pathParts.pop(); // Get the last part (filename)
+                    
+                    // Get the folder/bucket path - take up to 2 path segments before the filename if available
+                    let folderPath = '';
+                    if (pathParts.length > 0) {
+                      // Get the last 1-2 path segments for context, but not the full URL
+                      const relevantPathParts = pathParts.slice(Math.max(0, pathParts.length - 2));
+                      folderPath = relevantPathParts.join('/');
+                      
+                      // If we have a folder path, format it nicely
+                      if (folderPath) {
+                        if (!folderPath.startsWith('/')) {
+                          folderPath = '/' + folderPath;
+                        }
+                        if (!folderPath.endsWith('/')) {
+                          folderPath += '/';
+                        }
+                      }
+                    }
+                    
+                    return `SUPABASE - ${folderPath}${filename}`;
+                  })() : 
+                  processedSource.uri?.includes('firebasestorage.googleapis.com') ?
+                  (() => {
+                    // Extract information from Firebase storage URL
+                    const fullPath = processedSource.uri;
+                    
+                    // Firebase URLs have a specific format with the path encoded after /o/
+                    const pathMatch = fullPath.match(/\/o\/([^?]+)/);
+                    if (pathMatch && pathMatch[1]) {
+                      // Decode the URI component to get the actual path
+                      const decodedPath = decodeURIComponent(pathMatch[1]);
+                      
+                      // Split by slashes to get path components
+                      const pathParts = decodedPath.split('/');
+                      
+                      // Extract bucket name, folder path and filename
+                      const bucketName = pathParts[0] || 'firebase';
+                      const filename = pathParts.length > 1 ? pathParts[pathParts.length - 1] : decodedPath;
+                      
+                      // Build folder path (excluding bucket and filename)
+                      let folderPath = '';
+                      if (pathParts.length > 2) {
+                        folderPath = '/' + pathParts.slice(1, -1).join('/') + '/';
+                      }
+                      
+                      return `FIREBASE - ${bucketName}${folderPath}${filename}`;
+                    }
+                    
+                    // Fallback if we can't parse the URL
+                    return `FIREBASE - ${fullPath.substring(fullPath.lastIndexOf('/') + 1, fullPath.indexOf('?') > 0 ? fullPath.indexOf('?') : undefined)}`;
+                  })() :
+                  processedSource.uri?.substring(0, 50) + '...' 
+                : 'Local image';
+            console.log(`🖼️ [${debugLabel || 'OptimizedImage'}] Rendering with expo-image: ${sourceDisplay}`);
+          }
+          return (
+            <Image
+              source={processedSource}
+              style={[styles.image, style]}
+              contentFit={getContentFit(resizeMode)}
+              transition={300}
+              onLoadStart={handleLoadStart}
+              onLoad={handleLoadEnd}
+              onError={() => handleError(new Error('Image load failed'))}
+            />
+          );
+        })()
       ) : (
-        // Fallback to React Native's Image component when FastImage is not available
-        <RNImage
-          source={typeof processedSource === 'object' && processedSource !== null && 'uri' in processedSource 
-            ? { uri: processedSource.uri }
-            : processedSource}
-          style={[styles.image, style]}
-          resizeMode={getResizeMode(resizeMode) as any}
-          onLoadStart={handleLoadStart}
-          onLoad={handleLoadEnd}
-          onError={() => handleError(new Error('Image load failed'))}
-        />
+        // Use FastImage for native platforms if available and properly linked
+        (() => {
+          if (DEBUG_OPTIMIZED_IMAGE) {
+            fastImageUsageCount++;
+            imageRenderCount++;
+            const sourceType = typeof processedSource;
+            const sourceDisplay = sourceType === 'number' ? 
+              'Local Asset (require)' : 
+              sourceType === 'object' && processedSource?.uri ? 
+                processedSource.uri?.includes('supabase.co') ? 
+                  (() => {
+                    // Extract the path and filename without query parameters
+                    const fullPath = processedSource.uri;
+                    const urlParts = fullPath.split('?')[0]; // Remove query parameters
+                    
+                    // Extract path components
+                    const pathParts = urlParts.split('/');
+                    const filename = pathParts.pop(); // Get the last part (filename)
+                    
+                    // Get the folder/bucket path - take up to 2 path segments before the filename if available
+                    let folderPath = '';
+                    if (pathParts.length > 0) {
+                      // Get the last 1-2 path segments for context, but not the full URL
+                      const relevantPathParts = pathParts.slice(Math.max(0, pathParts.length - 2));
+                      folderPath = relevantPathParts.join('/');
+                      
+                      // If we have a folder path, format it nicely
+                      if (folderPath) {
+                        if (!folderPath.startsWith('/')) {
+                          folderPath = '/' + folderPath;
+                        }
+                        if (!folderPath.endsWith('/')) {
+                          folderPath += '/';
+                        }
+                      }
+                    }
+                    
+                    return `SUPABASE - ${folderPath}${filename}`;
+                  })() : 
+                  processedSource.uri?.includes('firebasestorage.googleapis.com') ?
+                  (() => {
+                    // Extract information from Firebase storage URL
+                    const fullPath = processedSource.uri;
+                    
+                    // Firebase URLs have a specific format with the path encoded after /o/
+                    const pathMatch = fullPath.match(/\/o\/([^?]+)/);
+                    if (pathMatch && pathMatch[1]) {
+                      // Decode the URI component to get the actual path
+                      const decodedPath = decodeURIComponent(pathMatch[1]);
+                      
+                      // Split by slashes to get path components
+                      const pathParts = decodedPath.split('/');
+                      
+                      // Extract bucket name, folder path and filename
+                      const bucketName = pathParts[0] || 'firebase';
+                      const filename = pathParts.length > 1 ? pathParts[pathParts.length - 1] : decodedPath;
+                      
+                      // Build folder path (excluding bucket and filename)
+                      let folderPath = '';
+                      if (pathParts.length > 2) {
+                        folderPath = '/' + pathParts.slice(1, -1).join('/') + '/';
+                      }
+                      
+                      return `FIREBASE - ${bucketName}${folderPath}${filename}`;
+                    }
+                    
+                    // Fallback if we can't parse the URL
+                    return `FIREBASE - ${fullPath.substring(fullPath.lastIndexOf('/') + 1, fullPath.indexOf('?') > 0 ? fullPath.indexOf('?') : undefined)}`;
+                  })() :
+                  processedSource.uri?.substring(0, 50) + '...' 
+                : 'Local image';
+            console.log(`🖼️ [${debugLabel || 'OptimizedImage'}] Rendering with FastImage: ${sourceDisplay}`);
+          }
+          return (
+            <FastImage
+              source={processedSource}
+              style={[styles.image, style]}
+              resizeMode={getResizeMode(resizeMode)}
+              onLoadStart={handleLoadStart}
+              onLoad={handleLoadEnd}
+              onError={() => handleError(new Error('Image load failed'))}
+            />
+          );
+        })()
       )}
 
       {error && fallbackSource && (
-        <RNImage
+        <Image
           source={fallbackSource}
           style={[styles.image, style, styles.fallbackImage]}
-          resizeMode={getResizeMode(resizeMode) as any}
+          contentFit={getContentFit(resizeMode)}
         />
       )}
 
-      {showLoader && loading && (
+      {/* Only show loader if image is not already cached */}
+      {showLoader && loading && !isCached && (
         <View style={styles.loaderContainer}>
           <ActivityIndicator 
             size={loaderSize}

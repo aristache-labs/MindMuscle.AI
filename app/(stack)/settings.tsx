@@ -382,7 +382,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   cacheStatLabel: {
-    color: COLORS.textLight,
+    color: COLORS.text,
     fontSize: 14,
   },
   cacheStatValue: {

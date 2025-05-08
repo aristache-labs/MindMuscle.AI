@@ -12,7 +12,7 @@ import { GeneralHeader } from '../components/GeneralHeader';
 
 // Simple performance tracking utility
 const loadTimeTracker = {
-  timePoints: new Map<string, { start?: number, end?: number, marks: { time: number, label: string }[] }>(),
+  timePoints: new Map<string, { start?: number, end?: number, marks: { time: number, duration: number, label: string }[] }>(),
   
   startLoadTimeTracking: (id: string) => {
     console.log(`[LoadTracker] Starting tracking for ${id}`);
@@ -26,16 +26,22 @@ const loadTimeTracker = {
     const timePoint = loadTimeTracker.timePoints.get(id);
     if (timePoint) {
       timePoint.end = Date.now();
-      console.log(`[LoadTracker] Completed tracking for ${id}: ${timePoint.end - (timePoint.start || 0)}ms`);
+      const totalDuration = timePoint.end - (timePoint.start || 0);
+      console.log(`[LoadTracker] Completed tracking for ${id}: ${totalDuration}ms`);
     }
   },
   
   markLoadTime: (id: string, label: string) => {
     const timePoint = loadTimeTracker.timePoints.get(id);
     if (timePoint) {
-      const mark = { time: Date.now(), label };
+      const now = Date.now();
+      const duration = timePoint.marks.length > 0 
+        ? now - timePoint.marks[timePoint.marks.length - 1].time 
+        : now - (timePoint.start || 0);
+      
+      const mark = { time: now, duration, label };
       timePoint.marks.push(mark);
-      console.log(`[LoadTracker] ${id} - ${label}: ${mark.time - (timePoint.start || 0)}ms`);
+      console.log(`[LoadTracker] ${id} - ${label}: ${duration}ms`);
     }
   }
 };

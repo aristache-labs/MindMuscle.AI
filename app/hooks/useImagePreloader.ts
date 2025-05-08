@@ -15,7 +15,7 @@ const preloadedImagesCache = new Map<string, boolean>();
 
 // Types for the hook options
 export interface PreloadOptions {
-  priority?: 'low' | 'normal' | 'high';
+  priority?: 'low' | 'normal' | 'high'; 
   batchSize?: number;
   debugLabel?: string;
   skipIfCached?: boolean;

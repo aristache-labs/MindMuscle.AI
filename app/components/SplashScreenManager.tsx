@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { AppState, AppStateStatus, Platform } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import InitialLoadingScreen from './InitialLoadingScreen';
@@ -11,7 +11,7 @@ import { storage } from '../services/firebase';
 import { Asset } from 'expo-asset';
 import { LOADING_MESSAGES } from '../constants/loadingMessages';
 import * as FileSystem from 'expo-file-system';
-import { safePreloadImages } from '../utils/imagePreloader';
+import { safePreloadImages, PreloadStrategy, strategicPreloadImages } from '../utils/imagePreloader';
 import { markAsImportantImage as markImageAsImportant } from '../utils/imagePreloader';
 
 // Define storage bucket constants for compatibility with previous code
@@ -53,11 +53,11 @@ const IMPORTANT_IMAGE_URLS = new Set<string>();
 const markAsImportantImage = (url: string) => {
   if (!url) return;
   IMPORTANT_IMAGE_URLS.add(url);
-  console.log(`🔒 Marked as important: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
+  console.log(`🔒 Image marked as important: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
 };
 
 // Debug flag to control logging
-const DEBUG_SPLASH_SCREEN = false;
+const DEBUG_SPLASH_SCREEN = true;
 
 // Define resources to be preloaded, organized by priority
 const PRELOAD_CONFIG = {
@@ -73,16 +73,29 @@ const PRELOAD_CONFIG = {
     DATA: 20000, // Increased from 8000 for loading all data
     USER_SPECIFIC: 10000, // Timeout for user-specific data
     CONTENT: 15000, // Increased from 8000
-    AVATAR: 5000 // Specific timeout for avatar preloading
+    AVATAR: 5000, // Specific timeout for avatar preloading
+    DISCOVER: 10000, // Timeout for discover screen image preloading
+    PLANS: 10000, // Timeout for plans screen image preloading
+    PROFILE: 5000, // Timeout for profile screen image preloading
+    INSIGHTS: 8000  // Timeout for insights screen image preloading
   },
-  BATCH_SIZE: 15 // Number of images to load in parallel
+  BATCH_SIZE: 15, // Number of images to load in parallel
+  // Increase cache limits to prevent purging important images
+  CACHE_SIZE: 400, // Increased from 200 to accommodate more images
+  CACHE_EXPIRY: 7 * 24 * 60 * 60 * 1000 // 7 days instead of 1 day
 };
 
 // Safely attempt to prevent auto-hide with error handling
 const safelyPreventAutoHide = async () => {
   try {
-    if (Platform.OS !== 'web' && typeof SplashScreen.preventAutoHideAsync === 'function') {
-      await SplashScreen.preventAutoHideAsync();
+    if (Platform.OS !== 'web') {
+      // Force preventAutoHideAsync to be available
+      if (typeof SplashScreen.preventAutoHideAsync === 'function') {
+        await SplashScreen.preventAutoHideAsync();
+        console.log('SplashScreen: preventAutoHideAsync called successfully');
+      } else {
+        console.warn('SplashScreen.preventAutoHideAsync is not a function');
+      }
     }
   } catch (error) {
     console.warn('Error with splash screen prevention:', error);
@@ -92,8 +105,14 @@ const safelyPreventAutoHide = async () => {
 // Safely attempt to hide with error handling
 const safelyHideSplashScreen = async () => {
   try {
-    if (Platform.OS !== 'web' && typeof SplashScreen.hideAsync === 'function') {
-      await SplashScreen.hideAsync();
+    if (Platform.OS !== 'web') {
+      // Force hideAsync to be available
+      if (typeof SplashScreen.hideAsync === 'function') {
+        await SplashScreen.hideAsync();
+        console.log('SplashScreen: hideAsync called successfully');
+      } else {
+        console.warn('SplashScreen.hideAsync is not a function');
+      }
     }
   } catch (error) {
     console.warn('Error hiding splash screen:', error);
@@ -251,6 +270,116 @@ function getFirebasePublicUrl(path: string): string {
   return `https://firebasestorage.googleapis.com/v0/b/${storageBucket}/o/${encodeURIComponent(path)}?alt=media&key=${apiKey}`;
 }
 
+// Preload discover screen images
+const preloadDiscoverScreenImages = async (): Promise<string[]> => {
+  try {
+    console.log('🔍 Preloading Discover screen images during startup...');
+    
+    // Fetch workout subcategories for discover screen
+    const { data: subcategoriesData, error: subcategoriesError } = await supabase
+      .from('workout_subcategories')
+      .select('*')
+      .order('display_order', { ascending: true });
+
+    if (subcategoriesError) {
+      console.error('Error fetching subcategories:', subcategoriesError);
+      return [];
+    }
+
+    // Extract image URLs
+    const imageUrls: string[] = [];
+    
+    subcategoriesData.forEach((subcat: any) => {
+      if (subcat.image_url) {
+        // If it's a full URL, use it directly
+        if (subcat.image_url.startsWith('http')) {
+          imageUrls.push(subcat.image_url);
+        }
+        // Otherwise, assume it's in Supabase storage
+        else {
+          // Use the Supabase URL format for storage with cache control
+          const cacheVersion = '1.0';
+          const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
+          const storageUrl = `${supabaseUrl}/storage/v1/object/public/plans/${subcat.image_url}?v=${cacheVersion}`;
+          imageUrls.push(storageUrl);
+        }
+      }
+    });
+    
+    console.log(`🔍 Found ${imageUrls.length} Discover screen images to preload`);
+    
+    // Preload images with high priority
+    if (imageUrls.length > 0) {
+      await strategicPreloadImages(imageUrls, PreloadStrategy.CRITICAL);
+      
+      // Mark these images as important
+      imageUrls.forEach(url => {
+        markImageAsImportant(url);
+      });
+    }
+    
+    return imageUrls;
+  } catch (error) {
+    console.warn('Error preloading Discover screen images:', error);
+    return [];
+  }
+};
+
+// Preload plan images
+const preloadPlanImages = async (): Promise<string[]> => {
+  try {
+    console.log('🔍 Preloading Plan images during startup...');
+    
+    // Fetch workout plans
+    const { data: plansData, error: plansError } = await supabase
+      .from('workout_plans')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (plansError) {
+      console.error('Error fetching plans:', plansError);
+      return [];
+    }
+
+    // Extract image URLs
+    const imageUrls: string[] = [];
+    
+    plansData.forEach((plan: any) => {
+      if (plan.image_url) {
+        // If it's a full URL, use it directly
+        if (plan.image_url.startsWith('http')) {
+          imageUrls.push(plan.image_url);
+        }
+        // Otherwise, assume it's in Supabase storage
+        else {
+          // Use the Supabase URL format for storage with cache control
+          const cacheVersion = '1.0';
+          const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
+          const storageUrl = `${supabaseUrl}/storage/v1/object/public/plans/${plan.image_url}?v=${cacheVersion}`;
+          imageUrls.push(storageUrl);
+        }
+      }
+    });
+    
+    console.log(`🔍 Found ${imageUrls.length} Plan images to preload`);
+    
+    // Preload images with high priority
+    if (imageUrls.length > 0) {
+      await strategicPreloadImages(imageUrls, PreloadStrategy.CRITICAL);
+      
+      // Mark these images as important
+      imageUrls.forEach(url => {
+        markImageAsImportant(url);
+      });
+    }
+    
+    return imageUrls;
+  } catch (error) {
+    console.warn('Error preloading Plan images:', error);
+    return [];
+  }
+};
+
 // Execute once on module load
 if (Platform.OS !== 'web') {
   safelyPreventAutoHide().catch(err => {
@@ -272,6 +401,28 @@ export default function SplashScreenManager({ children }: { children: React.Reac
     total: 0
   });
   const { session } = useAuth();
+  
+  // Track whether SplashScreen module has been initialized
+  const splashScreenInitialized = useRef(false);
+  
+  // Initialize SplashScreen correctly on mount
+  useEffect(() => {
+    if (Platform.OS !== 'web' && !splashScreenInitialized.current) {
+      // Import and configure SplashScreen properly
+      const initSplashScreen = async () => {
+        try {
+          // Keep splash screen visible
+          await SplashScreen.preventAutoHideAsync();
+          splashScreenInitialized.current = true;
+          console.log('✅ SplashScreen initialized successfully');
+        } catch (e) {
+          console.warn('Failed to initialize SplashScreen:', e);
+        }
+      };
+      
+      initSplashScreen();
+    }
+  }, []);
   
   // Handle background/foreground transitions
   useEffect(() => {
@@ -304,13 +455,49 @@ export default function SplashScreenManager({ children }: { children: React.Reac
         const percentComplete = (newProgress * 100).toFixed(1);
         const elapsed = timestamp - timingMetrics.start;
         
-        console.log(`⏱️ [SplashScreenManager] Progress update: ${percentComplete}% (+${(value * 100).toFixed(1)}%)${source ? ` from ${source}` : ''} | ${elapsed}ms`);
+        // Track operation-specific start time if this is a new operation
+        if (source && !timingMetrics[`${source}Start`]) {
+          setTimingMetrics(prev => ({
+            ...prev,
+            [`${source}Start`]: timestamp
+          }));
+        }
+        
+        // Calculate operation-specific duration if this is the end of an operation
+        let operationDuration = 0;
+        if (source && timingMetrics[`${source}Start`]) {
+          operationDuration = timestamp - timingMetrics[`${source}Start`];
+        }
+        
+        // Format the operation time in appropriate units (ms, seconds, or minutes)
+        let formattedOperationTime = '';
+        if (operationDuration >= 60000) {
+          // Show in minutes and seconds if >= 1 minute
+          const minutes = Math.floor(operationDuration / 60000);
+          const seconds = Math.floor((operationDuration % 60000) / 1000);
+          formattedOperationTime = `${minutes}m ${seconds}s (${operationDuration}ms)`;
+        } else if (operationDuration >= 1000) {
+          // Show in seconds if >= 1 second
+          const seconds = (operationDuration / 1000).toFixed(2);
+          formattedOperationTime = `${seconds}s (${operationDuration}ms)`;
+        } else if (operationDuration > 0) {
+          // Show in milliseconds only if < 1 second
+          formattedOperationTime = `${operationDuration}ms`;
+        }
+        
+        // Log with both total elapsed time and operation-specific time
+        if (operationDuration > 0) {
+          console.log(`⏱️ [SplashScreenManager] Progress update: ${percentComplete}% (added ${(value * 100).toFixed(1)}%)${source ? ` from ${source}` : ''} | Operation time: ${formattedOperationTime}`);
+        } else {
+          console.log(`⏱️ [SplashScreenManager] Progress update: ${percentComplete}% (added ${(value * 100).toFixed(1)}%)${source ? ` from ${source}` : ''}`);
+        }
         
         // Record timing for this milestone
         if (source) {
           setTimingMetrics(prev => ({
             ...prev,
-            [source]: elapsed
+            [source]: elapsed,
+            [`${source}Duration`]: operationDuration > 0 ? operationDuration : 0 // Use 0 instead of undefined
           }));
         }
       }
@@ -825,6 +1012,66 @@ export default function SplashScreenManager({ children }: { children: React.Reac
         } catch (err) {
           console.warn('Static assets preloading timed out, continuing with app load:', err);
           updateProgress(0.1, LOADING_MESSAGES.REMOTE_ASSETS, 'staticAssets');
+        }
+        
+        // Phase 1.5: Preload Discover screen images (NEW)
+        const discoverImagesStart = Date.now();
+        setTimingMetrics(prev => ({ ...prev, discoverImagesStart }));
+        
+        try {
+          // Try to preload Discover screen images with a timeout
+          await Promise.race([
+            preloadDiscoverScreenImages(),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Discover images timeout')), PRELOAD_CONFIG.TIMEOUT.DISCOVER)
+            )
+          ]);
+          
+          const discoverImagesDuration = Date.now() - discoverImagesStart;
+          if (DEBUG_SPLASH_SCREEN) {
+            console.log(`⏱️ [SplashScreenManager] Discover images loaded in ${discoverImagesDuration}ms`);
+          }
+          
+          setTimingMetrics(prev => ({ 
+            ...prev, 
+            discoverImagesEnd: Date.now(),
+            discoverImagesDuration
+          }));
+          
+          updateProgress(0.15, LOADING_MESSAGES.REMOTE_ASSETS, 'discoverImages');
+        } catch (err) {
+          console.warn('Discover images preloading timed out, continuing with app load:', err);
+          updateProgress(0.1, LOADING_MESSAGES.REMOTE_ASSETS, 'discoverImagesFallback');
+        }
+        
+        // Phase 1.6: Preload Plan images
+        const planImagesStart = Date.now();
+        setTimingMetrics(prev => ({ ...prev, planImagesStart }));
+        
+        try {
+          // Try to preload Plan images with a timeout
+          await Promise.race([
+            preloadPlanImages(),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Plan images timeout')), PRELOAD_CONFIG.TIMEOUT.PLANS)
+            )
+          ]);
+          
+          const planImagesDuration = Date.now() - planImagesStart;
+          if (DEBUG_SPLASH_SCREEN) {
+            console.log(`⏱️ [SplashScreenManager] Plan images loaded in ${planImagesDuration}ms`);
+          }
+          
+          setTimingMetrics(prev => ({ 
+            ...prev, 
+            planImagesEnd: Date.now(),
+            planImagesDuration
+          }));
+          
+          updateProgress(0.1, LOADING_MESSAGES.REMOTE_ASSETS, 'planImages');
+        } catch (err) {
+          console.warn('Plan images preloading timed out, continuing with app load:', err);
+          updateProgress(0.05, LOADING_MESSAGES.REMOTE_ASSETS, 'planImagesFallback');
         }
         
         // Phase 2: Load remote images and data

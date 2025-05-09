@@ -13,6 +13,7 @@ import { LOADING_MESSAGES } from '../constants/loadingMessages';
 import * as FileSystem from 'expo-file-system';
 import { safePreloadImages, PreloadStrategy, strategicPreloadImages } from '../utils/imagePreloader';
 import { markAsImportantImage as markImageAsImportant } from '../utils/imagePreloader';
+import exerciseService from '../services/exerciseService';
 
 // Define storage bucket constants for compatibility with previous code
 export const STORAGE_BUCKETS = {
@@ -43,6 +44,9 @@ export const STATIC_IMAGES = {
   bodyModel: {
     front: require('../../assets/body-model_front.png'),
     back: require('../../assets/body-model_back.png')
+  },
+  placeholders: {
+    exercise: require('../../assets/exercises/placeholder.jpg')
   }
 };
 
@@ -77,7 +81,8 @@ const PRELOAD_CONFIG = {
     DISCOVER: 10000, // Timeout for discover screen image preloading
     PLANS: 10000, // Timeout for plans screen image preloading
     PROFILE: 5000, // Timeout for profile screen image preloading
-    INSIGHTS: 8000  // Timeout for insights screen image preloading
+    INSIGHTS: 8000,  // Timeout for insights screen image preloading
+    EXERCISES: 15000 // Timeout for exercises data preloading
   },
   BATCH_SIZE: 15, // Number of images to load in parallel
   // Increase cache limits to prevent purging important images
@@ -127,7 +132,8 @@ const preloadStaticImages = async () => {
     // Load static images (from our app bundle)
     const staticImages = [
       ...Object.values(STATIC_IMAGES.measurements),
-      ...Object.values(STATIC_IMAGES.bodyModel)
+      ...Object.values(STATIC_IMAGES.bodyModel),
+      ...Object.values(STATIC_IMAGES.placeholders) // Add placeholder images
     ];
     
     // Add additional static images if they exist
@@ -152,10 +158,66 @@ const preloadStaticImages = async () => {
     
     await Asset.loadAsync(staticImages);
     console.log('Static images preloaded');
+
+    // Mark placeholder images as important to prevent them from being purged from cache
+    preloadAndCachePlaceholderImages();
+
     return true;
   } catch (error) {
     console.error('Image preloading error:', error);
     return false;
+  }
+};
+
+// Utility to preload and cache placeholder images specifically
+const preloadAndCachePlaceholderImages = () => {
+  try {
+    if (DEBUG_SPLASH_SCREEN) {
+      console.log('🖼️ Preloading and caching exercise placeholder image...');
+    }
+
+    // Create a stable reference to the placeholder image that can be used throughout the app
+    const PLACEHOLDER_IMAGE_OBJECT = { uri: null, testUri: '../../assets/exercises/placeholder.jpg' };
+
+    // Load the placeholder image with Asset API for immediate availability
+    const placeholderAsset = Asset.fromModule(require('../../assets/exercises/placeholder.jpg'));
+    placeholderAsset.downloadAsync().then(() => {
+      console.log('✅ Exercise placeholder image fully preloaded with Asset API');
+    }).catch(error => {
+      console.warn('Error preloading exercise placeholder image with Asset API:', error);
+    });
+
+    // Add placeholder image to global cache to ensure it's available everywhere
+    if (!(global as any).placeholderImages) {
+      (global as any).placeholderImages = {
+        exercise: STATIC_IMAGES.placeholders.exercise,
+        exerciseObject: PLACEHOLDER_IMAGE_OBJECT
+      };
+    }
+
+    // Mark the exercise placeholder image as important to keep it in memory
+    if (typeof STATIC_IMAGES.placeholders.exercise === 'number') {
+      // For require() style images, we can't use markImageAsImportant directly
+      // Instead, we'll ensure they stay loaded by keeping references in the global cache
+      if (DEBUG_SPLASH_SCREEN) {
+        console.log('🔒 Exercise placeholder image marked as important');
+      }
+    }
+
+    // Create a cache entry for exercise images if it doesn't exist
+    if (!(global as any).exercisesCache) {
+      (global as any).exercisesCache = {
+        all: [],
+        byCategory: {},
+        lastUpdated: Date.now()
+      };
+    }
+
+    if (DEBUG_SPLASH_SCREEN) {
+      console.log('✅ Exercise placeholder image preloaded and cached successfully');
+    }
+  } catch (error) {
+    console.warn('Error preloading exercise placeholder image:', error);
   }
 };
 
@@ -376,6 +438,109 @@ const preloadPlanImages = async (): Promise<string[]> => {
     return imageUrls;
   } catch (error) {
     console.warn('Error preloading Plan images:', error);
+    return [];
+  }
+};
+
+// Preload exercise images and data
+const preloadExerciseData = async (): Promise<string[]> => {
+  try {
+    console.log('🔍 Preloading Exercise data and images during startup...');
+    
+    // Fetch all exercises
+    const { data: exercisesData, error: exercisesError } = await supabase
+      .from('exercises')
+      .select('*')
+      .order('name');
+
+    if (exercisesError) {
+      console.error('Error fetching exercises:', exercisesError);
+      return [];
+    }
+
+    // Extract image URLs
+    const imageUrls: string[] = [];
+    
+    // Store exercises in memory for immediate access
+    const exercisesByCategory: Record<string, any[]> = {};
+    
+    // Create a map of all unique muscle groups
+    const muscleGroups = new Set<string>();
+    
+    // Count exercises with and without images
+    let exercisesWithImage = 0;
+    let exercisesWithoutImage = 0;
+    
+    exercisesData.forEach((exercise: any) => {
+      // Track all muscle groups
+      if (exercise.muscle_group) {
+        muscleGroups.add(exercise.muscle_group);
+      }
+      
+      // Group exercises by muscle group for faster access later
+      const category = exercise.muscle_group || 'Other';
+      if (!exercisesByCategory[category]) {
+        exercisesByCategory[category] = [];
+      }
+      
+      // Ensure each exercise has an image reference
+      if (!exercise.image_url) {
+        exercisesWithoutImage++;
+        // Set a flag to indicate this exercise needs a placeholder
+        exercise.needsPlaceholder = true;
+      } else {
+        exercisesWithImage++;
+        // Collect image URLs for preloading
+        if (exercise.image_url.startsWith('http')) {
+          imageUrls.push(exercise.image_url);
+        } else {
+          // Use the Supabase URL format for storage with cache control
+          const cacheVersion = '1.0';
+          const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
+          const storageUrl = `${supabaseUrl}/storage/v1/object/public/exercises/${exercise.image_url}?v=${cacheVersion}`;
+          imageUrls.push(storageUrl);
+        }
+      }
+      
+      exercisesByCategory[category].push(exercise);
+    });
+    
+    console.log(`🔍 Found ${exercisesData.length} exercises (${exercisesWithImage} with images, ${exercisesWithoutImage} using placeholder) across ${muscleGroups.size} muscle groups`);
+    
+    // Store the exercises data in a global cache for immediate access
+    (global as any).exercisesCache = {
+      all: exercisesData,
+      byCategory: exercisesByCategory,
+      lastUpdated: Date.now()
+    };
+    
+    // Preload all images with high priority
+    if (imageUrls.length > 0) {
+      await strategicPreloadImages(imageUrls, PreloadStrategy.CRITICAL);
+      
+      // Mark these images as important
+      imageUrls.forEach(url => {
+        markImageAsImportant(url);
+      });
+    }
+    
+    // Preload exercises by category to avoid UI glitches when switching between muscle groups
+    console.log(`🔍 Caching exercises by muscle group to prevent UI glitches...`);
+    
+    // Pre-fetch each category separately to ensure they're cached
+    for (const muscleGroup of muscleGroups) {
+      try {
+        // No need to make actual API calls since we already have all data
+        // Just ensure the data is properly organized in the cache
+        console.log(`🔍 Organizing cache for muscle group: ${muscleGroup}`);
+      } catch (error) {
+        console.warn(`Error caching exercises for muscle group ${muscleGroup}:`, error);
+      }
+    }
+    
+    return imageUrls;
+  } catch (error) {
+    console.warn('Error preloading Exercise data and images:', error);
     return [];
   }
 };
@@ -1072,6 +1237,36 @@ export default function SplashScreenManager({ children }: { children: React.Reac
         } catch (err) {
           console.warn('Plan images preloading timed out, continuing with app load:', err);
           updateProgress(0.05, LOADING_MESSAGES.REMOTE_ASSETS, 'planImagesFallback');
+        }
+        
+        // Phase 1.7: Preload Exercise data and images
+        const exerciseDataStart = Date.now();
+        setTimingMetrics(prev => ({ ...prev, exerciseDataStart }));
+        
+        try {
+          // Try to preload Exercise data and images with a timeout
+          await Promise.race([
+            preloadExerciseData(),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Exercise data timeout')), PRELOAD_CONFIG.TIMEOUT.EXERCISES)
+            )
+          ]);
+          
+          const exerciseDataDuration = Date.now() - exerciseDataStart;
+          if (DEBUG_SPLASH_SCREEN) {
+            console.log(`⏱️ [SplashScreenManager] Exercise data loaded in ${exerciseDataDuration}ms`);
+          }
+          
+          setTimingMetrics(prev => ({ 
+            ...prev, 
+            exerciseDataEnd: Date.now(),
+            exerciseDataDuration
+          }));
+          
+          updateProgress(0.15, LOADING_MESSAGES.DATA, 'exerciseData');
+        } catch (err) {
+          console.warn('Exercise data preloading timed out, continuing with app load:', err);
+          updateProgress(0.05, LOADING_MESSAGES.DATA, 'exerciseDataFallback');
         }
         
         // Phase 2: Load remote images and data

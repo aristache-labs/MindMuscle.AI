@@ -345,6 +345,17 @@ export const invalidateOldCacheEntries = (maxAge: number = CACHE_CONFIG.EXPIRY):
   return invalidatedCount;
 };
 
+// Check if a source is a placeholder image with a stable reference
+export const isPlaceholderImage = (source: any): boolean => {
+  return (
+    typeof source === 'object' && 
+    source !== null && 
+    'testUri' in source && 
+    source.testUri && 
+    (!source.uri || source.uri === null)
+  );
+};
+
 /**
  * Safely preload images with automatic fallback to Asset API
  * @param sources Array of image sources to preload
@@ -359,15 +370,23 @@ export const safePreloadImages = async (
   }
   
   try {
+    // Filter out placeholder images with stable references
+    const filteredSources = sources.filter(source => !isPlaceholderImage(source));
+    
+    // If all sources are placeholders, return early
+    if (filteredSources.length === 0) {
+      return Promise.resolve();
+    }
+    
     // Handle the case when FastImage is available and sources are in the right format
     if (isFastImageAvailable && Platform.OS !== 'web') {
-      const validSources = sources.filter(source => {
+      const validSources = filteredSources.filter(source => {
         // Convert string sources to FastImage-compatible objects
         if (typeof source === 'string') {
           return true;
         }
         // Filter out non-objects and objects without uri
-        return typeof source === 'object' && source !== null && 'uri' in source;
+        return typeof source === 'object' && source !== null && 'uri' in source && source.uri;
       });
       
       // Process sources to ensure they have the right format for FastImage

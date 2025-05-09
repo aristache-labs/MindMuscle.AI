@@ -261,18 +261,25 @@ export default function ExercisesScreen() {
   const navigateToExercisesList = (muscleGroupName: string) => {
     // Pass the exact muscle group name as the categoryId
     // Also pass the fromScreen parameter so we can navigate back to exercises tab
+    // Add resetSearch parameter to ensure search is cleared when navigating
     const categoryId = muscleGroupName;
     
     router.push({
       pathname: '/(tabs)/exercises-list',
-      params: { categoryId, fromScreen: 'exercises' }
+      params: { categoryId, fromScreen: 'exercises', resetSearch: 'true' }
     });
   };
 
   const navigateToAllExercises = () => {
     router.push({
       pathname: '/(tabs)/exercises-list',
-      params: { showAllCategories: 'true', openSearch: 'true', fromScreen: 'exercises' }
+      params: { 
+        showAllCategories: 'true', 
+        openSearch: 'true', 
+        fromScreen: 'exercises', 
+        resetSearch: 'true',
+        groupByMuscle: 'true'
+      }
     });
   };
 

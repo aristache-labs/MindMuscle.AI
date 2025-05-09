@@ -214,6 +214,20 @@ export default function OptimizedImage({
       return source;
     }
 
+    // Special case for placeholder images with stable references
+    if (typeof source === 'object' && source !== null && 
+        'testUri' in source && source.testUri && 
+        (!source.uri || source.uri === null)) {
+      // This is a placeholder image with a stable reference
+      // Use require() if possible, otherwise fallback to a standard placeholder
+      try {
+        return require('../../assets/exercises/placeholder.jpg');
+      } catch (e) {
+        // If require fails, use a standard placeholder
+        return source;
+      }
+    }
+
     // Get optimal dimensions based on style
     const dimensions = getOptimalImageDimensions(style);
 
@@ -230,11 +244,11 @@ export default function OptimizedImage({
     }
 
     // Handle Source object
-    if (typeof source === 'object' && source !== null && 'uri' in source) {
+    if (typeof source === 'object' && source !== null && 'uri' in source && source.uri) {
       const uri = source.uri;
       
       // Apply dimension optimization to remote URLs
-      const optimizedUri = optimizeImageUri(uri, dimensions);
+      const optimizedUri = uri ? optimizeImageUri(uri, dimensions) : null;
       
       return {
         ...source,

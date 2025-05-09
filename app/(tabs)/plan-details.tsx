@@ -35,12 +35,12 @@ export default function PlanDetailsScreen() {
 
   // Map for fallback exercise images based on the ones in assets/exercises
   const fallbackImageMap: { [key: string]: any } = {
-    'fullbody.jpg': require('../../assets/exercises/fullbody.jpg'),
-    'dumbbell.jpg': require('../../assets/exercises/dumbbell.jpg'),
-    'pushup.jpg': require('../../assets/exercises/pushup.jpg'),
-    'squat.jpg': require('../../assets/exercises/squat.jpg'),
-    'yoga.jpg': require('../../assets/exercises/yoga.jpg'),
-    'placeholder.jpg': require('../../assets/exercises/placeholder.jpg'),
+    'fullbody.jpg': (global as any).placeholderImages?.fullbody || require('../../assets/exercises/fullbody.jpg'),
+    'dumbbell.jpg': (global as any).placeholderImages?.dumbbell || require('../../assets/exercises/dumbbell.jpg'),
+    'pushup.jpg': (global as any).placeholderImages?.pushup || require('../../assets/exercises/pushup.jpg'),
+    'squat.jpg': (global as any).placeholderImages?.squat || require('../../assets/exercises/squat.jpg'),
+    'yoga.jpg': (global as any).placeholderImages?.yoga || require('../../assets/exercises/yoga.jpg'),
+    'placeholder.jpg': (global as any).placeholderImages?.exercise || require('../../assets/exercises/placeholder.jpg'),
   };
 
   // Fetch plan and exercises

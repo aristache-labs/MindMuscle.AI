@@ -6,6 +6,7 @@ import {
   safePreloadImages, 
   isFastImageAvailable, 
   DEBUG_IMAGE_PRELOADER,
+  isPlaceholderImage,
   type Source,
   type Priority
 } from '../utils/imagePreloader';
@@ -104,9 +105,12 @@ export default function useImagePreloader(
     // Mark as started to prevent duplicate loads
     preloadingStarted.current = true;
 
+    // Filter out placeholder images
+    const filteredSources = sources.filter(source => !isPlaceholderImage(source));
+
     // Process sources into an array of URIs
-    const uris = sources.map(source => 
-      typeof source === 'string' ? source : source.uri
+    const uris = filteredSources.map(source => 
+      typeof source === 'string' ? source : (source.uri || '')
     ).filter(uri => uri && typeof uri === 'string');
     
     // Filter out already preloaded images if skipIfCached is true

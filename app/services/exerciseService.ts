@@ -37,8 +37,69 @@ export type ExerciseCategory =
   | 'Calves' 
   | 'all';
 
+// Cache expiry time in milliseconds (30 minutes)
+const CACHE_EXPIRY = 30 * 60 * 1000;
+
+// Helper to check if cache is available and valid
+const getCachedExercises = () => {
+  try {
+    const cache = (global as any).exercisesCache;
+    if (!cache) return null;
+    
+    // Check if cache is expired
+    const now = Date.now();
+    if (now - cache.lastUpdated > CACHE_EXPIRY) {
+      console.log('Exercise cache expired, will refresh from API');
+      return null;
+    }
+    
+    return cache;
+  } catch (error) {
+    console.warn('Error accessing exercise cache:', error);
+    return null;
+  }
+};
+
+// Helper to update the cache with new data
+const updateCache = (allExercises: Exercise[], byCategory?: Record<string, Exercise[]>) => {
+  try {
+    // Create category mapping if not provided
+    const categorized = byCategory || {};
+    
+    if (!byCategory) {
+      // Group exercises by category
+      allExercises.forEach(exercise => {
+        const category = exercise.muscle_group || 'Other';
+        if (!categorized[category]) {
+          categorized[category] = [];
+        }
+        categorized[category].push(exercise);
+      });
+    }
+    
+    // Update global cache
+    (global as any).exercisesCache = {
+      all: allExercises,
+      byCategory: categorized,
+      lastUpdated: Date.now()
+    };
+    
+    console.log(`Cache updated with ${allExercises.length} exercises across ${Object.keys(categorized).length} categories`);
+  } catch (error) {
+    console.warn('Error updating exercise cache:', error);
+  }
+};
+
 const exerciseService = {
   async getAllExercises(): Promise<Exercise[]> {
+    // Check cache first
+    const cache = getCachedExercises();
+    if (cache?.all) {
+      console.log('Using cached exercises data (all)');
+      return cache.all;
+    }
+    
+    // Fallback to API call
     const { data, error } = await supabase
       .from('exercises')
       .select('*')
@@ -47,6 +108,11 @@ const exerciseService = {
     if (error) {
       console.error('Error fetching exercises:', error);
       throw error;
+    }
+    
+    // Update cache with new data
+    if (data && data.length > 0) {
+      updateCache(data);
     }
 
     return data || [];
@@ -58,6 +124,30 @@ const exerciseService = {
       return this.getAllExercises();
     }
     
+    // Check cache first
+    const cache = getCachedExercises();
+    if (cache?.byCategory && cache.byCategory[category]) {
+      console.log(`Using cached exercises data (${category})`);
+      return cache.byCategory[category];
+    }
+    
+    // If we have all exercises cached but not this category specifically
+    // (this shouldn't happen with proper initialization, but just in case)
+    if (cache?.all) {
+      console.log(`Categorizing cached exercises for ${category}`);
+      const categoryExercises = cache.all.filter((ex: Exercise) => ex.muscle_group === category);
+      
+      // Update the category in the cache
+      if (categoryExercises.length > 0) {
+        if (!cache.byCategory) cache.byCategory = {};
+        cache.byCategory[category] = categoryExercises;
+        (global as any).exercisesCache = cache;
+        
+        return categoryExercises;
+      }
+    }
+    
+    // Fallback to API call
     const { data, error } = await supabase
       .from('exercises')
       .select('*')
@@ -68,8 +158,49 @@ const exerciseService = {
       console.error(`Error fetching ${category} exercises:`, error);
       throw error;
     }
+    
+    // Update just this category in the cache if we already have a cache
+    if (data && data.length > 0 && cache) {
+      if (!cache.byCategory) cache.byCategory = {};
+      cache.byCategory[category] = data;
+      (global as any).exercisesCache = cache;
+    }
 
     return data || [];
+  },
+  
+  // New method to preload all categories at once to prevent UI glitches
+  async preloadAllCategories(): Promise<void> {
+    try {
+      console.log('Preloading all exercise categories...');
+      
+      // First check if we already have a complete cache
+      const cache = getCachedExercises();
+      if (cache?.all && cache.byCategory && Object.keys(cache.byCategory).length > 0) {
+        console.log('All categories already cached');
+        return;
+      }
+      
+      // Fetch all exercises
+      const allExercises = await this.getAllExercises();
+      
+      // Group by category
+      const byCategory: Record<string, Exercise[]> = {};
+      allExercises.forEach(exercise => {
+        const category = exercise.muscle_group || 'Other';
+        if (!byCategory[category]) {
+          byCategory[category] = [];
+        }
+        byCategory[category].push(exercise);
+      });
+      
+      // Update cache with all categories
+      updateCache(allExercises, byCategory);
+      
+      console.log(`Successfully preloaded ${allExercises.length} exercises in ${Object.keys(byCategory).length} categories`);
+    } catch (error) {
+      console.error('Error preloading exercise categories:', error);
+    }
   },
 
   async getFavoriteExercises(): Promise<Exercise[]> {
@@ -96,8 +227,16 @@ const exerciseService = {
       return [];
     }
     
-    // Get the actual exercise details
+    // Get the actual exercise details - try cache first
     const exerciseIds = data.map(item => item.exercise_id);
+    const cache = getCachedExercises();
+    
+    if (cache?.all) {
+      console.log('Using cached data for favorite exercises');
+      return cache.all.filter((exercise: Exercise) => exerciseIds.includes(exercise.id));
+    }
+    
+    // Fallback to API call
     const { data: exercises, error: exercisesError } = await supabase
       .from('exercises')
       .select('*')
@@ -147,6 +286,17 @@ const exerciseService = {
   },
 
   async getExerciseById(id: string): Promise<Exercise | null> {
+    // Check cache first
+    const cache = getCachedExercises();
+    if (cache?.all) {
+      const exercise = cache.all.find((ex: Exercise) => ex.id === id);
+      if (exercise) {
+        console.log('Using cached data for exercise details');
+        return exercise;
+      }
+    }
+    
+    // Fallback to API call
     const { data, error } = await supabase
       .from('exercises')
       .select('*')
@@ -162,6 +312,18 @@ const exerciseService = {
   },
 
   async searchExercises(query: string): Promise<Exercise[]> {
+    // Try to search in cache first for better performance
+    const cache = getCachedExercises();
+    if (cache?.all) {
+      console.log('Searching exercises in cache');
+      const lowerQuery = query.toLowerCase();
+      return cache.all.filter((ex: Exercise) => 
+        ex.name.toLowerCase().includes(lowerQuery) || 
+        (ex.description && ex.description.toLowerCase().includes(lowerQuery))
+      );
+    }
+    
+    // Fallback to API call
     const { data, error } = await supabase
       .from('exercises')
       .select('*')
@@ -188,6 +350,11 @@ const exerciseService = {
       throw error;
     }
 
+    // Invalidate cache after creating a new exercise
+    if ((global as any).exercisesCache) {
+      (global as any).exercisesCache = null;
+    }
+
     return data;
   },
 
@@ -204,6 +371,11 @@ const exerciseService = {
       throw error;
     }
 
+    // Invalidate cache after updating an exercise
+    if ((global as any).exercisesCache) {
+      (global as any).exercisesCache = null;
+    }
+
     return data;
   },
 
@@ -217,7 +389,12 @@ const exerciseService = {
       console.error('Error deleting exercise:', error);
       throw error;
     }
+
+    // Invalidate cache after deleting an exercise
+    if ((global as any).exercisesCache) {
+      (global as any).exercisesCache = null;
+    }
   }
 };
 
-export default exerciseService; 
+export default exerciseService;

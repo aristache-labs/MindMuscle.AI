@@ -341,7 +341,7 @@ export default function ExerciseDetailsScreen({
           planTitle
         }
       });
-    } else if (params.fromScreen) {
+    } else {
       // Route to the specific screen from where this was opened
       const fromScreen = params.fromScreen.toString();
       
@@ -360,6 +360,17 @@ export default function ExerciseDetailsScreen({
             groupByMuscle
           }
         });
+      } else if (fromScreen === 'exercises-single-group') {
+        // Navigate back to the single muscle group view
+        const categoryId = params.categoryId || 'Cardio';
+        
+        router.push({
+          pathname: "/(tabs)/exercises-single-group",
+          params: { 
+            categoryId,
+            fromScreen: params.originalFromScreen || 'exercises'
+          }
+        });
       } else if (fromScreen === 'exercises') {
         // If coming from exercises tab, navigate back to exercises explicitly
         router.push('/(tabs)/exercises');
@@ -367,9 +378,6 @@ export default function ExerciseDetailsScreen({
         // For any other screen, try to navigate there directly
         router.push(`/(tabs)/${fromScreen}`);
       }
-    } else {
-      // Default fallback if no fromScreen is specified
-      router.back();
     }
   };
 

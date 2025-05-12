@@ -750,204 +750,133 @@ export default function ExercisesListScreen() {
     // Calculate the appropriate content offset based on search state
     const contentOffset = !isSearchActive && searchQuery.trim() !== '' ? 30 : 0;
 
-    // Adjust list content padding when search results are displayed
-    const listContentStyle = [
-      styles.listContent,
-      // Add extra bottom padding when search query is present to prevent content from being hidden behind the floating results header
-      searchQuery.trim() !== '' ? { paddingBottom: 80 } : null
-    ];
+    // Adjust list content padding to match exercises-single-group.tsx
+    const listContentStyle = {
+      paddingTop: 16,
+      paddingHorizontal: 8,
+      paddingBottom: searchQuery.trim() !== '' ? 80 : 30, // Extra padding when search results are shown
+    };
 
-    // Add an additional property to the listContentStyle for search results
-    const searchListContentStyle = [
-      listContentStyle,
-      { paddingHorizontal: 1 } // Reduced horizontal padding
-    ];
-
-    // Show categorized list for "all" or when searching, else show flat list
-    if (currentCategory === 'all' || searchQuery.trim() !== '') {
-      return (
-        <Animated.View style={[
-          styles.animatedContentContainer,
-          { paddingTop: isSearchActive ? contentOffsetAnim : contentOffset }
-        ]}>
-          {loading && (
-            <View style={styles.topLoaderContainer}>
-              <ActivityIndicator size="small" color={COLORS.primary} />
-              <Text style={styles.loadingText}>Loading exercises...</Text>
-            </View>
-          )}
-          
-          {/* If searching, use a FlatList-like layout without section headers */}
-          {searchQuery.trim() !== '' ? (
-            <FlatList
-              data={displayedExercises}
-              keyExtractor={item => item.id}
-              numColumns={2}
-              columnWrapperStyle={styles.columnWrapper}
-              contentContainerStyle={[searchListContentStyle, { paddingHorizontal: 1 }]}
-              renderItem={({ item }) => (
-                <ExerciseCard
-                  id={item.id}
-                  name={item.name}
-                  image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE_OBJECT}
-                  isFavorite={favoriteIds.has(item.id)}
-                  onPress={handleExercisePress}
-                  onToggleFavorite={toggleFavorite}
-                  useOptimizedImage={true}
-                />
+    return (
+      <Animated.View style={[
+        styles.animatedContentContainer,
+        { paddingTop: isSearchActive ? contentOffsetAnim : contentOffset }
+      ]}>
+        {loading && (
+          <View style={styles.topLoaderContainer}>
+            <ActivityIndicator size="small" color={COLORS.primary} />
+            <Text style={styles.loadingText}>Loading exercises...</Text>
+          </View>
+        )}
+        
+        {/* If searching, use a layout consistent with the exercises-single-group.tsx */}
+        {searchQuery.trim() !== '' ? (
+          <ScrollView
+            contentContainerStyle={styles.scrollViewContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.unifiedCategoryContainer}>
+              <View style={styles.allExercisesTitleGradient}>
+                <Text style={styles.categoryTitle}>
+                  SEARCH RESULTS
+                </Text>
+                <Text style={styles.exerciseCount}>
+                  {displayedExercises.length} {displayedExercises.length === 1 ? 'exercise' : 'exercises'}
+                </Text>
+              </View>
+              
+              <View style={styles.exerciseCardsContainer}>
+                {Array.from({ length: Math.ceil(displayedExercises.length / 2) }).map((_, rowIndex) => {
+                  const startIdx = rowIndex * 2;
+                  const rowItems = displayedExercises.slice(startIdx, startIdx + 2);
+                  
+                  return (
+                    <View key={`row-${rowIndex}`} style={styles.columnWrapper}>
+                      {rowItems.map(item => (
+                        <ExerciseCard
+                          key={item.id}
+                          id={item.id}
+                          name={item.name}
+                          image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE_OBJECT}
+                          isFavorite={favoriteIds.has(item.id)}
+                          onPress={handleExercisePress}
+                          onToggleFavorite={toggleFavorite}
+                          useOptimizedImage={true}
+                        />
+                      ))}
+                      {/* If odd number of items in the row, add an empty space */}
+                      {rowItems.length === 1 && <View style={styles.emptyCardSpace} />}
+                    </View>
+                  );
+                })}
+              </View>
+              
+              {displayedExercises.length === 0 && (
+                <ListEmptyComponent />
               )}
+            </View>
+          </ScrollView>
+        ) : (
+          // For "all" category without search, use SectionList with custom rendering
+          shouldGroupByMuscle ? (
+            <SectionList
+              sections={exerciseSections}
+              keyExtractor={(item) => item.id}
+              stickySectionHeadersEnabled={false}
+              renderItem={() => null}
+              renderSectionHeader={renderMuscleGroupSection}
+              contentContainerStyle={listContentStyle}
               ListEmptyComponent={ListEmptyComponent}
             />
           ) : (
-            // For "all" category without search, use SectionList with custom rendering
-            shouldGroupByMuscle ? (
-              <SectionList
-                sections={exerciseSections}
-                keyExtractor={(item) => item.id}
-                stickySectionHeadersEnabled={false}
-                renderItem={() => null}
-                renderSectionHeader={renderMuscleGroupSection}
-                contentContainerStyle={[
-                  listContentStyle,
-                  { paddingHorizontal: 1, paddingTop: 16, paddingBottom: 30 } // Reduced horizontal padding
-                ]}
-                ListEmptyComponent={ListEmptyComponent}
-              />
-            ) : (
-              <ScrollView 
-                contentContainerStyle={styles.scrollViewContent}
-                showsVerticalScrollIndicator={false}
-              >
-                {currentCategory === 'all' && !searchQuery.trim() && (
-                  <View style={styles.unifiedCategoryContainer}>
-                    <View style={styles.allExercisesTitleGradient}>
-                      <Text style={styles.allExercisesTitle}>
-                        {CATEGORY_NAMES['all']}
-                      </Text>
-                      <Text style={styles.exerciseCount}>
-                        {displayedExercises.length} {displayedExercises.length === 1 ? 'exercise' : 'exercises'}
-                      </Text>
-                    </View>
-                    
-                    {/* Render exercise cards directly in the unified container */}
-                    <View style={styles.exerciseCardsContainer}>
-                      {Array.from({ length: Math.ceil(displayedExercises.length / 2) }).map((_, rowIndex) => {
-                        const startIdx = rowIndex * 2;
-                        const rowItems = displayedExercises.slice(startIdx, startIdx + 2);
-                        
-                        return (
-                          <View key={`row-${rowIndex}`} style={styles.columnWrapper}>
-                            {rowItems.map(item => (
-                              <ExerciseCard
-                                key={item.id}
-                                id={item.id}
-                                name={item.name}
-                                image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE_OBJECT}
-                                isFavorite={favoriteIds.has(item.id)}
-                                onPress={handleExercisePress}
-                                onToggleFavorite={toggleFavorite}
-                                useOptimizedImage={true}
-                              />
-                            ))}
-                            {/* If odd number of items in the row, add an empty space */}
-                            {rowItems.length === 1 && <View style={styles.emptyCardSpace} />}
-                          </View>
-                        );
-                      })}
-                    </View>
-                  </View>
-                )}
-              </ScrollView>
-            )
-          )}
-        </Animated.View>
-      );
-    } else {
-      // For specific category view without search, use a unified container with scrolling
-      return (
-        <Animated.View style={[
-          styles.animatedContentContainer,
-          { paddingTop: isSearchActive ? contentOffsetAnim : contentOffset }
-        ]}>
-          {loading && (
-            <View style={styles.topLoaderContainer}>
-              <ActivityIndicator size="small" color={COLORS.primary} />
-              <Text style={styles.loadingText}>Loading exercises...</Text>
-            </View>
-          )}
-          
-          {!searchQuery.trim() && displayedExercises.length > 0 ? (
             <ScrollView 
-              contentContainerStyle={[
-                styles.scrollViewContent,
-                { paddingTop: 24 } // Increased padding for single group section
-              ]}
+              contentContainerStyle={styles.scrollViewContent}
               showsVerticalScrollIndicator={false}
             >
-              <View style={styles.unifiedCategoryContainer}>
-                {/* Category Header */}
-                <View style={styles.categoryTitleGradient}>
-                  <Text style={styles.categoryTitle}>
-                    {CATEGORY_NAMES[currentCategory] || currentCategory.toUpperCase()}
-                  </Text>
-                  <Text style={styles.exerciseCount}>
-                    {displayedExercises.length} {displayedExercises.length === 1 ? 'exercise' : 'exercises'}
-                  </Text>
+              {currentCategory === 'all' && !searchQuery.trim() && (
+                <View style={styles.unifiedCategoryContainer}>
+                  <View style={styles.allExercisesTitleGradient}>
+                    <Text style={styles.allExercisesTitle}>
+                      {CATEGORY_NAMES['all']}
+                    </Text>
+                    <Text style={styles.exerciseCount}>
+                      {displayedExercises.length} {displayedExercises.length === 1 ? 'exercise' : 'exercises'}
+                    </Text>
+                  </View>
+                  
+                  {/* Render exercise cards directly in the unified container */}
+                  <View style={styles.exerciseCardsContainer}>
+                    {Array.from({ length: Math.ceil(displayedExercises.length / 2) }).map((_, rowIndex) => {
+                      const startIdx = rowIndex * 2;
+                      const rowItems = displayedExercises.slice(startIdx, startIdx + 2);
+                      
+                      return (
+                        <View key={`row-${rowIndex}`} style={styles.columnWrapper}>
+                          {rowItems.map(item => (
+                            <ExerciseCard
+                              key={item.id}
+                              id={item.id}
+                              name={item.name}
+                              image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE_OBJECT}
+                              isFavorite={favoriteIds.has(item.id)}
+                              onPress={handleExercisePress}
+                              onToggleFavorite={toggleFavorite}
+                              useOptimizedImage={true}
+                            />
+                          ))}
+                          {/* If odd number of items in the row, add an empty space */}
+                          {rowItems.length === 1 && <View style={styles.emptyCardSpace} />}
+                        </View>
+                      );
+                    })}
+                  </View>
                 </View>
-                
-                {/* Exercise Cards in a grid */}
-                <View style={styles.exerciseCardsContainer}>
-                  {/* Group items in pairs for the two-column layout */}
-                  {Array.from({ length: Math.ceil(displayedExercises.length / 2) }).map((_, rowIndex) => {
-                    const startIdx = rowIndex * 2;
-                    const rowItems = displayedExercises.slice(startIdx, startIdx + 2);
-                    
-                    return (
-                      <View key={`row-${rowIndex}`} style={styles.columnWrapper}>
-                        {rowItems.map(item => (
-                          <ExerciseCard
-                            key={item.id}
-                            id={item.id}
-                            name={item.name}
-                            image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE_OBJECT}
-                            isFavorite={favoriteIds.has(item.id)}
-                            onPress={handleExercisePress}
-                            onToggleFavorite={toggleFavorite}
-                            useOptimizedImage={true}
-                          />
-                        ))}
-                        {/* If odd number of items in the row, add an empty space */}
-                        {rowItems.length === 1 && <View style={styles.emptyCardSpace} />}
-                      </View>
-                    );
-                  })}
-                </View>
-              </View>
-            </ScrollView>
-          ) : (
-            <FlatList
-              data={displayedExercises}
-              keyExtractor={item => item.id}
-              numColumns={2}
-              columnWrapperStyle={styles.columnWrapper}
-              contentContainerStyle={[searchListContentStyle, { paddingHorizontal: 1 }]}
-              renderItem={({ item }) => (
-                <ExerciseCard
-                  id={item.id}
-                  name={item.name}
-                  image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE_OBJECT}
-                  isFavorite={favoriteIds.has(item.id)}
-                  onPress={handleExercisePress}
-                  onToggleFavorite={toggleFavorite}
-                  useOptimizedImage={true}
-                />
               )}
-              ListEmptyComponent={ListEmptyComponent}
-            />
-          )}
-        </Animated.View>
-      );
-    }
+            </ScrollView>
+          )
+        )}
+      </Animated.View>
+    );
   };
 
   // Handle favorites filter toggle with optimistic UI updates
@@ -1036,7 +965,7 @@ export default function ExercisesListScreen() {
         <Divider style={styles.divider} />
       </View>
 
-      {/* Content container that scrolls under the header */}
+      {/* Content container */}
       <View style={styles.contentWrapper}>
         {renderContent()}
       </View>
@@ -1074,7 +1003,7 @@ export default function ExercisesListScreen() {
               <TextInput
                 ref={searchInputRef}
                 style={styles.searchInput}
-                placeholder="Search exercises or muscle groups..."
+                placeholder="Search exercises..."
                 placeholderTextColor="rgba(255,255,255,0.5)"
                 value={searchQuery}
                 onChangeText={setSearchQuery}
@@ -1115,7 +1044,7 @@ export default function ExercisesListScreen() {
             }
           ]}
         >
-          <Text style={styles.searchResultsText}>
+          <Text style={styles.searchResultsText} numberOfLines={1}>
             Results for "
             <Text style={styles.queryHighlight} numberOfLines={1} ellipsizeMode="middle">
               {searchQuery.length > 20 ? searchQuery.substring(0, 20) + '...' : searchQuery}
@@ -1231,9 +1160,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 0,
     flexDirection: 'row',
-    paddingHorizontal: 6,
-    paddingLeft: 6,
-    paddingRight: 6,
+    paddingHorizontal: 0,
+    gap: 0,
+  },
+  exerciseCardsContainer: {
+    paddingTop: 4,
+    paddingBottom: 10,
+    paddingHorizontal: 4,
   },
   emptyContainer: {
     flex: 1,
@@ -1380,8 +1313,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 14,
     paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    borderBottomWidth: 0.2,
+    borderBottomColor: COLORS.primary,
     marginBottom: 4,
   },
   muscleGroupRow: {
@@ -1493,34 +1426,24 @@ const styles = StyleSheet.create({
   contentWrapper: {
     flex: 1,
     marginTop: 80, // Header height plus extra spacing
+    marginBottom: 0,
   },
   unifiedCategoryContainer: {
     backgroundColor: COLORS.surface,
     borderRadius: BORDER_RADIUS.lg,
-    marginHorizontal: 4,
+    marginHorizontal: 0,
     marginBottom: 16,
     overflow: 'hidden',
     paddingBottom: 0,
-    shadowColor: 'rgba(108, 71, 255, 0.35)',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 4,
-    borderWidth: 0.5,
-    borderColor: 'rgba(120, 86, 255, 0.04)',
-    borderLeftWidth: 0.2,
-    borderRightWidth: 0.2,
-    borderTopWidth: 0.3,
-    borderBottomWidth: 1,
+    borderWidth: 0.2,
+    borderColor: COLORS.primary,
   },
   allExercisesTitleGradient: {
-    width: '100%',
-    backgroundColor: 'transparent',
     alignItems: 'center',
     paddingVertical: 14,
     paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    borderBottomWidth: 0.5,
+    borderBottomColor: COLORS.primary,
     marginBottom: 8,
   },
   allExercisesTitle: {
@@ -1535,15 +1458,10 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
     marginBottom: 6,
   },
-  exerciseCardsContainer: {
-    padding: 2,
-    paddingTop: 0,
-    paddingBottom: 0,
-    paddingHorizontal: 0, // Reduce from 8 to 2 to better work with columnWrapper padding
-  },
+
   scrollViewContent: {
     paddingTop: 16,
-    paddingHorizontal: 4,
+    paddingHorizontal: 8,
     paddingBottom: 30,
   },
   animatedContentContainer: {

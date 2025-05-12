@@ -98,9 +98,9 @@ const ExerciseCard = memo(({
                 hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
               >
                 <MaterialIcons
-                  name={isFavorite ? "favorite" : "favorite-border"}
+                  name={isFavorite ? "star" : "star-outline"}
                   size={24}
-                  color={isFavorite ? "#FF5252" : "#757575"}
+                  color={isFavorite ? "#FFD700" : "#757575"}
                 />
               </TouchableOpacity>
             )}
@@ -139,7 +139,7 @@ const styles = StyleSheet.create<Styles>({
   },
   card: {
     borderRadius: BORDER_RADIUS.md,
-    backgroundColor: '#1E2126',
+    backgroundColor: COLORS.background,
     elevation: 3,
     height: 220,
   },

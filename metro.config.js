@@ -15,6 +15,7 @@ const httpsShimPath = path.resolve(projectRoot, "app/utils/https-polyfill.ts");
 const tlsShimPath = path.resolve(projectRoot, "app/utils/tls-polyfill.ts");
 const streamsPolyfillPath = path.resolve(projectRoot, "app/utils/StreamsPolyfill.ts");
 const websocketPath = path.resolve(projectRoot, "app/utils/WebSocket.ts");
+const rscPolyfillPath = path.resolve(projectRoot, "node_modules/expo/virtual/rsc.js");
 
 // Block specific Node.js modules that shouldn't be used in React Native
 config.resolver.blockList = [
@@ -50,6 +51,7 @@ config.resolver.extraNodeModules = {
   ws: websocketPath,
   "web-streams-polyfill": streamsPolyfillPath,
   "web-streams-polyfill/ponyfill/es6": streamsPolyfillPath,
+  "expo/virtual/rsc": rscPolyfillPath,
 
   // Empty implementations for Node.js modules not used in React Native
   net: netShimPath,
@@ -79,6 +81,7 @@ config.resolver.alias = {
   "web-streams-polyfill/dist/ponyfill.es6.js": streamsPolyfillPath,
   http: httpShimPath,
   https: httpsShimPath,
+  "expo/virtual/rsc": rscPolyfillPath,
 };
 
 module.exports = config;

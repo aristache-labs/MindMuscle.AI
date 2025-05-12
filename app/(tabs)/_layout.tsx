@@ -25,7 +25,8 @@ const HIDE_TAB_BAR_SCREENS = [
   '/plans',
   '/plan-details', 
   '/exercises-list', 
-  '/exercise-details'
+  '/exercise-details',
+  '/exercises-single-group'
 ];
 
 interface TabBarButtonProps {

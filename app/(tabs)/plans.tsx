@@ -170,11 +170,6 @@ export default function PlansScreen() {
         <View style={styles.planCardContent}>
           <View style={styles.planCardLeft}>
             <Text style={styles.planNumber}>PLAN {index + 1}</Text>
-            {item.days_per_week !== undefined && (
-              <Text style={styles.planDaysPerWeek}>
-                {item.days_per_week} {item.days_per_week === 1 ? 'Day' : 'Days'} per Week
-              </Text>
-            )}
           </View>
           <IconButton
             icon="chevron-right"
@@ -271,7 +266,7 @@ export default function PlansScreen() {
           debugLabel="FeaturedPlanImage"
         />
         <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.9)']}
+          colors={['rgba(0,0,0,0.5)', 'rgba(0,0,0,0.6)', 'rgba(0,0,0,0.7)']}
           style={styles.featuredGradient}
         />
         <View style={styles.featuredContent}>
@@ -359,10 +354,11 @@ const styles = StyleSheet.create({
   },
   featuredGradient: {
     position: 'absolute',
-    bottom: 0,
+    top: 0,
     left: 0,
     right: 0,
-    height: '70%',
+    bottom: 0,
+    height: '100%',
   },
   featuredContent: {
     position: 'absolute',
@@ -370,17 +366,21 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     padding: SPACING.md,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
   },
   featuredTitle: {
     fontSize: 22,
     fontWeight: 'bold',
     textTransform: 'uppercase',
+    textAlign: 'center',
   },
   featuredSubtitle: {
     fontSize: 15,
     color: COLORS.text,
     opacity: 0.9,
     marginTop: 4,
+    textAlign: 'center',
   },
   sectionTitleContainer: {
     marginHorizontal: SPACING.md,
@@ -431,11 +431,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: COLORS.text,
-  },
-  planDaysPerWeek: {
-    fontSize: 13,
-    color: `${COLORS.text}B3`,
-    marginTop: 2,
   },
   arrowIcon: {
     margin: 0,

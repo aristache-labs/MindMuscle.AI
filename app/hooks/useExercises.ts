@@ -110,4 +110,17 @@ export function useDeleteExercise() {
       queryClient.invalidateQueries({ queryKey: exerciseKeys.lists() });
     },
   });
-} 
+}
+
+// Default export for Expo Router compatibility
+export default { 
+  useExercises,
+  useExerciseSearch,
+  useFavoriteExercises,
+  useExerciseDetails,
+  useToggleFavoriteExercise,
+  useCreateExercise,
+  useUpdateExercise,
+  useDeleteExercise,
+  exerciseKeys
+}; 

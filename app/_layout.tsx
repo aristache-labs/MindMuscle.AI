@@ -1,3 +1,6 @@
+// Initialize polyfills first
+import './utils/polyfills';
+
 import { useEffect, useState } from 'react';
 import { useColorScheme, Platform } from 'react-native';
 import { Slot } from 'expo-router';

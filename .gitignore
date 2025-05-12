@@ -11,3 +11,11 @@ npm-debug.*
 web-build/
 !.env.example
 *.mjs
+/ioa
+/android
+/ios
+/web
+/dist
+/build
+/coverage
+/node_modules

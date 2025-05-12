@@ -1,6 +1,6 @@
 {
   "expo": {
-    "sdkVersion": "52.0.0",             // ← explicitly declare your SDK
+    "sdkVersion": "53.0.0",
     "name": "MindMuscle.AI",
     "slug": "mindmuscle-ai",
     "version": "1.0.0",
@@ -20,7 +20,9 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.mindmuscle.ai",
-      "associatedDomains": ["applinks:mindmuscle.app"]
+      "associatedDomains": [
+        "applinks:mindmuscle.app"
+      ]
     },
     "android": {
       "adaptiveIcon": {
@@ -32,10 +34,19 @@
         {
           "action": "VIEW",
           "autoVerify": true,
-          "data": [{ "scheme": "mindmuscle", "host": "reset-password" }],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "data": [
+            {
+              "scheme": "mindmuscle",
+              "host": "reset-password"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
-      ]
+      ],
+      "edgeToEdgeEnabled": true
     },
     "web": {
       "bundler": "metro"
@@ -61,7 +72,24 @@
           "organization": "mindmuscleai",
           "project": "mindmuscle-ai"
         }
-      ]
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35,
+            "minSdkVersion": 24
+          },
+          "ios": {
+            "deploymentTarget": "15.1"
+          }
+        }
+      ],
+      "expo-splash-screen",
+      "expo-asset",
+      "expo-font",
+      "expo-web-browser"
     ],
     "scheme": "mindmuscle",
     "extra": {
@@ -70,6 +98,12 @@
       "eas": {
         "projectId": "4509201333092432"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/4509201333092432"
     }
   }
 }

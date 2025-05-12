@@ -1,4 +1,4 @@
-import * as Sentry from 'sentry-expo';
+import * as Sentry from '@sentry/react-native';
 import Constants from 'expo-constants';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -52,14 +52,14 @@ class Logger {
     // Always send errors to Sentry in production
     if (level === 'error' && this.isProduction) {
       if (options?.context) {
-        Sentry.Native.setContext('error_context', options.context);
+        Sentry.setContext('error_context', options.context);
       }
       if (options?.tags) {
         Object.entries(options.tags).forEach(([key, value]) => {
-          Sentry.Native.setTag(key, value);
+          Sentry.setTag(key, value);
         });
       }
-      Sentry.Native.captureMessage(message);
+      Sentry.captureMessage(message);
     }
   }
 
@@ -88,7 +88,7 @@ class Logger {
       this.log('error', message, { ...options, context });
 
       if (this.isProduction) {
-        Sentry.Native.captureException(error);
+        Sentry.captureException(error);
       }
     } else {
       this.log('error', message, options);

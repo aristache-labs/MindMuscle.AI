@@ -15,7 +15,7 @@ export default function Achievements() {
   const [achievements, setAchievements] = useState<UserAchievement[]>([]);
   const [loading, setLoading] = useState(true);
   const [showFullLoadingScreen, setShowFullLoadingScreen] = useState(false);
-  const loadingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const loadingTimerRef = useRef<number | null>(null);
   
   // Simple function to handle back navigation
   const handleGoBack = () => {
@@ -50,7 +50,7 @@ export default function Achievements() {
       setLoading(true);
       
       // Only show the full loading screen if loading takes more than 500ms
-      loadingTimerRef.current = setTimeout(() => {
+      loadingTimerRef.current = window.setTimeout(() => {
         setShowFullLoadingScreen(true);
       }, 500);
       

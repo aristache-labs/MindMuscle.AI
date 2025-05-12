@@ -527,9 +527,9 @@ export default function InsightsScreen() {
                   textDayFontSize: 16,
                   textMonthFontSize: 18,
                   textDayHeaderFontSize: 14,
-                  todayTextFontFamily: 'System',
-                  todayFontWeight: '400',
-                  todayTextFontSize: 24,
+                  todayButtonFontFamily: 'System',
+                  textDayFontWeight: '400',
+                  todayButtonFontSize: 24,
                   arrowColor: COLORS.primary,
                 }}
               />

@@ -26,41 +26,15 @@ const screenHeight = Dimensions.get('window').height;
 // Debug flag - set to false to reduce logging
 export const DEBUG_OPTIMIZED_IMAGE = true;
 
-// Dynamic import for FastImage to prevent crashes on platforms where it's not available
-let FastImage: any = null;
-let isFastImageAvailable = false;
-
-// Try to load FastImage (will be undefined if not installed or linked)
-try {
-  FastImage = require('react-native-fast-image').default;
-  // Additional check to make sure the module is properly linked
-  isFastImageAvailable = !!FastImage && typeof FastImage.preload === 'function' && !('bubblingEventTypes' in FastImage);
-  
-  if (DEBUG_OPTIMIZED_IMAGE) {
-    console.log(`📱 [OptimizedImage] Image renderer: ${isFastImageAvailable ? 'FastImage is available ✅' : 'FastImage is not available ❌'}`);
-    if (!isFastImageAvailable) {
-      console.log(`📱 [OptimizedImage] Fallback: Using expo-image in ${Platform.OS === 'web' ? 'web' : 'native'} environment`);
-    }
-  }
-} catch (e) {
-  if (DEBUG_OPTIMIZED_IMAGE) {
-    console.log('📱 [OptimizedImage] FastImage import failed:', e);
-    console.log('📱 [OptimizedImage] Fallback: Using expo-image in Expo Go environment');
-  }
-  isFastImageAvailable = false;
-}
-
 // Track usage statistics
 let imageRenderCount = 0;
-let fastImageUsageCount = 0;
-let expoImageUsageCount = 0;
 
 // Log usage statistics periodically
 if (DEBUG_OPTIMIZED_IMAGE) {
   // Setup interval to log image usage statistics every 10 seconds
   setInterval(() => {
     if (imageRenderCount > 0) {
-      console.log(`📊 [OptimizedImage] Rendering stats - Total: ${imageRenderCount}, FastImage: ${fastImageUsageCount} (${Math.round(fastImageUsageCount/imageRenderCount*100)}%), expo-image: ${expoImageUsageCount} (${Math.round(expoImageUsageCount/imageRenderCount*100)}%)`);
+      console.log(`📊 [OptimizedImage] Rendering stats - Total: ${imageRenderCount}`);
     }
   }, 10000); // 10 seconds
 }
@@ -207,7 +181,7 @@ export default function OptimizedImage({
     loadDuration: null,
   });
 
-  // Process the source into the format required by FastImage
+  // Process the source for expo-image
   const processedSource = useMemo(() => {
     // Handle require() case (static image)
     if (typeof source === 'number') {
@@ -236,11 +210,7 @@ export default function OptimizedImage({
       // Apply dimension optimization to remote URLs
       const optimizedUri = optimizeImageUri(source, dimensions);
       
-      return {
-        uri: optimizedUri,
-        priority: getPriority(priority),
-        cache: getCachePolicy(cachePolicy),
-      };
+      return optimizedUri;
     }
 
     // Handle Source object
@@ -250,445 +220,202 @@ export default function OptimizedImage({
       // Apply dimension optimization to remote URLs
       const optimizedUri = uri ? optimizeImageUri(uri, dimensions) : null;
       
+      if (!optimizedUri) return source;
+      
       return {
         ...source,
-        uri: optimizedUri,
-        priority: getPriority(priority),
-        cache: getCachePolicy(cachePolicy)
+        uri: optimizedUri
       };
     }
 
-    // Handle other cases
+    // Fallback to the original source
     return source;
-  }, [source, priority, cachePolicy, style]);
+  }, [source, style]);
 
-  // Check if image is in cache immediately when source changes
+  // Extract dimensions for estimation
+  const dimensions = useMemo(() => getOptimalImageDimensions(style), [style]);
+
+  // Check if the image is in the cache
   useEffect(() => {
-    if (typeof processedSource === 'object' && processedSource?.uri) {
-      const uri = processedSource.uri;
-      // Check if image is already in cache
-      const cached = isImageCached(uri);
-      setIsCached(cached);
-      
-      // If image is already in cache, skip loading state
-      if (cached) {
-        setLoading(false);
-        
-        // If the image is already in cache, we can consider it loaded immediately
-        if (DEBUG_OPTIMIZED_IMAGE) {
-          const label = debugLabel || 'OptimizedImage';
-          console.log(`⚡ [${label}] Image already in cache, skipping loading state`);
+    const checkCache = async () => {
+      if (typeof processedSource === 'object' && processedSource !== null && 'uri' in processedSource) {
+        const uri = processedSource.uri;
+        if (uri) {
+          try {
+            const cached = await isImageCached(uri);
+            setIsCached(cached);
+          } catch (err) {
+            setIsCached(false);
+          }
         }
-        
-        // Call onLoadEnd callback if provided
-        if (onLoadEnd) {
-          onLoadEnd();
+      } else if (typeof processedSource === 'string') {
+        try {
+          const cached = await isImageCached(processedSource);
+          setIsCached(cached);
+        } catch (err) {
+          setIsCached(false);
         }
       }
-    }
-  }, [processedSource, debugLabel, onLoadEnd]);
+    };
+    
+    checkCache();
+  }, [processedSource]);
 
-  // Process fallback source
-  const fallbackSource = useMemo(() => {
-    if (!fallback) return null;
-    
-    if (typeof fallback === 'number') {
-      return fallback;
-    }
-    
-    if (typeof fallback === 'string') {
-      return { uri: fallback };
-    }
-    
-    return fallback;
-  }, [fallback]);
-  
   // Mark as important if needed
   useEffect(() => {
-    if (isImportant && 
-        typeof processedSource === 'object' && 
-        processedSource !== null && 
-        'uri' in processedSource && 
-        processedSource.uri) {
-      // Use a setTimeout to prevent synchronous state updates from causing render loops
-      const timer = setTimeout(() => {
+    if (isImportant && processedSource) {
+      if (typeof processedSource === 'object' && processedSource !== null && 'uri' in processedSource) {
         markAsImportantImage(processedSource.uri);
-      }, 0);
-      
-      return () => clearTimeout(timer);
+      } else if (typeof processedSource === 'string') {
+        markAsImportantImage(processedSource);
+      }
     }
-  }, [isImportant, processedSource?.uri]);
-  
+  }, [isImportant, processedSource]);
+
   // Handle load start
   const handleLoadStart = () => {
     // Check if image is already in cache
-    if (typeof processedSource === 'object' && processedSource?.uri && isImageCached(processedSource.uri)) {
-      // Skip loading state for cached images
+    if (isCached) {
       if (DEBUG_OPTIMIZED_IMAGE) {
-        const label = debugLabel || 'OptimizedImage';
-        console.log(`⚡ [${label}] Image already in cache, skipping loading state`);
+        console.log(`🖼️ [OptimizedImage] ${debugLabel || 'Image'} already in cache, skipping load indicators`);
       }
-      setIsCached(true);
-      setLoading(false); // Immediately set loading to false
+      setLoading(false);
       
-      // For cached images, set zero loading time
-      setTiming({
-        loadStart: Date.now(),
-        loadEnd: Date.now(),
-        loadDuration: 0
-      });
-      
-      // Call onLoadEnd immediately for cached images
-      if (onLoadEnd) {
-        onLoadEnd();
+      if (onLoadStart) {
+        onLoadStart();
       }
+      
       return;
     }
     
+    setTiming(prev => ({
+      ...prev,
+      loadStart: Date.now(),
+    }));
+    
     setLoading(true);
-    setError(false);
-    setTiming(prev => ({ ...prev, loadStart: Date.now() }));
     
     if (onLoadStart) {
       onLoadStart();
     }
-    
-    if (DEBUG_OPTIMIZED_IMAGE) {
-      const label = debugLabel || 'OptimizedImage';
-      console.log(`⏳ [${label}] Loading image started`);
-    }
   };
-  
-  // Handle load success
+
+  // Handle load end
   const handleLoadEnd = () => {
+    // Add to the cache for future reference
+    if (processedSource) {
+      try {
+        // Handle string source
+        if (typeof processedSource === 'string') {
+          const uri = processedSource;
+          const size = estimatedSize || calculateEstimatedSize(uri, dimensions);
+          addImageToCache(uri, size);
+        }
+        // Handle object source with uri
+        else if (typeof processedSource === 'object' && processedSource !== null && 'uri' in processedSource) {
+          const uri = processedSource.uri;
+          if (uri) {
+            const size = estimatedSize || calculateEstimatedSize(uri, dimensions);
+            addImageToCache(uri, size);
+          }
+        }
+      } catch (e) {
+        // Ignore cache errors
+        if (DEBUG_OPTIMIZED_IMAGE) {
+          console.warn(`🖼️ [OptimizedImage] Cache error for ${debugLabel || 'image'}:`, e);
+        }
+      }
+    }
+    
     setLoading(false);
+    setError(false);
     
-    const now = Date.now();
-    // Calculate the actual duration in milliseconds
-    const loadDuration = timing.loadStart > 0 ? now - timing.loadStart : 0;
+    const endTime = Date.now();
+    const startTime = timing.loadStart;
+    const duration = startTime ? endTime - startTime : null;
     
-    setTiming(prev => ({ 
-      ...prev, 
-      loadEnd: now,
-      loadDuration 
+    setTiming(prev => ({
+      ...prev,
+      loadEnd: endTime,
+      loadDuration: duration,
     }));
     
-    // Add to cache using improved caching mechanism
-    if (typeof processedSource === 'object' && processedSource?.uri) {
-      const uri = processedSource.uri;
-      
-      // Calculate image size if not provided
-      const dimensions = getOptimalImageDimensions(style);
-      const size = estimatedSize || calculateEstimatedSize(uri, dimensions);
-      
-      // Special handling for high retention priority
-      if (retentionPriority === 'high') {
-        // Mark as important to keep in cache longer (size 0 means "don't purge")
-        addImageToCache(uri, 0);
-      } else {
-        // Normal caching with estimated size
-        addImageToCache(uri, size);
-      }
+    if (DEBUG_OPTIMIZED_IMAGE && duration) {
+      console.log(`🖼️ [OptimizedImage] ${debugLabel || 'Image'} loaded in ${duration}ms`);
     }
     
     if (onLoadEnd) {
       onLoadEnd();
     }
     
-    if (DEBUG_OPTIMIZED_IMAGE) {
-      const label = debugLabel || 'OptimizedImage';
-      
-      // Skip logging for zero duration (already cached images)
-      if (loadDuration === 0) {
-        console.log(`⚡ [${label}] Image load skipped (already in cache)`);
-        return;
-      }
-      
-      // Format the duration in appropriate units (ms, seconds, or minutes)
-      let formattedDuration = '';
-      if (loadDuration >= 60000) {
-        // Show in minutes and seconds if >= 1 minute
-        const minutes = Math.floor(loadDuration / 60000);
-        const seconds = Math.floor((loadDuration % 60000) / 1000);
-        formattedDuration = `${minutes}m ${seconds}s (${loadDuration}ms)`;
-      } else if (loadDuration >= 1000) {
-        // Show in seconds if >= 1 second
-        const seconds = (loadDuration / 1000).toFixed(2);
-        formattedDuration = `${seconds}s (${loadDuration}ms)`;
-      } else {
-        // Show in milliseconds only if < 1 second
-        formattedDuration = `${loadDuration}ms`;
-      }
-      
-      console.log(`✅ [${label}] Image loaded in ${formattedDuration}`);
-    }
+    // Update stats
+    imageRenderCount++;
   };
-  
-  // Handle load error
-  const handleError = (error: Error) => {
+
+  // Handle errors
+  const handleError = (event: any) => {
     setLoading(false);
     setError(true);
     
-    if (onError) {
-      onError(error);
+    if (DEBUG_OPTIMIZED_IMAGE) {
+      console.error(`🖼️ [OptimizedImage] ${debugLabel || 'Image'} error:`, event);
     }
     
-    if (DEBUG_OPTIMIZED_IMAGE) {
-      const label = debugLabel || 'OptimizedImage';
-      console.log(`❌ [${label}] Image load error:`, error);
+    if (onError) {
+      // Convert to Error object for backwards compatibility with consumer code
+      const errorObj = new Error('Image loading failed');
+      onError(errorObj);
     }
   };
-  
-  // Convert priority string to FastImage priority
-  function getPriority(prio: string): any {
-    if (!isFastImageAvailable) return prio;
-    
-    switch (prio) {
-      case 'low': return FastImage.priority.low;
-      case 'high': return FastImage.priority.high;
-      case 'normal':
-      default: return FastImage.priority.normal;
-    }
-  }
-  
-  // Convert cache policy string to FastImage cache policy
-  function getCachePolicy(policy: string): any {
-    if (!isFastImageAvailable) return policy;
-    
-    switch (policy) {
-      case 'web': return FastImage.cacheControl.web;
-      case 'cacheOnly': return FastImage.cacheControl.cacheOnly;
-      case 'immutable':
-      default: return FastImage.cacheControl.immutable;
-    }
-  }
-  
-  // Get FastImage resize mode
-  function getResizeMode(mode: string): any {
-    if (!isFastImageAvailable) {
-      // Return RN resize mode if FastImage is not available
-      switch (mode) {
-        case 'contain': return 'contain';
-        case 'stretch': return 'stretch';
-        case 'center': return 'center';
-        case 'cover':
-        default: return 'cover';
-      }
-    }
-    
-    // Return FastImage resize mode
-    switch (mode) {
-      case 'contain': return FastImage.resizeMode.contain;
-      case 'stretch': return FastImage.resizeMode.stretch;
-      case 'center': return FastImage.resizeMode.center;
-      case 'cover':
-      default: return FastImage.resizeMode.cover;
-    }
-  }
-  
-  // Convert resize mode to expo-image ContentFit
+
+  // Convert to expo-image contentFit
   function getContentFit(mode: string): ImageContentFit {
     switch (mode) {
-      case 'contain': return 'contain';
-      case 'stretch': return 'fill';
-      case 'center': return 'none';
+      case 'contain':
+        return 'contain';
       case 'cover':
-      default: return 'cover';
+        return 'cover';
+      case 'stretch':
+        return 'fill';
+      case 'center':
+        return 'none';
+      default:
+        return 'cover';
     }
   }
-  
+
   // Render component
   return (
-    <View style={[styles.container, containerStyle]} testID={testID}>
-      {Platform.OS === 'web' || !isFastImageAvailable ? (
-        // Use Image component from expo-image for web or when FastImage is not available
-        (() => {
-          if (DEBUG_OPTIMIZED_IMAGE) {
-            expoImageUsageCount++;
-            imageRenderCount++;
-            const sourceType = typeof processedSource;
-            const sourceDisplay = sourceType === 'number' ? 
-              'Local Asset (require)' : 
-              sourceType === 'object' && processedSource?.uri ? 
-                processedSource.uri?.includes('supabase.co') ? 
-                  (() => {
-                    // Extract the path and filename without query parameters
-                    const fullPath = processedSource.uri;
-                    const urlParts = fullPath.split('?')[0]; // Remove query parameters
-                    
-                    // Extract path components
-                    const pathParts = urlParts.split('/');
-                    const filename = pathParts.pop(); // Get the last part (filename)
-                    
-                    // Get the folder/bucket path - take up to 2 path segments before the filename if available
-                    let folderPath = '';
-                    if (pathParts.length > 0) {
-                      // Get the last 1-2 path segments for context, but not the full URL
-                      const relevantPathParts = pathParts.slice(Math.max(0, pathParts.length - 2));
-                      folderPath = relevantPathParts.join('/');
-                      
-                      // If we have a folder path, format it nicely
-                      if (folderPath) {
-                        if (!folderPath.startsWith('/')) {
-                          folderPath = '/' + folderPath;
-                        }
-                        if (!folderPath.endsWith('/')) {
-                          folderPath += '/';
-                        }
-                      }
-                    }
-                    
-                    return `SUPABASE - ${folderPath}${filename}`;
-                  })() : 
-                  processedSource.uri?.includes('firebasestorage.googleapis.com') ?
-                  (() => {
-                    // Extract information from Firebase storage URL
-                    const fullPath = processedSource.uri;
-                    
-                    // Firebase URLs have a specific format with the path encoded after /o/
-                    const pathMatch = fullPath.match(/\/o\/([^?]+)/);
-                    if (pathMatch && pathMatch[1]) {
-                      // Decode the URI component to get the actual path
-                      const decodedPath = decodeURIComponent(pathMatch[1]);
-                      
-                      // Split by slashes to get path components
-                      const pathParts = decodedPath.split('/');
-                      
-                      // Extract bucket name, folder path and filename
-                      const bucketName = pathParts[0] || 'firebase';
-                      const filename = pathParts.length > 1 ? pathParts[pathParts.length - 1] : decodedPath;
-                      
-                      // Build folder path (excluding bucket and filename)
-                      let folderPath = '';
-                      if (pathParts.length > 2) {
-                        folderPath = '/' + pathParts.slice(1, -1).join('/') + '/';
-                      }
-                      
-                      return `FIREBASE - ${bucketName}${folderPath}${filename}`;
-                    }
-                    
-                    // Fallback if we can't parse the URL
-                    return `FIREBASE - ${fullPath.substring(fullPath.lastIndexOf('/') + 1, fullPath.indexOf('?') > 0 ? fullPath.indexOf('?') : undefined)}`;
-                  })() :
-                  processedSource.uri?.substring(0, 50) + '...' 
-                : 'Local image';
-            console.log(`🖼️ [${debugLabel || 'OptimizedImage'}] Rendering with expo-image: ${sourceDisplay}`);
-          }
-          return (
-            <Image
-              source={processedSource}
-              style={[styles.image, style]}
-              contentFit={getContentFit(resizeMode)}
-              transition={300}
-              onLoadStart={handleLoadStart}
-              onLoad={handleLoadEnd}
-              onError={() => handleError(new Error('Image load failed'))}
-            />
-          );
-        })()
-      ) : (
-        // Use FastImage for native platforms if available and properly linked
-        (() => {
-          if (DEBUG_OPTIMIZED_IMAGE) {
-            fastImageUsageCount++;
-            imageRenderCount++;
-            const sourceType = typeof processedSource;
-            const sourceDisplay = sourceType === 'number' ? 
-              'Local Asset (require)' : 
-              sourceType === 'object' && processedSource?.uri ? 
-                processedSource.uri?.includes('supabase.co') ? 
-                  (() => {
-                    // Extract the path and filename without query parameters
-                    const fullPath = processedSource.uri;
-                    const urlParts = fullPath.split('?')[0]; // Remove query parameters
-                    
-                    // Extract path components
-                    const pathParts = urlParts.split('/');
-                    const filename = pathParts.pop(); // Get the last part (filename)
-                    
-                    // Get the folder/bucket path - take up to 2 path segments before the filename if available
-                    let folderPath = '';
-                    if (pathParts.length > 0) {
-                      // Get the last 1-2 path segments for context, but not the full URL
-                      const relevantPathParts = pathParts.slice(Math.max(0, pathParts.length - 2));
-                      folderPath = relevantPathParts.join('/');
-                      
-                      // If we have a folder path, format it nicely
-                      if (folderPath) {
-                        if (!folderPath.startsWith('/')) {
-                          folderPath = '/' + folderPath;
-                        }
-                        if (!folderPath.endsWith('/')) {
-                          folderPath += '/';
-                        }
-                      }
-                    }
-                    
-                    return `SUPABASE - ${folderPath}${filename}`;
-                  })() : 
-                  processedSource.uri?.includes('firebasestorage.googleapis.com') ?
-                  (() => {
-                    // Extract information from Firebase storage URL
-                    const fullPath = processedSource.uri;
-                    
-                    // Firebase URLs have a specific format with the path encoded after /o/
-                    const pathMatch = fullPath.match(/\/o\/([^?]+)/);
-                    if (pathMatch && pathMatch[1]) {
-                      // Decode the URI component to get the actual path
-                      const decodedPath = decodeURIComponent(pathMatch[1]);
-                      
-                      // Split by slashes to get path components
-                      const pathParts = decodedPath.split('/');
-                      
-                      // Extract bucket name, folder path and filename
-                      const bucketName = pathParts[0] || 'firebase';
-                      const filename = pathParts.length > 1 ? pathParts[pathParts.length - 1] : decodedPath;
-                      
-                      // Build folder path (excluding bucket and filename)
-                      let folderPath = '';
-                      if (pathParts.length > 2) {
-                        folderPath = '/' + pathParts.slice(1, -1).join('/') + '/';
-                      }
-                      
-                      return `FIREBASE - ${bucketName}${folderPath}${filename}`;
-                    }
-                    
-                    // Fallback if we can't parse the URL
-                    return `FIREBASE - ${fullPath.substring(fullPath.lastIndexOf('/') + 1, fullPath.indexOf('?') > 0 ? fullPath.indexOf('?') : undefined)}`;
-                  })() :
-                  processedSource.uri?.substring(0, 50) + '...' 
-                : 'Local image';
-            console.log(`🖼️ [${debugLabel || 'OptimizedImage'}] Rendering with FastImage: ${sourceDisplay}`);
-          }
-          return (
-            <FastImage
-              source={processedSource}
-              style={[styles.image, style]}
-              resizeMode={getResizeMode(resizeMode)}
-              onLoadStart={handleLoadStart}
-              onLoad={handleLoadEnd}
-              onError={() => handleError(new Error('Image load failed'))}
-            />
-          );
-        })()
-      )}
-
-      {error && fallbackSource && (
+    <View style={[styles.container, containerStyle]}>
+      {/* Main Image */}
+      <Image
+        source={processedSource}
+        style={[styles.image, style]}
+        contentFit={getContentFit(resizeMode)}
+        cachePolicy="memory-disk"
+        priority={priority}
+        onLoadStart={handleLoadStart}
+        onLoad={handleLoadEnd}
+        onError={handleError}
+        testID={testID}
+      />
+      
+      {/* Fallback Image (if error) */}
+      {error && fallback && (
         <Image
-          source={fallbackSource}
-          style={[styles.image, style, styles.fallbackImage]}
+          source={fallback}
+          style={[styles.fallbackImage, style]}
           contentFit={getContentFit(resizeMode)}
         />
       )}
-
-      {/* Only show loader if image is not already cached */}
-      {showLoader && loading && !isCached && (
-        <View style={styles.loaderContainer}>
-          <ActivityIndicator 
-            size={loaderSize}
-            color={loaderColor}
-          />
-        </View>
+      
+      {/* Loading Indicator */}
+      {loading && showLoader && (
+        <ActivityIndicator
+          style={styles.loader}
+          color={loaderColor}
+          size={loaderSize}
+        />
       )}
     </View>
   );
@@ -709,11 +436,16 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    width: '100%',
+    height: '100%',
   },
-  loaderContainer: {
-    ...StyleSheet.absoluteFillObject,
+  loader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.1)',
   }
 }); 

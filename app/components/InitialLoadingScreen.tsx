@@ -5,7 +5,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
 // Import shared loading messages
-import { LOADING_MESSAGES } from '@constants/loadingMessages';
+import { LOADING_MESSAGES } from '../constants/loadingMessages';
 
 interface InitialLoadingScreenProps {
   onFinish?: () => void;
@@ -15,6 +15,7 @@ interface InitialLoadingScreenProps {
   progressValue?: number;
 }
 
+// This is the custom loading screen that should appear after the native splash screen
 export default function InitialLoadingScreen({
   onFinish,
   duration = 30000,
@@ -22,6 +23,7 @@ export default function InitialLoadingScreen({
   showProgress = true,
   progressValue,
 }: InitialLoadingScreenProps) {
+  console.log('InitialLoadingScreen rendered with message:', message);
   const outerSpinValue = useRef(new Animated.Value(0)).current;
   const innerSpinValue = useRef(new Animated.Value(0)).current;
   const dumbbellSpinValue = useRef(new Animated.Value(0)).current;

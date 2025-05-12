@@ -553,6 +553,8 @@ if (Platform.OS !== 'web') {
 }
 
 export default function SplashScreenManager({ children }: { children: React.ReactNode }) {
+  console.log('🚀 SplashScreenManager component mounting - initial render');
+  
   const [isAppReady, setIsAppReady] = useState(false);
   const [showLoadingScreen, setShowLoadingScreen] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState(0);
@@ -1140,14 +1142,26 @@ export default function SplashScreenManager({ children }: { children: React.Reac
   // Prepare the app - load all assets and data
   useEffect(() => {
     async function prepare() {
-      if (DEBUG_SPLASH_SCREEN) {
-        console.log(`🚀 [SplashScreenManager] Starting app preparation at ${new Date().toISOString()}`);
-        console.log(`📊 [SplashScreenManager] App config: batch size=${PRELOAD_CONFIG.BATCH_SIZE}, timeouts=${JSON.stringify(PRELOAD_CONFIG.TIMEOUT)}`);
-      }
+      // Always log this regardless of debug mode - critical for troubleshooting
+      console.log(`🚀 [SplashScreenManager] Starting app preparation at ${new Date().toISOString()}`);
+      console.log(`📊 [SplashScreenManager] App config: batch size=${PRELOAD_CONFIG.BATCH_SIZE}, timeouts=${JSON.stringify(PRELOAD_CONFIG.TIMEOUT)}`);
       
       try {
-        // Start with a small delay to ensure splash screen is displayed
+        // This is a critical step - ensure we're showing the loading screen before hiding the splash
+        // Give a small delay to ensure splash screen is displayed
         await new Promise(resolve => setTimeout(resolve, 200));
+
+        // Try to hide the native splash screen to show our custom loading screen
+        if (Platform.OS !== 'web') {
+          try {
+            if (typeof SplashScreen.hideAsync === 'function') {
+              await SplashScreen.hideAsync();
+              console.log('Native splash screen hidden, showing custom loading screen');
+            }
+          } catch (splashError) {
+            console.warn('Error hiding native splash screen:', splashError);
+          }
+        }
         
         // Phase 1: Preload all static assets (bundled with the app)
         const staticAssetsStart = Date.now();
@@ -1425,11 +1439,26 @@ export default function SplashScreenManager({ children }: { children: React.Reac
           }, 100);
         }, 500);
       } catch (e) {
-        console.warn('Error preparing app:', e);
+        console.error('Error preparing app:', e);
+        
+        // Try to provide more specific error information
+        if (e instanceof Error) {
+          const errorDetails = {
+            message: e.message,
+            stack: e.stack,
+            name: e.name
+          };
+          console.error('Error details:', JSON.stringify(errorDetails, null, 2));
+        }
+        
         // Still set app as ready even on error to prevent getting stuck
         setIsAppReady(true);
         setShowLoadingScreen(false);
-        safelyHideSplashScreen();
+        try {
+          safelyHideSplashScreen();
+        } catch (splashError) {
+          console.error('Additional error when hiding splash screen:', splashError);
+        }
       }
     }
     
@@ -1445,11 +1474,13 @@ export default function SplashScreenManager({ children }: { children: React.Reac
 
   // Render the app with loading screen when needed
   if (!isAppReady || showLoadingScreen) {
+    console.log('Rendering InitialLoadingScreen with progress:', loadingProgress, 'and message:', loadingMessage);
     return (
       <InitialLoadingScreen 
         progressValue={loadingProgress} 
         message={loadingMessage}
         onFinish={onFinishLoading}
+        showProgress={true}
       />
     );
   }

@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, Pressable, Alert, Platform } from 'react-native';
-import { Text, IconButton, Surface, useTheme, Button, Portal, Dialog } from 'react-native-paper';
-import { LineChart } from 'react-native-chart-kit';
-import { Dimensions } from 'react-native';
+import { StyleSheet, View, Pressable, Alert, Platform, ScrollView, Dimensions } from 'react-native';
+import { Text, IconButton, Surface, useTheme, Button } from 'react-native-paper';
+import { BarChart, LineChart } from 'react-native-gifted-charts';
 import { COLORS } from '../constants/theme';
 
 export interface ExerciseData {
@@ -32,39 +31,7 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
 }) => {
   const [exerciseToDelete, setExerciseToDelete] = useState<string | null>(null);
   const theme = useTheme();
-  const screenWidth = Dimensions.get('window').width - 32; // Account for outer container margins only
-
-  const chartConfig = {
-    backgroundGradientFrom: 'transparent',
-    backgroundGradientTo: 'transparent',
-    backgroundGradientFromOpacity: 0,
-    backgroundGradientToOpacity: 0,
-    fillShadowGradient: '#F9E009',
-    fillShadowGradientOpacity: 0.3,
-    fillShadowGradientFrom: '#F9E009',
-    fillShadowGradientFromOpacity: 0.3,
-    fillShadowGradientTo: '#F9E009',
-    fillShadowGradientToOpacity: 0.05,
-    color: (opacity = 1) => `rgba(249, 224, 9, ${opacity})`,
-    labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
-    strokeWidth: 2,
-    barPercentage: 0.5,
-    useShadowColorFromDataset: false,
-    propsForDots: {
-      r: '4',
-      strokeWidth: '2',
-      stroke: '#F9E009'
-    },
-    propsForLabels: {
-      fontSize: 10,
-      color: COLORS.text
-    },
-    propsForVerticalLabels: {
-      fontSize: 10,
-      color: COLORS.text
-    },
-    decimalPlaces: 0,
-  };
+  const screenWidth = Dimensions.get('window').width - 32; // Account for outer container margins
 
   const handleDeletePress = (exerciseId: string) => {
     const exercise = exercises.find(e => e.id === exerciseId);
@@ -88,111 +55,126 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
   };
 
   return (
-    <Surface style={styles.container} elevation={2}>
-      <View style={styles.header}>
-        <Text style={styles.title}>EXERCISE GRAPHS</Text>
-        <Text style={styles.subtitle}>Add exercises and set goals to see{'\n'}your progress over time</Text>
-      </View>
+    <ScrollView style={styles.scrollContainer}>
+      <Surface style={styles.container} elevation={2}>
+        <View style={styles.header}>
+          <Text style={styles.title}>EXERCISE GRAPHS</Text>
+          <Text style={styles.subtitle}>Add exercises and set goals to see{'\n'}your progress over time</Text>
+        </View>
 
-      <View style={styles.addExerciseButton}>
-        <Button
-          mode="contained"
-          onPress={onAddExercise}
-          style={styles.trackButton}
-          labelStyle={styles.buttonLabel}
-          contentStyle={{ flexDirection: 'row', alignItems: 'center' }}
-        >
-          Track Exercise
-        </Button>
-      </View>
+        <View style={styles.addExerciseButton}>
+          <Button
+            mode="contained"
+            onPress={onAddExercise}
+            style={styles.trackButton}
+            labelStyle={styles.buttonLabel}
+            contentStyle={{ flexDirection: 'row', alignItems: 'center' }}
+          >
+            Track Exercise
+          </Button>
+        </View>
 
-      <View style={styles.graphsContainer}>
-        {exercises.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyStateText}>No exercise graphs yet</Text>
-            <Text style={styles.emptyStateSubtext}>
-              Add your first exercise to track progress
-            </Text>
-          </View>
-        ) : (
-          exercises.map((exercise) => (
-            <View key={exercise.id} style={styles.graphCard}>
-              <Text style={styles.exerciseName}>{exercise.name}</Text>
-              <View style={styles.graphWrapper}>
-                <View style={styles.valueContainer}>
-                  <Text style={styles.maxValue}>
-                    {Math.max(...exercise.data.map(d => d.value))}
-                    <Text style={styles.unitText}>{exercise.unit}</Text>
-                  </Text>
-                  <Text style={styles.maxLabel}>Max</Text>
-                  {exercise.data.some(d => d.date.includes('PR')) && (
-                    <Text style={styles.prLabel}>PR</Text>
-                  )}
-                </View>
-                <LineChart
-                  data={{
-                    labels: exercise.data.map(d => d.date),
-                    datasets: [{
-                      data: exercise.data.map(d => d.value),
-                      color: (opacity = 1) => `rgba(249, 224, 9, ${opacity})`,
-                      strokeWidth: 2,
-                    }]
-                  }}
-                  width={screenWidth}
-                  height={180}
-                  chartConfig={chartConfig}
-                  bezier
-                  style={styles.chart}
-                  withVerticalLines={false}
-                  withHorizontalLines={true}
-                  withDots={true}
-                  withShadow={true}
-                  withInnerLines={true}
-                  withOuterLines={false}
-                  withVerticalLabels={true}
-                  segments={5}
-                  yAxisInterval={5}
-                  formatYLabel={(value) => Math.round(Number(value)).toString()}
-                />
-              </View>
-              <View style={styles.buttonContainer}>
-                <View style={styles.buttonGroup}>
-                  <IconButton
-                    icon="flag"
-                    mode="contained"
-                    iconColor={COLORS.text}
-                    size={16}
-                    onPress={() => onSetGoal?.(exercise.id)}
-                    style={styles.goalButton}
-                    containerColor={COLORS.primary}
-                  />
-                  <Text style={styles.buttonText}>Set Goal</Text>
-                </View>
-                <View style={styles.buttonGroup}>
-                  <IconButton
-                    icon="delete"
-                    mode="contained"
-                    iconColor={COLORS.text}
-                    size={16}
-                    onPress={() => handleDeletePress(exercise.id)}
-                    style={styles.deleteButton}
-                    containerColor={COLORS.primary}
-                  />
-                  <Text style={styles.buttonText}>Delete Exercise</Text>
-                </View>
-              </View>
+        <View style={styles.graphsContainer}>
+          {exercises.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyStateText}>No exercise graphs yet</Text>
+              <Text style={styles.emptyStateSubtext}>
+                Add your first exercise to track progress
+              </Text>
             </View>
-          ))
-        )}
-      </View>
-    </Surface>
+          ) : (
+            exercises.map((exercise) => (
+              <View key={exercise.id} style={styles.graphCard}>
+                <Text style={styles.exerciseName}>{exercise.name}</Text>
+                <View style={styles.graphWrapper}>
+                  <View style={styles.valueContainer}>
+                    <Text style={styles.maxValue}>
+                      {Math.max(...exercise.data.map(d => d.value))}
+                      <Text style={styles.unitText}>{exercise.unit}</Text>
+                    </Text>
+                    <Text style={styles.maxLabel}>Max</Text>
+                    {exercise.data.some(d => d.date.includes('PR')) && (
+                      <Text style={styles.prLabel}>PR</Text>
+                    )}
+                  </View>
+                  
+                  {/* GiftedCharts LineChart */}
+                  <View style={{ width: screenWidth - 100, height: 180 }}>
+                    <LineChart
+                      data={exercise.data.map((d, i) => ({
+                        value: d.value,
+                        label: new Date(d.date).toLocaleDateString('en-US', { 
+                          month: 'short', 
+                          day: 'numeric' 
+                        }),
+                        dataPointText: `${d.value}`,
+                      }))}
+                      width={screenWidth - 120}
+                      height={180}
+                      noOfSections={5}
+                      spacing={40}
+                      color={theme.colors.primary}
+                      thickness={2}
+                      startFillColor={theme.colors.primary}
+                      startOpacity={0.3}
+                      endOpacity={0.1}
+                      initialSpacing={20}
+                      endSpacing={20}
+                      hideDataPoints={false}
+                      dataPointsColor={theme.colors.primary}
+                      dataPointsRadius={4}
+                      focusEnabled
+                      showTextOnFocus
+                      textFontSize={12}
+                      textColor={theme.colors.onBackground}
+                      yAxisTextStyle={{ color: theme.colors.onSurface }}
+                      xAxisLabelTextStyle={{ color: theme.colors.onSurface, fontSize: 10 }}
+                      curved
+                    />
+                  </View>
+                </View>
+                <View style={styles.buttonContainer}>
+                  <View style={styles.buttonGroup}>
+                    <IconButton
+                      icon="flag"
+                      mode="contained"
+                      iconColor={COLORS.text}
+                      size={16}
+                      onPress={() => onSetGoal?.(exercise.id)}
+                      style={styles.goalButton}
+                      containerColor={COLORS.primary}
+                    />
+                    <Text style={styles.buttonText}>Set Goal</Text>
+                  </View>
+                  <View style={styles.buttonGroup}>
+                    <IconButton
+                      icon="delete"
+                      mode="contained"
+                      iconColor={COLORS.text}
+                      size={16}
+                      onPress={() => handleDeletePress(exercise.id)}
+                      style={styles.deleteButton}
+                      containerColor={COLORS.primary}
+                    />
+                    <Text style={styles.buttonText}>Delete Exercise</Text>
+                  </View>
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+      </Surface>
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
+  scrollContainer: {
+    flex: 1,
+  },
   container: {
     marginHorizontal: 16,
-    marginTop: 16,
+    marginVertical: 16,
     padding: 16,
     borderRadius: 12,
     backgroundColor: COLORS.surface,
@@ -212,144 +194,140 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 16,
+    marginBottom: 20,
   },
   title: {
-    fontSize: 16,
+    fontSize: 24,
     fontWeight: 'bold',
+    marginBottom: 8,
     color: COLORS.text,
-    marginBottom: 4,
+    textAlign: 'center',
   },
   subtitle: {
     fontSize: 14,
-    color: '#666',
+    color: COLORS.secondary,
     textAlign: 'center',
+    lineHeight: 20,
   },
   addExerciseButton: {
-    paddingHorizontal: 10,
-    marginBottom: 16,
     alignItems: 'center',
+    marginBottom: 20,
   },
   trackButton: {
+    borderRadius: 20,
+    paddingHorizontal: 12,
     backgroundColor: COLORS.primary,
-    height: 40,
-    width: '55%',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   buttonLabel: {
     fontSize: 14,
-    fontWeight: '700',
-    color: COLORS.text,
-    textAlignVertical: 'center',
+    fontWeight: 'bold',
+    marginLeft: 4,
   },
   graphsContainer: {
-    marginHorizontal: -25, // Negative margin to allow graph to extend to edges
-  },
-  graphCard: {
-    marginBottom: 16,
-    backgroundColor: 'transparent',
-    borderRadius: 12,
-    padding: 0,
-    paddingBottom: 32,
-  },
-  exerciseName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: COLORS.text,
-    marginLeft: 20,
-    marginBottom: 8,
-  },
-  graphWrapper: {
-    position: 'relative',
-    height: 180,
-    marginBottom: 5,
-  },
-  valueContainer: {
-    position: 'absolute',
-    right: 20,
-    bottom: 140,
-    alignItems: 'flex-end',
-    zIndex: 1,
-  },
-  maxValue: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#F9E009',
-  },
-  unitText: {
-    fontSize: 12,
-    color: '#F9E009',
-    marginLeft: 4,
-  },
-  maxLabel: {
-    fontSize: 12,
-    color: COLORS.text,
-    marginTop: 2,
-  },
-  prLabel: {
-    fontSize: 12,
-    color: '#F9E009',
-    marginTop: 2,
-  },
-  chart: {
-    borderRadius: 12,
-    marginLeft: -16,
-    marginRight: -16,
-    paddingBottom: 16,
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    marginTop: 10,
-  },
-  buttonGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  goalButton: {
-    margin: 0,
-    borderRadius: 6,
-    width: 28,
-    height: 28,
-  },
-  deleteButton: {
-    margin: 0,
-    borderRadius: 6,
-    width: 28,
-    height: 28,
-  },
-  buttonText: {
-    fontSize: 11,
-    color: COLORS.text,
-    marginLeft: 4,
-  },
-  deleteText: {
-    color: COLORS.text,
+    gap: 24,
   },
   emptyState: {
-    width: '100%',
-    height: 180,
-    justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#2A2A2A',
+    justifyContent: 'center',
+    padding: 20,
+    height: 200,
     borderRadius: 12,
-    padding: 16,
+    backgroundColor: 'rgba(108, 71, 255, 0.05)',
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: 'rgba(108, 71, 255, 0.3)',
   },
   emptyStateText: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
     color: COLORS.text,
     marginBottom: 8,
   },
   emptyStateSubtext: {
     fontSize: 14,
-    color: COLORS.text,
+    color: COLORS.secondary,
     textAlign: 'center',
+  },
+  graphCard: {
+    borderRadius: 12,
+    backgroundColor: 'rgba(108, 71, 255, 0.05)',
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(108, 71, 255, 0.2)',
+  },
+  exerciseName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    marginBottom: 12,
+  },
+  graphWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  valueContainer: {
+    alignItems: 'center',
+    marginRight: 8,
+    minWidth: 70,
+  },
+  maxValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: COLORS.primary,
+    marginBottom: 4,
+  },
+  unitText: {
+    fontSize: 14,
+    color: COLORS.secondary,
+    marginLeft: 2,
+  },
+  maxLabel: {
+    fontSize: 12,
+    color: COLORS.secondary,
+  },
+  prLabel: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: COLORS.primary,
+    marginTop: 4,
+    backgroundColor: 'rgba(255, 193, 7, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  buttonGroup: {
+    alignItems: 'center',
+  },
+  goalButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 20,
+    marginBottom: 4,
+  },
+  deleteButton: {
+    backgroundColor: COLORS.error,
+    borderRadius: 20,
+    marginBottom: 4,
+  },
+  buttonText: {
+    fontSize: 10,
+    color: COLORS.secondary,
+  },
+  chartContainer: {
+    marginVertical: 16,
+    alignItems: 'center',
+    padding: 8,
+    borderRadius: 8,
+  },
+  chartTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+    alignSelf: 'flex-start',
   },
 });
 

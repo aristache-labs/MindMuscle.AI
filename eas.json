@@ -1,0 +1,25 @@
+{
+  "cli": {
+    "version": ">= 3.17.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "buildConfiguration": "Debug"
+      },
+      "prebuildCommand": "npx expo prebuild"
+    },
+    "preview": {
+      "distribution": "internal",
+      "prebuildCommand": "npx expo prebuild"
+    },
+    "production": {
+      "prebuildCommand": "npx expo prebuild"
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+} 

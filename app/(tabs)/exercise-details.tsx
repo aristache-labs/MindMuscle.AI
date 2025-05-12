@@ -341,10 +341,34 @@ export default function ExerciseDetailsScreen({
           planTitle
         }
       });
-    } else if (params.fromScreen === 'exercises') {
-      // If coming from exercises tab, navigate back to exercises explicitly
-      router.push('/(tabs)/exercises');
+    } else if (params.fromScreen) {
+      // Route to the specific screen from where this was opened
+      const fromScreen = params.fromScreen.toString();
+      
+      // Handle navigation based on fromScreen parameter
+      if (fromScreen === 'exercises-list') {
+        // Navigate back to exercises-list with the same parameters that brought us here
+        const categoryId = params.categoryId || 'all';
+        // Make sure to pass the groupByMuscle parameter to maintain muscle grouping view
+        const groupByMuscle = params.groupByMuscle || 'false';
+        
+        router.push({
+          pathname: "/(tabs)/exercises-list",
+          params: { 
+            categoryId,
+            fromScreen: params.originalFromScreen || 'exercises', // Preserve original source
+            groupByMuscle
+          }
+        });
+      } else if (fromScreen === 'exercises') {
+        // If coming from exercises tab, navigate back to exercises explicitly
+        router.push('/(tabs)/exercises');
+      } else {
+        // For any other screen, try to navigate there directly
+        router.push(`/(tabs)/${fromScreen}`);
+      }
     } else {
+      // Default fallback if no fromScreen is specified
       router.back();
     }
   };

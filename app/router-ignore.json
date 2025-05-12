@@ -1,0 +1,8 @@
+[
+  "constants/",
+  "components/",
+  "services/",
+  "store/",
+  "types/",
+  "utils/"
+] 

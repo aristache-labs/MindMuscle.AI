@@ -54,9 +54,9 @@ export default function Timer({ onClose }: TimerProps) {
   }, [isActive, seconds]);
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: number;
     if (isActive && seconds > 0) {
-      interval = setInterval(() => {
+      interval = window.setInterval(() => {
         setSeconds((prev) => {
           if (prev <= 1) {
             setIsActive(false);

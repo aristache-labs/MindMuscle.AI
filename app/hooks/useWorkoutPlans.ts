@@ -117,4 +117,17 @@ export function useDeletePlanImage() {
       });
     },
   });
-} 
+}
+
+// Default export for Expo Router compatibility
+export default {
+  useWorkoutPlans,
+  useWorkoutPlansBySubcategory,
+  useWorkoutPlanDetails,
+  usePlanExercises,
+  useCreateWorkoutPlan,
+  useUpdateWorkoutPlan,
+  useUploadPlanImage,
+  useDeletePlanImage,
+  planKeys
+}; 

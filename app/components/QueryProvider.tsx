@@ -20,4 +20,6 @@ export function QueryProvider({ children }: QueryProviderProps) {
       {children}
     </PersistQueryClientProvider>
   );
-} 
+}
+
+export default QueryProvider; 

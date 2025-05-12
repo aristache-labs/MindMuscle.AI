@@ -39,4 +39,7 @@ export const LOADING_MESSAGES = {
     'Hold on tight...',
     'Finalizing...',
   ]
-}; 
+};
+
+// Define a default export to satisfy Expo Router
+export default LOADING_MESSAGES; 

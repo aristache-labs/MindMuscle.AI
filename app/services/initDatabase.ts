@@ -4,15 +4,16 @@ import * as FileSystem from 'expo-file-system';
 import { useState, useEffect } from 'react';
 
 const DB_NAME = 'mindmuscle.db';
+const DB_DIRECTORY = FileSystem.documentDirectory + 'SQLite/';
 
 async function openDatabase() {
-  if (!(await FileSystem.getInfoAsync(FileSystem.documentDirectory + 'SQLite')).exists) {
-    await FileSystem.makeDirectoryAsync(FileSystem.documentDirectory + 'SQLite');
+  if (!(await FileSystem.getInfoAsync(DB_DIRECTORY)).exists) {
+    await FileSystem.makeDirectoryAsync(DB_DIRECTORY);
   }
   
   // Check if database exists
   const dbExists = (await FileSystem.getInfoAsync(
-    FileSystem.documentDirectory + `SQLite/${DB_NAME}`
+    DB_DIRECTORY + DB_NAME
   )).exists;
 
   if (!dbExists) {
@@ -24,7 +25,7 @@ async function openDatabase() {
       if (asset.localUri) {
         await FileSystem.copyAsync({
           from: asset.localUri,
-          to: FileSystem.documentDirectory + `SQLite/${DB_NAME}`,
+          to: DB_DIRECTORY + DB_NAME,
         });
       }
     } catch (error) {
@@ -32,11 +33,11 @@ async function openDatabase() {
     }
   }
 
-  return SQLite.openDatabaseSync(DB_NAME);
+  return SQLite.openDatabaseAsync(DB_DIRECTORY + DB_NAME);
 }
 
 export const initDatabase = async () => {
-  const db = SQLite.openDatabaseSync(DB_NAME);
+  const db = await SQLite.openDatabaseAsync(DB_DIRECTORY + DB_NAME);
 
   return new Promise<void>((resolve, reject) => {
     // Execute each SQL statement separately
@@ -81,11 +82,11 @@ export const initDatabase = async () => {
 };
 
 export const getDatabase = () => {
-  return SQLite.openDatabaseSync(DB_NAME);
+  return SQLite.openDatabaseAsync(DB_DIRECTORY + DB_NAME);
 };
 
 export async function closeDatabase() {
-  const db = SQLite.openDatabaseSync(DB_NAME);
+  const db = await SQLite.openDatabaseAsync(DB_DIRECTORY + DB_NAME);
   await db.closeAsync();
 }
 

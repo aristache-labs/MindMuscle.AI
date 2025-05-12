@@ -1,6 +1,7 @@
 import { Asset } from 'expo-asset';
 import { Platform } from 'react-native';
 import React from 'react';
+import { Image } from 'expo-image';
 
 // Add a default export React component to satisfy Expo Router
 export default function ImagePreloaderWrapper() {
@@ -65,11 +66,11 @@ export const ImagePriority = {
   HIGH: isFastImageAvailable ? FastImage.priority.high : 'high'
 };
 
-// Define cache policies in a way that works even if FastImage is not available
+// Define cache policies for expo-image
 export const CachePolicy = {
-  IMMUTABLE: isFastImageAvailable ? FastImage.cacheControl.immutable : 'immutable',
-  WEB: isFastImageAvailable ? FastImage.cacheControl.web : 'web',
-  CACHE_ONLY: isFastImageAvailable ? FastImage.cacheControl.cacheOnly : 'cacheOnly'
+  IMMUTABLE: 'immutable',
+  WEB: 'web',
+  CACHE_ONLY: 'cacheOnly'
 };
 
 // Type definitions for Source and Priority
@@ -267,17 +268,17 @@ const enforceMemoryCacheLimit = (): void => {
 /**
  * Check if an image URI is in the cache and not expired
  * @param uri Image URI to check
- * @returns True if the image is cached and not expired
+ * @returns Promise that resolves to true if the image is cached and not expired
  */
-export const isImageCached = (uri: string): boolean => {
-  if (!uri) return false;
+export const isImageCached = async (uri: string): Promise<boolean> => {
+  if (!uri) return Promise.resolve(false);
   
   const entry = preloadedImageCache.get(uri);
   
   // Not in cache
   if (!entry) {
     cacheMisses++;
-    return false;
+    return Promise.resolve(false);
   }
   
   // Check if expired
@@ -289,12 +290,12 @@ export const isImageCached = (uri: string): boolean => {
     preloadedImageCache.delete(uri);
     estimatedCacheSize -= (entry.size || CACHE_CONFIG.ESTIMATED_IMAGE_SIZE);
     cacheMisses++;
-    return false;
+    return Promise.resolve(false);
   }
   
   // Valid cache hit
   cacheHits++;
-  return true;
+  return Promise.resolve(true);
 };
 
 /**
@@ -671,4 +672,200 @@ export const clearImageCache = async (options?: {
   }
   
   return { memoryClearedCount, diskCleaned };
+};
+
+// Default timeout for image loading
+const DEFAULT_TIMEOUT = 15000; // 15 seconds
+
+// Types for image preloading
+type ImageSource = number | string | { uri: string, headers?: Record<string, string> };
+
+interface PreloadOptions {
+  cachePolicy?: string;
+  timeout?: number;
+  priority?: 'low' | 'normal' | 'high';
+  batchSize?: number;
+  onProgress?: (progress: PreloadProgress) => void;
+  estimatedSizes?: Record<number, number>;
+}
+
+interface PreloadProgress {
+  total: number;
+  loaded: number;
+  failed: number;
+  skipped: number;
+  progress: number;
+}
+
+interface PreloadResult {
+  success: boolean;
+  total: number;
+  loaded: number;
+  failed: number;
+  skipped: number;
+  error?: Error;
+}
+
+// Process image source to a format that expo-image can use
+const processImageSource = (source: ImageSource): ImageSource | null => {
+  if (!source) return null;
+  
+  // If source is already a number (require statement) or a string, return as is
+  if (typeof source === 'number' || typeof source === 'string') {
+    return source;
+  }
+  
+  // If source is an object with a uri, return it
+  if (typeof source === 'object' && 'uri' in source) {
+    return source;
+  }
+  
+  // If we couldn't process it, return null
+  return null;
+};
+
+/**
+ * Preload images using expo-image
+ * @param sources Array of image sources to preload
+ * @param options Optional configuration
+ */
+export const preloadImages = async (
+  sources: ImageSource[],
+  options: PreloadOptions = {}
+): Promise<PreloadResult> => {
+  if (!sources || sources.length === 0) {
+    return { success: true, total: 0, loaded: 0, failed: 0, skipped: 0 };
+  }
+
+  const {
+    cachePolicy = CachePolicy.IMMUTABLE,
+    timeout = DEFAULT_TIMEOUT,
+    priority = 'normal',
+    batchSize = 5,
+    onProgress,
+    estimatedSizes
+  } = options;
+
+  const processedSources = sources
+    .filter(source => source !== null && source !== undefined)
+    .map(source => processImageSource(source));
+
+  const total = processedSources.length;
+  let loaded = 0;
+  let failed = 0;
+  let skipped = 0;
+  
+  if (DEBUG_IMAGE_PRELOADER) {
+    console.log(`🔄 Preloading ${total} images with policy: ${cachePolicy}`);
+  }
+
+  // Batched preloading
+  const batches = [];
+  for (let i = 0; i < processedSources.length; i += batchSize) {
+    batches.push(processedSources.slice(i, i + batchSize));
+  }
+
+  try {
+    await Promise.all(
+      batches.map(async (batch, batchIndex) => {
+        await Promise.all(
+          batch.map(async (source, sourceIndex) => {
+            const index = batchIndex * batchSize + sourceIndex;
+            
+            try {
+              if (!source || (typeof source === 'object' && !source.uri)) {
+                skipped++;
+                return;
+              }
+              
+              // Skip if already in cache
+              const uri = typeof source === 'object' && source.uri ? source.uri : String(source);
+              if (await isImageCached(uri)) {
+                if (DEBUG_IMAGE_PRELOADER) {
+                  console.log(`⚡ Already cached: ${formatUrlForLogs(uri)}`);
+                }
+                loaded++;
+                if (onProgress) {
+                  onProgress({
+                    total,
+                    loaded,
+                    failed,
+                    skipped,
+                    progress: (loaded + failed + skipped) / total
+                  });
+                }
+                return;
+              }
+              
+              // Add to cache with estimated size if available
+              const size = estimatedSizes && estimatedSizes[index] ? estimatedSizes[index] : undefined;
+              
+              // Preload using expo-image
+              await Promise.race([
+                (async () => {
+                  // Convert source to string if it's an object with uri
+                  const sourceToPrefetch = typeof source === 'object' && source !== null && 'uri' in source && source.uri 
+                    ? source.uri 
+                    : typeof source === 'string' 
+                      ? source 
+                      : null;
+
+                  if (sourceToPrefetch) {
+                    await Image.prefetch(sourceToPrefetch);
+                  }
+                })(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Preload timeout')), timeout))
+              ]);
+              
+              // Add to cache after successful load
+              addImageToCache(uri, size);
+              loaded++;
+              
+              if (DEBUG_IMAGE_PRELOADER) {
+                console.log(`✅ Preloaded: ${formatUrlForLogs(uri)}`);
+              }
+            } catch (error) {
+              failed++;
+              if (DEBUG_IMAGE_PRELOADER) {
+                // Safely extract URI from potentially null source
+                let uriForLogs = 'unknown';
+                if (source !== null) {
+                  uriForLogs = typeof source === 'object' && source.uri ? source.uri : String(source);
+                }
+                console.log(`❌ Failed to preload: ${formatUrlForLogs(uriForLogs)}`, error);
+              }
+            }
+            
+            if (onProgress) {
+              onProgress({
+                total,
+                loaded,
+                failed,
+                skipped,
+                progress: (loaded + failed + skipped) / total
+              });
+            }
+          })
+        );
+      })
+    );
+    
+    return {
+      success: failed === 0,
+      total,
+      loaded,
+      failed,
+      skipped
+    };
+  } catch (error) {
+    console.error('Error in image preloading:', error);
+    return {
+      success: false,
+      total,
+      loaded,
+      failed: total - loaded - skipped,
+      skipped,
+      error: error instanceof Error ? error : new Error(String(error))
+    };
+  }
 }; 

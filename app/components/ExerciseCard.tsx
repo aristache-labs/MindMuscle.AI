@@ -16,7 +16,7 @@ interface ExerciseCardProps {
 }
 
 const { width } = Dimensions.get('window');
-const CARD_WIDTH = (width - 48) / 2; // 2 cards per row with spacing
+const CARD_WIDTH = (width - 28) / 2; // Reduced spacing (from 36 to 28) to make cards wider
 
 // Create a proper comparison function for memo
 const arePropsEqual = (prevProps: ExerciseCardProps, nextProps: ExerciseCardProps) => {
@@ -106,7 +106,12 @@ const ExerciseCard = memo(({
             )}
           </View>
           <View style={styles.textContainer}>
-            <Text style={styles.name} numberOfLines={2} ellipsizeMode="tail">
+            <Text 
+              style={styles.name} 
+              numberOfLines={2} 
+              ellipsizeMode="tail"
+              adjustsFontSizeToFit={false}
+            >
               {name}
             </Text>
           </View>
@@ -130,16 +135,20 @@ interface Styles {
 const styles = StyleSheet.create<Styles>({
   container: {
     width: CARD_WIDTH,
-    marginBottom: 16,
+    marginBottom: 10,
   },
   card: {
     borderRadius: BORDER_RADIUS.md,
     backgroundColor: '#1E2126',
     elevation: 3,
+    height: 220,
   },
   cardContentWrapper: {
     borderRadius: BORDER_RADIUS.md,
     overflow: 'hidden',
+    height: '100%',
+    display: 'flex',
+    flexDirection: 'column',
   },
   imageContainer: {
     position: 'relative',
@@ -158,12 +167,15 @@ const styles = StyleSheet.create<Styles>({
   },
   textContainer: {
     padding: 12,
+    height: 60,
+    justifyContent: 'center',
   },
   name: {
     fontSize: 15,
     fontWeight: '500',
     color: COLORS.text,
     textAlign: 'center',
+    lineHeight: 18,
   },
 });
 

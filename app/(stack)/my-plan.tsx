@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, ActivityIndicator, TouchableOpacity, Pressable, Alert, Modal } from 'react-native';
+import { StyleSheet, View, ScrollView, ActivityIndicator, TouchableOpacity, Pressable, Alert, Modal, Dimensions } from 'react-native';
 import { Text, Button, IconButton, Menu, Divider, Snackbar } from 'react-native-paper';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
@@ -11,6 +11,10 @@ import OptimizedImage from '../components/OptimizedImage';
 import workoutPlanService from '../services/workoutPlanService';
 import { MUSCLE_COLORS } from '../utils/muscleHighlighter';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Animated from 'react-native-reanimated';
+import PlanOverviewModal from '../components/PlanOverviewModal';
+
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 interface ActivePlan {  
   id: string;  
@@ -46,6 +50,7 @@ interface ActivePlanExercise {
   muscle_group?: string;
   primary_muscles?: string[];
   weight?: string | number;
+  workout_day?: number; // Which day this exercise belongs to (0 = Day 1, 1 = Day 2, etc.)
 }
 
 interface FilterOptions {
@@ -261,14 +266,20 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
             setLoadError('Failed to load exercises');
           } else {
             // Map and transform exercise data to include details from related exercise
-            const formattedExercises = exercises?.map(ex => {
+            const formattedExercises = exercises?.map((ex, index) => {
               const exerciseDetails = ex.exercises || {};
+              
+              // Assign workout_day based on index and frequency
+              // For a 2-day split, exercises are alternated: day 1, day 2, day 1, day 2, etc.
+              const workout_day = index % frequency;
+              
               return {
                 ...ex,
                 name: ex.name || exerciseDetails.name || 'Unknown Exercise',
                 muscle_group: exerciseDetails.muscle_group || 'General',
                 primary_muscles: exerciseDetails.primary_muscles || [],
                 weight: ex.weight || '',
+                workout_day: workout_day // Add workout_day field
               };
             }) || [];
             
@@ -531,86 +542,47 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   
   // Plan overview modal
   const renderPlanOverviewModal = () => {
+    const weekColors = {
+      1: '#3498db', // Blue
+      2: '#f1c40f', // Yellow
+      3: '#e67e22', // Orange
+      4: '#e74c3c', // Red
+      5: '#2ecc71', // Green
+    };
+    
+    // Create the weeks data for the modal
+    const weeksData = weekPhases.map((name, index) => {
+      const weekNum = index + 1;
+      return {
+        number: weekNum,
+        name: name,
+        color: weekColors[weekNum as keyof typeof weekColors] || COLORS.primary,
+        description: getWeekProgressionDescription(weekNum),
+        days: 2, // Assuming all weeks have 2 days
+        isActive: weekNum === weekNumber
+      };
+    });
+    
+    // Handle switching to a different week
+    const handleWeekPress = async (weekNum: number) => {
+      if (weekNum === weekNumber) return;
+      await updateCurrentWeek(weekNum);
+      setPlanOverviewVisible(false);
+    };
+    
     return (
-      <Modal
+      <PlanOverviewModal
         visible={planOverviewVisible}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setPlanOverviewVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.planOverviewContainer}>
-            <View style={styles.planOverviewHeader}>
-              <Text style={styles.planOverviewTitle}>Plan Overview</Text>
-              <IconButton
-                icon="close"
-                size={20}
-                style={styles.closeButton}
-                iconColor="#fff"
-                onPress={() => setPlanOverviewVisible(false)}
-              />
-            </View>
-            
-            <Text style={styles.planOverviewSubtitle}>{activePlan?.name} - {activePlan?.subtitle}</Text>
-            
-            <ScrollView style={styles.weeksList}>
-              {weekPhases.map((phase, index) => (
-                <View 
-                  key={`week-${index + 1}`}
-                  style={[
-                    styles.weekContainer,
-                    weekNumber === index + 1 && styles.activeWeekContainer
-                  ]}
-                >
-                  <View style={styles.weekIndicatorColumn}>
-                    <View 
-                      style={[
-                        styles.weekIndicator,
-                        { backgroundColor: getWeekColor(index + 1) }
-                      ]} 
-                    />
-                  </View>
-                  
-                  <View style={styles.weekContent}>
-                    <Text style={styles.weekTitle}>Week {index + 1}: {phase}</Text>
-                    <Text style={styles.weekDescription}>
-                      {getWeekProgressionDescription(index + 1)}
-                    </Text>
-                    
-                    <View style={styles.daysList}>
-                      {daysWithExercises.map((dayIndex, i) => (
-                        <View key={`day-${i}`} style={styles.dayPill}>
-                          <Text style={{ color: '#fff', fontSize: 12 }}>
-                            {days[dayIndex]} - {getWorkoutNameForDay(dayIndex)}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
-                    
-                    {weekNumber !== index + 1 && (
-                      <TouchableOpacity
-                        style={styles.weekSwitchButton}
-                        onPress={() => updateCurrentWeek(index + 1)}
-                        disabled={isUpdatingWeek}
-                      >
-                        <Text style={styles.weekSwitchButtonText}>Switch</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </View>
-              ))}
-            </ScrollView>
-            
-            <Text style={styles.planOverviewFooter}>
-              Once you complete your last workout on this plan we will generate a new plan based on your preferences, so you continue seeing results
-            </Text>
-          </View>
-        </View>
-      </Modal>
+        onClose={() => setPlanOverviewVisible(false)}
+        planTitle={`${activePlan?.workout_frequency || 2} Days, ${activePlan?.subtitle || 'Full Body Split'}`}
+        weeks={weeksData}
+        currentWeek={weekNumber}
+        onWeekPress={handleWeekPress}
+      />
     );
   };
   
-  // Helper function to get color for week indicator
+  // Helper to get color for week indicator
   const getWeekColor = (weekNum: number): string => {
     switch (weekNum) {
       case 1: return '#3498db'; // Blue
@@ -744,13 +716,22 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
               <View style={styles.workoutHeader}>
                 <View style={styles.titleRow}>
                   <Text style={styles.workoutTitle}>TODAY'S WORKOUT</Text>
-                  <IconButton
-                    icon="pencil"
-                    size={18}
-                    style={styles.editButton}
-                    iconColor="#fff"
-                    onPress={() => console.log('Edit workout')}
-                  />
+                  <View style={styles.headerButtonsRow}>
+                    <IconButton
+                      icon="information-outline"
+                      size={22}
+                      style={styles.planInfoButton}
+                      iconColor="#fff"
+                      onPress={() => setPlanOverviewVisible(true)}
+                    />
+                    <IconButton
+                      icon="pencil"
+                      size={18}
+                      style={styles.editButton}
+                      iconColor="#fff"
+                      onPress={() => console.log('Edit workout')}
+                    />
+                  </View>
                 </View>
                 <Text style={styles.subtitleText}>
                   {activePlan.subtitle || 'Full Body'}
@@ -762,54 +743,96 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
 
               {/* Unified workout container for stats and exercises */}
               <View style={styles.workoutContainer}>
-                {/* Workout Stats */}
-                <View style={styles.workoutStats}>
-                  <View style={styles.statItem}>
-                    <MaterialCommunityIcons name="lightning-bolt" size={20} color={COLORS.primary} />
-                    <Text style={styles.statText}>{activePlan.exercise_count} Exercises</Text>
-                  </View>
-                  <View style={styles.statItem}>
-                    <MaterialCommunityIcons name="clock-outline" size={20} color={COLORS.primary} />
-                    <Text style={styles.statText}>{activePlan.duration} Min</Text>
-                  </View>
-                  <View style={styles.statItem}>
-                    <MaterialCommunityIcons name="fire" size={20} color={COLORS.primary} />
-                    <Text style={styles.statText}>{activePlan.calories} Cal</Text>
-                  </View>
-                </View>
+                {/* Workout Stats - Updated to show current day stats only */}
+                {(() => {
+                  // Get the workout index for the selected day
+                  const workoutIndex = workoutDistribution[selectedDayIndex!];
+                  
+                  // Filter exercises for this specific workout day
+                  const dayExercises = planExercises.filter(ex => ex.workout_day === workoutIndex);
+                  
+                  // Calculate stats for the current day's exercises
+                  const exerciseCount = dayExercises.length;
+                  
+                  // Calculate estimated duration: (sets * 45 seconds + (sets-1) * rest time) for each exercise
+                  let totalDuration = 0;
+                  let totalCalories = 0;
+                  
+                  dayExercises.forEach(exercise => {
+                    const setsTime = exercise.sets * 45; // 45 seconds per set
+                    const restTime = (exercise.sets - 1) * (exercise.rest_time || 60); // Rest time between sets
+                    const exerciseDuration = setsTime + restTime;
+                    
+                    totalDuration += exerciseDuration;
+                    // Rough calorie estimate: 10 calories per minute of exercise
+                    totalCalories += Math.floor(exerciseDuration / 60 * 10);
+                  });
+                  
+                  // Convert to minutes
+                  totalDuration = Math.ceil(totalDuration / 60);
+                  
+                  return (
+                    <View style={styles.workoutStats}>
+                      <View style={styles.statItem}>
+                        <MaterialCommunityIcons name="lightning-bolt" size={20} color={COLORS.primary} />
+                        <Text style={styles.statText}>{exerciseCount} Exercises</Text>
+                      </View>
+                      <View style={styles.statItem}>
+                        <MaterialCommunityIcons name="clock-outline" size={20} color={COLORS.primary} />
+                        <Text style={styles.statText}>{totalDuration} Min</Text>
+                      </View>
+                      <View style={styles.statItem}>
+                        <MaterialCommunityIcons name="fire" size={20} color={COLORS.primary} />
+                        <Text style={styles.statText}>{totalCalories} Cal</Text>
+                      </View>
+                    </View>
+                  );
+                })()}
                 
                 {/* Exercise List */}
                 <View style={styles.exercisesContainer}>
                   {planExercises.length === 0 ? (
                     <Text style={styles.noExercisesText}>No exercises in this plan</Text>
                   ) : (
-                    planExercises.map((exercise, index) => (
-                      <View key={exercise.id} style={styles.exerciseItem}>
-                        <View style={styles.exerciseLeft}>
-                          <OptimizedImage
-                            source={exercise.image_url ? { uri: exercise.image_url } : require('../../assets/exercises/placeholder.jpg')}
-                            style={styles.exerciseImage}
-                            fallback={require('../../assets/exercises/placeholder.jpg')}
-                          />
-                        </View>
-                        <View style={styles.exerciseMiddle}>
-                          <Text style={styles.exerciseName}>{exercise.name}</Text>
-                          <Text style={styles.exerciseDetails}>
-                            {exercise.sets} sets × {exercise.reps} reps {exercise.weight ? `× ${exercise.weight} kg` : ''}
-                          </Text>
-                        </View>
-                        <View style={styles.exerciseRight}>
-                          <View style={[
-                            styles.muscleTag, 
-                            { 
-                              backgroundColor: MUSCLE_COLORS[exercise.muscle_group?.toLowerCase() as keyof typeof MUSCLE_COLORS] || '#8E8E93' 
-                            }
-                          ]}>
-                            <Text style={styles.muscleTagText}>{exercise.muscle_group || 'General'}</Text>
+                    (() => {
+                      // Get the workout index for the selected day
+                      const workoutIndex = workoutDistribution[selectedDayIndex!];
+                      
+                      // Filter exercises for this specific workout day
+                      const dayExercises = planExercises.filter(ex => ex.workout_day === workoutIndex);
+                      
+                      if (dayExercises.length === 0) {
+                        return <Text style={styles.noExercisesText}>No exercises scheduled for this day</Text>;
+                      }
+                      
+                      return dayExercises.map((exercise, index) => (
+                        <View key={exercise.id} style={styles.exerciseItem}>
+                          <View style={styles.exerciseLeft}>
+                            <OptimizedImage
+                              source={exercise.image_url ? { uri: exercise.image_url } : require('../../assets/exercises/placeholder.jpg')}
+                              style={styles.exerciseImage}
+                              fallback={require('../../assets/exercises/placeholder.jpg')}
+                            />
+                          </View>
+                          <View style={styles.exerciseMiddle}>
+                            <Text style={styles.exerciseName}>{exercise.name}</Text>
+                            <Text style={styles.exerciseDetails}>
+                              {exercise.sets} sets × {exercise.reps} reps {exercise.weight ? `× ${exercise.weight} kg` : ''}
+                            </Text>
+                          </View>
+                          <View style={styles.exerciseRight}>
+                            <View style={[
+                              styles.muscleTag, 
+                              { 
+                                backgroundColor: MUSCLE_COLORS[exercise.muscle_group?.toLowerCase() as keyof typeof MUSCLE_COLORS] || '#8E8E93' 
+                              }
+                            ]}>
+                              <Text style={styles.muscleTagText}>{exercise.muscle_group || 'General'}</Text>
+                            </View>
                           </View>
                         </View>
-                      </View>
-                    ))
+                      ));
+                    })()
                   )}
                 </View>
               </View>
@@ -1214,21 +1237,7 @@ const styles = StyleSheet.create({
   menuContent: {
     backgroundColor: '#1D232F',
   },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 0,
-    position: 'relative',
-  },
-  editButton: {
-    backgroundColor: COLORS.primary,
-    margin: 0,
-    width: 30,
-    height: 30,
-    position: 'absolute',
-    right: 0,
-  },
+  titleRow: {    flexDirection: 'row',    alignItems: 'center',    justifyContent: 'center',    paddingHorizontal: 0,    position: 'relative',  },  headerButtonsRow: {    flexDirection: 'row',    position: 'absolute',    right: 0,    alignItems: 'center',  },  planInfoButton: {    backgroundColor: COLORS.primary,    margin: 0,    width: 32,    height: 32,    marginRight: 6,  },  editButton: {    backgroundColor: COLORS.primary,    margin: 0,    width: 30,    height: 30,  },
   noExercisesText: {
     color: COLORS.secondary,
     textAlign: 'center',

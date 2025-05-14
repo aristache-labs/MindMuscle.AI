@@ -1,7 +1,7 @@
 // Initialize polyfills first
 import './utils/polyfills';
 
-import { useEffect, useState } from 'react';
+import React from 'react';
 import { useColorScheme, Platform } from 'react-native';
 import { Slot } from 'expo-router';
 import { useFonts } from 'expo-font';
@@ -45,7 +45,8 @@ if (Constants.appOwnership === 'expo') {
 // Initialize Sentry as early as possible
 initializeSentry();
 
-function RootLayout() {
+// Use React.memo to ensure consistent static flags
+const RootLayout = React.memo(function RootLayout() {
   const colorScheme = useColorScheme();
   const [fontsLoaded] = useFonts({
     // Add any custom fonts here if needed
@@ -64,11 +65,11 @@ function RootLayout() {
             <ProfileProvider>
               <ProgressProvider>
                 <GamificationProvider>
-                    <SplashScreenManager>
-                      <AuthGuard>
-                        <Slot />
-                      </AuthGuard>
-                    </SplashScreenManager>
+                  <SplashScreenManager>
+                    <AuthGuard>
+                      <Slot />
+                    </AuthGuard>
+                  </SplashScreenManager>
                 </GamificationProvider>
               </ProgressProvider>
             </ProfileProvider>
@@ -77,6 +78,6 @@ function RootLayout() {
       </ThemeProvider>
     </QueryProvider>
   );
-}
+});
 
 export default Sentry.wrap(RootLayout); 

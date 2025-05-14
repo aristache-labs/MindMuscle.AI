@@ -12,9 +12,7 @@ import OptimizedImage from '../components/OptimizedImage';
 import { markAsImportantImage, batchPreloadImages, ImagePriority } from '../utils/imagePreloader';
 import supabase from '../services/supabase';
 import { useAuth } from '../store/AuthContext';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, runOnJS } from 'react-native-reanimated';
-import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler';
-// Removed animation and gesture imports
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 const { width } = Dimensions.get('window');
 
@@ -335,22 +333,37 @@ export default function PlanDetailsScreen() {
       
       setIsAddingPlan(true);
       
-      // Check if same plan already exists for this user
-      const { data: existingPlan, error: checkExistingError } = await supabase
-        .from('user_active_plans')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('plan_id', planId)
-        .single();
+      // First explicitly delete the existing plan
+      console.log('Deleting existing plan:', planDetail.id);
+      
+      // 1. Delete the plan exercises first (to avoid foreign key constraints)
+      const { error: deleteExercisesError } = await supabase
+        .from('user_active_plan_exercises')
+        .delete()
+        .eq('active_plan_id', planDetail.id);
         
-      if (checkExistingError && checkExistingError.code !== 'PGRST116') { // PGRST116 is "not found" error
-        console.error('Error checking for existing plan:', checkExistingError);
-        Alert.alert('Error', 'Failed to check for existing plans. Please try again.');
+      if (deleteExercisesError) {
+        console.error('Error deleting existing exercises:', deleteExercisesError);
+        // Continue anyway as the plan deletion will cascade
+      }
+      
+      // 2. Now delete the plan itself
+      const { error: deletePlanError } = await supabase
+        .from('user_active_plans')
+        .delete()
+        .eq('id', planDetail.id);
+        
+      if (deletePlanError) {
+        console.error('Error deleting existing plan:', deletePlanError);
+        Alert.alert('Error', 'Failed to replace your current plan. Please try again.');
         setIsAddingPlan(false);
         return;
       }
       
-      // Prepare week progression data
+      // Wait for deletion to complete
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // 3. Now insert the new plan
       const weekProgressionData = {
         "1": "Adaptation",
         "2": "Accumulation",
@@ -359,160 +372,59 @@ export default function PlanDetailsScreen() {
         "5": "Recovery"
       };
       
-      // If the same plan already exists, update it instead of creating a new one
-      if (existingPlan) {
-        console.log('Found existing plan to update:', existingPlan.id);
+      const { data: newPlan, error: insertError } = await supabase
+        .from('user_active_plans')
+        .insert({
+          user_id: user.id,
+          plan_id: planId,
+          name: plan?.title || `Plan ${planNumber || ''}`,
+          subtitle: plan?.subcategory_subtitle || '',
+          exercise_count: exercises.length,
+          duration: totalDuration,
+          calories: totalCalories,
+          accent_color: accentColor,
+          status: 'InProgress',
+          is_active: true,
+          source_type: 'default_plan',
+          section: 'default_plan',
+          source_identifier: plan?.identifier || (params.subcategoryId as string || ''),
+          workout_frequency: plan?.workout_frequency || 1,
+          current_week: 1,
+          week_started_at: new Date().toISOString(),
+          week_progression: weekProgressionData
+        })
+        .select()
+        .single();
+      
+      if (insertError) {
+        console.error('Error inserting new plan after replacement:', insertError);
+        Alert.alert('Error', 'Failed to add new plan after replacing old one. Please try again.');
+        setIsAddingPlan(false);
+        return;
+      }
+      
+      // 4. Add the exercises for the new plan
+      if (exercises.length > 0 && newPlan) {
+        const exercisesToInsert = exercises.map((ex, index) => ({
+          active_plan_id: newPlan.id,
+          exercise_id: ex.exercise_id,
+          name: ex.name,
+          sets: ex.sets,
+          reps: ex.reps,
+          rest_time: ex.rest_time,
+          order_position: index + 1,
+          image_url: ex.image_url || ''
+        }));
         
-        const { error: updateError } = await supabase
-          .from('user_active_plans')
-          .update({
-            status: 'InProgress',
-            is_active: true,
-            current_week: 1,
-            week_started_at: new Date().toISOString(),
-            week_progression: weekProgressionData
-          })
-          .eq('id', existingPlan.id);
-        
-        if (updateError) {
-          console.error('Error updating existing plan:', updateError);
-          Alert.alert('Error', 'Failed to update existing plan. Please try again.');
-          setIsAddingPlan(false);
-          return;
-        }
-        
-        // Delete all exercises for this plan
-        const { error: deleteExercisesError } = await supabase
+        const { error: exerciseError } = await supabase
           .from('user_active_plan_exercises')
-          .delete()
-          .eq('active_plan_id', existingPlan.id);
+          .insert(exercisesToInsert);
           
-        if (deleteExercisesError) {
-          console.error('Error deleting existing exercises:', deleteExercisesError);
-          Alert.alert('Error', 'Failed to clear existing exercises. Please try again.');
+        if (exerciseError) {
+          console.error('Error inserting plan exercises:', exerciseError);
+          Alert.alert('Error', 'Your plan was replaced but exercises could not be added. You may need to select a new plan.');
           setIsAddingPlan(false);
           return;
-        }
-        
-        // Insert new exercises
-        if (exercises.length > 0) {
-          const exercisesToInsert = exercises.map((ex, index) => ({
-            active_plan_id: existingPlan.id,
-            exercise_id: ex.exercise_id,
-            name: ex.name,
-            sets: ex.sets,
-            reps: ex.reps,
-            rest_time: ex.rest_time,
-            order_position: index + 1,
-            image_url: ex.image_url || ''
-          }));
-          
-          const { error: insertExercisesError } = await supabase
-            .from('user_active_plan_exercises')
-            .insert(exercisesToInsert);
-            
-          if (insertExercisesError) {
-            console.error('Error inserting exercises:', insertExercisesError);
-            Alert.alert('Error', 'Failed to add exercises to your plan.');
-            setIsAddingPlan(false);
-            return;
-          }
-        }
-        
-        // Mark all other plans as completed
-        const { error: deactivateOthersError } = await supabase
-          .from('user_active_plans')
-          .update({ status: 'Completed', is_active: false })
-          .eq('user_id', user.id)
-          .neq('id', existingPlan.id)
-          .eq('status', 'InProgress');
-        
-        if (deactivateOthersError) {
-          console.error('Error updating other plans:', deactivateOthersError);
-          // We can continue as this is not critical
-        }
-      } 
-      // No existing plan for this plan_id, so create a new one
-      else {
-        // STEP 1: First mark all "InProgress" plans as "Completed"
-        const { error: deactivateError } = await supabase
-          .from('user_active_plans')
-          .update({ status: 'Completed', is_active: false })
-          .eq('user_id', user.id)
-          .eq('status', 'InProgress');
-        
-        if (deactivateError) {
-          console.error('Error updating plan status:', deactivateError);
-          Alert.alert('Error', 'Failed to update current plan status. Please try again.');
-          setIsAddingPlan(false);
-          return;
-        }
-        
-        // Wait to ensure the status update is processed
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // STEP 2: Now that all plans are updated, insert the new one
-        const { data: newPlan, error: insertError } = await supabase
-          .from('user_active_plans')
-          .insert({
-            user_id: user.id,
-            plan_id: planId,
-            name: plan?.title || `Plan ${planNumber || ''}`,
-            subtitle: plan?.subcategory_subtitle || '',
-            exercise_count: exercises.length,
-            duration: totalDuration,
-            calories: totalCalories,
-            accent_color: accentColor,
-            status: 'InProgress',
-            is_active: true, // Keep for backward compatibility
-            source_type: 'default_plan',
-            section: 'default_plan',
-            source_identifier: plan?.identifier || (params.subcategoryId as string || ''),
-            workout_frequency: plan?.workout_frequency || 1,
-            current_week: 1,
-            week_started_at: new Date().toISOString(),
-            week_progression: weekProgressionData
-          })
-          .select()
-          .single();
-        
-        if (insertError) {
-          console.error('Error inserting new plan:', insertError);
-          Alert.alert('Error', 'Failed to add new plan. Please try again.');
-          setIsAddingPlan(false);
-          return;
-        }
-        
-        // STEP 3: Now add exercises for the new plan
-        if (exercises.length > 0 && newPlan) {
-          const exercisesToInsert = exercises.map((ex, index) => ({
-            active_plan_id: newPlan.id,
-            exercise_id: ex.exercise_id,
-            name: ex.name,
-            sets: ex.sets,
-            reps: ex.reps,
-            rest_time: ex.rest_time,
-            order_position: index + 1,
-            image_url: ex.image_url || ''
-          }));
-          
-          try {
-            const { error: exerciseError } = await supabase
-              .from('user_active_plan_exercises')
-              .insert(exercisesToInsert);
-              
-            if (exerciseError) {
-              console.error('Error inserting plan exercises:', exerciseError);
-              Alert.alert('Error', 'Failed to add exercises to your plan.');
-              setIsAddingPlan(false);
-              return;
-            }
-          } catch (insertExerciseError) {
-            console.error('Exception when inserting exercises:', insertExerciseError);
-            Alert.alert('Error', 'Failed to add exercises to your plan.');
-            setIsAddingPlan(false);
-            return;
-          }
         }
       }
       
@@ -540,21 +452,6 @@ export default function PlanDetailsScreen() {
         return;
       }
       
-      // Check if this plan already exists for the user
-      const { data: existingPlan, error: checkExistingError } = await supabase
-        .from('user_active_plans')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('plan_id', planId)
-        .single();
-        
-      if (checkExistingError && checkExistingError.code !== 'PGRST116') { // PGRST116 is "not found" error
-        console.error('Error checking for existing plan:', checkExistingError);
-        Alert.alert('Error', 'Failed to check for existing plans. Please try again.');
-        setIsAddingPlan(false);
-        return;
-      }
-      
       // Prepare week progression data
       const weekProgressionData = {
         "1": "Adaptation",
@@ -564,49 +461,60 @@ export default function PlanDetailsScreen() {
         "5": "Recovery"
       };
       
-      // Get workout frequency (days per week) - default to 1 if not available
-      const workoutFrequency = plan?.workout_frequency || 1;
+      // First, delete ANY existing active plans for this user
+      const { error: deleteError } = await supabase
+        .from('user_active_plans')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('status', 'InProgress');
+        
+      if (deleteError) {
+        console.error('Error deleting existing plans:', deleteError);
+        Alert.alert('Error', 'Could not delete existing plans. Please try again.');
+        setIsAddingPlan(false);
+        return;
+      }
       
-      // If the same plan already exists, update it instead of creating a new one
-      if (existingPlan) {
-        console.log('Found existing plan to update:', existingPlan.id);
-        
-        // Update the existing plan
-        const { error: updateError } = await supabase
-          .from('user_active_plans')
-          .update({
-            status: 'InProgress',
-            is_active: true,
-            current_week: 1,
-            week_started_at: new Date().toISOString(),
-            week_progression: weekProgressionData
-          })
-          .eq('id', existingPlan.id);
-        
-        if (updateError) {
-          console.error('Error updating existing plan:', updateError);
-          Alert.alert('Error', 'Failed to update existing plan. Please try again.');
-          setIsAddingPlan(false);
-          return;
-        }
-        
-        // Delete all exercises for this plan
-        const { error: deleteExercisesError } = await supabase
-          .from('user_active_plan_exercises')
-          .delete()
-          .eq('active_plan_id', existingPlan.id);
-          
-        if (deleteExercisesError) {
-          console.error('Error deleting existing exercises:', deleteExercisesError);
-          Alert.alert('Error', 'Failed to clear existing exercises. Please try again.');
-          setIsAddingPlan(false);
-          return;
-        }
-        
-        // Insert new exercises
-        if (exercises.length > 0) {
+      // Wait to ensure deletion is complete
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Now insert the new plan
+      const { data: newPlan, error: insertError } = await supabase
+        .from('user_active_plans')
+        .insert({
+          user_id: user.id,
+          plan_id: planId,
+          name: plan?.title || `Plan ${planNumber || ''}`,
+          subtitle: plan?.subcategory_subtitle || '',
+          exercise_count: exercises.length,
+          duration: totalDuration,
+          calories: totalCalories,
+          accent_color: accentColor,
+          status: 'InProgress',
+          is_active: true,
+          source_type: 'default_plan',
+          section: 'default_plan',
+          source_identifier: plan?.identifier || (params.subcategoryId as string || ''),
+          workout_frequency: plan?.workout_frequency || 1,
+          current_week: 1,
+          week_started_at: new Date().toISOString(),
+          week_progression: weekProgressionData
+        })
+        .select()
+        .single();
+      
+      if (insertError) {
+        console.error('Error inserting plan:', insertError);
+        Alert.alert('Error', 'Failed to add plan. Please try again later.');
+        setIsAddingPlan(false);
+        return;
+      }
+      
+      // Add exercises for the active plan
+      if (exercises.length > 0 && newPlan) {
+        try {
           const exercisesToInsert = exercises.map((ex, index) => ({
-            active_plan_id: existingPlan.id,
+            active_plan_id: newPlan.id,
             exercise_id: ex.exercise_id,
             name: ex.name,
             sets: ex.sets,
@@ -616,120 +524,26 @@ export default function PlanDetailsScreen() {
             image_url: ex.image_url || ''
           }));
           
-          const { error: insertExercisesError } = await supabase
+          const { error: exerciseError } = await supabase
             .from('user_active_plan_exercises')
             .insert(exercisesToInsert);
             
-          if (insertExercisesError) {
-            console.error('Error inserting exercises:', insertExercisesError);
-            Alert.alert('Error', 'Failed to add exercises to your plan.');
-            setIsAddingPlan(false);
-            return;
-          }
-        }
-        
-        // Mark all other plans as completed
-        const { error: deactivateOthersError } = await supabase
-          .from('user_active_plans')
-          .update({ status: 'Completed', is_active: false })
-          .eq('user_id', user.id)
-          .neq('id', existingPlan.id)
-          .eq('status', 'InProgress');
-        
-        if (deactivateOthersError) {
-          console.error('Error updating other plans:', deactivateOthersError);
-          // We can continue as this is not critical
-        }
-      } 
-      // No existing plan, create a new one
-      else {
-        // STEP 1: First mark all "InProgress" plans as "Completed"
-        const { error: deactivateError } = await supabase
-          .from('user_active_plans')
-          .update({ status: 'Completed', is_active: false })
-          .eq('user_id', user.id)
-          .eq('status', 'InProgress');
-        
-        if (deactivateError) {
-          console.error('Error updating plan status:', deactivateError);
-          Alert.alert('Error', 'Failed to update current plan status. Please try again.');
-          setIsAddingPlan(false);
-          return;
-        }
-        
-        // Wait a moment to ensure the status update is processed
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // STEP 2: Now insert the new plan
-        const { data: newPlan, error: insertError } = await supabase
-          .from('user_active_plans')
-          .insert({
-            user_id: user.id,
-            plan_id: planId,
-            name: plan?.title || `Plan ${planNumber || ''}`,
-            subtitle: plan?.subcategory_subtitle || '',
-            exercise_count: exercises.length,
-            duration: totalDuration,
-            calories: totalCalories,
-            accent_color: accentColor,
-            status: 'InProgress',
-            is_active: true, // Keep for backward compatibility
-            source_type: 'default_plan',
-            section: 'default_plan',
-            source_identifier: plan?.identifier || (params.subcategoryId as string || ''),
-            workout_frequency: workoutFrequency,
-            current_week: 1,
-            week_started_at: new Date().toISOString(),
-            week_progression: weekProgressionData
-          })
-          .select()
-          .single();
-        
-        if (insertError) {
-          console.error('Error inserting plan:', insertError);
-          Alert.alert('Error', 'Failed to add plan. Please try again.');
-          setIsAddingPlan(false);
-          return;
-        }
-        
-        // STEP 3: Add exercises for the active plan
-        if (exercises.length > 0 && newPlan) {
-          try {
-            const exercisesToInsert = exercises.map((ex, index) => ({
-              active_plan_id: newPlan.id,
-              exercise_id: ex.exercise_id,
-              name: ex.name,
-              sets: ex.sets,
-              reps: ex.reps,
-              rest_time: ex.rest_time,
-              order_position: index + 1,
-              image_url: ex.image_url || ''
-            }));
-            
-            const { error: exerciseError } = await supabase
-              .from('user_active_plan_exercises')
-              .insert(exercisesToInsert);
-              
-            if (exerciseError) {
-              console.error('Error inserting plan exercises:', exerciseError);
-              Alert.alert('Error', 'Failed to add exercises to new plan.');
-              setIsAddingPlan(false);
-              return;
-            }
-          } catch (insertExercisesError) {
-            console.error('Exception inserting exercises:', insertExercisesError);
+          if (exerciseError) {
+            console.error('Error inserting plan exercises:', exerciseError);
             Alert.alert('Error', 'Failed to add exercises to new plan.');
             setIsAddingPlan(false);
             return;
           }
+        } catch (insertExercisesError) {
+          console.error('Exception inserting exercises:', insertExercisesError);
+          Alert.alert('Error', 'Failed to add exercises to new plan.');
+          setIsAddingPlan(false);
+          return;
         }
       }
       
       // Success! Navigate to home screen
       router.replace("/(tabs)");
-      
-      // Close the modal
-      setReplacePlanModalVisible(false);
     } catch (error) {
       console.error('Error in addNewPlan:', error);
       Alert.alert('Error', 'Failed to add plan. Please try again.');
@@ -891,31 +705,28 @@ export default function PlanDetailsScreen() {
     return (
       <View style={[styles.dayExercisesContainer, { width }]}>
         <View style={styles.exercisesContainer}>
-          <Text style={styles.exercisesTitle}>Exercises</Text>
           {dayExercises.length > 0 ? (
             dayExercises.map((exercise, index) => renderExerciseItem(exercise, index))
           ) : (
             <Text style={styles.noExercisesText}>No exercises available for this day.</Text>
           )}
         </View>
-      </View>
-    );
-  };
-
-  // Add this function to render pagination indicators
-  const renderPaginationDots = () => {
-    return (
-      <View style={styles.paginationContainer}>
-        {workoutDays.map(day => (
-          <TouchableOpacity
-            key={`dot-${day}`}
-            onPress={() => handleDayChange(day)}
-            style={[
-              styles.paginationDot,
-              currentWorkoutDay === day && styles.activePaginationDot
-            ]}
-          />
-        ))}
+        
+        {/* Add pagination dots directly below exercises */}
+        {workoutDays.length > 1 && (
+          <View style={styles.paginationContainer}>
+            {workoutDays.map(day => (
+              <TouchableOpacity
+                key={`dot-${day}`}
+                onPress={() => handleDayChange(day)}
+                style={[
+                  styles.paginationDot,
+                  currentWorkoutDay === day && styles.activePaginationDot
+                ]}
+              />
+            ))}
+          </View>
+        )}
       </View>
     );
   };
@@ -974,7 +785,7 @@ export default function PlanDetailsScreen() {
             contentContainerStyle={{ paddingBottom: contentPadding }}
             showsVerticalScrollIndicator={false}
           >
-            {/* Plan Summary - now outside of the animated container */}
+            {/* Plan Summary */}
             <View style={styles.summaryContainer}>
               <Text style={styles.planTypeLabel}>{plan?.subcategory_subtitle || 'Unknown'}</Text>
               
@@ -996,29 +807,13 @@ export default function PlanDetailsScreen() {
               </View>
             </View>
             
-            {/* Day indicator with swipe instruction - now outside of the animated container */}
+            {/* Day indicator with simplified display */}
             {workoutDays.length > 1 && (
               <View style={styles.dayIndicatorContainer}>
                 <View style={styles.dayNavigationRow}>
-                  {currentWorkoutDay > Math.min(...workoutDays) && (
-                    <IconButton 
-                      icon="chevron-left" 
-                      size={24}
-                      iconColor={COLORS.text}
-                      onPress={() => handleDayNavigation('right')}
-                    />
-                  )}
                   <Text style={styles.dayIndicatorText}>
-                    Day {currentWorkoutDay} of {workoutDays.length}
+                    Day {currentWorkoutDay}
                   </Text>
-                  {currentWorkoutDay < Math.max(...workoutDays) && (
-                    <IconButton 
-                      icon="chevron-right" 
-                      size={24}
-                      iconColor={COLORS.text}
-                      onPress={() => handleDayNavigation('left')}
-                    />
-                  )}
                 </View>
                 <Text style={styles.swipeInstructionText}>
                   Swipe to navigate between days
@@ -1026,7 +821,7 @@ export default function PlanDetailsScreen() {
               </View>
             )}
             
-            {/* Use FlatList for horizontal day scrolling */}
+            {/* FlatList for horizontal day scrolling */}
             <FlatList
               ref={flatListRef}
               data={workoutDays}
@@ -1051,8 +846,7 @@ export default function PlanDetailsScreen() {
               }}
             />
 
-            {/* Pagination dots for days - outside of the animated container */}
-            {workoutDays.length > 1 && renderPaginationDots()}
+            {/* Pagination dots removed from here - now inside each day's view */}
           </ScrollView>
         </GestureHandlerRootView>
       )}
@@ -1083,9 +877,10 @@ export default function PlanDetailsScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>Replace Plan?</Text>
+            <Text style={styles.modalTitle}>Replace Current Plan?</Text>
             <Text style={styles.modalMessage}>
-              You already have a training plan. Would you like to replace it?
+              You already have a training plan in progress ({existingPlanDetails?.name || 'Active Plan'}). 
+              Replacing it will delete your current progress. Would you like to continue?
             </Text>
             <Button
               mode="contained"
@@ -1094,7 +889,7 @@ export default function PlanDetailsScreen() {
               loading={isAddingPlan}
               disabled={isAddingPlan}
             >
-              Replace My Current Plan
+              Replace Current Plan
             </Button>
             <Button
               mode="text"
@@ -1222,10 +1017,12 @@ const styles = StyleSheet.create({
   },
   dayExercisesContainer: {
     flex: 1,
+    paddingBottom: 0,
   },
   exercisesContainer: {
     marginHorizontal: SPACING.md,
     marginTop: 0,
+    marginBottom: 0,
   },
   workoutDaysTabs: {
     marginHorizontal: SPACING.md,
@@ -1379,7 +1176,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginVertical: SPACING.md,
+    marginVertical: SPACING.xs,
   },
   paginationDot: {
     width: 8,
@@ -1398,8 +1195,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginVertical: SPACING.sm,
     paddingVertical: SPACING.sm,
-    backgroundColor: COLORS.surface,
-    borderRadius: BORDER_RADIUS.md,
     marginHorizontal: SPACING.md,
   },
   dayIndicatorText: {

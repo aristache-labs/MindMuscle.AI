@@ -13,6 +13,7 @@ import { markAsImportantImage, batchPreloadImages, ImagePriority } from '../util
 import supabase from '../services/supabase';
 import { useAuth } from '../store/AuthContext';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import ExerciseDetailsModal from '../components/ExerciseDetailsModal';
 
 const { width } = Dimensions.get('window');
 
@@ -42,6 +43,14 @@ export default function PlanDetailsScreen() {
   const [isAddingPlan, setIsAddingPlan] = useState(false);
   const [replacePlanModalVisible, setReplacePlanModalVisible] = useState(false);
   const [existingPlanDetails, setExistingPlanDetails] = useState<any>(null);
+  
+  // Exercise details modal state
+  const [exerciseModalVisible, setExerciseModalVisible] = useState(false);
+  const [selectedExercise, setSelectedExercise] = useState<{
+    id: string;
+    name: string;
+    image?: string;
+  } | null>(null);
   
   // Multi-day workout support
   const [workoutDays, setWorkoutDays] = useState<number[]>([1]); // Default to day 1
@@ -552,9 +561,14 @@ export default function PlanDetailsScreen() {
     }
   };
 
+  // Handle exercise modal close
+  const handleExerciseModalClose = () => {
+    setExerciseModalVisible(false);
+  };
+
   // Navigate to exercise details screen
   const handleExercisePress = (exercise: PlanExercise) => {
-    // Navigate to exercise details screen with the exercise ID
+    // Check if we have a valid exercise ID
     if (exercise.exercise_id) {
       // Get proper image URL to pass
       let imageUrl = '';
@@ -564,7 +578,6 @@ export default function PlanDetailsScreen() {
         imageUrl = exercise.image_url;
       } 
       // Otherwise, we need to find an appropriate placeholder
-      // We can only pass URL strings as params, not require() references
       else if (exercise.primary_muscles) {
         // Try to determine a specific placeholder based on primary muscles
         if (exercise.primary_muscles.some(m => m.toLowerCase().includes('chest'))) {
@@ -580,30 +593,14 @@ export default function PlanDetailsScreen() {
         imageUrl = 'placeholder_default';
       }
       
-      // Get accent color from params
-      const accent = params.accent as string;
-      const subcategoryId = params.subcategoryId as string;
-      const subcategoryName = params.subcategoryName as string;
-      const subcategoryTitle = params.subcategoryTitle as string;
-      const subcategorySubtitle = params.subcategorySubtitle as string; 
-      const categoryName = params.categoryName as string;
-      
-      router.push({
-        pathname: "/(stack)/exercise-details",
-        params: {
-          id: exercise.exercise_id,
-          name: exercise.name || 'Exercise',
-          image: imageUrl,
-          fromPlanDetails: 'true',
-          planId: planId, // Pass the plan ID for navigation back to plan details
-          accent: accent, // Pass the accent color to preserve color scheme
-          subcategoryId,
-          subcategoryName,
-          subcategoryTitle,
-          subcategorySubtitle,
-          categoryName
-        }
+      // Set the selected exercise and show the modal
+      setSelectedExercise({
+        id: exercise.exercise_id,
+        name: exercise.name || 'Exercise',
+        image: imageUrl
       });
+      
+      setExerciseModalVisible(true);
     }
   };
 
@@ -905,6 +902,17 @@ export default function PlanDetailsScreen() {
           </View>
         </View>
       </Modal>
+      
+      {/* Exercise Details Modal */}
+      {selectedExercise && (
+        <ExerciseDetailsModal
+          visible={exerciseModalVisible}
+          onClose={handleExerciseModalClose}
+          exerciseId={selectedExercise.id}
+          exerciseName={selectedExercise.name}
+          exerciseImage={selectedExercise.image}
+        />
+      )}
     </View>
   );
 }

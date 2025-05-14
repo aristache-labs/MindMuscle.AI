@@ -578,6 +578,8 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         weeks={weeksData}
         currentWeek={weekNumber}
         onWeekPress={handleWeekPress}
+        activePlanId={activePlan?.id}
+        planWorkoutFrequency={activePlan?.workout_frequency || 2}
       />
     );
   };

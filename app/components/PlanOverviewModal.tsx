@@ -7,11 +7,30 @@ import {
   Dimensions,
   Platform,
   Animated,
-  TouchableOpacity
+  TouchableOpacity,
+  Image
 } from 'react-native';
-import { Text, IconButton, Portal, Provider } from 'react-native-paper';
+import { Text, IconButton, Portal, Provider, Divider } from 'react-native-paper';
 import { GestureHandlerRootView, ScrollView } from 'react-native-gesture-handler';
 import { COLORS, SPACING } from '../constants/theme';
+import { useAuth } from '../store/AuthContext';
+import supabase from '../services/supabase';
+import workoutPlanService, { PlanExercise } from '../services/workoutPlanService';
+import OptimizedImage from '../components/OptimizedImage';
+import { router } from 'expo-router';
+import ExerciseDetailsModal from './ExerciseDetailsModal';
+
+interface Exercise {
+  id: string;
+  name: string;
+  sets?: number;
+  reps?: string | number;
+  duration?: number;
+  image?: string;
+  equipment?: string;
+  muscle_group?: string;
+  kg?: number;
+}
 
 interface WeekData {
   number: number;
@@ -32,6 +51,8 @@ interface Props {
   currentWeek: number;
   onWeekPress?: (weekNumber: number) => void;
   onDayPress?: (weekNumber: number, dayNumber: number) => void;
+  activePlanId?: string; // ID of the active plan
+  planWorkoutFrequency?: number; // Number of workout days per week in the plan
 }
 
 export default function PlanOverviewModal({ 
@@ -42,10 +63,20 @@ export default function PlanOverviewModal({
   weeks, 
   currentWeek,
   onWeekPress,
-  onDayPress
+  onDayPress,
+  activePlanId,
+  planWorkoutFrequency = 2 // Default to 2 days per week if not provided
 }: Props) {
   // Generate our own animation value
   const [modalAnim] = useState(() => new Animated.Value(0));
+  const [selectedDay, setSelectedDay] = useState<{weekNumber: number, dayNumber: number} | null>(null);
+  const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [isLoadingExercises, setIsLoadingExercises] = useState(false);
+  const { user } = useAuth();
+  
+  // New state for the exercise details modal
+  const [exerciseDetailsVisible, setExerciseDetailsVisible] = useState(false);
+  const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
   
   // Run animation when visibility changes
   useEffect(() => {
@@ -60,6 +91,9 @@ export default function PlanOverviewModal({
         duration: 300,
         useNativeDriver: true,
       }).start();
+      
+      // Reset selected day when modal closes
+      setSelectedDay(null);
     }
   }, [visible, modalAnim]);
   
@@ -69,6 +103,88 @@ export default function PlanOverviewModal({
     outputRange: [Dimensions.get('window').height, 0],
   });
 
+  // Function to handle exercise press - updated to show modal instead of navigating
+  const handleExercisePress = (exercise: Exercise) => {
+    console.log('Exercise pressed:', exercise);
+    // Set the selected exercise and show the modal
+    setSelectedExercise(exercise);
+    setExerciseDetailsVisible(true);
+    console.log('Modal should be visible now. Selected exercise:', exercise.id);
+  };
+
+  // Function to handle day press and fetch exercises
+  const handleDayPress = async (weekNumber: number, dayNumber: number) => {
+    setSelectedDay({ weekNumber, dayNumber });
+    
+    if (onDayPress) {
+      onDayPress(weekNumber, dayNumber);
+    }
+    
+    // Fetch exercises for the selected day
+    if (activePlanId && user) {
+      setIsLoadingExercises(true);
+      try {
+        // Fetch exercises for this active plan (fetch all exercises, filter by day later)
+        const { data, error } = await supabase
+          .from('user_active_plan_exercises')
+          .select(`
+            *,
+            exercises(*)
+          `)
+          .eq('active_plan_id', activePlanId)
+          .order('order_position', { ascending: true });
+            
+        if (error) {
+          console.error('Error fetching plan exercises:', error);
+          setExercises([]);
+        } else if (data) {
+          // Transform data to match Exercise interface
+          const allExercises = data.map((ex, index) => {
+            const exerciseDetails = ex.exercises || {};
+            
+            // Match the same workout day calculation as in my-plan.tsx
+            // Based on index % frequency
+            const workout_day = index % planWorkoutFrequency;
+            
+            return {
+              id: exerciseDetails.id || ex.id, // Use the actual exercise ID from the exercises table
+              name: ex.exercise_name || exerciseDetails.name || 'Unknown Exercise',
+              sets: ex.sets || 3,
+              reps: ex.reps_range || ex.reps || '8-12',
+              equipment: exerciseDetails.equipment || 'None',
+              muscle_group: exerciseDetails.muscle_group || 'General',
+              image: exerciseDetails.image_url,
+              order_position: ex.order_position || 0,
+              workout_day: workout_day,
+              kg: ex.weight || 0
+            };
+          });
+          
+          // Filter exercises by day
+          // Day 1 corresponds to workout_day 0, Day 2 to workout_day 1, etc.
+          const dayOffset = dayNumber - 1; // Convert 1-based day number to 0-based offset
+          const filteredExercises = allExercises.filter(ex => 
+            ex.workout_day === dayOffset && 
+            ex.name !== 'Chest Barbell, Brench' // Filter out the incorrect exercise
+          );
+          
+          setExercises(filteredExercises);
+        }
+      } catch (err) {
+        console.error('Exception fetching plan exercises:', err);
+        setExercises([]);
+      } finally {
+        setIsLoadingExercises(false);
+      }
+    }
+  };
+
+  // Custom close handler to reset state before closing
+  const handleClose = () => {
+    setSelectedDay(null);
+    onClose();
+  };
+
   // Early return after all hooks have been called
   if (!visible) return null;
 
@@ -76,58 +192,131 @@ export default function PlanOverviewModal({
     <Provider>
       <Portal>
         <Modal
-          visible={visible}
+          visible={visible && !exerciseDetailsVisible}
           transparent={true}
           animationType="none"
-          onRequestClose={onClose}
+          onRequestClose={handleClose}
           statusBarTranslucent={true}
         >
-          <TouchableWithoutFeedback onPress={onClose}>
-            <View style={styles.overlay}>
-              <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-                <Animated.View style={[styles.modalContainer, { transform: [{ translateY }] }]}>
-                  <View style={styles.container}>
-                    <View style={styles.topGlowLeft} />
-                    <View style={styles.topGlowRight} />
-                    <View style={styles.header}>
-                      <Text style={styles.title}>PLAN OVERVIEW</Text>
-                      <IconButton
-                        icon="close"
-                        iconColor="#fff"
-                        size={24}
-                        style={styles.closeButton}
-                        onPress={onClose}
-                      />
-                    </View>
-                    
-                    {planTitle && (
-                      <Text style={styles.planTitle}>{planTitle}</Text>
-                    )}
-                    
-                    {planSubtitle && (
-                      <Text style={styles.planSubtitle}>{planSubtitle}</Text>
-                    )}
-                    
-                    <GestureHandlerRootView style={styles.gestureRoot}>
-                      <ScrollView
-                        style={styles.scrollView}
-                        showsVerticalScrollIndicator={false}
-                        contentContainerStyle={styles.scrollViewContent}
-                        bounces={true}
-                        scrollEventThrottle={16}
-                      >
-                        <View style={styles.timeline}>
-                          {/* Single continuous vertical line that starts at first dot and ends at last dot */}
-                          {weeks.length > 0 && <View style={styles.timelineLine} />}
-                          
-                          {weeks.map((week, index) => (
+          <View style={styles.overlay}>
+            <Animated.View style={[styles.modalContainer, { transform: [{ translateY }] }]}>
+              <View style={styles.container}>
+                <View style={styles.topGlowLeft} />
+                <View style={styles.topGlowRight} />
+                <View style={styles.header}>
+                  <Text style={styles.title}>{"PLAN OVERVIEW"}</Text>
+                  <IconButton
+                    icon="close"
+                    iconColor="#fff"
+                    size={24}
+                    style={styles.closeButton}
+                    onPress={handleClose}
+                  />
+                </View>
+                
+                {planTitle ? (
+                  <Text style={styles.planTitle}>{planTitle}</Text>
+                ) : null}
+                
+                {planSubtitle ? (
+                  <Text style={styles.planSubtitle}>{planSubtitle}</Text>
+                ) : null}
+                
+                <GestureHandlerRootView style={styles.gestureRoot}>
+                  <ScrollView
+                    style={styles.scrollView}
+                    contentContainerStyle={styles.scrollViewContent}
+                    bounces={true}
+                    showsVerticalScrollIndicator={false}
+                  >
+                    {selectedDay ? (
+                      // Show exercises for selected day
+                      <View style={styles.exercisesContainer}>
+                        <View style={styles.exercisesHeader}>
+                          <Text style={styles.exercisesTitle}>
+                            {`Week ${selectedDay.weekNumber} - Day ${selectedDay.dayNumber}`}
+                          </Text>
+                          <TouchableOpacity
+                            style={styles.backButton}
+                            onPress={() => setSelectedDay(null)}
+                          >
+                            <Text style={styles.backButtonText}>{"Back to Overview"}</Text>
+                          </TouchableOpacity>
+                        </View>
+                        
+                        <View style={styles.exercisesList}>
+                          {isLoadingExercises ? (
+                            <View style={styles.loadingContainer}>
+                              <Text style={styles.loadingText}>{"Loading exercises..."}</Text>
+                            </View>
+                          ) : exercises.length > 0 ? (
+                            exercises.map((exercise, index) => {
+                              return (
+                                <TouchableOpacity
+                                  key={`exercise-${exercise.id}-${index}`}
+                                  style={styles.exerciseItem}
+                                  onPress={() => handleExercisePress(exercise)}
+                                  activeOpacity={0.7}
+                                >
+                                  <View style={styles.exerciseRow}>
+                                    <View style={styles.exerciseImageContainer}>
+                                      <OptimizedImage
+                                        source={exercise.image ? { uri: exercise.image } : require('../../assets/exercises/placeholder.jpg')}
+                                        style={styles.exerciseImage}
+                                        fallback={require('../../assets/exercises/placeholder.jpg')}
+                                      />
+                                    </View>
+                                    <View style={styles.exerciseContent}>
+                                      <Text style={styles.exerciseName}>
+                                        {exercise.name}
+                                      </Text>
+                                      <View style={styles.exerciseDetails}>
+                                        {exercise.sets ? (
+                                          <Text style={styles.exerciseDetail}>
+                                            {`${exercise.sets} sets`}
+                                          </Text>
+                                        ) : null}
+                                        {exercise.reps ? (
+                                          <Text style={styles.exerciseDetail}>
+                                            {`${exercise.reps} reps`}
+                                          </Text>
+                                        ) : null}
+                                        {exercise.kg && exercise.kg > 0 ? (
+                                          <Text style={styles.exerciseDetail}>
+                                            {`${exercise.kg} kg`}
+                                          </Text>
+                                        ) : null}
+                                      </View>
+                                    </View>
+                                  </View>
+                                  {index < exercises.length - 1 ? (
+                                    <Divider style={styles.exerciseDivider} />
+                                  ) : null}
+                                </TouchableOpacity>
+                              );
+                            })
+                          ) : (
+                            <Text style={styles.noExercisesText}>
+                              {"No exercises found for this day."}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                    ) : (
+                      // Show timeline view
+                      <View style={styles.timeline}>
+                        {weeks.length > 0 ? <View style={styles.timelineLine} /> : null}
+                        
+                        {weeks.map((week, index) => {
+                          return (
                             <View key={`week-${week.number}`} style={styles.weekContainer}>
                               {/* Timeline dot */}
                               <View style={styles.timelineLeft}>
                                 <View 
                                   style={[
                                     styles.timelineDot, 
-                                    { backgroundColor: week.color }
+                                    { backgroundColor: week.color },
+                                    week.number === currentWeek && styles.activeTimelineDot
                                   ]} 
                                 />
                               </View>
@@ -141,42 +330,60 @@ export default function PlanOverviewModal({
                               >
                                 <View style={styles.weekHeader}>
                                   <View style={[styles.weekIndicator, { backgroundColor: week.color }]} />
-                                  <Text style={styles.weekTitle}>Week {week.number} - {week.name}</Text>
+                                  <Text style={styles.weekTitle}>{`Week ${week.number} - ${week.name}`}</Text>
                                 </View>
                                 
-                                {week.description && (
+                                {week.description ? (
                                   <View style={styles.weekDescription}>
                                     <Text style={styles.descriptionText}>{week.description}</Text>
                                   </View>
-                                )}
+                                ) : null}
                                 
                                 <View style={styles.dayButtonsContainer}>
                                   {Array.from({ length: week.days }).map((_, i) => (
                                     <TouchableOpacity
                                       key={`day-${i+1}`}
                                       style={styles.dayButton}
-                                      onPress={() => onDayPress?.(week.number, i+1)}
+                                      onPress={() => handleDayPress(week.number, i+1)}
                                     >
-                                      <Text style={styles.dayButtonText}>Day {i+1}</Text>
+                                      <Text style={styles.dayButtonText}>{`Day ${i+1}`}</Text>
                                     </TouchableOpacity>
                                   ))}
                                 </View>
                               </View>
                             </View>
-                          ))}
-                        </View>
-                        
-                        <Text style={styles.footerText}>
-                          Once you complete your last workout on this plan we will generate your next plan based on your preferences, so you continue seeing results
-                        </Text>
-                      </ScrollView>
-                    </GestureHandlerRootView>
-                  </View>
-                </Animated.View>
-              </TouchableWithoutFeedback>
-            </View>
-          </TouchableWithoutFeedback>
+                          );
+                        })}
+                      </View>
+                    )}
+                    
+                    {!selectedDay ? (
+                      <Text style={styles.footerText}>
+                        {"Once you complete your last workout on this plan we will generate your next plan based on your preferences, so you continue seeing results"}
+                      </Text>
+                    ) : null}
+                  </ScrollView>
+                </GestureHandlerRootView>
+              </View>
+            </Animated.View>
+            
+
+          </View>
         </Modal>
+        
+        {/* Exercise Details Modal - moved outside the main Modal */}
+        {selectedExercise && (
+          <ExerciseDetailsModal
+            visible={exerciseDetailsVisible}
+            onClose={() => {
+              console.log('Closing exercise details modal');
+              setExerciseDetailsVisible(false);
+            }}
+            exerciseId={selectedExercise.id}
+            exerciseName={selectedExercise.name}
+            exerciseImage={selectedExercise.image}
+          />
+        )}
       </Portal>
     </Provider>
   );
@@ -359,6 +566,13 @@ const styles = StyleSheet.create({
     marginTop: 0, // Adjusted for better vertical alignment
     zIndex: 2,
   },
+  activeTimelineDot: {
+    borderWidth: 1.5,
+    borderColor: `rgba(255, 255, 255, 0.7)`,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+  },
   weekContent: {
     flex: 1,
     backgroundColor: '#242936',
@@ -420,5 +634,94 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginHorizontal: 16,
     fontStyle: 'italic',
-  }
+  },
+  // Exercise list styles
+  exercisesContainer: {
+    marginTop: 16,
+    marginBottom: 16,
+  },
+  exercisesHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  exercisesTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  backButton: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  backButtonText: {
+    fontSize: 14,
+    color: '#fff',
+  },
+  exercisesList: {
+    backgroundColor: '#242936',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  exerciseItem: {
+    marginBottom: 12,
+  },
+  exerciseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  exerciseImageContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginRight: 12,
+  },
+  exerciseImage: {
+    width: 60,
+    height: 60,
+  },
+  exerciseContent: {
+    flex: 1,
+  },
+  exerciseName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  exerciseDetails: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  exerciseDetail: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginRight: 12,
+  },
+  exerciseDivider: {
+    backgroundColor: 'rgba(29, 106, 229, 0.38)',
+    height: 1,
+    marginVertical: 12,
+  },
+  noExercisesText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontStyle: 'italic',
+    textAlign: 'center',
+  },
+  loadingContainer: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontStyle: 'italic',
+  },
+
 }); 

@@ -12,6 +12,7 @@ import exerciseService, { Exercise, ExerciseCategory } from '../services/exercis
 import { GeneralHeader } from '../components/GeneralHeader';
 import OptimizedImage from '../components/OptimizedImage';
 import useImagePreloader from '../hooks/useImagePreloader';
+import ExerciseDetailsModal from '../components/ExerciseDetailsModal';
 
 // Simple performance tracking utility
 const loadTimeTracker = {
@@ -506,25 +507,20 @@ export default function ExercisesListScreen() {
     });
   }, [allExercises]);
 
+  // New state for exercise details modal
+  const [exerciseDetailsVisible, setExerciseDetailsVisible] = useState(false);
+  const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
+
+  // Update handleExercisePress to show modal instead of navigating
   const handleExercisePress = useCallback((exerciseId: string) => {
     // Find the exercise to get details
     const exercise = displayedExercises.find(ex => ex.id === exerciseId);
     console.log(`[ExercisesListScreen] Exercise card pressed: ${exerciseId}, found exercise:`, exercise ? exercise.name : 'not found');
     if (exercise) {
-      router.push({
-        pathname: "/(tabs)/exercise-details",
-        params: {
-          id: exerciseId,
-          name: exercise.name,
-          image: exercise.image_url || 'placeholder.jpg',
-          fromScreen: 'exercises-list',
-          originalFromScreen: fromScreen,
-          categoryId: currentCategory,
-          groupByMuscle: shouldGroupByMuscle ? 'true' : 'false'
-        }
-      });
+      setSelectedExercise(exercise);
+      setExerciseDetailsVisible(true);
     }
-  }, [displayedExercises, router, fromScreen, currentCategory, shouldGroupByMuscle]);
+  }, [displayedExercises]);
 
   const openSearch = () => {
     setIsSearchActive(true);
@@ -1058,6 +1054,17 @@ export default function ExercisesListScreen() {
             <MaterialIcons name="close" size={18} color={COLORS.text} />
           </TouchableOpacity>
         </Animated.View>
+      )}
+
+      {/* Add ExerciseDetailsModal */}
+      {selectedExercise && (
+        <ExerciseDetailsModal
+          visible={exerciseDetailsVisible}
+          onClose={() => setExerciseDetailsVisible(false)}
+          exerciseId={selectedExercise.id}
+          exerciseName={selectedExercise.name}
+          exerciseImage={selectedExercise.image_url}
+        />
       )}
     </View>
   );

@@ -10,6 +10,7 @@ import exerciseService, { Exercise, ExerciseCategory } from '../services/exercis
 import ExerciseCard from '../components/ExerciseCard';
 import OptimizedImage from '../components/OptimizedImage';
 import useImagePreloader from '../hooks/useImagePreloader';
+import ExerciseDetailsModal from '../components/ExerciseDetailsModal';
 
 // Get screen width for responsive sizing
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -88,6 +89,10 @@ export default function SingleGroupExercisesScreen() {
   const contentOffsetAnim = useRef(new Animated.Value(openSearchParam === 'true' ? 50 : 0)).current;
   const searchInputRef = useRef<TextInput>(null);
   const searchResultsOpacity = useRef(new Animated.Value(0)).current;
+
+  // New state for exercise details modal
+  const [exerciseDetailsVisible, setExerciseDetailsVisible] = useState(false);
+  const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
 
   // Fetch exercises on mount
   useEffect(() => {
@@ -218,24 +223,15 @@ export default function SingleGroupExercisesScreen() {
     });
   }, []);
 
-  // Handle exercise press to navigate to details
+  // Update handleExercisePress to show modal instead of navigating
   const handleExercisePress = useCallback((exerciseId: string) => {
     // Find the exercise to get details
     const exercise = exercises.find(ex => ex.id === exerciseId);
     if (exercise) {
-      router.push({
-        pathname: "/(tabs)/exercise-details",
-        params: {
-          id: exerciseId,
-          name: exercise.name,
-          image: exercise.image_url || 'placeholder.jpg',
-          fromScreen: 'exercises-single-group',
-          originalFromScreen: fromScreen || 'exercises',
-          categoryId: muscleGroup
-        }
-      });
+      setSelectedExercise(exercise);
+      setExerciseDetailsVisible(true);
     }
-  }, [exercises, router, fromScreen, muscleGroup]);
+  }, [exercises]);
 
   // Handle back button press
   const handleBackPress = () => {
@@ -584,6 +580,17 @@ export default function SingleGroupExercisesScreen() {
             <MaterialIcons name="close" size={18} color={COLORS.text} />
           </TouchableOpacity>
         </Animated.View>
+      )}
+
+      {/* Add ExerciseDetailsModal */}
+      {selectedExercise && (
+        <ExerciseDetailsModal
+          visible={exerciseDetailsVisible}
+          onClose={() => setExerciseDetailsVisible(false)}
+          exerciseId={selectedExercise.id}
+          exerciseName={selectedExercise.name}
+          exerciseImage={selectedExercise.image_url}
+        />
       )}
     </View>
   );

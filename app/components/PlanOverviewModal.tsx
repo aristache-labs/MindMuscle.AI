@@ -78,17 +78,22 @@ export default function PlanOverviewModal({
   const [exerciseDetailsVisible, setExerciseDetailsVisible] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
   
-  // Ensure weeks have the correct number of days based on plan frequency
+  // Create a local state for weeks to avoid directly mutating props
+  const [localWeeks, setLocalWeeks] = useState<WeekData[]>([]);
+  
+  // Initialize local weeks when weeks prop changes or when modal becomes visible
   useEffect(() => {
-    if (weeks && weeks.length > 0) {
-      weeks.forEach(week => {
-        // If days is not set or incorrect, set it to planWorkoutFrequency
-        if (!week.days || week.days < planWorkoutFrequency) {
-          week.days = planWorkoutFrequency;
-        }
-      });
+    if (visible && weeks && weeks.length > 0) {
+      // Create a deep copy of weeks to avoid mutating props
+      const updatedWeeks = weeks.map(week => ({
+        ...week,
+        // Ensure days is at least planWorkoutFrequency
+        days: Math.max(week.days || 0, planWorkoutFrequency)
+      }));
+      
+      setLocalWeeks(updatedWeeks);
     }
-  }, [weeks, planWorkoutFrequency]);
+  }, [weeks, visible, planWorkoutFrequency]);
 
   // Run animation when visibility changes
   useEffect(() => {
@@ -317,9 +322,9 @@ export default function PlanOverviewModal({
                     ) : (
                       // Show timeline view
                       <View style={styles.timeline}>
-                        {weeks.length > 0 ? <View style={styles.timelineLine} /> : null}
+                        {localWeeks.length > 0 ? <View style={styles.timelineLine} /> : null}
                         
-                        {weeks.map((week, index) => {
+                        {localWeeks.map((week, index) => {
                           return (
                             <View key={`week-${week.number}`} style={styles.weekContainer}>
                               {/* Timeline dot */}
@@ -351,32 +356,21 @@ export default function PlanOverviewModal({
                                   </View>
                                 ) : null}
                                 
-                                <View style={styles.daysScrollContainer}>
-                                  <ScrollView
-                                    horizontal
-                                    showsHorizontalScrollIndicator={false}
-                                    contentContainerStyle={styles.daysScrollContent}
-                                  >
-                                    {Array.from({ length: week.days }).map((_, i) => (
-                                      <TouchableOpacity
-                                        key={`day-${i+1}`}
-                                        style={styles.dayButton}
-                                        onPress={() => handleDayPress(week.number, i+1)}
-                                      >
-                                        <Text style={styles.dayButtonText}>{`Day ${i+1}`}</Text>
-                                      </TouchableOpacity>
-                                    ))}
-                                  </ScrollView>
-                                  {week.days > 3 && (
-                                    <View style={styles.scrollIndicator}>
-                                      <IconButton
-                                        icon="chevron-right"
-                                        iconColor="#1D6AE5"
-                                        size={20}
-                                      />
-                                    </View>
-                                  )}
-                                </View>
+                                <ScrollView
+                                  horizontal
+                                  showsHorizontalScrollIndicator={false}
+                                  contentContainerStyle={styles.daysScrollContent}
+                                >
+                                  {Array.from({ length: week.days }).map((_, i) => (
+                                    <TouchableOpacity
+                                      key={`day-${i+1}`}
+                                      style={styles.dayButton}
+                                      onPress={() => handleDayPress(week.number, i+1)}
+                                    >
+                                      <Text style={styles.dayButtonText}>{`Day ${i+1}`}</Text>
+                                    </TouchableOpacity>
+                                  ))}
+                                </ScrollView>
                               </View>
                             </View>
                           );
@@ -644,7 +638,6 @@ const styles = StyleSheet.create({
   daysScrollContent: {
     paddingVertical: 4,
     flexDirection: 'row',
-    paddingBottom: 8,
   },
   dayButtonsContainer: {
     flexDirection: 'row',
@@ -664,15 +657,16 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 0,
     top: '50%',
-    width: 24,
-    height: 30,
-    borderTopLeftRadius: 15,
-    borderBottomLeftRadius: 15,
-    backgroundColor: 'rgba(29, 106, 229, 0.2)',
-    transform: [{ translateY: -15 }],
-    justifyContent: 'center',
-    alignItems: 'flex-start',
-    paddingLeft: 8,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    transform: [{ translateY: -10 }],
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 5,
+    elevation: 3,
   },
   dayButtonText: {
     fontSize: 14,

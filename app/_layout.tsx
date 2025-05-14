@@ -18,6 +18,7 @@ import { MeasurementsProvider } from './store/MeasurementsContext';
 import SplashScreenManager from './components/SplashScreenManager';
 import * as SplashScreen from 'expo-splash-screen';
 import { QueryProvider } from './components/QueryProvider';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 // Initialize SplashScreen as early as possible
 try {
@@ -45,8 +46,8 @@ if (Constants.appOwnership === 'expo') {
 // Initialize Sentry as early as possible
 initializeSentry();
 
-// Use React.memo to ensure consistent static flags
-const RootLayout = React.memo(function RootLayout() {
+// Root component wrapped in SafeAreaProvider
+const RootApp = () => {
   const colorScheme = useColorScheme();
   const [fontsLoaded] = useFonts({
     // Add any custom fonts here if needed
@@ -58,26 +59,31 @@ const RootLayout = React.memo(function RootLayout() {
   }
 
   return (
-    <QueryProvider>
-      <ThemeProvider>
-        <AuthProvider>
-          <MeasurementsProvider>
-            <ProfileProvider>
-              <ProgressProvider>
-                <GamificationProvider>
-                  <SplashScreenManager>
-                    <AuthGuard>
-                      <Slot />
-                    </AuthGuard>
-                  </SplashScreenManager>
-                </GamificationProvider>
-              </ProgressProvider>
-            </ProfileProvider>
-          </MeasurementsProvider>
-        </AuthProvider>
-      </ThemeProvider>
-    </QueryProvider>
+    <SafeAreaProvider>
+      <QueryProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <MeasurementsProvider>
+              <ProfileProvider>
+                <ProgressProvider>
+                  <GamificationProvider>
+                    <SplashScreenManager>
+                      <AuthGuard>
+                        <Slot />
+                      </AuthGuard>
+                    </SplashScreenManager>
+                  </GamificationProvider>
+                </ProgressProvider>
+              </ProfileProvider>
+            </MeasurementsProvider>
+          </AuthProvider>
+        </ThemeProvider>
+      </QueryProvider>
+    </SafeAreaProvider>
   );
-});
+};
+
+// Use React.memo for the layout component to ensure consistent static flags
+const RootLayout = React.memo(RootApp);
 
 export default Sentry.wrap(RootLayout); 

@@ -44,8 +44,6 @@ export default function PlanOverviewModal({
   onWeekPress,
   onDayPress
 }: Props) {
-  if (!visible) return null;
-  
   // Generate our own animation value
   const [modalAnim] = useState(() => new Animated.Value(0));
   
@@ -70,6 +68,9 @@ export default function PlanOverviewModal({
     inputRange: [0, 1],
     outputRange: [Dimensions.get('window').height, 0],
   });
+
+  // Early return after all hooks have been called
+  if (!visible) return null;
 
   return (
     <Provider>
@@ -116,20 +117,19 @@ export default function PlanOverviewModal({
                         scrollEventThrottle={16}
                       >
                         <View style={styles.timeline}>
+                          {/* Single continuous vertical line that starts at first dot and ends at last dot */}
+                          {weeks.length > 0 && <View style={styles.timelineLine} />}
+                          
                           {weeks.map((week, index) => (
                             <View key={`week-${week.number}`} style={styles.weekContainer}>
-                              {/* Timeline connector */}
-                              <View style={styles.timelineConnector}>
+                              {/* Timeline dot */}
+                              <View style={styles.timelineLeft}>
                                 <View 
                                   style={[
                                     styles.timelineDot, 
-                                    { backgroundColor: week.color },
-                                    week.number === currentWeek && styles.activeTimelineDot
+                                    { backgroundColor: week.color }
                                   ]} 
                                 />
-                                {index < weeks.length - 1 && (
-                                  <View style={styles.timelineLine} />
-                                )}
                               </View>
                               
                               {/* Week content */}
@@ -144,9 +144,11 @@ export default function PlanOverviewModal({
                                   <Text style={styles.weekTitle}>Week {week.number} - {week.name}</Text>
                                 </View>
                                 
-                                <View style={styles.weekDescription}>
-                                  <Text style={styles.descriptionText}>{week.description}</Text>
-                                </View>
+                                {week.description && (
+                                  <View style={styles.weekDescription}>
+                                    <Text style={styles.descriptionText}>{week.description}</Text>
+                                  </View>
+                                )}
                                 
                                 <View style={styles.dayButtonsContainer}>
                                   {Array.from({ length: week.days }).map((_, i) => (
@@ -310,39 +312,52 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollViewContent: {
-    padding: 16,
+    paddingHorizontal: 16,
     paddingBottom: 32,
   },
   timeline: {
-    marginTop: 8,
+    marginTop: 16,
+    position: 'relative',
+    paddingLeft: 0, // Remove padding to position elements properly
+  },
+  timelineLine: {
+    position: 'absolute',
+    width: 1,
+    top: 90, // Start exactly at the blue dot
+    bottom: 70, // End exactly at the green dot
+    left: 30, // Center it through the dots
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    zIndex: 1,
+  },
+  timelineLineSegment: {
+    position: 'absolute',
+    width: 1,
+    height: 70,
+    left: 5.5, // Better center alignment with the dot
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    zIndex: 1,
   },
   weekContainer: {
     flexDirection: 'row',
-    marginBottom: 20,
+    marginBottom: 0,
+    position: 'relative',
+    paddingTop: 10,
   },
-  timelineConnector: {
-    width: 30,
+  timelineLeft: {
+    width: 12,
     alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    marginLeft: 24, // Position dots over the line
+    zIndex: 2,
   },
   timelineDot: {
     width: 12,
     height: 12,
     borderRadius: 6,
     backgroundColor: COLORS.primary,
-  },
-  activeTimelineDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: '#fff',
-  },
-  timelineLine: {
-    width: 2,
-    flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    marginVertical: 4,
-    marginLeft: 5,
+    marginTop: 0, // Adjusted for better vertical alignment
+    zIndex: 2,
   },
   weekContent: {
     flex: 1,
@@ -354,12 +369,12 @@ const styles = StyleSheet.create({
   activeWeekContent: {
     backgroundColor: '#24293E',
     borderWidth: 1,
-    borderColor: `${COLORS.primary}80`,
+    borderColor: '#1D6AE5', // Blue border for active week as shown in screenshot
   },
   weekHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 0,
   },
   weekIndicator: {
     width: 4,
@@ -373,28 +388,29 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   weekDescription: {
-    marginBottom: 12,
+    marginBottom: 10,
+    marginTop: 2,
   },
   descriptionText: {
     fontSize: 13,
     color: 'rgba(255, 255, 255, 0.7)',
     lineHeight: 18,
+    fontStyle: 'italic',
   },
   dayButtonsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginBottom: 12,
   },
   dayButton: {
     backgroundColor: '#333845',
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 20,
     marginRight: 8,
     marginBottom: 8,
   },
   dayButtonText: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#fff',
   },
   footerText: {

@@ -65,7 +65,7 @@ export default function PlanOverviewModal({
   onWeekPress,
   onDayPress,
   activePlanId,
-  planWorkoutFrequency = 2 // Default to 2 days per week if not provided
+  planWorkoutFrequency = 3 // Default to 3 days per week if not provided
 }: Props) {
   // Generate our own animation value
   const [modalAnim] = useState(() => new Animated.Value(0));
@@ -78,6 +78,18 @@ export default function PlanOverviewModal({
   const [exerciseDetailsVisible, setExerciseDetailsVisible] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
   
+  // Ensure weeks have the correct number of days based on plan frequency
+  useEffect(() => {
+    if (weeks && weeks.length > 0) {
+      weeks.forEach(week => {
+        // If days is not set or incorrect, set it to planWorkoutFrequency
+        if (!week.days || week.days < planWorkoutFrequency) {
+          week.days = planWorkoutFrequency;
+        }
+      });
+    }
+  }, [weeks, planWorkoutFrequency]);
+
   // Run animation when visibility changes
   useEffect(() => {
     if (visible) {
@@ -339,16 +351,31 @@ export default function PlanOverviewModal({
                                   </View>
                                 ) : null}
                                 
-                                <View style={styles.dayButtonsContainer}>
-                                  {Array.from({ length: week.days }).map((_, i) => (
-                                    <TouchableOpacity
-                                      key={`day-${i+1}`}
-                                      style={styles.dayButton}
-                                      onPress={() => handleDayPress(week.number, i+1)}
-                                    >
-                                      <Text style={styles.dayButtonText}>{`Day ${i+1}`}</Text>
-                                    </TouchableOpacity>
-                                  ))}
+                                <View style={styles.daysScrollContainer}>
+                                  <ScrollView
+                                    horizontal
+                                    showsHorizontalScrollIndicator={false}
+                                    contentContainerStyle={styles.daysScrollContent}
+                                  >
+                                    {Array.from({ length: week.days }).map((_, i) => (
+                                      <TouchableOpacity
+                                        key={`day-${i+1}`}
+                                        style={styles.dayButton}
+                                        onPress={() => handleDayPress(week.number, i+1)}
+                                      >
+                                        <Text style={styles.dayButtonText}>{`Day ${i+1}`}</Text>
+                                      </TouchableOpacity>
+                                    ))}
+                                  </ScrollView>
+                                  {week.days > 3 && (
+                                    <View style={styles.scrollIndicator}>
+                                      <IconButton
+                                        icon="chevron-right"
+                                        iconColor="#1D6AE5"
+                                        size={20}
+                                      />
+                                    </View>
+                                  )}
                                 </View>
                               </View>
                             </View>
@@ -611,6 +638,14 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontStyle: 'italic',
   },
+  daysScrollContainer: {
+    position: 'relative',
+  },
+  daysScrollContent: {
+    paddingVertical: 4,
+    flexDirection: 'row',
+    paddingBottom: 8,
+  },
   dayButtonsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -621,7 +656,23 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 20,
     marginRight: 8,
-    marginBottom: 8,
+    marginBottom: 2,
+    minWidth: 70,
+    alignItems: 'center',
+  },
+  scrollIndicator: {
+    position: 'absolute',
+    right: 0,
+    top: '50%',
+    width: 24,
+    height: 30,
+    borderTopLeftRadius: 15,
+    borderBottomLeftRadius: 15,
+    backgroundColor: 'rgba(29, 106, 229, 0.2)',
+    transform: [{ translateY: -15 }],
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    paddingLeft: 8,
   },
   dayButtonText: {
     fontSize: 14,

@@ -119,7 +119,7 @@ export default function PlansScreen() {
   const handlePlanPress = (planId: string, planTitle: string, index: number) => {
     // Navigate to the plan details screen with the planId and planNumber
     router.push({
-      pathname: "/(tabs)/plan-details",
+      pathname: "/(stack)/plan-details",
       params: { 
         planId, 
         planTitle,
@@ -135,7 +135,7 @@ export default function PlansScreen() {
   };
 
   // Helper to get appropriate image source with fallback
-  const getImageSource = (imageUrl: string | null) => {
+  const getImageSource = (imageUrl: string | null | undefined) => {
     if (!imageUrl) return imageMap['placeholder.jpg'];
     
     // Check if it's a full URL (starts with http/https)
@@ -163,7 +163,7 @@ export default function PlansScreen() {
     return (
       <Pressable 
         style={styles.planCard} 
-        onPress={() => handlePlanPress(item.id, item.title, index)}
+        onPress={() => handlePlanPress(item.id, item.title || 'Unnamed Plan', index)}
         android_ripple={{ color: 'rgba(255,255,255,0.1)' }}
       >
         <View style={[styles.planCardAccent, { backgroundColor: accentColor }]} />
@@ -431,6 +431,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: COLORS.text,
+  },
+  planPhases: {
+    fontSize: 12,
+    color: COLORS.secondary,
+    marginTop: 4,
   },
   arrowIcon: {
     margin: 0,

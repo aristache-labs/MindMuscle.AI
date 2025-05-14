@@ -10,7 +10,7 @@ export default function ImagePreloaderWrapper() {
 }
 
 // Debug flag - set to false to reduce logging
-export const DEBUG_IMAGE_PRELOADER = true;
+export const DEBUG_IMAGE_PRELOADER = false;
 
 // Safely handle FastImage - dynamically import to prevent crashes
 let FastImage: any = null;

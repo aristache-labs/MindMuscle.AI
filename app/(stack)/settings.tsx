@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, SPACING } from '../constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
 import { clearImageCache, getCacheStats, CacheStats } from '../utils/imagePreloader';
+import WorkoutDaysModal from '../components/WorkoutDaysModal';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -14,6 +15,7 @@ export default function SettingsScreen() {
   const [isDarkTheme, setIsDarkTheme] = React.useState(true);
   const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
   const [clearingCache, setClearingCache] = useState(false);
+  const [workoutDaysModalVisible, setWorkoutDaysModalVisible] = useState(false);
 
   // Fetch cache statistics when the component mounts
   useEffect(() => {
@@ -121,9 +123,9 @@ export default function SettingsScreen() {
     );
   };
 
-  const renderMenuItem = (icon: string, title: string, rightElement?: React.ReactNode, isLast?: boolean) => (
+  const renderMenuItem = (icon: string, title: string, rightElement?: React.ReactNode, isLast?: boolean, onPress?: () => void) => (
     <View>
-      <Pressable style={styles.menuItem}>
+      <Pressable style={styles.menuItem} onPress={onPress}>
         <View style={styles.menuItemLeft}>
           <MaterialCommunityIcons 
             name={icon as any} 
@@ -135,7 +137,15 @@ export default function SettingsScreen() {
             {title}
           </Text>
         </View>
-        {rightElement}
+        {rightElement || (
+          onPress && title !== 'Workout Days' ? (
+            <MaterialCommunityIcons 
+              name="chevron-right" 
+              size={24} 
+              color={COLORS.text}
+            />
+          ) : null
+        )}
       </Pressable>
       {!isLast && (
         <LinearGradient
@@ -151,6 +161,10 @@ export default function SettingsScreen() {
 
   const safeGoBack = () => {
     router.push('/(tabs)/profile');
+  };
+
+  const handleOpenWorkoutDaysModal = () => {
+    setWorkoutDaysModalVisible(true);
   };
 
   return (
@@ -180,6 +194,7 @@ export default function SettingsScreen() {
         <View style={styles.section}>
           {renderMenuItem('bell-outline', 'Notifications')}
           {renderMenuItem('clock-outline', 'Workout Reminders')}
+          {renderMenuItem('calendar-check-outline', 'Workout Days', undefined, false, handleOpenWorkoutDaysModal)}
           {renderMenuItem('shield-outline', 'Security')}
           {renderMenuItem('watch', 'Apple Watch')}
           {renderMenuItem('heart', 'Apple Health')}
@@ -265,6 +280,11 @@ export default function SettingsScreen() {
           </View>
         </View>
       </ScrollView>
+
+      <WorkoutDaysModal 
+        visible={workoutDaysModalVisible} 
+        onClose={() => setWorkoutDaysModalVisible(false)} 
+      />
     </View>
   );
 }
@@ -399,7 +419,5 @@ const styles = StyleSheet.create({
     flex: 1,
     marginHorizontal: 6,
   },
-  clearAllButton: {
-    backgroundColor: COLORS.error,
-  },
+    clearAllButton: {    backgroundColor: COLORS.error,  },
 }); 

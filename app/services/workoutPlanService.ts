@@ -13,9 +13,16 @@ function generateUniqueId(): string {
 // Updated interface to match the actual database schema
 export interface WorkoutPlan {
   id: string;
-  title: string;
-  image_url: string | null;
-  subcategory_id: string;
+  title?: string;
+  description?: string;
+  image_url?: string;
+  subcategory_id?: string;
+  subcategory_name?: string;
+  subcategory_subtitle?: string;
+  category_id?: string;
+  category_name?: string;
+  identifier?: string;
+  workout_frequency?: number; // Number of workout days per week
   difficulty: string;  // Mapped from difficulty_level in transformResponse
   estimated_duration?: number;  // From database
   duration_weeks: number;  // Calculated/mapped from other data
@@ -23,10 +30,8 @@ export interface WorkoutPlan {
   display_order: number;
   created_at: string;
   updated_at: string;
-  identifier?: string;
   subcategory_identifier?: string;
   subcategory_title?: string; // Added field for subcategory title
-  subcategory_subtitle?: string; // Added field for subcategory subtitle
 }
 
 // Interface for raw database response
@@ -71,6 +76,30 @@ export interface PlanExercise {
   instructions?: string[];
   rest_time?: number; // in seconds
   order: number;
+  workout_day?: number; // Added workout day for multi-day plans
+}
+
+// Interface for workout session
+export interface WorkoutSession {
+  id: string;
+  user_id: string;
+  active_plan_id: string;
+  start_time: string;
+  end_time?: string;
+  total_duration?: number; // in seconds
+  calories_burned?: number;
+  status: 'in_progress' | 'completed' | 'cancelled';
+  notes?: string;
+}
+
+// Interface for exercise set tracking
+export interface ExerciseSet {
+  exercise_id: string;
+  set_number: number;
+  weight?: number;
+  reps: number;
+  completed: boolean;
+  notes?: string;
 }
 
 const workoutPlanService = {
@@ -354,72 +383,115 @@ const workoutPlanService = {
     ];
   },
 
-  async getPlanExercises(planId: string): Promise<PlanExercise[]> {
+  async getPlanExercises(planId: string, workoutDay?: number): Promise<PlanExercise[]> {
     try {
-      // Ensure planId is properly formatted
-      if (!planId || typeof planId !== 'string') {
-        return [];
-      }
-
-      // Use a direct query approach with proper joining
-      const { data, error } = await supabase
+      // Build the query
+      let query = supabase
         .from('workout_plan_exercises')
         .select(`
-          id, 
-          plan_id,
-          exercise_id,
-          sets,
-          reps_range,
-          rest_time,
-          "order",
-          exercises(
-            id,
-            name,
-            image_url,
-            muscle_group,
-            equipment,
-            primary_muscles,
-            secondary_muscles
-          )
+          *,
+          exercises(*)
         `)
         .eq('plan_id', planId)
-        .order('"order"', { ascending: true });
+        .order('order', { ascending: true });
+      
+      // If a specific workout day is requested, filter by it
+      if (workoutDay !== undefined) {
+        query = query.eq('workout_day', workoutDay);
+      }
+      
+      const { data, error } = await query;
 
       if (error) {
+        console.error('Error fetching plan exercises:', error);
         return [];
       }
 
       if (!data || data.length === 0) {
-        return [];
-      }
-
-      // Transform the data to match the PlanExercise interface
-      const result: PlanExercise[] = [];
-
-      for (const item of data) {
-        // Safe access to nested exercise data
-        const exerciseData = item.exercises as any;
+        // Try newer naming convention for order field if the first attempt returns no data
+        const { data: alternativeData, error: alternativeError } = await supabase
+          .from('workout_plan_exercises')
+          .select(`
+            *,
+            exercises(*)
+          `)
+          .eq('plan_id', planId)
+          .order('order_position', { ascending: true });
+          
+        if (alternativeError || !alternativeData || alternativeData.length === 0) {
+          return [];
+        }
         
-        const planExercise: PlanExercise = {
-          id: item.id,
-          exercise_id: item.exercise_id,
-          name: exerciseData?.name || 'Unknown Exercise',
-          image_url: exerciseData?.image_url,
-          sets: item.sets || 3,
-          reps: item.reps_range || '8-10',
-          rest_time: item.rest_time || 60,
-          order: item.order || 0,
-          equipment: exerciseData?.equipment,
-          muscle_group: exerciseData?.muscle_group,
-          primary_muscles: exerciseData?.primary_muscles || [],
-          secondary_muscles: exerciseData?.secondary_muscles || [],
-        };
-        result.push(planExercise);
+        // Map the exercise data
+        return alternativeData.map(ex => {
+          const exerciseDetails = ex.exercises || {};
+          return {
+            id: ex.id,
+            exercise_id: ex.exercise_id,
+            name: ex.exercise_name || exerciseDetails.name || 'Unknown Exercise',
+            image_url: exerciseDetails.image_url || null,
+            sets: ex.sets || 3,
+            reps: ex.reps_range || ex.reps || '8-12',
+            equipment: exerciseDetails.equipment || 'None',
+            muscle_group: exerciseDetails.muscle_group || 'General',
+            primary_muscles: exerciseDetails.primary_muscles || [],
+            secondary_muscles: exerciseDetails.secondary_muscles || [],
+            instructions: exerciseDetails.instructions || [],
+            rest_time: ex.rest_time || 60,
+            order: ex.order_position || ex.order || 0,
+            workout_day: ex.workout_day || 1
+          };
+        });
       }
-
-      return result;
+      
+      // Map the exercise data
+      return data.map(ex => {
+        const exerciseDetails = ex.exercises || {};
+        return {
+          id: ex.id,
+          exercise_id: ex.exercise_id,
+          name: ex.exercise_name || exerciseDetails.name || 'Unknown Exercise',
+          image_url: exerciseDetails.image_url || null,
+          sets: ex.sets || 3,
+          reps: ex.reps_range || ex.reps || '8-12',
+          equipment: exerciseDetails.equipment || 'None',
+          muscle_group: exerciseDetails.muscle_group || 'General',
+          primary_muscles: exerciseDetails.primary_muscles || [],
+          secondary_muscles: exerciseDetails.secondary_muscles || [],
+          instructions: exerciseDetails.instructions || [],
+          rest_time: ex.rest_time || 60,
+          order: ex.order_position || ex.order || 0,
+          workout_day: ex.workout_day || 1
+        };
+      });
     } catch (error) {
+      console.error('Exception in getPlanExercises:', error);
       return [];
+    }
+  },
+
+  // New function to get available workout days for a plan
+  async getPlanWorkoutDays(planId: string): Promise<number[]> {
+    try {
+      const { data, error } = await supabase
+        .from('workout_plan_exercises')
+        .select('workout_day')
+        .eq('plan_id', planId)
+        .order('workout_day', { ascending: true });
+        
+      if (error || !data) {
+        console.error('Error fetching workout days:', error);
+        return [1]; // Default to day 1
+      }
+      
+      // Extract unique workout days
+      const uniqueDays = [...new Set(data.map(item => item.workout_day || 1))];
+      
+      // If no days found, return day 1 as default
+      return uniqueDays.length > 0 ? uniqueDays : [1];
+    } catch (error) {
+      console.error('Exception in getPlanWorkoutDays:', error);
+      return [1]; // Default to day 1
     }
   },
 
@@ -512,6 +584,213 @@ const workoutPlanService = {
     } catch (error) {
       console.error('Error deleting plan image:', error);
       throw error;
+    }
+  },
+
+  // Get active plans by section
+  async getActivePlansBySection(section: 'default_plan' | 'single_workout' | 'ai_coaching' | 'custom_plan'): Promise<any[]> {
+    if (!supabase.auth.getSession()) {
+      return [];
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('user_active_plans')
+        .select(`
+          id,
+          plan_id,
+          name,
+          subtitle,
+          exercise_count,
+          duration,
+          calories,
+          accent_color,
+          is_active,
+          date_added,
+          source_type,
+          section,
+          source_identifier,
+          ai_prompt,
+          custom_description,
+          user_active_plan_exercises(*)
+        `)
+        .eq('section', section)
+        .eq('is_active', true)
+        .order('date_added', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching active plans by section:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Error in getActivePlansBySection:', error);
+      return [];
+    }
+  },
+
+  // Start a workout session
+  async startWorkout(activePlanId: string, userId: string): Promise<WorkoutSession | null> {
+    try {
+      const now = new Date().toISOString();
+      
+      // Create a new workout session
+      const { data, error } = await supabase
+        .from('workout_sessions')
+        .insert([
+          {
+            user_id: userId,
+            active_plan_id: activePlanId,
+            start_time: now,
+            status: 'in_progress'
+          }
+        ])
+        .select()
+        .single();
+        
+      if (error) {
+        console.error('Error starting workout session:', error);
+        return null;
+      }
+      
+      return data as WorkoutSession;
+    } catch (error) {
+      console.error('Error in startWorkout:', error);
+      return null;
+    }
+  },
+  
+  // Complete a workout session
+  async completeWorkout(sessionId: string, data: { 
+    totalDuration?: number, 
+    caloriesBurned?: number, 
+    notes?: string 
+  }): Promise<WorkoutSession | null> {
+    try {
+      const now = new Date().toISOString();
+      
+      const { data: updatedSession, error } = await supabase
+        .from('workout_sessions')
+        .update({
+          end_time: now,
+          total_duration: data.totalDuration,
+          calories_burned: data.caloriesBurned,
+          notes: data.notes,
+          status: 'completed'
+        })
+        .eq('id', sessionId)
+        .select()
+        .single();
+        
+      if (error) {
+        console.error('Error completing workout session:', error);
+        return null;
+      }
+      
+      return updatedSession as WorkoutSession;
+    } catch (error) {
+      console.error('Error in completeWorkout:', error);
+      return null;
+    }
+  },
+  
+  // Log exercise set during workout
+  async logExerciseSet(
+    sessionId: string, 
+    exerciseData: {
+      exercise_id: string,
+      set_number: number,
+      weight?: number,
+      reps: number,
+      notes?: string
+    }
+  ): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('workout_exercise_sets')
+        .insert([
+          {
+            session_id: sessionId,
+            exercise_id: exerciseData.exercise_id,
+            set_number: exerciseData.set_number,
+            weight: exerciseData.weight,
+            reps: exerciseData.reps,
+            completed: true,
+            notes: exerciseData.notes
+          }
+        ]);
+        
+      if (error) {
+        console.error('Error logging exercise set:', error);
+        return false;
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error in logExerciseSet:', error);
+      return false;
+    }
+  },
+  
+  // Get workout history for a user
+  async getWorkoutHistory(userId: string, limit: number = 10): Promise<WorkoutSession[]> {
+    try {
+      const { data, error } = await supabase
+        .from('workout_sessions')
+        .select(`
+          *,
+          user_active_plans(
+            name,
+            subtitle,
+            exercise_count,
+            duration,
+            calories
+          )
+        `)
+        .eq('user_id', userId)
+        .eq('status', 'completed')
+        .order('start_time', { ascending: false })
+        .limit(limit);
+        
+      if (error) {
+        console.error('Error fetching workout history:', error);
+        return [];
+      }
+      
+      return data as WorkoutSession[];
+    } catch (error) {
+      console.error('Error in getWorkoutHistory:', error);
+      return [];
+    }
+  },
+  
+  // Get detailed exercise history for a completed workout
+  async getWorkoutExerciseSets(sessionId: string): Promise<ExerciseSet[]> {
+    try {
+      const { data, error } = await supabase
+        .from('workout_exercise_sets')
+        .select(`
+          *,
+          exercises(
+            name,
+            image_url,
+            muscle_group,
+            primary_muscles
+          )
+        `)
+        .eq('session_id', sessionId)
+        .order('set_number', { ascending: true });
+        
+      if (error) {
+        console.error('Error fetching workout exercise sets:', error);
+        return [];
+      }
+      
+      return data as ExerciseSet[];
+    } catch (error) {
+      console.error('Error in getWorkoutExerciseSets:', error);
+      return [];
     }
   }
 };

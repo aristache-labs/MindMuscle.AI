@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, ScrollView, Image, Dimensions, TouchableOpacity, Pressable } from 'react-native';
 import { Text, Card, Button, IconButton, useTheme, Chip } from 'react-native-paper';
 import { useAuth } from '../store/AuthContext';
 import { COLORS, SPACING, BORDER_RADIUS, HEADER_HEIGHT } from '../constants/theme';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { MenuHeader } from '../components/MenuHeader';
@@ -16,25 +16,19 @@ import CustomScreen from '../(stack)/custom';
 
 const { width } = Dimensions.get('window');
 
-const getGreeting = (): string => {
-  const hour = new Date().getHours();
-  
-  if (hour >= 5 && hour < 12) {
-    return '🌞  Good Morning';
-  } else if (hour >= 12 && hour < 17) {
-    return '☀️  Good Afternoon';
-  } else if (hour >= 17 && hour < 21) {
-    return '☀️  Good Evening';
-  } else {
-    return '🌔  Good Night';
-  }
-};
+
 
 export default function HomeScreen() {
   const { user, isLoading, signOut } = useAuth();
   const [selectedOption, setSelectedOption] = useState('My Plan');
+  const params = useLocalSearchParams();
   const theme = useTheme();
-  const greeting = React.useMemo(() => getGreeting(), []);
+  
+  // Set My Plan as default option, especially when navigating back from plan details
+  useEffect(() => {
+    setSelectedOption('My Plan');
+  }, []);
+  
   const fullName = React.useMemo(() => {
     if (isLoading) return '...';
     return user?.user_metadata?.name  || 'User';
@@ -74,12 +68,6 @@ export default function HomeScreen() {
     >
       <View style={styles.headerSpacer} />
       
-      <View style={styles.welcomeSection}>
-        <Text variant="headlineMedium" style={styles.welcomeText}>
-          {greeting}, {fullName}!
-        </Text>
-      </View>
-
       <View style={styles.infoCard}>
         <Text style={styles.infoTitle}>Welcome to MindMuscle.AI</Text>
         <Text style={styles.infoText}>

@@ -81,6 +81,16 @@ export default function StackLayout() {
         }}
       />
       <Stack.Screen
+        name="workout-session"
+        options={{
+          headerShown: false,
+          animation: 'slide_from_bottom',
+          gestureEnabled: false,
+          fullScreenGestureEnabled: false,
+          presentation: 'modal',
+        }}
+      />
+      <Stack.Screen
         name="plans"
         options={{
           headerShown: false,

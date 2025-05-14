@@ -61,7 +61,7 @@ const markAsImportantImage = (url: string) => {
 };
 
 // Debug flag to control logging
-const DEBUG_SPLASH_SCREEN = true;
+const DEBUG_SPLASH_SCREEN = false;
 
 // Define resources to be preloaded, organized by priority
 const PRELOAD_CONFIG = {

@@ -24,7 +24,7 @@ const screenWidth = Dimensions.get('window').width;
 const screenHeight = Dimensions.get('window').height;
 
 // Debug flag - set to false to reduce logging
-export const DEBUG_OPTIMIZED_IMAGE = true;
+export const DEBUG_OPTIMIZED_IMAGE = false;
 
 // Track usage statistics
 let imageRenderCount = 0;

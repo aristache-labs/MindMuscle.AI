@@ -126,6 +126,16 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   const currentDay = today.getDay() === 0 ? 6 : today.getDay() - 1; // Convert to Mon=0, Sun=6
   const currentDate = today.getDate();
   
+  // Reorder days array to start with current day
+  const reorderedDays = [...days.slice(currentDay), ...days.slice(0, currentDay)];
+
+  // Calculate dates starting from today
+  const dates = Array.from({ length: 7 }, (_, i) => {
+    const date = new Date(today);
+    date.setDate(currentDate + i);
+    return date.getDate();
+  });
+
   // Load workout days from user profile details
   useEffect(() => {
     async function loadWorkoutDays() {
@@ -175,25 +185,10 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   
   // Initialize selectedDayIndex to currentDay
   useEffect(() => {
-    // Initialize to first day with exercises, or current day if none
-    if (daysWithExercises.length > 0) {
-      const initialDay = daysWithExercises.includes(currentDay) 
-        ? currentDay 
-        : daysWithExercises[0];
-      setSelectedDayIndex(initialDay);
-    } else {
-      setSelectedDayIndex(currentDay);
-    }
-  }, [daysWithExercises, currentDay]);
+    // Always start with current day selected
+    setSelectedDayIndex(currentDay);
+  }, [currentDay]);
   
-  // Calculate dates for the week
-  const dates = days.map((_, index) => {
-    const date = new Date(today);
-    const diff = index - currentDay;
-    date.setDate(currentDate + diff);
-    return date.getDate();
-  });
-
   // Check for completed workout parameter
   useEffect(() => {
     if (params.workoutCompleted === 'true') {
@@ -309,8 +304,17 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       return;
     }
     
-    // Sort days in order (Monday = 0 to Sunday = 6)
-    const sortedDays = [...daysWithExercises].sort((a, b) => a - b);
+    // Convert current day to 0-6 format (Monday = 0, Sunday = 6)
+    const today = new Date();
+    const currentDayIndex = today.getDay() === 0 ? 6 : today.getDay() - 1;
+    
+    // Sort days in chronological order starting from current day
+    const sortedDays = [...daysWithExercises].sort((a, b) => {
+      // Adjust days relative to current day
+      const adjustedA = a >= currentDayIndex ? a : a + 7;
+      const adjustedB = b >= currentDayIndex ? b : b + 7;
+      return adjustedA - adjustedB;
+    });
     
     // Get workout frequency (default to 1 if not specified)
     const frequency = planWorkoutFrequency;
@@ -320,10 +324,12 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     // Create distribution mapping
     const distribution: { [key: number]: number } = {};
     
-    // FIXED LOGIC: Assign only to the first N days where N is the plan frequency
+    // Assign workouts to the next available workout days chronologically
     const assignDays = Math.min(frequency, sortedDays.length);
     for (let i = 0; i < assignDays; i++) {
-      distribution[sortedDays[i]] = i % frequency;
+      // Convert back to 0-6 range if day was adjusted above 6
+      const dayIndex = sortedDays[i] >= 7 ? sortedDays[i] - 7 : sortedDays[i];
+      distribution[dayIndex] = i % frequency;
     }
     
     console.log('New workout distribution:', distribution);
@@ -596,6 +602,12 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     }
   };
 
+  // Add this helper function after the imports
+  const getFullDayName = (dayIndex: number): string => {
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    return days[dayIndex];
+  };
+
   return (
     <View style={styles.container}>
       {!embedded && (
@@ -664,199 +676,211 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       ) : !activePlan ? (
         renderEmptyState()
       ) : (
-        <ScrollView 
-          style={styles.scrollView} 
-          contentContainerStyle={styles.scrollViewContent}
-          showsVerticalScrollIndicator={false}
-          bounces={true}
-        >
-          {/* Calendar Strip */}
-          <View style={styles.calendarStrip}>
-            {days.map((day, index) => {
-              const isCurrentDay = index === currentDay;
-              const isSelected = index === selectedDayIndex;
-              const hasExercises = daysWithExercises.includes(index);
-              const isWorkoutAssigned = hasWorkoutAssigned(index);
-              
-              return (
-                <TouchableOpacity
-                  key={day}
-                  style={[
-                    styles.dayItem,
-                    isSelected && styles.selectedDayItem
-                  ]}
-                  onPress={() => setSelectedDayIndex(index)}
-                >
-                  <Text style={[
-                    styles.dayText,
-                    isSelected && styles.selectedDayText
-                  ]}>
-                    {day}
-                  </Text>
-                  <View style={styles.dateSpacing} />
-                  <Text style={[
-                    styles.dateText,
-                    isSelected && styles.selectedDateText
-                  ]}>
-                    {dates[index]}
-                  </Text>
-                  {isWorkoutAssigned && (
-                    <View style={[
-                      styles.exerciseDayIndicator,
-                      isSelected && styles.selectedDayIndicator,
-                    ]} />
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {/* Check if selected day is a workout day and has a workout assigned */}
-          {selectedDayIndex !== null && daysWithExercises.includes(selectedDayIndex) && hasWorkoutAssigned(selectedDayIndex) ? (
-            <>
-              {/* Workout Header */}
-              <View style={styles.workoutHeader}>
-                <View style={styles.titleRow}>
-                  <Text style={styles.workoutTitle}>TODAY'S WORKOUT</Text>
-                  <View style={styles.headerButtonsRow}>
-                    <IconButton
-                      icon="information-outline"
-                      size={22}
-                      style={styles.planInfoButton}
-                      iconColor="#fff"
-                      onPress={() => setPlanOverviewVisible(true)}
-                    />
-                    <IconButton
-                      icon="pencil"
-                      size={18}
-                      style={styles.editButton}
-                      iconColor="#fff"
-                      onPress={() => console.log('Edit workout')}
-                    />
-                  </View>
-                </View>
-                <Text style={styles.subtitleText}>
-                  {activePlan.subtitle || 'Full Body'}
-                </Text>
-                <Text style={styles.weekPhaseText}>
-                  Week {weekNumber} - {weekPhases[weekNumber-1]}
-                </Text>
-              </View>
-
-              {/* Unified workout container for stats and exercises */}
-              <View style={styles.workoutContainer}>
-                {/* Workout Stats - Updated to show current day stats only */}
-                {(() => {
-                  // Get the workout index for the selected day
-                  const workoutIndex = workoutDistribution[selectedDayIndex!];
-                  
-                  // Filter exercises for this specific workout day
-                  const dayExercises = planExercises.filter(ex => ex.workout_day === workoutIndex);
-                  
-                  // Calculate stats for the current day's exercises
-                  const exerciseCount = dayExercises.length;
-                  
-                  // Calculate estimated duration: (sets * 45 seconds + (sets-1) * rest time) for each exercise
-                  let totalDuration = 0;
-                  let totalCalories = 0;
-                  
-                  dayExercises.forEach(exercise => {
-                    const setsTime = exercise.sets * 45; // 45 seconds per set
-                    const restTime = (exercise.sets - 1) * (exercise.rest_time || 60); // Rest time between sets
-                    const exerciseDuration = setsTime + restTime;
-                    
-                    totalDuration += exerciseDuration;
-                    // Rough calorie estimate: 10 calories per minute of exercise
-                    totalCalories += Math.floor(exerciseDuration / 60 * 10);
-                  });
-                  
-                  // Convert to minutes
-                  totalDuration = Math.ceil(totalDuration / 60);
-                  
-                  return (
-                    <View style={styles.workoutStats}>
-                      <View style={styles.statItem}>
-                        <MaterialCommunityIcons name="lightning-bolt" size={20} color={COLORS.primary} />
-                        <Text style={styles.statText}>{exerciseCount} Exercises</Text>
-                      </View>
-                      <View style={styles.statItem}>
-                        <MaterialCommunityIcons name="clock-outline" size={20} color={COLORS.primary} />
-                        <Text style={styles.statText}>{totalDuration} Min</Text>
-                      </View>
-                      <View style={styles.statItem}>
-                        <MaterialCommunityIcons name="fire" size={20} color={COLORS.primary} />
-                        <Text style={styles.statText}>{totalCalories} Cal</Text>
-                      </View>
-                    </View>
-                  );
-                })()}
+        <>
+          <ScrollView 
+            style={styles.scrollView} 
+            contentContainerStyle={[
+              styles.scrollViewContent,
+              { paddingBottom: 120 } // Add padding to account for floating button
+            ]}
+            showsVerticalScrollIndicator={false}
+            bounces={true}
+          >
+            {/* Calendar Strip */}
+            <View style={styles.calendarStrip}>
+              {reorderedDays.map((day, index) => {
+                const originalDayIndex = (currentDay + index) % 7;
+                const isCurrentDay = index === 0;
+                const isSelected = originalDayIndex === selectedDayIndex;
+                const hasExercises = daysWithExercises.includes(originalDayIndex);
+                const isWorkoutAssigned = hasWorkoutAssigned(originalDayIndex);
                 
-                {/* Exercise List */}
-                <View style={styles.exercisesContainer}>
-                  {planExercises.length === 0 ? (
-                    <Text style={styles.noExercisesText}>No exercises in this plan</Text>
-                  ) : (
-                    (() => {
-                      // Get the workout index for the selected day
-                      const workoutIndex = workoutDistribution[selectedDayIndex!];
+                return (
+                  <TouchableOpacity
+                    key={`${day}-${dates[index]}`}
+                    style={[
+                      styles.dayItem,
+                      isSelected && styles.selectedDayItem
+                    ]}
+                    onPress={() => setSelectedDayIndex(originalDayIndex)}
+                  >
+                    <Text style={[
+                      styles.dayText,
+                      isSelected && styles.selectedDayText
+                    ]}>
+                      {day}
+                    </Text>
+                    <View style={styles.dateSpacing} />
+                    <Text style={[
+                      styles.dateText,
+                      isSelected && styles.selectedDateText
+                    ]}>
+                      {dates[index]}
+                    </Text>
+                    {isWorkoutAssigned && (
+                      <View style={[
+                        styles.exerciseDayIndicator,
+                        isSelected && styles.selectedDayIndicator,
+                      ]} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Check if selected day is a workout day and has a workout assigned */}
+            {selectedDayIndex !== null && daysWithExercises.includes(selectedDayIndex) && hasWorkoutAssigned(selectedDayIndex) ? (
+              <>
+                {/* Workout Header */}
+                <View style={styles.workoutHeader}>
+                  <View style={styles.titleRow}>
+                    <Text style={styles.workoutTitle}>
+                      {selectedDayIndex === currentDay ? "TODAY'S WORKOUT" : `${getFullDayName(selectedDayIndex).toUpperCase()} WORKOUT`}
+                    </Text>
+                    <View style={styles.headerButtonsRow}>
+                      <IconButton
+                        icon="information-outline"
+                        size={22}
+                        style={styles.planInfoButton}
+                        iconColor="#fff"
+                        onPress={() => setPlanOverviewVisible(true)}
+                      />
+                      <IconButton
+                        icon="pencil"
+                        size={18}
+                        style={styles.editButton}
+                        iconColor="#fff"
+                        onPress={() => console.log('Edit workout')}
+                      />
+                    </View>
+                  </View>
+                  <Text style={styles.subtitleText}>
+                    {activePlan.subtitle || 'Full Body'}
+                  </Text>
+                  <Text style={styles.weekPhaseText}>
+                    Week {weekNumber} - {weekPhases[weekNumber-1]}
+                  </Text>
+                </View>
+
+                {/* Unified workout container for stats and exercises */}
+                <View style={styles.workoutContainer}>
+                  {/* Workout Stats - Updated to show current day stats only */}
+                  {(() => {
+                    // Get the workout index for the selected day
+                    const workoutIndex = workoutDistribution[selectedDayIndex!];
+                    
+                    // Filter exercises for this specific workout day
+                    const dayExercises = planExercises.filter(ex => ex.workout_day === workoutIndex);
+                    
+                    // Calculate stats for the current day's exercises
+                    const exerciseCount = dayExercises.length;
+                    
+                    // Calculate estimated duration: (sets * 45 seconds + (sets-1) * rest time) for each exercise
+                    let totalDuration = 0;
+                    let totalCalories = 0;
+                    
+                    dayExercises.forEach(exercise => {
+                      const setsTime = exercise.sets * 45; // 45 seconds per set
+                      const restTime = (exercise.sets - 1) * (exercise.rest_time || 60); // Rest time between sets
+                      const exerciseDuration = setsTime + restTime;
                       
-                      // Filter exercises for this specific workout day
-                      const dayExercises = planExercises.filter(ex => ex.workout_day === workoutIndex);
-                      
-                      if (dayExercises.length === 0) {
-                        return <Text style={styles.noExercisesText}>No exercises scheduled for this day</Text>;
-                      }
-                      
-                      return dayExercises.map((exercise, index) => (
-                        <View key={exercise.id} style={styles.exerciseItem}>
-                          <View style={styles.exerciseLeft}>
-                            <OptimizedImage
-                              source={exercise.image_url ? { uri: exercise.image_url } : require('../../assets/exercises/placeholder.jpg')}
-                              style={styles.exerciseImage}
-                              fallback={require('../../assets/exercises/placeholder.jpg')}
-                            />
-                          </View>
-                          <View style={styles.exerciseMiddle}>
-                            <Text style={styles.exerciseName}>{exercise.name}</Text>
-                            <Text style={styles.exerciseDetails}>
-                              {exercise.sets} sets × {exercise.reps} reps {exercise.weight ? `× ${exercise.weight} kg` : ''}
-                            </Text>
-                          </View>
-                          <View style={styles.exerciseRight}>
-                            <View style={[
-                              styles.muscleTag, 
-                              { 
-                                backgroundColor: MUSCLE_COLORS[exercise.muscle_group?.toLowerCase() as keyof typeof MUSCLE_COLORS] || '#8E8E93' 
-                              }
-                            ]}>
-                              <Text style={styles.muscleTagText}>{exercise.muscle_group || 'General'}</Text>
+                      totalDuration += exerciseDuration;
+                      // Rough calorie estimate: 10 calories per minute of exercise
+                      totalCalories += Math.floor(exerciseDuration / 60 * 10);
+                    });
+                    
+                    // Convert to minutes
+                    totalDuration = Math.ceil(totalDuration / 60);
+                    
+                    return (
+                      <View style={styles.workoutStats}>
+                        <View style={styles.statItem}>
+                          <MaterialCommunityIcons name="lightning-bolt" size={20} color={COLORS.primary} />
+                          <Text style={styles.statText}>{exerciseCount} Exercises</Text>
+                        </View>
+                        <View style={styles.statItem}>
+                          <MaterialCommunityIcons name="clock-outline" size={20} color={COLORS.primary} />
+                          <Text style={styles.statText}>{totalDuration} Min</Text>
+                        </View>
+                        <View style={styles.statItem}>
+                          <MaterialCommunityIcons name="fire" size={20} color={COLORS.primary} />
+                          <Text style={styles.statText}>{totalCalories} Cal</Text>
+                        </View>
+                      </View>
+                    );
+                  })()}
+                  
+                  {/* Exercise List */}
+                  <View style={styles.exercisesContainer}>
+                    {planExercises.length === 0 ? (
+                      <Text style={styles.noExercisesText}>No exercises in this plan</Text>
+                    ) : (
+                      (() => {
+                        // Get the workout index for the selected day
+                        const workoutIndex = workoutDistribution[selectedDayIndex!];
+                        
+                        // Filter exercises for this specific workout day
+                        const dayExercises = planExercises.filter(ex => ex.workout_day === workoutIndex);
+                        
+                        if (dayExercises.length === 0) {
+                          return <Text style={styles.noExercisesText}>No exercises scheduled for this day</Text>;
+                        }
+                        
+                        return dayExercises.map((exercise, index) => (
+                          <View key={exercise.id} style={styles.exerciseItem}>
+                            <View style={styles.exerciseLeft}>
+                              <OptimizedImage
+                                source={exercise.image_url ? { uri: exercise.image_url } : require('../../assets/exercises/placeholder.jpg')}
+                                style={styles.exerciseImage}
+                                fallback={require('../../assets/exercises/placeholder.jpg')}
+                              />
+                            </View>
+                            <View style={styles.exerciseMiddle}>
+                              <Text style={styles.exerciseName}>{exercise.name}</Text>
+                              <Text style={styles.exerciseDetails}>
+                                {exercise.sets} sets × {exercise.reps} reps {exercise.weight ? `× ${exercise.weight} kg` : ''}
+                              </Text>
+                            </View>
+                            <View style={styles.exerciseRight}>
+                              <View style={[
+                                styles.muscleTag, 
+                                { 
+                                  backgroundColor: MUSCLE_COLORS[exercise.muscle_group?.toLowerCase() as keyof typeof MUSCLE_COLORS] || '#8E8E93' 
+                                }
+                              ]}>
+                                <Text style={styles.muscleTagText}>{exercise.muscle_group || 'General'}</Text>
+                              </View>
                             </View>
                           </View>
-                        </View>
-                      ));
-                    })()
-                  )}
+                        ));
+                      })()
+                    )}
+                  </View>
                 </View>
-              </View>
-              
-              {/* Start Workout Button - Update to show loading state */}
-              <TouchableOpacity
-                style={styles.startButton}
-                onPress={handleStartWorkout}
-                disabled={isStartingWorkout}
-              >
-                {isStartingWorkout ? (
-                  <ActivityIndicator size="small" color="#000000" />
-                ) : (
-                  <Text style={styles.startButtonText}>START WORKOUT</Text>
-                )}
-              </TouchableOpacity>
-            </>
-          ) : (
-            // Rest Day Content - for both non-workout days and workout days without assigned workout
-            renderRestDaySection()
+              </>
+            ) : (
+              // Rest Day Content - for both non-workout days and workout days without assigned workout
+              renderRestDaySection()
+            )}
+          </ScrollView>
+
+          {/* Floating Start Workout Button */}
+          {selectedDayIndex !== null && 
+           daysWithExercises.includes(selectedDayIndex) && 
+           hasWorkoutAssigned(selectedDayIndex) && (
+            <TouchableOpacity
+              style={styles.startButton}
+              onPress={handleStartWorkout}
+              disabled={isStartingWorkout}
+            >
+              {isStartingWorkout ? (
+                <ActivityIndicator size="small" color="#000000" />
+              ) : (
+                <Text style={styles.startButtonText}>START WORKOUT</Text>
+              )}
+            </TouchableOpacity>
           )}
-        </ScrollView>
+        </>
       )}
 
       {/* Plan Overview Modal */}
@@ -952,7 +976,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
-
   },
   headerContainer: {
     paddingHorizontal: SPACING.md,
@@ -1217,11 +1240,10 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   startButton: {
-    backgroundColor: '#FFD700',
+    backgroundColor: COLORS.primary,
     padding: SPACING.md,
     borderRadius: BORDER_RADIUS.md,
     alignItems: 'center',
-    marginTop: SPACING.lg,
     shadowColor: "#000",
     shadowOffset: {
       width: 0,
@@ -1230,9 +1252,16 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
+    position: 'absolute',
+    bottom: 150,
+    alignSelf: 'center',
+    width: '50%',
+    left: 'auto',
+    right: 'auto',
+    zIndex: 999,
   },
   startButtonText: {
-    color: '#000000',
+    color: COLORS.text,
     fontSize: 16,
     fontWeight: 'bold',
   },

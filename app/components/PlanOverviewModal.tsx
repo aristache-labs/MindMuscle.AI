@@ -122,11 +122,9 @@ export default function PlanOverviewModal({
 
   // Function to handle exercise press - updated to show modal instead of navigating
   const handleExercisePress = (exercise: Exercise) => {
-    console.log('Exercise pressed:', exercise);
     // Set the selected exercise and show the modal
     setSelectedExercise(exercise);
     setExerciseDetailsVisible(true);
-    console.log('Modal should be visible now. Selected exercise:', exercise.id);
   };
 
   // Function to handle day press and fetch exercises
@@ -152,7 +150,6 @@ export default function PlanOverviewModal({
           .order('order_position', { ascending: true });
             
         if (error) {
-          console.error('Error fetching plan exercises:', error);
           setExercises([]);
         } else if (data) {
           // Transform data to match Exercise interface
@@ -188,7 +185,6 @@ export default function PlanOverviewModal({
           setExercises(filteredExercises);
         }
       } catch (err) {
-        console.error('Exception fetching plan exercises:', err);
         setExercises([]);
       } finally {
         setIsLoadingExercises(false);
@@ -397,7 +393,6 @@ export default function PlanOverviewModal({
           <ExerciseDetailsModal
             visible={exerciseDetailsVisible}
             onClose={() => {
-              console.log('Closing exercise details modal');
               setExerciseDetailsVisible(false);
             }}
             exerciseId={selectedExercise.id}

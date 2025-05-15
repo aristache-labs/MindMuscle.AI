@@ -105,7 +105,6 @@ export default function ExerciseDetailsModal({
   // Fetch exercise data from Supabase and SVG files
   useEffect(() => {
     if (visible && exerciseId) {
-      console.log('Fetching exercise data for ID:', exerciseId);
       fetchExerciseData(exerciseId);
       
       // Load SVG files
@@ -186,7 +185,6 @@ export default function ExerciseDetailsModal({
       }
 
     } catch (error) {
-      console.error('Error loading SVG files:', error);
     }
   };
 
@@ -202,7 +200,6 @@ export default function ExerciseDetailsModal({
         .maybeSingle(); // Use maybeSingle() instead of single() to avoid errors when no rows are found
       
       if (error) {
-        console.error('Error fetching exercise data:', error);
         return;
       }
       
@@ -216,7 +213,6 @@ export default function ExerciseDetailsModal({
         setExerciseData(exerciseInfo);
       } else {
         // Handle case when exercise is not found
-        console.log(`Exercise with ID ${exerciseId} not found`);
         setExerciseData({
           instructions: 'No instructions available for this exercise.',
           primaryMuscles: [],
@@ -224,7 +220,6 @@ export default function ExerciseDetailsModal({
         });
       }
     } catch (error) {
-      console.error('Error fetching exercise data:', error);
     } finally {
       setLoading(false);
     }
@@ -238,9 +233,8 @@ export default function ExerciseDetailsModal({
         .select('note_content')
         .eq('exercise_id', exerciseId)
         .maybeSingle();
-
       if (error) {
-        console.error('Error fetching notes:', error);
+
         return;
       }
 
@@ -250,7 +244,6 @@ export default function ExerciseDetailsModal({
         setNotes('');
       }
     } catch (error) {
-      console.error('Error fetching notes:', error);
     }
   };
 
@@ -266,7 +259,6 @@ export default function ExerciseDetailsModal({
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       
       if (userError || !user) {
-        console.error('Error getting user:', userError);
         setSaveError('Failed to authenticate user');
         return;
       }
@@ -286,11 +278,9 @@ export default function ExerciseDetailsModal({
         );
 
       if (error) {
-        console.error('Error saving notes:', error);
         setSaveError('Failed to save notes');
       }
     } catch (error) {
-      console.error('Error saving notes:', error);
       setSaveError('Failed to save notes');
     } finally {
       setIsSaving(false);

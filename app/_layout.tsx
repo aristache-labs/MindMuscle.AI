@@ -19,6 +19,7 @@ import SplashScreenManager from './components/SplashScreenManager';
 import * as SplashScreen from 'expo-splash-screen';
 import { QueryProvider } from './components/QueryProvider';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { NetworkProvider } from './store/NetworkContext';
 
 // Initialize SplashScreen as early as possible
 try {
@@ -63,19 +64,21 @@ const RootApp = () => {
       <QueryProvider>
         <ThemeProvider>
           <AuthProvider>
-            <MeasurementsProvider>
-              <ProfileProvider>
-                <ProgressProvider>
-                  <GamificationProvider>
-                    <SplashScreenManager>
-                      <AuthGuard>
-                        <Slot />
-                      </AuthGuard>
-                    </SplashScreenManager>
-                  </GamificationProvider>
-                </ProgressProvider>
-              </ProfileProvider>
-            </MeasurementsProvider>
+            <NetworkProvider>
+              <MeasurementsProvider>
+                <ProfileProvider>
+                  <ProgressProvider>
+                    <GamificationProvider>
+                      <SplashScreenManager>
+                        <AuthGuard>
+                          <Slot />
+                        </AuthGuard>
+                      </SplashScreenManager>
+                    </GamificationProvider>
+                  </ProgressProvider>
+                </ProfileProvider>
+              </MeasurementsProvider>
+            </NetworkProvider>
           </AuthProvider>
         </ThemeProvider>
       </QueryProvider>

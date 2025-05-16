@@ -2,6 +2,10 @@ import { Asset } from 'expo-asset';
 import { Platform } from 'react-native';
 import React from 'react';
 import { Image } from 'expo-image';
+import { loggers } from './debugHelpers';
+
+// Get the image preloader logger
+const log = loggers.imagePreloader;
 
 // Add a default export React component to satisfy Expo Router
 export default function ImagePreloaderWrapper() {
@@ -28,21 +32,22 @@ try {
     !('bubblingEventTypes' in FastImage) // Check for common error indicator
   );
   
-  if (DEBUG_IMAGE_PRELOADER) {
-    console.log(`📱 [ImagePreloader] Preloader service: ${isFastImageAvailable ? 'FastImage is available ✅' : 'FastImage is not available ❌'}`);
-    if (!isFastImageAvailable) {
-      console.log(`📱 [ImagePreloader] Fallback: Using Asset API for preloading in ${Platform.OS === 'web' ? 'web' : 'Expo Go'} environment`);
-    }
+  log.debug('Preloader service initialization', () => 
+    `${isFastImageAvailable ? 'FastImage is available ✅' : 'FastImage is not available ❌'}`
+  );
+  
+  if (!isFastImageAvailable) {
+    log.debug('Fallback configuration', () => 
+      `Using Asset API for preloading in ${Platform.OS === 'web' ? 'web' : 'Expo Go'} environment`
+    );
   }
 } catch (e) {
   // FastImage is not available - this is expected in some environments
   FastImage = null;
   isFastImageAvailable = false;
   
-  if (DEBUG_IMAGE_PRELOADER) {
-    console.log('📱 [ImagePreloader] FastImage import failed (falling back to Asset API)');
-    console.log(`📱 [ImagePreloader] Running in Expo Go or unsupported environment`);
-  }
+  log.debug('FastImage import failed (falling back to Asset API)');
+  log.debug('Running in Expo Go or unsupported environment');
 }
 
 // Track preloading statistics
@@ -51,10 +56,20 @@ let fastImagePreloadCount = 0;
 let assetApiPreloadCount = 0;
 
 // Log preloading statistics periodically if debugging is enabled
-if (DEBUG_IMAGE_PRELOADER) {
+if (log.isDebugging()) {
   setInterval(() => {
     if (totalImagesPreloaded > 0) {
-      console.log(`📊 [ImagePreloader] Preloading stats - Total: ${totalImagesPreloaded}, FastImage: ${fastImagePreloadCount} (${Math.round(fastImagePreloadCount/totalImagesPreloaded*100)}%), Asset API: ${assetApiPreloadCount} (${Math.round(assetApiPreloadCount/totalImagesPreloaded*100)}%)`);
+      log.debug('Preloading stats', () => ({
+        total: totalImagesPreloaded,
+        fastImage: {
+          count: fastImagePreloadCount,
+          percentage: Math.round(fastImagePreloadCount/totalImagesPreloaded*100)
+        },
+        assetApi: {
+          count: assetApiPreloadCount,
+          percentage: Math.round(assetApiPreloadCount/totalImagesPreloaded*100)
+        }
+      }));
     }
   }, 10000);
 }

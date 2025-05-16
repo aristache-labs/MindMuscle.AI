@@ -23,7 +23,8 @@ export default function InitialLoadingScreen({
   showProgress = true,
   progressValue,
 }: InitialLoadingScreenProps) {
-  console.log('InitialLoadingScreen rendered with message:', message);
+  // Disable excessive logging
+  // console.log('InitialLoadingScreen rendered with message:', message);
   const outerSpinValue = useRef(new Animated.Value(0)).current;
   const innerSpinValue = useRef(new Animated.Value(0)).current;
   const dumbbellSpinValue = useRef(new Animated.Value(0)).current;

@@ -14,6 +14,8 @@ import * as FileSystem from 'expo-file-system';
 import { safePreloadImages, PreloadStrategy, strategicPreloadImages } from '../utils/imagePreloader';
 import { markAsImportantImage as markImageAsImportant } from '../utils/imagePreloader';
 import exerciseService from '../services/exerciseService';
+import workoutPlanService from '../services/workoutPlanService';
+import logger from '../utils/logger';
 
 // Define storage bucket constants for compatibility with previous code
 export const STORAGE_BUCKETS = {
@@ -53,13 +55,6 @@ export const STATIC_IMAGES = {
 // Track important image URLs
 const IMPORTANT_IMAGE_URLS = new Set<string>();
 
-// Simple function to replace markAsImportantImage
-const markAsImportantImage = (url: string) => {
-  if (!url) return;
-  IMPORTANT_IMAGE_URLS.add(url);
-  console.log(`🔒 Image marked as important: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
-};
-
 // Debug flag to control logging
 const DEBUG_SPLASH_SCREEN = false;
 
@@ -97,13 +92,13 @@ const safelyPreventAutoHide = async () => {
       // Force preventAutoHideAsync to be available
       if (typeof SplashScreen.preventAutoHideAsync === 'function') {
         await SplashScreen.preventAutoHideAsync();
-        console.log('SplashScreen: preventAutoHideAsync called successfully');
+        logger.debugComponent('SPLASH_SCREEN', 'preventAutoHideAsync called successfully');
       } else {
-        console.warn('SplashScreen.preventAutoHideAsync is not a function');
+        logger.warn('SplashScreen.preventAutoHideAsync is not a function');
       }
     }
   } catch (error) {
-    console.warn('Error with splash screen prevention:', error);
+    logger.warn('Error with splash screen prevention:', { context: { error: String(error) } });
   }
 };
 
@@ -114,19 +109,19 @@ const safelyHideSplashScreen = async () => {
       // Force hideAsync to be available
       if (typeof SplashScreen.hideAsync === 'function') {
         await SplashScreen.hideAsync();
-        console.log('SplashScreen: hideAsync called successfully');
+        logger.debugComponent('SPLASH_SCREEN', 'hideAsync called successfully');
       } else {
-        console.warn('SplashScreen.hideAsync is not a function');
+        logger.warn('SplashScreen.hideAsync is not a function');
       }
     }
   } catch (error) {
-    console.warn('Error hiding splash screen:', error);
+    logger.warn('Error hiding splash screen:', { context: { error: String(error) } });
   }
 };
 
 // Utility to preload static images
 const preloadStaticImages = async () => {
-  console.log('Starting image preloading...');
+  logger.debugComponent('SPLASH_SCREEN', 'Starting image preloading...');
   
   try {
     // Load static images (from our app bundle)
@@ -157,16 +152,23 @@ const preloadStaticImages = async () => {
     }
     
     await Asset.loadAsync(staticImages);
-    console.log('Static images preloaded');
+    logger.debugComponent('SPLASH_SCREEN', 'Static images preloaded');
 
     // Mark placeholder images as important to prevent them from being purged from cache
     preloadAndCachePlaceholderImages();
 
     return true;
   } catch (error) {
-    console.error('Image preloading error:', error);
+    logger.error('Image preloading error:', error instanceof Error ? error : new Error(String(error)));
     return false;
   }
+};
+
+// Simple function to replace markAsImportantImage
+const markAsImportantImage = (url: string) => {
+  if (!url) return;
+  IMPORTANT_IMAGE_URLS.add(url);
+  if (DEBUG_SPLASH_SCREEN) console.log(`🔒 Image marked as important: ${url.substring(0, 40)}${url.length > 40 ? '...' : ''}`);
 };
 
 // Utility to preload and cache placeholder images specifically
@@ -182,7 +184,7 @@ const preloadAndCachePlaceholderImages = () => {
     // Load the placeholder image with Asset API for immediate availability
     const placeholderAsset = Asset.fromModule(require('../../assets/exercises/placeholder.jpg'));
     placeholderAsset.downloadAsync().then(() => {
-      console.log('✅ Exercise placeholder image fully preloaded with Asset API');
+      if (DEBUG_SPLASH_SCREEN) console.log('✅ Exercise placeholder image fully preloaded with Asset API');
     }).catch(error => {
       console.warn('Error preloading exercise placeholder image with Asset API:', error);
     });
@@ -198,26 +200,9 @@ const preloadAndCachePlaceholderImages = () => {
     // Mark the exercise placeholder image as important to keep it in memory
     if (typeof STATIC_IMAGES.placeholders.exercise === 'number') {
       // For require() style images, we can't use markImageAsImportant directly
-      // Instead, we'll ensure they stay loaded by keeping references in the global cache
-      if (DEBUG_SPLASH_SCREEN) {
-        console.log('🔒 Exercise placeholder image marked as important');
-      }
-    }
-
-    // Create a cache entry for exercise images if it doesn't exist
-    if (!(global as any).exercisesCache) {
-      (global as any).exercisesCache = {
-        all: [],
-        byCategory: {},
-        lastUpdated: Date.now()
-      };
-    }
-
-    if (DEBUG_SPLASH_SCREEN) {
-      console.log('✅ Exercise placeholder image preloaded and cached successfully');
     }
   } catch (error) {
-    console.warn('Error preloading exercise placeholder image:', error);
+    console.warn('Error caching placeholder images:', error);
   }
 };
 
@@ -232,7 +217,9 @@ const batchPreloadImages = async (
     return;
   }
   
-  console.log(`Batch preloading ${imageUrls.length} images...`);
+  if (DEBUG_SPLASH_SCREEN) {
+    console.log(`Batch preloading ${imageUrls.length} images...`);
+  }
   
   try {
     // Process in smaller batches
@@ -258,7 +245,9 @@ const batchPreloadImages = async (
       }
     }
     
-    console.log(`Preloaded ${completedCount}/${imageUrls.length} images`);
+    if (DEBUG_SPLASH_SCREEN) {
+      console.log(`Preloaded ${completedCount}/${imageUrls.length} images`);
+    }
   } catch (error) {
     console.warn('Error preloading image batch:', error);
   }
@@ -335,7 +324,9 @@ function getFirebasePublicUrl(path: string): string {
 // Preload discover screen images
 const preloadDiscoverScreenImages = async (): Promise<string[]> => {
   try {
-    console.log('🔍 Preloading Discover screen images during startup...');
+    if (DEBUG_SPLASH_SCREEN) {
+      console.log('🔍 Preloading Discover screen images during startup...');
+    }
     
     // Fetch workout subcategories for discover screen
     const { data: subcategoriesData, error: subcategoriesError } = await supabase
@@ -368,7 +359,9 @@ const preloadDiscoverScreenImages = async (): Promise<string[]> => {
       }
     });
     
-    console.log(`🔍 Found ${imageUrls.length} Discover screen images to preload`);
+    if (DEBUG_SPLASH_SCREEN) {
+      console.log(`🔍 Found ${imageUrls.length} Discover screen images to preload`);
+    }
     
     // Preload images with high priority
     if (imageUrls.length > 0) {
@@ -390,7 +383,9 @@ const preloadDiscoverScreenImages = async (): Promise<string[]> => {
 // Preload plan images
 const preloadPlanImages = async (): Promise<string[]> => {
   try {
-    console.log('🔍 Preloading Plan images during startup...');
+    if (DEBUG_SPLASH_SCREEN) {
+      console.log('🔍 Preloading Plan images during startup...');
+    }
     
     // Fetch workout plans
     const { data: plansData, error: plansError } = await supabase
@@ -423,7 +418,9 @@ const preloadPlanImages = async (): Promise<string[]> => {
       }
     });
     
-    console.log(`🔍 Found ${imageUrls.length} Plan images to preload`);
+    if (DEBUG_SPLASH_SCREEN) {
+      console.log(`🔍 Found ${imageUrls.length} Plan images to preload`);
+    }
     
     // Preload images with high priority
     if (imageUrls.length > 0) {
@@ -445,7 +442,9 @@ const preloadPlanImages = async (): Promise<string[]> => {
 // Preload exercise images and data
 const preloadExerciseData = async (): Promise<string[]> => {
   try {
-    console.log('🔍 Preloading Exercise data and images during startup...');
+    if (DEBUG_SPLASH_SCREEN) {
+      console.log('🔍 Preloading Exercise data and images during startup...');
+    }
     
     // Fetch all exercises
     const { data: exercisesData, error: exercisesError } = await supabase
@@ -505,7 +504,9 @@ const preloadExerciseData = async (): Promise<string[]> => {
       exercisesByCategory[category].push(exercise);
     });
     
-    console.log(`🔍 Found ${exercisesData.length} exercises (${exercisesWithImage} with images, ${exercisesWithoutImage} using placeholder) across ${muscleGroups.size} muscle groups`);
+    if (DEBUG_SPLASH_SCREEN) {
+      console.log(`🔍 Found ${exercisesData.length} exercises (${exercisesWithImage} with images, ${exercisesWithoutImage} using placeholder) across ${muscleGroups.size} muscle groups`);
+    }
     
     // Store the exercises data in a global cache for immediate access
     (global as any).exercisesCache = {
@@ -525,14 +526,18 @@ const preloadExerciseData = async (): Promise<string[]> => {
     }
     
     // Preload exercises by category to avoid UI glitches when switching between muscle groups
-    console.log(`🔍 Caching exercises by muscle group to prevent UI glitches...`);
+    if (DEBUG_SPLASH_SCREEN) {
+      console.log(`🔍 Caching exercises by muscle group to prevent UI glitches...`);
+    }
     
     // Pre-fetch each category separately to ensure they're cached
     for (const muscleGroup of muscleGroups) {
       try {
         // No need to make actual API calls since we already have all data
         // Just ensure the data is properly organized in the cache
-        console.log(`🔍 Organizing cache for muscle group: ${muscleGroup}`);
+        if (DEBUG_SPLASH_SCREEN) {
+          console.log(`🔍 Organizing cache for muscle group: ${muscleGroup}`);
+        }
       } catch (error) {
         console.warn(`Error caching exercises for muscle group ${muscleGroup}:`, error);
       }
@@ -553,12 +558,12 @@ if (Platform.OS !== 'web') {
 }
 
 export default function SplashScreenManager({ children }: { children: React.ReactNode }) {
-  console.log('🚀 SplashScreenManager component mounting - initial render');
-  
-  const [isAppReady, setIsAppReady] = useState(false);
-  const [showLoadingScreen, setShowLoadingScreen] = useState(true);
-  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [appReady, setAppReady] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
+  const [progress, setProgress] = useState(0);
   const [loadingMessage, setLoadingMessage] = useState(LOADING_MESSAGES.START);
+  
+  // Timing metrics for performance tracking
   const [timingMetrics, setTimingMetrics] = useState<Record<string, number>>({
     start: Date.now(),
     staticAssets: 0,
@@ -567,36 +572,42 @@ export default function SplashScreenManager({ children }: { children: React.Reac
     allData: 0,
     total: 0
   });
-  const { session } = useAuth();
   
-  // Track whether SplashScreen module has been initialized
-  const splashScreenInitialized = useRef(false);
+  const isMounted = useRef(true);
+  const { user, isLoading: authLoading } = useAuth();
   
-  // Initialize SplashScreen correctly on mount
+  // Track if we are running the first time setup
+  const [isFirstRun, setIsFirstRun] = useState(true);
+  
   useEffect(() => {
-    if (Platform.OS !== 'web' && !splashScreenInitialized.current) {
-      // Import and configure SplashScreen properly
-      const initSplashScreen = async () => {
-        try {
-          // Keep splash screen visible
-          await SplashScreen.preventAutoHideAsync();
-          splashScreenInitialized.current = true;
-          console.log('✅ SplashScreen initialized successfully');
-        } catch (e) {
-          console.warn('Failed to initialize SplashScreen:', e);
-        }
-      };
-      
-      initSplashScreen();
-    }
+    if (DEBUG_SPLASH_SCREEN) console.log('🚀 SplashScreenManager component mounting - initial render');
+    
+    // Prevent auto-hide on component mount
+    safelyPreventAutoHide();
+    
+    // Listen for app state changes
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    
+    const initSplashScreen = async () => {
+      try {
+        await prepare();
+      } catch (e) {
+        console.error('Error in splash screen setup:', e);
+      } finally {
+        // Regardless of errors, we need to finish loading
+        setAppReady(true);
+      }
+    };
+    
+    initSplashScreen();
+    
+    return () => {
+      isMounted.current = false;
+      subscription.remove();
+    };
   }, []);
   
   // Handle background/foreground transitions
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
-    return () => subscription.remove();
-  }, []);
-  
   const handleAppStateChange = async (nextAppState: AppStateStatus) => {
     if (nextAppState === 'active') {
       try {
@@ -615,7 +626,7 @@ export default function SplashScreenManager({ children }: { children: React.Reac
   const updateProgress = (value: number, message?: string, source?: string) => {
     const timestamp = Date.now();
     
-    setLoadingProgress((prev) => {
+    setProgress((prev) => {
       const newProgress = Math.min(prev + value, 0.95);
       
       if (DEBUG_SPLASH_SCREEN) {
@@ -735,7 +746,9 @@ export default function SplashScreenManager({ children }: { children: React.Reac
         if (firebaseAvatarService && typeof firebaseAvatarService.preloadAvatar === 'function') {
           const success = await firebaseAvatarService.preloadAvatar(userId, PRELOAD_CONFIG.TIMEOUT.AVATAR);
           if (success) {
-            console.log('Avatar preloaded successfully with dedicated function');
+            if (DEBUG_SPLASH_SCREEN) {
+              console.log('Avatar preloaded successfully with dedicated function');
+            }
             
             // Get the avatar to add to results
             const userAvatar = await firebaseAvatarService.getUserAvatar(userId);
@@ -771,7 +784,9 @@ export default function SplashScreenManager({ children }: { children: React.Reac
         if (latestPhotos.before?.url) {
           highPriorityImages.push(latestPhotos.before.url);
           markImageAsImportant(latestPhotos.before.url);
-          console.log('Latest before photo marked as important and added to high priority');
+          if (DEBUG_SPLASH_SCREEN) {
+            console.log('Latest before photo marked as important and added to high priority');
+          }
           
           // Aggressively preload with Asset API for immediate availability
           try {
@@ -782,7 +797,9 @@ export default function SplashScreenManager({ children }: { children: React.Reac
                 setTimeout(() => reject(new Error('Before photo preload timeout')), PRELOAD_CONFIG.TIMEOUT.AVATAR)
               )
             ]);
-            console.log('Before photo fully preloaded with Asset API');
+            if (DEBUG_SPLASH_SCREEN) {
+              console.log('Before photo fully preloaded with Asset API');
+            }
           } catch (error) {
             console.warn('Before photo aggressive preload failed:', error);
           }
@@ -791,7 +808,9 @@ export default function SplashScreenManager({ children }: { children: React.Reac
         if (latestPhotos.after?.url) {
           highPriorityImages.push(latestPhotos.after.url);
           markImageAsImportant(latestPhotos.after.url);
-          console.log('Latest after photo marked as important and added to high priority');
+          if (DEBUG_SPLASH_SCREEN) {
+            console.log('Latest after photo marked as important and added to high priority');
+          }
           
           // Aggressively preload with Asset API for immediate availability
           try {
@@ -802,7 +821,9 @@ export default function SplashScreenManager({ children }: { children: React.Reac
                 setTimeout(() => reject(new Error('After photo preload timeout')), PRELOAD_CONFIG.TIMEOUT.AVATAR)
               )
             ]);
-            console.log('After photo fully preloaded with Asset API');
+            if (DEBUG_SPLASH_SCREEN) {
+              console.log('After photo fully preloaded with Asset API');
+            }
           } catch (error) {
             console.warn('After photo aggressive preload failed:', error);
           }
@@ -829,7 +850,9 @@ export default function SplashScreenManager({ children }: { children: React.Reac
               mediumPriorityImages.push(...remainingPhotos);
             }
             
-            console.log(`Found ${filteredUrls.length} progress photos to preload (${highPriorityImages.length} high priority, ${mediumPriorityImages.length} medium priority)`);
+            if (DEBUG_SPLASH_SCREEN) {
+              console.log(`Found ${filteredUrls.length} progress photos to preload (${highPriorityImages.length} high priority, ${mediumPriorityImages.length} medium priority)`);
+            }
           }
         }
       } catch (error) {
@@ -920,118 +943,94 @@ export default function SplashScreenManager({ children }: { children: React.Reac
   // Load application data with proper caching
   const preloadApplicationData = async () => {
     try {
-      setLoadingMessage(LOADING_MESSAGES.DATA);
+      // Load essential app data - exercises, plans, etc.
+      let allExercises: any[] = [];
+      let allPlans: any[] = [];
       
-      // SECTION 1: Load ALL exercises - no limits
-      const allExercises = await fetchSupabaseData<{ id: string; name: string }>(
-        'exercises',
-        supabase.from('exercises').select('*'),
-        'Error precaching all exercises'
-      );
-      
-      if (allExercises.length > 0) {
-        console.log(`📊 Preloaded ${allExercises.length} total exercises`);
+      try {
+        // Load exercise data
+        const exercisesData = await exerciseService.getAllExercises();
+        allExercises = exercisesData || [];
+        
+        // Store in global cache for immediate access
+        (global as any).exercisesCache = {
+          all: allExercises,
+          lastUpdated: Date.now()
+        };
+        
+        if (DEBUG_SPLASH_SCREEN) {
+          console.log(`📊 Preloaded ${allExercises.length} total exercises`);
+        }
+      } catch (error) {
+        console.error('Error loading exercises data:', error);
       }
       
-      // SECTION 2: Cache ALL workout plans - no limits
-      const allPlans = await fetchSupabaseData<{ id: string; title: string }>(
-        'workout_plans',
-        supabase.from('workout_plans').select('*'),
-        'Error precaching workout plans'
-      );
-      
-      if (allPlans.length > 0) {
-        console.log(`📊 Preloaded ${allPlans.length} workout plans`);
+      try {
+        // Load plans data
+        const plansData = await supabase.from('workout_plans').select('*').order('created_at', { ascending: false });
+        allPlans = plansData.data || [];
+        
+        if (DEBUG_SPLASH_SCREEN) {
+          console.log(`📊 Preloaded ${allPlans.length} workout plans`);
+        }
+      } catch (error) {
+        console.error('Error loading plans data:', error);
       }
       
-      // SECTION 3: Cache user-specific data if logged in
-      if (session?.user) {
-        // User profile - this table definitely exists
-        await fetchSupabaseData<{ id: string }>(
-          'profiles',
-          supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single(),
-          'Error fetching user profile'
-        );
-        
-        // Check available photos for user content
+      // If user is authenticated, load user-specific data
+      if (user?.id) {
         try {
-          // Get all progress photos directly from the service
-          const userPhotos = await firebaseProgressPhotoService.getAllPhotos(session.user.id);
+          // Load user progress photos
+          let userPhotos: any[] = [];
           
-          if (userPhotos && userPhotos.length > 0) {
-            console.log(`📊 Found ${userPhotos.length} progress photos`);
-          }
-        } catch (error) {
-          console.warn('Error checking Firebase for progress photos:', error);
-        }
-        
-        // Check if user_favorite_exercises table exists and fetch if it does
-        try {
-          const { count: favoritesTableExists } = await supabase
-            .from('user_favorite_exercises')
-            .select('*', { count: 'exact', head: true });
-          
-          if (favoritesTableExists !== null) {
-            // User favorites table exists, fetch data
-            await fetchSupabaseData<{ exercise_id: string }>(
-              'user_favorite_exercises',
-              supabase
-                .from('user_favorite_exercises')
-                .select('exercise_id')
-                .eq('user_id', session.user.id),
-              'Error fetching favorite exercises'
-            );
-          }
-        } catch (error) {
-          // Table doesn't exist yet
-          console.log('user_favorite_exercises table not found');
-        }
-        
-        // The following tables don't exist yet based on the logs
-        // We'll check for their existence before querying
-
-        // Tables to check
-        const tablesToCheck = [
-          'user_settings',
-          'workouts',
-          'user_achievements',
-          'user_measurements'
-        ];
-        
-        // Check each table once instead of multiple separate checks
-        for (const table of tablesToCheck) {
           try {
-            const { count: tableExists } = await supabase
-              .from(table)
-              .select('*', { count: 'exact', head: true });
+            // Try to get progress photos via Firebase
+            const photosPath = `${STORAGE_BUCKETS.PROGRESS_PHOTOS}/${user.id}`;
+            userPhotos = await listFirebaseFiles(photosPath);
             
-            if (tableExists !== null) {
-              // Table exists, fetch data
-              await fetchSupabaseData(
-                table,
-                supabase
-                  .from(table)
-                  .select('*')
-                  .eq('user_id', session.user.id),
-                `Error fetching ${table}`
-              );
+            if (DEBUG_SPLASH_SCREEN) {
+              console.log(`📊 Found ${userPhotos.length} progress photos`);
+            }
+            
+            // Store in global cache for immediate access
+            (global as any).userProgressPhotosCache = {
+              all: userPhotos,
+              lastUpdated: Date.now()
+            };
+          } catch (error) {
+            console.warn('Error loading progress photos:', error);
+          }
+          
+          // Load favorite exercises if available
+          try {
+            const { data: favoriteExercises, error: favoritesError } = await supabase
+              .from('user_favorite_exercises')
+              .select('exercise_id')
+              .eq('user_id', user.id);
+              
+            if (favoritesError) {
+              // Table might not exist yet
+              if (DEBUG_SPLASH_SCREEN) {
+                console.log('user_favorite_exercises table not found');
+              }
+            } else if (favoriteExercises) {
+              // Store in global cache
+              (global as any).userFavoritesCache = {
+                favoriteExerciseIds: favoriteExercises.map((fav: any) => fav.exercise_id),
+                lastUpdated: Date.now()
+              };
             }
           } catch (error) {
-            // Table doesn't exist, but that's expected
-            // No need to log an error as we're just checking
+            console.warn('Error loading favorite exercises:', error);
           }
+        } catch (error) {
+          console.warn('Error loading user-specific data:', error);
         }
       }
       
-      updateProgress(0.1, LOADING_MESSAGES.DATA + ' ✓');
       return true;
     } catch (error) {
-      console.warn('Error preloading data:', error);
-      updateProgress(0.05, 'Continuing with limited data');
+      console.error('Error in preloadApplicationData:', error);
       return false;
     }
   };
@@ -1060,7 +1059,9 @@ export default function SplashScreenManager({ children }: { children: React.Reac
     if (!userId) return false;
     
     try {
-      console.log('Starting critical image preloading...');
+      if (DEBUG_SPLASH_SCREEN) {
+        console.log('Starting critical image preloading...');
+      }
       const criticalImages: string[] = [];
       let success = true;
       
@@ -1074,10 +1075,14 @@ export default function SplashScreenManager({ children }: { children: React.Reac
           
           // Aggressively preload avatar
           try {
-            console.log(`Aggressively preloading avatar: ${avatar.url.substring(0, 40)}...`);
+            if (DEBUG_SPLASH_SCREEN) {
+              console.log(`Aggressively preloading avatar: ${avatar.url.substring(0, 40)}...`);
+            }
             const avatarAsset = Asset.fromURI(avatar.url);
             await avatarAsset.downloadAsync();
-            console.log('Avatar fully preloaded and ready for display');
+            if (DEBUG_SPLASH_SCREEN) {
+              console.log('Avatar fully preloaded and ready for display');
+            }
           } catch (error) {
             console.warn('Avatar aggressive preload failed:', error);
             success = false;
@@ -1097,10 +1102,14 @@ export default function SplashScreenManager({ children }: { children: React.Reac
           
           // Aggressively preload before photo
           try {
-            console.log(`Aggressively preloading before photo: ${latestPhotos.before.url.substring(0, 40)}...`);
+            if (DEBUG_SPLASH_SCREEN) {
+              console.log(`Aggressively preloading before photo: ${latestPhotos.before.url.substring(0, 40)}...`);
+            }
             const beforeAsset = Asset.fromURI(latestPhotos.before.url);
             await beforeAsset.downloadAsync();
-            console.log('Before photo fully preloaded and ready for display');
+            if (DEBUG_SPLASH_SCREEN) {
+              console.log('Before photo fully preloaded and ready for display');
+            }
           } catch (error) {
             console.warn('Before photo aggressive preload failed:', error);
             success = false;
@@ -1112,10 +1121,14 @@ export default function SplashScreenManager({ children }: { children: React.Reac
           
           // Aggressively preload after photo
           try {
-            console.log(`Aggressively preloading after photo: ${latestPhotos.after.url.substring(0, 40)}...`);
+            if (DEBUG_SPLASH_SCREEN) {
+              console.log(`Aggressively preloading after photo: ${latestPhotos.after.url.substring(0, 40)}...`);
+            }
             const afterAsset = Asset.fromURI(latestPhotos.after.url);
             await afterAsset.downloadAsync();
-            console.log('After photo fully preloaded and ready for display');
+            if (DEBUG_SPLASH_SCREEN) {
+              console.log('After photo fully preloaded and ready for display');
+            }
           } catch (error) {
             console.warn('After photo aggressive preload failed:', error);
             success = false;
@@ -1131,7 +1144,9 @@ export default function SplashScreenManager({ children }: { children: React.Reac
         markImageAsImportant(url);
       });
       
-      console.log(`Critical image preloading ${success ? 'completed successfully' : 'had some failures'}`);
+      if (DEBUG_SPLASH_SCREEN) {
+        console.log(`Critical image preloading ${success ? 'completed successfully' : 'had some failures'}`);
+      }
       return success;
     } catch (error) {
       console.warn('Error in critical image preloading:', error);
@@ -1140,11 +1155,23 @@ export default function SplashScreenManager({ children }: { children: React.Reac
   };
 
   // Prepare the app - load all assets and data
-  useEffect(() => {
-    async function prepare() {
+  const prepare = async () => {
+    try {
       // Always log this regardless of debug mode - critical for troubleshooting
-      console.log(`🚀 [SplashScreenManager] Starting app preparation at ${new Date().toISOString()}`);
-      console.log(`📊 [SplashScreenManager] App config: batch size=${PRELOAD_CONFIG.BATCH_SIZE}, timeouts=${JSON.stringify(PRELOAD_CONFIG.TIMEOUT)}`);
+      if (DEBUG_SPLASH_SCREEN) {
+        console.log(`🚀 [SplashScreenManager] Starting app preparation at ${new Date().toISOString()}`);
+        console.log(`📊 [SplashScreenManager] App config: batch size=${PRELOAD_CONFIG.BATCH_SIZE}, timeouts=${JSON.stringify(PRELOAD_CONFIG.TIMEOUT)}`);
+      }
+      
+      // Clean stale offline workout data at app startup to prevent RLS errors
+      try {
+        if (DEBUG_SPLASH_SCREEN) {
+          console.log('🧹 [SplashScreenManager] Cleaning stale offline workout data');
+        }
+        await workoutPlanService.cleanStaleOfflineData();
+      } catch (cleanupError) {
+                // Log but don't block app initialization if cleanup fails        logger.error('Error cleaning stale offline workout data:',           cleanupError instanceof Error ? cleanupError : new Error(String(cleanupError)));
+      }
       
       try {
         // This is a critical step - ensure we're showing the loading screen before hiding the splash
@@ -1156,7 +1183,9 @@ export default function SplashScreenManager({ children }: { children: React.Reac
           try {
             if (typeof SplashScreen.hideAsync === 'function') {
               await SplashScreen.hideAsync();
-              console.log('Native splash screen hidden, showing custom loading screen');
+              if (DEBUG_SPLASH_SCREEN) {
+                console.log('Native splash screen hidden, showing custom loading screen');
+              }
             }
           } catch (splashError) {
             console.warn('Error hiding native splash screen:', splashError);
@@ -1347,7 +1376,7 @@ export default function SplashScreenManager({ children }: { children: React.Reac
         }
         
         // Phase 4: Load user-specific content if signed in
-        if (session?.user) {
+        if (user) {
           const userDataStart = Date.now();
           setTimingMetrics(prev => ({ ...prev, userDataStart }));
           
@@ -1356,10 +1385,10 @@ export default function SplashScreenManager({ children }: { children: React.Reac
             await Promise.race([
               (async () => {
                 // First preload critical images (avatar, before/after photos)
-                await preloadCriticalImages(session.user.id);
+                await preloadCriticalImages(user.id);
                 
                 // Then fetch and preload all user-specific images
-                const userImages = await fetchUserSpecificImages(session.user.id);
+                const userImages = await fetchUserSpecificImages(user.id);
                 
                 if (DEBUG_SPLASH_SCREEN) {
                   console.log(`📊 [SplashScreenManager] Retrieved ${userImages.length} user-specific images to preload`);
@@ -1426,14 +1455,14 @@ export default function SplashScreenManager({ children }: { children: React.Reac
         }
         
         // Set as ready but add a small delay to ensure images are fully loaded and rendered
-        setIsAppReady(true);
+        setAppReady(true);
         
         // Add a small delay before hiding the splash screen to ensure images are fully loaded
         await new Promise(resolve => setTimeout(resolve, 1000));
         
         // Finally hide the loading screen
         setTimeout(() => {
-          setShowLoadingScreen(false);
+          setShowSplash(false);
           setTimeout(() => {
             safelyHideSplashScreen();
           }, 100);
@@ -1452,32 +1481,41 @@ export default function SplashScreenManager({ children }: { children: React.Reac
         }
         
         // Still set app as ready even on error to prevent getting stuck
-        setIsAppReady(true);
-        setShowLoadingScreen(false);
+        setAppReady(true);
+        setShowSplash(false);
         try {
           safelyHideSplashScreen();
         } catch (splashError) {
           console.error('Additional error when hiding splash screen:', splashError);
         }
       }
+    } catch (e) {
+      console.error('Error in prepare function:', e);
+      setAppReady(true);
+      setShowSplash(false);
+      try {
+        safelyHideSplashScreen();
+      } catch (splashError) {
+        console.error('Additional error when hiding splash screen:', splashError);
+      }
     }
-    
-    prepare();
-  }, [session]);
+  };
 
   const onFinishLoading = () => {
     if (DEBUG_SPLASH_SCREEN) {
       console.log(`🏁 [SplashScreenManager] Loading finished, hiding splash screen`);
     }
-    setShowLoadingScreen(false);
+    setShowSplash(false);
   };
 
   // Render the app with loading screen when needed
-  if (!isAppReady || showLoadingScreen) {
-    console.log('Rendering InitialLoadingScreen with progress:', loadingProgress, 'and message:', loadingMessage);
+  if (!appReady || showSplash) {
+    if (DEBUG_SPLASH_SCREEN) {
+      console.log('Rendering InitialLoadingScreen with progress:', progress, 'and message:', loadingMessage);
+    }
     return (
       <InitialLoadingScreen 
-        progressValue={loadingProgress} 
+        progressValue={progress} 
         message={loadingMessage}
         onFinish={onFinishLoading}
         showProgress={true}

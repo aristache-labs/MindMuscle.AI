@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/react-native';
 import Constants from 'expo-constants';
+import { DEBUG_CONFIG, DebugFlags } from './debugConfig';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -11,9 +12,15 @@ interface LoggerOptions {
 class Logger {
   private static instance: Logger;
   private isProduction: boolean;
+  private debugFlags: DebugFlags = DEBUG_CONFIG;
 
   private constructor() {
     this.isProduction = !__DEV__;
+    if (this.isProduction) {
+      Object.keys(this.debugFlags).forEach(key => {
+        (this.debugFlags as any)[key] = false;
+      });
+    }
   }
 
   public static getInstance(): Logger {
@@ -21,6 +28,20 @@ class Logger {
       Logger.instance = new Logger();
     }
     return Logger.instance;
+  }
+
+  public getDebugFlags(): DebugFlags {
+    return { ...this.debugFlags };
+  }
+
+  public isDebugging(component?: keyof DebugFlags): boolean {
+    if (this.debugFlags.GLOBAL) return true;
+    
+    if (component && component in this.debugFlags) {
+      return this.debugFlags[component];
+    }
+    
+    return false;
   }
 
   private formatMessage(level: LogLevel, message: string, options?: LoggerOptions): string {
@@ -49,7 +70,6 @@ class Logger {
       }
     }
 
-    // Always send errors to Sentry in production
     if (level === 'error' && this.isProduction) {
       if (options?.context) {
         Sentry.setContext('error_context', options.context);
@@ -64,7 +84,15 @@ class Logger {
   }
 
   public debug(message: string, options?: LoggerOptions): void {
-    this.log('debug', message, options);
+    if (this.isDebugging()) {
+      this.log('debug', message, options);
+    }
+  }
+
+  public debugComponent(component: keyof DebugFlags, message: string, options?: LoggerOptions): void {
+    if (this.isDebugging(component)) {
+      this.log('debug', `[${component}] ${message}`, options);
+    }
   }
 
   public info(message: string, options?: LoggerOptions): void {
@@ -98,7 +126,6 @@ class Logger {
 
 export const logger = Logger.getInstance();
 
-// Initialize Sentry in production
 if (!__DEV__) {
   Sentry.init({
     dsn: Constants.expoConfig?.extra?.sentryDsn || '',

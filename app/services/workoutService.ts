@@ -3,6 +3,9 @@ import { Workout, WorkoutExercise, WorkoutSet } from '../types/workout';
 import { ExerciseInWorkout } from '../types/exercise';
 import { useState, useEffect } from 'react';
 import supabase from './supabase';
+import { createComponentLogger } from '../utils/debugHelpers';
+
+const logger = createComponentLogger('WORKOUT');
 
 const WORKOUTS_STORAGE_KEY = '@workouts';
 
@@ -23,7 +26,7 @@ export const workoutService = {
       const workoutsJson = await AsyncStorage.getItem(WORKOUTS_STORAGE_KEY);
       return workoutsJson ? JSON.parse(workoutsJson) : [];
     } catch (error) {
-      console.error('Error fetching workouts:', error);
+      logger.error('Error fetching workouts:', error);
       throw error;
     }
   },
@@ -33,7 +36,7 @@ export const workoutService = {
       const workouts = await this.getAllWorkouts();
       return workouts.find(workout => workout.id === id) || null;
     } catch (error) {
-      console.error('Error fetching workout:', error);
+      logger.error('Error fetching workout:', error);
       throw error;
     }
   },
@@ -58,7 +61,7 @@ export const workoutService = {
       
       return newWorkout;
     } catch (error) {
-      console.error('Error creating workout:', error);
+      logger.error('Error creating workout:', error);
       throw error;
     }
   },
@@ -89,7 +92,7 @@ export const workoutService = {
       await AsyncStorage.setItem(WORKOUTS_STORAGE_KEY, JSON.stringify(workouts));
       return updatedWorkout;
     } catch (error) {
-      console.error('Error updating workout:', error);
+      logger.error('Error updating workout:', error);
       throw error;
     }
   },
@@ -104,7 +107,7 @@ export const workoutService = {
         JSON.stringify(filteredWorkouts)
       );
     } catch (error) {
-      console.error('Error deleting workout:', error);
+      logger.error('Error deleting workout:', error);
       throw error;
     }
   },
@@ -130,7 +133,7 @@ export const workoutService = {
 
       return await this.updateWorkout(workoutId, updatedWorkout);
     } catch (error) {
-      console.error('Error adding exercise to workout:', error);
+      logger.error('Error adding exercise to workout:', error);
       throw error;
     }
   },
@@ -166,7 +169,7 @@ export const workoutService = {
 
       return await this.updateWorkout(workoutId, updatedWorkout);
     } catch (error) {
-      console.error('Error adding set to exercise:', error);
+      logger.error('Error adding set to exercise:', error);
       throw error;
     }
   },
@@ -179,7 +182,7 @@ export const workoutService = {
         return workoutDate >= new Date(startDate) && workoutDate <= new Date(endDate);
       });
     } catch (error) {
-      console.error('Error fetching workouts by date range:', error);
+      logger.error('Error fetching workouts by date range:', error);
       throw error;
     }
   },
@@ -219,7 +222,7 @@ export const workoutService = {
 
       return await this.updateWorkout(workoutId, updatedWorkout);
     } catch (error) {
-      console.error('Error updating set:', error);
+      logger.error('Error updating set:', error);
       throw error;
     }
   },
@@ -232,7 +235,7 @@ export const workoutService = {
       .order('completed_at', { ascending: false });
 
     if (error) {
-      console.error('Error fetching workout progress:', error);
+      logger.error('Error fetching workout progress:', error);
       throw error;
     }
 
@@ -259,7 +262,7 @@ export const workoutService = {
       .single();
 
     if (error) {
-      console.error('Error adding workout progress:', error);
+      logger.error('Error adding workout progress:', error);
       throw error;
     }
 
@@ -278,7 +281,7 @@ export const workoutService = {
       .single();
 
     if (error) {
-      console.error('Error updating workout progress:', error);
+      logger.error('Error updating workout progress:', error);
       throw error;
     }
 
@@ -292,7 +295,7 @@ export const workoutService = {
       .eq('id', progressId);
 
     if (error) {
-      console.error('Error deleting workout progress:', error);
+      logger.error('Error deleting workout progress:', error);
       throw error;
     }
   }
@@ -307,7 +310,7 @@ export const useWorkoutService = () => {
         const loadedWorkouts = await workoutService.getAllWorkouts();
         setWorkouts(loadedWorkouts);
       } catch (error) {
-        console.error('Error loading workouts:', error);
+        logger.error('Error loading workouts:', error);
       }
     };
     loadWorkouts();

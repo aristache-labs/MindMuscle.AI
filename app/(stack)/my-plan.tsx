@@ -259,14 +259,13 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
           if (exercisesError) {
             console.error('Error fetching plan exercises:', exercisesError);
             setLoadError('Failed to load exercises');
+          } else if (!exercises || exercises.length === 0) {
+            console.error('No exercises found for active plan');
+            setLoadError('No exercises found for this plan');
           } else {
             // Map and transform exercise data to include details from related exercise
-            const formattedExercises = exercises?.map((ex, index) => {
+            const formattedExercises = exercises.map(ex => {
               const exerciseDetails = ex.exercises || {};
-              
-              // Assign workout_day based on index and frequency
-              // For a 2-day split, exercises are alternated: day 1, day 2, day 1, day 2, etc.
-              const workout_day = index % frequency;
               
               return {
                 ...ex,
@@ -274,11 +273,15 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
                 muscle_group: exerciseDetails.muscle_group || 'General',
                 primary_muscles: exerciseDetails.primary_muscles || [],
                 weight: ex.weight || '',
-                workout_day: workout_day // Add workout_day field
+                workout_day: ex.workout_day !== undefined ? ex.workout_day : 0 // Use the workout_day from the database
               };
-            }) || [];
+            });
             
             setPlanExercises(formattedExercises);
+            
+            // Get unique workout days
+            const availableWorkoutDays = [...new Set(formattedExercises.map(ex => ex.workout_day))].sort();
+            console.log('Available workout days in exercises:', availableWorkoutDays);
           }
         }
       } catch (error) {
@@ -366,6 +369,13 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     try {
       setIsStartingWorkout(true);
       
+      // Get the workout day (index) for the selected day
+      const workoutDay = selectedDayIndex !== null ? 
+        (workoutDistribution[selectedDayIndex] !== undefined ? workoutDistribution[selectedDayIndex] : 0) : 0;
+      
+      console.log(`Starting workout - Selected day: ${selectedDayIndex}, Distribution:`, workoutDistribution);
+      console.log(`Using workout day: ${workoutDay} for exercise filtering`);
+      
       // Start a new workout session
       const session = await workoutPlanService.startWorkout(activePlan.id, user.id);
       
@@ -374,14 +384,15 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         setIsStartingWorkout(false);
         return;
       }
-      
+
       // Navigate to workout screen with session data
       router.push({
         pathname: '/(stack)/workout-session',
         params: { 
           sessionId: session.id,
           planId: activePlan.id,
-          planName: activePlan.name
+          planName: activePlan.name,
+          workoutDay: workoutDay.toString() // Convert to string for URL params
         }
       });
     } catch (error) {

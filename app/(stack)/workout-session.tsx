@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, ScrollView, ActivityIndicator, Text, Alert, TouchableOpacity, Platform, Image, TextInput, Animated, PanResponder } from 'react-native';
+import { StyleSheet, View, ScrollView, ActivityIndicator, Text, Alert, TouchableOpacity, Platform, Image, TextInput, Animated, PanResponder, Keyboard, KeyboardAvoidingView } from 'react-native';
 import { Button, IconButton, Surface, useTheme } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -51,6 +51,10 @@ export default function WorkoutSessionScreen() {
   // Timer state
   const [isTimerRunning, setIsTimerRunning] = useState(true);
   const [startTime] = useState(new Date());
+  
+  // Keyboard handling
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
 
   // Rest timer has been removed
   
@@ -61,6 +65,9 @@ export default function WorkoutSessionScreen() {
 
   // Use state to store max weight info
   const [maxWeightInfo, setMaxWeightInfo] = useState<{ weight: number; reps: number; date: string } | null>(null);
+  
+  // Add state to store previous set data
+  const [previousSetData, setPreviousSetData] = useState<{[key: string]: {weight: string|number, reps: string|number}}>({});
 
   // Pan responder for timer has been removed
 
@@ -77,8 +84,26 @@ export default function WorkoutSessionScreen() {
         setElapsedTime(Math.floor((new Date().getTime() - startTime.getTime()) / 1000));
       }
     }, 1000);
+    
+    // Setup keyboard listeners
+    const keyboardDidShowListener = Keyboard.addListener(
+      'keyboardDidShow',
+      () => {
+        setKeyboardVisible(true);
+      }
+    );
+    const keyboardDidHideListener = Keyboard.addListener(
+      'keyboardDidHide',
+      () => {
+        setKeyboardVisible(false);
+      }
+    );
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
   }, []);
 
   // Add a function to initialize the UI with sample data for demonstrating set tracking
@@ -334,117 +359,7 @@ export default function WorkoutSessionScreen() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleSetComplete = async (exerciseId: string, setNumber: number, weight: number = 0, reps: number = 0) => {
-    if (!params.sessionId || !user) return;
 
-    try {
-      // Make sure we're using the actual exercise_id, not the entry id
-      const actualExerciseId = currentExerciseData?.exercise_id || exerciseId;
-      
-      logger.debug(`Logging set completion`, () => ({
-        exerciseId: actualExerciseId, 
-        setNumber, 
-        weight, 
-        reps
-      }));
-      
-      // Add more detailed logging to check all parameters
-      logger.debug('Exercise set details for logging', () => ({
-        sessionId: params.sessionId,
-        userId: user.id,
-        actualExerciseId,
-        setNumber,
-        weight,
-        reps
-      }));
-      
-      // Use the workoutPlanService to log the exercise set
-      // This will handle both online and offline scenarios
-      try {
-        await workoutPlanService.logExerciseSet(
-          params.sessionId as string, 
-          actualExerciseId,
-          setNumber,
-          { weight, reps }
-        );
-        logger.debug('Successfully called workoutPlanService.logExerciseSet');
-        
-        // Ensure user_exercises_history is also populated directly
-        if (typeof workoutPlanService.logUserExerciseHistory === 'function') {
-          await workoutPlanService.logUserExerciseHistory(
-            user.id,
-            actualExerciseId,
-            params.sessionId as string,
-            setNumber,
-            weight,
-            reps
-          );
-          logger.debug('Successfully logged user exercise history');
-          
-          // Also update personal records
-          if (typeof workoutPlanService.checkAndUpdatePersonalRecord === 'function') {
-            await workoutPlanService.checkAndUpdatePersonalRecord(
-              user.id,
-              actualExerciseId,
-              weight,
-              reps
-            );
-            logger.debug('Successfully checked/updated personal records');
-          }
-        }
-      } catch (serviceError) {
-        logger.error('Error in workoutPlanService.logExerciseSet:', serviceError);
-        throw serviceError;
-      }
-
-      // Update local state
-      setExerciseHistory(prev => {
-        const newHistory = { ...prev };
-        if (!newHistory[exerciseId]) {
-          newHistory[exerciseId] = {
-            sets_completed: 0,
-            total_volume: 0,
-            sets_data: []
-          };
-        }
-        
-        // Ensure sets_data exists and is an array
-        if (!newHistory[exerciseId].sets_data || !Array.isArray(newHistory[exerciseId].sets_data)) {
-          newHistory[exerciseId].sets_data = [];
-        }
-        
-        // Add new set data
-        const newSet: ExerciseSet = {
-          set: setNumber,
-          weight,
-          reps
-        };
-        
-        // Update or add set - with proper null check
-        const setIndex = newHistory[exerciseId].sets_data.findIndex((s: ExerciseSet) => s.set === setNumber);
-        if (setIndex >= 0) {
-          newHistory[exerciseId].sets_data[setIndex] = newSet;
-        } else {
-          newHistory[exerciseId].sets_data.push(newSet);
-          newHistory[exerciseId].sets_completed++;
-        }
-        
-        // Recalculate total volume
-        newHistory[exerciseId].total_volume = newHistory[exerciseId].sets_data.reduce(
-          (sum: number, set: ExerciseSet) => sum + (set.weight * set.reps),
-          0
-        );
-        
-        return newHistory;
-      });
-
-      // Keep the values in the input field after logging
-      // Don't clear the inputs: setActiveSetInput({ weight: '', reps: '' });
-    } catch (error) {
-      logger.error('Error logging set:', error);
-      Alert.alert('Error', 'Failed to log set. Data will be synced when online.');
-    }
-  };
 
   const getLastSetData = (exerciseId: string) => {
     const history = exerciseHistory[exerciseId];
@@ -476,7 +391,12 @@ export default function WorkoutSessionScreen() {
         const weight = requiresWeights(currentExerciseData) ? 0 : 0; // We would need input fields to capture this
         const reps = 8; // Default to a reasonable number or parse from reps range
         
-        await handleSetComplete(actualExerciseId, setNumber, weight, reps);
+        await workoutPlanService.logExerciseSet(
+          params.sessionId as string,
+          actualExerciseId,
+          setNumber,
+          { weight, reps }
+        );
       }
       
       // If this is the last exercise, finish the workout
@@ -604,16 +524,34 @@ export default function WorkoutSessionScreen() {
     try {
       const actualExerciseId = currentExerciseData.exercise_id || currentExerciseData.id;
       
-      // Parse the weight the user entered. If the field is empty (or non-numeric), default to 0.
-      const parsedWeight = parseInt(activeSetInput.weight.trim(), 10);
-      const weight = isNaN(parsedWeight) ? 0 : parsedWeight;
+      // Get the previous set data for this exercise and set
+      const setKey = `${actualExerciseId}_${activeSet}`;
+      const prevData = previousSetData[setKey] || { weight: '0', reps: '0' };
       
-      // Get reps value - use entered value or try to parse from reps range
+      // Check if user entered a new weight or if we should use previous weight
+      let weight = 0;
+      if (activeSetInput.weight && activeSetInput.weight.trim() !== '') {
+        // User entered a new weight
+        const parsedWeight = parseInt(activeSetInput.weight.trim(), 10);
+        weight = isNaN(parsedWeight) ? 0 : parsedWeight;
+      } else if (prevData.weight !== '-' && prevData.weight !== undefined && prevData.weight !== null) {
+        // Use previous weight if available and valid
+        const parsedPrevWeight = typeof prevData.weight === 'string' ? parseInt(prevData.weight, 10) : prevData.weight;
+        weight = isNaN(parsedPrevWeight) ? 0 : parsedPrevWeight;
+      }
+      
+      // Check if user entered new reps or if we should use previous reps
       let reps = 0;
       if (activeSetInput.reps && activeSetInput.reps.trim() !== '') {
-        reps = parseInt(activeSetInput.reps, 10);
+        // User entered new reps
+        const parsedReps = parseInt(activeSetInput.reps.trim(), 10);
+        reps = isNaN(parsedReps) ? 0 : parsedReps;
+      } else if (prevData.reps !== '-' && prevData.reps !== undefined && prevData.reps !== null) {
+        // Use previous reps if available and valid
+        const parsedPrevReps = typeof prevData.reps === 'string' ? parseInt(prevData.reps, 10) : prevData.reps;
+        reps = isNaN(parsedPrevReps) ? 0 : parsedPrevReps;
       } else if (currentExerciseData.reps) {
-        // Try to extract a reasonable value from the reps range (e.g., "6-8" becomes 7)
+        // As a fallback, try to extract a reasonable value from the reps range (e.g., "6-8" becomes 7)
         const repsRange = currentExerciseData.reps.split('-');
         if (repsRange.length > 1) {
           const minReps = parseInt(repsRange[0], 10);
@@ -632,12 +570,55 @@ export default function WorkoutSessionScreen() {
       
       logger.debug(`Did It pressed: Exercise ${actualExerciseId}, Set ${activeSet}, Weight ${weight}, Reps ${reps}`);
       
-      await handleSetComplete(
+      // Make a direct call to the workoutPlanService to record this set
+      await workoutPlanService.logExerciseSet(
+        params.sessionId as string,
         actualExerciseId,
         activeSet,
-        weight,
-        reps
+        { weight, reps }
       );
+      
+      // Directly log to exercise history in our local state too - this ensures the UI updates
+      // even if the database operation has issues
+      setExerciseHistory(prev => {
+        const newHistory = { ...prev };
+        if (!newHistory[actualExerciseId]) {
+          newHistory[actualExerciseId] = {
+            sets_completed: 0,
+            total_volume: 0,
+            sets_data: []
+          };
+        }
+        
+        // Ensure sets_data exists and is an array
+        if (!newHistory[actualExerciseId].sets_data || !Array.isArray(newHistory[actualExerciseId].sets_data)) {
+          newHistory[actualExerciseId].sets_data = [];
+        }
+        
+        // Add new set data
+        const newSet: ExerciseSet = {
+          set: activeSet,
+          weight,
+          reps
+        };
+        
+        // Update or add set - with proper null check
+        const setIndex = newHistory[actualExerciseId].sets_data.findIndex((s: ExerciseSet) => s.set === activeSet);
+        if (setIndex >= 0) {
+          newHistory[actualExerciseId].sets_data[setIndex] = newSet;
+        } else {
+          newHistory[actualExerciseId].sets_data.push(newSet);
+          newHistory[actualExerciseId].sets_completed++;
+        }
+        
+        // Recalculate total volume
+        newHistory[actualExerciseId].total_volume = newHistory[actualExerciseId].sets_data.reduce(
+          (sum: number, set: ExerciseSet) => sum + (set.weight * set.reps),
+          0
+        );
+        
+        return newHistory;
+      });
       
       // Mark this set as completed
       setCompletedSets(prev => [...prev, activeSet]);
@@ -679,7 +660,99 @@ export default function WorkoutSessionScreen() {
       }
     } catch (error) {
       logger.error('Error in handleDidItPress:', error);
-      Alert.alert('Error', 'Failed to record your set. Please try again.');
+      
+      // Even if there's an error, add the set to local state so the UI updates correctly
+      try {
+        const actualExerciseId = currentExerciseData.exercise_id || currentExerciseData.id;
+        
+        // Get the previous set data for this exercise and set
+        const setKey = `${actualExerciseId}_${activeSet}`;
+        const prevData = previousSetData[setKey] || { weight: '0', reps: '0' };
+        
+              // Check if user entered a new weight or if we should use previous weight
+      let weight = 0;
+      if (activeSetInput.weight && activeSetInput.weight.trim() !== '') {
+        // User entered a new weight
+        const parsedWeight = parseInt(activeSetInput.weight.trim(), 10);
+        weight = isNaN(parsedWeight) ? 0 : parsedWeight;
+      } else if (prevData.weight !== '-' && prevData.weight !== undefined && prevData.weight !== null) {
+        // Use previous weight if available and valid
+        const parsedPrevWeight = typeof prevData.weight === 'string' ? parseInt(prevData.weight, 10) : prevData.weight;
+        weight = isNaN(parsedPrevWeight) ? 0 : parsedPrevWeight;
+      }
+      
+      // Check if user entered new reps or if we should use previous reps
+      let reps = 0;
+      if (activeSetInput.reps && activeSetInput.reps.trim() !== '') {
+        // User entered new reps
+        const parsedReps = parseInt(activeSetInput.reps.trim(), 10);
+        reps = isNaN(parsedReps) ? 0 : parsedReps;
+      } else if (prevData.reps !== '-' && prevData.reps !== undefined && prevData.reps !== null) {
+        // Use previous reps if available and valid
+        const parsedPrevReps = typeof prevData.reps === 'string' ? parseInt(prevData.reps, 10) : prevData.reps;
+        reps = isNaN(parsedPrevReps) ? 0 : parsedPrevReps;
+      } else {
+        reps = 8; // Default
+        }
+        
+        // Update local state to reflect the set
+        setExerciseHistory(prev => {
+          const newHistory = { ...prev };
+          if (!newHistory[actualExerciseId]) {
+            newHistory[actualExerciseId] = {
+              sets_completed: 0,
+              total_volume: 0,
+              sets_data: []
+            };
+          }
+          
+          const newSet: ExerciseSet = {
+            set: activeSet,
+            weight,
+            reps
+          };
+          
+          // Add or update the set
+          const setIndex = newHistory[actualExerciseId].sets_data.findIndex((s: ExerciseSet) => s.set === activeSet);
+          if (setIndex >= 0) {
+            newHistory[actualExerciseId].sets_data[setIndex] = newSet;
+          } else {
+            newHistory[actualExerciseId].sets_data.push(newSet);
+            newHistory[actualExerciseId].sets_completed++;
+          }
+          
+          // Recalculate total volume
+          newHistory[actualExerciseId].total_volume = newHistory[actualExerciseId].sets_data.reduce(
+            (sum: number, set: ExerciseSet) => sum + (set.weight * set.reps),
+            0
+          );
+          
+          return newHistory;
+        });
+        
+        // Mark this set as completed
+        setCompletedSets(prev => [...prev, activeSet]);
+        
+        // Show a warning but allow continuing
+        Alert.alert(
+          "Warning", 
+          "There was an error saving your set data. Your progress for this workout has been saved locally, but may not sync with the server.",
+          [{ text: "Continue Anyway", style: "default" }]
+        );
+        
+        // Move to next set or exercise as appropriate
+        if (activeSet < (currentExerciseData.sets || 0)) {
+          setActiveSet(activeSet + 1);
+        } else if (currentExercise < exercises.length - 1) {
+          setCurrentExercise(prev => prev + 1);
+          setActiveSet(1);
+          setCompletedSets([]);
+        }
+      } catch (stateError) {
+        // Last resort error handling
+        logger.error('Error updating local state:', stateError);
+        Alert.alert('Error', 'Failed to record your set. Please try again.');
+      }
     }
   };
 
@@ -708,6 +781,24 @@ export default function WorkoutSessionScreen() {
       logger.error('Error in handleRedoSet:', error);
       Alert.alert('Error', 'Failed to redo this set. Please try again.');
     }
+  };
+  
+  // Handle input focus to scroll to the active set
+  const handleInputFocus = (setNumber: number, inputType: 'weight' | 'reps') => {
+    setActiveSet(setNumber);
+    
+    // Schedule a scroll to the active set after a short delay
+    // This ensures the view has updated before we try to scroll
+    setTimeout(() => {
+      // Find the ref of the set we want to scroll to
+      const setY = setNumber * 130; // Approximate height of a set card
+      
+      // Scroll to the position, with offset to account for header
+      scrollViewRef.current?.scrollTo({
+        y: setY - 150, // Offset to show the input field above the keyboard
+        animated: true
+      });
+    }, 100);
   };
 
   // Add a function to check if a set is completed
@@ -753,22 +844,81 @@ const isSetCompleted = (setNumber: number) => {
     } as const;
   };
 
+  // Helper function to extract a rep value from a rep range string (e.g. "8-12" becomes 10)
+  const extractRepValue = (repRange: string | undefined): string => {
+    if (!repRange) return "-";
+    
+    // Check if it contains a hyphen (range)
+    if (repRange.includes('-')) {
+      const [min, max] = repRange.split('-').map(val => parseInt(val.trim(), 10));
+      // If we have valid min and max values, return the average
+      if (!isNaN(min) && !isNaN(max)) {
+        return Math.round((min + max) / 2).toString();
+      }
+    }
+    
+    // Try to extract a single number
+    const singleValue = parseInt(repRange.trim(), 10);
+    if (!isNaN(singleValue)) {
+      return singleValue.toString();
+    }
+    
+    // Default fallback
+    return "-";
+  };
+
+  // Add function to get previous workout data for a specific set
+  const getPreviousSetData = async (exerciseId: string, setNumber: number) => {
+    if (!user) return { weight: '-', reps: '-' };
+    try {
+      // Query for previous workout data for this specific exercise and set
+      const { data, error } = await supabase
+        .from('user_exercises_history')
+        .select('weight, reps')
+        .eq('user_id', user.id)
+        .eq('exercise_id', exerciseId)
+        .eq('set_number', setNumber)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      
+      if (error || !data || data.length === 0) {
+        logger.debug(`No previous data found for exercise ${exerciseId}, set ${setNumber}`);
+        return { weight: '-', reps: '-' };
+      }
+      
+      // Ensure we have valid numeric values
+      const weight = data[0].weight || 0;
+      const reps = data[0].reps || 0;
+      
+      // Only return if we have positive values
+      if (weight <= 0 && reps <= 0) {
+        return { weight: '-', reps: '-' };
+      }
+      
+      logger.debug(`Found previous data for exercise ${exerciseId}, set ${setNumber}: weight=${weight}, reps=${reps}`);
+      
+      return {
+        weight: weight > 0 ? weight.toString() : '-',
+        reps: reps > 0 ? reps.toString() : '-'
+      };
+    } catch (error) {
+      logger.error('Error getting previous set data:', error);
+      return { weight: '-', reps: '-' };
+    }
+  };
+
   // Reset the input fields whenever we change to a new exercise
   useEffect(() => {
     if (exercises.length === 0) return;
     const current = exercises[currentExercise];
     if (!current) return;
 
-    // Attempt to preload with last logged data for this exercise
-    const lastData = getLastSetData(current.exercise_id || current.id);
-    if (lastData.weight > 0) {
-      setActiveSetInput({
-        weight: lastData.weight.toString(),
-        reps: lastData.reps.toString(),
-      });
-    } else {
-      setActiveSetInput({ weight: '', reps: '' });
-    }
+    // Reset active set input
+    setActiveSetInput({ weight: '', reps: '' });
+    
+    // We'll let the UI use previous history data automatically, 
+    // rather than prefilling the input, so the user can see what they did last time
+    // but still make a conscious decision to use the same values
     // Reset set counters
     setActiveSet(1);
     setCompletedSets([]);
@@ -792,7 +942,47 @@ const isSetCompleted = (setNumber: number) => {
         }
       };
       
+      // Load previous set data for all sets of this exercise
+      const fetchPreviousSetData = async () => {
+        try {
+          // Reset previous set data
+          setPreviousSetData({});
+          
+          // Get total sets for this exercise
+          const totalSets = current.sets || 0;
+          const newPreviousData: {[key: string]: {weight: string|number, reps: string|number}} = {};
+          
+          logger.debug(`Fetching previous set data for exercise ${actualExerciseId} (${totalSets} sets)`);
+          
+          // Fetch data for each set
+          for (let i = 1; i <= totalSets; i++) {
+            const prevData = await getPreviousSetData(actualExerciseId, i);
+            // Create a unique key for each set
+            const setKey = `${actualExerciseId}_${i}`;
+            newPreviousData[setKey] = prevData;
+            
+            logger.debug(`Set ${i} previous data:`, () => ({ 
+              weight: prevData.weight, 
+              reps: prevData.reps,
+              hasData: prevData.weight !== '-' || prevData.reps !== '-'
+            }));
+          }
+          
+          setPreviousSetData(newPreviousData);
+          logger.debug('Loaded previous set data', () => ({
+            exerciseId: actualExerciseId,
+            setCount: Object.keys(newPreviousData).length,
+            hasData: Object.values(newPreviousData).some(data => data.weight !== '-' || data.reps !== '-')
+          }));
+        } catch (error) {
+          logger.error('Error fetching previous set data:', error);
+          // Set empty previous data
+          setPreviousSetData({});
+        }
+      };
+      
       fetchMaxWeight();
+      fetchPreviousSetData();
     }
   }, [currentExercise, exercises, user]);
 
@@ -823,7 +1013,11 @@ const isSetCompleted = (setNumber: number) => {
   const nextExerciseData = currentExercise < exercises.length - 1 ? exercises[currentExercise + 1] : null;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <KeyboardAvoidingView 
+      style={[styles.container, { paddingTop: insets.top }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
+    >
       <StatusBar style="light" />
       
       {/* Header */}
@@ -865,7 +1059,14 @@ const isSetCompleted = (setNumber: number) => {
         </View>
       </Surface>
 
-      <ScrollView style={styles.content}>
+      <ScrollView 
+        style={styles.content}
+        ref={scrollViewRef}
+        keyboardDismissMode="interactive"
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{
+          paddingBottom: keyboardVisible ? 300 : 20, // Add extra padding when keyboard is visible
+        }}>
         {/* Exercise Info */}
         <View style={styles.exerciseCard}>
           <View style={styles.exerciseHeader}>
@@ -916,113 +1117,150 @@ const isSetCompleted = (setNumber: number) => {
           const isCompleted = isSetCompleted(setNumber);
           const isActive = isSetActive(setNumber);
           
-          // Render the active set with special input style
-          if (isActive) {
-            return (
-              <View key={`set-${setNumber}`} style={styles.setCardWrapper}>
-                <Surface style={{ borderRadius: BORDER_RADIUS.md }}>
-                  <View style={[styles.setCardInner, { backgroundColor: COLORS.primary }]}>
-                    <View style={styles.suggestedLabel}>
-                      <Text style={[styles.suggestedLabelText, { color: COLORS.background }]}>Suggested</Text>
-                    </View>
-                    <View style={styles.activeInputRow}>
-                      <View style={styles.activeInputLeft}>
-                        <TextInput
-                          style={styles.activeInputText}
-                          value={activeSetInput.weight}
-                          onChangeText={(text) => setActiveSetInput(prev => ({ ...prev, weight: text }))}
-                          keyboardType="numeric"
-                          placeholder="-"
-                          placeholderTextColor={COLORS.background}
-                        />
-                        <Text style={styles.activeInputUnit}>kg</Text>
-                      </View>
-                      <View style={styles.activeInputDivider} />
-                      <View style={styles.activeInputRight}>
-                        <TextInput
-                          style={styles.activeInputText}
-                          value={activeSetInput.reps}
-                          onChangeText={(text) => setActiveSetInput(prev => ({ ...prev, reps: text }))}
-                          keyboardType="numeric"
-                          placeholder={currentExerciseData?.reps || "6-8"}
-                          placeholderTextColor={COLORS.background}
-                        />
-                        <Text style={styles.activeInputUnit}>reps</Text>
-                      </View>
-                      <TouchableOpacity 
-                        style={styles.didItButton}
-                        onPress={handleDidItPress}
-                      >
-                        <Text style={styles.didItButtonText}>Did It</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <Text style={[styles.weightNote, { textAlign: 'left', paddingLeft: SPACING.md }]}>Weight of bar + plates</Text>
-                  </View>
-                </Surface>
-              </View>
-            );
-          }
+          // Get previous set data if available
+          const prevSetData = previousSetData[`${currentExerciseData.exercise_id || currentExerciseData.id}_${setNumber}`] || { weight: '-', reps: '-' };
+          const hasPrevHistory = prevSetData.weight !== '-' && prevSetData.reps !== '-';
           
+          // Show suggested value only if no history exists and max weight info exists
+          const showSuggested = !hasPrevHistory && maxWeightInfo && maxWeightInfo.weight > 0;
+          
+          // Prioritize: 1. User input 2. Previous history 3. Max weight info
+          const prefillWeight = activeSetInput.weight !== '' ? 
+                               activeSetInput.weight : 
+                               (hasPrevHistory ? prevSetData.weight.toString() : 
+                               (showSuggested ? maxWeightInfo.weight.toString() : ''));
+                               
+          const prefillReps = activeSetInput.reps !== '' ? 
+                              activeSetInput.reps : 
+                              (hasPrevHistory ? prevSetData.reps.toString() : 
+                              (showSuggested ? maxWeightInfo.reps.toString() : ''));
           return (
             <View key={`set-${setNumber}`} style={styles.setCardWrapper}>
-              <Surface style={{ borderRadius: BORDER_RADIUS.md }}>
-                <View style={[
-                  styles.setCardInner, 
-                  { 
-                    backgroundColor: isCompleted ? COLORS.surfaceLight : COLORS.surface,
+                    <Surface style={{ borderRadius: BORDER_RADIUS.md }}>
+        <View style={[
+          styles.setCardInner, 
+          { backgroundColor: isActive ? COLORS.primary : isCompleted ? '#2A3038' : '#1D2126' }
+        ]}>  
+          <View style={[styles.activeInputRow, { backgroundColor: isActive ? COLORS.primary : isCompleted ? '#2A3038' : '#1D2126' }]}>
+                        <View style={styles.activeInputLeft}>
+              {/* Only show suggested label if this is active set and max weight info exists */}
+              {isActive && showSuggested && (
+                <Text style={[styles.suggestedLabelText, { 
+                  color: COLORS.background, 
+                  position: 'absolute',
+                  top: -16, 
+                  left: 40, 
+                  fontSize: 11 
+                }]}>
+                  Suggested
+                </Text>
+              )}
+              <View style={{ alignItems: 'center' }}>
+                <TextInput
+                  style={[
+                    styles.activeInputText,
+                    { color: isActive ? COLORS.background : COLORS.text }
+                  ]}
+                  value={
+                    isActive 
+                      ? prefillWeight 
+                      : (isCompleted 
+                          ? getSetData(currentExerciseData.exercise_id || currentExerciseData.id, setNumber).weight.toString()
+                          : previousSetData[`${currentExerciseData.exercise_id || currentExerciseData.id}_${setNumber}`]?.weight !== '-'
+                            ? previousSetData[`${currentExerciseData.exercise_id || currentExerciseData.id}_${setNumber}`]?.weight.toString()
+                            : '-')
                   }
-                ]}>
-                  {isCompleted ? (
-                    <View style={styles.darkSuggestedRow}>
-                      <Text style={styles.darkSuggestedLabel}>Set {setNumber} (Completed)</Text>
-                      <View style={styles.darkSuggestedContent}>
-                        <View style={styles.darkSuggestedLeft}>
-                          <Text style={styles.darkSuggestedValue}>
-                            {getSetData(currentExerciseData.exercise_id || currentExerciseData.id, setNumber).weight}
-                          </Text>
-                          <Text style={styles.darkSuggestedUnit}>kg</Text>
-                        </View>
-                        <View style={styles.darkSuggestedRight}>
-                          <Text style={styles.darkSuggestedValue}>
-                            {getSetData(currentExerciseData.exercise_id || currentExerciseData.id, setNumber).reps}
-                          </Text>
-                          <Text style={styles.darkSuggestedUnit}>reps</Text>
-                        </View>
-                        <TouchableOpacity 
-                          style={styles.playButton}
-                          onPress={() => handleRedoSet(setNumber)}
-                        >
-                          <MaterialCommunityIcons name="refresh" size={24} color={COLORS.primary} />
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ) : (
-                    <View style={styles.suggestedRow}>
-                      <View style={styles.suggestedLabel}>
-                        <Text style={styles.suggestedLabelText}>Suggested</Text>
-                      </View>
-                      <View style={styles.suggestedContent}>
-                        <View style={styles.suggestedLeft}>
-                          <Text style={styles.suggestedValue}>-</Text>
-                          <Text style={styles.suggestedUnit}>kg</Text>
-                        </View>
-                        <View style={styles.suggestedDivider} />
-                        <View style={styles.suggestedRight}>
-                          <Text style={styles.suggestedValue}>{currentExerciseData?.reps || "6-8"}</Text>
-                          <Text style={styles.suggestedUnit}>reps</Text>
-                        </View>
-                        <TouchableOpacity 
-                          style={styles.playButton}
-                          onPress={() => {
-                            // Make this the active set
-                            setActiveSet(setNumber);
-                          }}
-                        >
-                          <MaterialCommunityIcons name="play" size={24} color={COLORS.primary} />
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  )}
+                  onChangeText={(text) => setActiveSetInput(prev => ({ ...prev, weight: text }))}
+                  onFocus={() => handleInputFocus(setNumber, 'weight')}
+                  keyboardType="numeric"
+                  placeholder={previousSetData[`${currentExerciseData.exercise_id || currentExerciseData.id}_${setNumber}`]?.weight !== '-' ? 
+                    previousSetData[`${currentExerciseData.exercise_id || currentExerciseData.id}_${setNumber}`]?.weight.toString() : 
+                    "-"}
+                  placeholderTextColor={isActive ? COLORS.background : COLORS.text}
+                  editable={isActive}
+                />
+                {/* Previous weight indicator - show for active set only */}
+                {isActive && previousSetData[`${currentExerciseData.exercise_id || currentExerciseData.id}_${setNumber}`]?.weight !== '-' && (
+                  <Text style={[styles.previousValueText, { color: COLORS.background }]}>
+                    Last {previousSetData[`${currentExerciseData.exercise_id || currentExerciseData.id}_${setNumber}`]?.weight}
+                  </Text>
+                )}
+              </View>
+              <Text style={[styles.activeInputUnit, { color: isActive ? COLORS.background : COLORS.text }]}>kg</Text>
+            </View>
+                    <View style={[
+              styles.activeInputDivider, 
+              { backgroundColor: isActive ? COLORS.background : COLORS.surfaceLight }
+            ]} />
+                                <View style={styles.activeInputRight}>
+              <View style={{ alignItems: 'center' }}>
+                <TextInput
+                  style={[
+                    styles.activeInputText,
+                    { color: isActive ? COLORS.background : COLORS.text }
+                  ]}
+                  value={
+                    isActive 
+                      ? prefillReps 
+                      : (isCompleted 
+                          ? getSetData(currentExerciseData.exercise_id || currentExerciseData.id, setNumber).reps.toString()
+                          : previousSetData[`${currentExerciseData.exercise_id || currentExerciseData.id}_${setNumber}`]?.reps !== '-'
+                            ? previousSetData[`${currentExerciseData.exercise_id || currentExerciseData.id}_${setNumber}`]?.reps.toString()
+                            : extractRepValue(currentExerciseData?.reps))
+                  }
+                  onChangeText={(text) => setActiveSetInput(prev => ({ ...prev, reps: text }))}
+                  onFocus={() => handleInputFocus(setNumber, 'reps')}
+                  keyboardType="numeric"
+                  placeholder={previousSetData[`${currentExerciseData.exercise_id || currentExerciseData.id}_${setNumber}`]?.reps !== '-' ? 
+                    previousSetData[`${currentExerciseData.exercise_id || currentExerciseData.id}_${setNumber}`]?.reps.toString() : 
+                    (currentExerciseData?.reps || "6-8")}
+                  placeholderTextColor={isActive ? COLORS.background : COLORS.text}
+                  editable={isActive}
+                />
+                {/* Previous reps indicator - show for active set only */}
+                {isActive && previousSetData[`${currentExerciseData.exercise_id || currentExerciseData.id}_${setNumber}`]?.reps !== '-' && (
+                  <Text style={[styles.previousValueText, { color: COLORS.background }]}>
+                    Last {previousSetData[`${currentExerciseData.exercise_id || currentExerciseData.id}_${setNumber}`]?.reps}
+                  </Text>
+                )}
+              </View>
+              <Text style={[styles.activeInputUnit, { color: isActive ? COLORS.background : COLORS.text }]}>reps</Text>
+            </View>
+                                {isActive ? (
+              <TouchableOpacity 
+                style={styles.didItButton}
+                onPress={handleDidItPress}
+              >
+                <Text style={styles.didItButtonText}>Did It</Text>
+              </TouchableOpacity>
+            ) : isCompleted ? (
+              <View style={styles.completedIndicator}>
+                <MaterialCommunityIcons name="check-circle" size={24} color={COLORS.success} />
+              </View>
+            ) : (
+              <TouchableOpacity 
+                style={[styles.didItButton, { opacity: 0.5 }]}
+                onPress={() => {
+                  // Allow user to manually activate this set
+                  setActiveSet(setNumber);
+                }}
+              >
+                <Text style={[styles.didItButtonText, { opacity: 0.7 }]}>Set {setNumber}</Text>
+              </TouchableOpacity>
+            )}
+                  </View>
+                  {/* Only show weight note for active set */}
+                  {isActive && (
+              <Text style={[
+                styles.weightNote, 
+                { 
+                  textAlign: 'left', 
+                  paddingLeft: SPACING.md,
+                  color: COLORS.background,
+                  opacity: 0.9
+                }
+              ]}>Weight of bar + plates</Text>
+            )}
                 </View>
               </Surface>
             </View>
@@ -1056,7 +1294,7 @@ const isSetCompleted = (setNumber: number) => {
           <Text style={styles.offlineText}>You are offline. Changes will sync when online.</Text>
         </View>
       )}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -1214,6 +1452,23 @@ const styles = StyleSheet.create({
     width: 80,
     height: '100%',
   },
+  keyboardAccessoryView: {
+    height: Platform.OS === 'ios' ? 45 : 0,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    backgroundColor: COLORS.background,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.surfaceLight,
+  },
+  doneButton: {
+    padding: 8,
+    marginRight: 10,
+  },
+  doneButtonText: {
+    color: COLORS.primary,
+    fontWeight: 'bold',
+    fontSize: FONT_SIZES.md,
+  },
   didItButtonText: {
     color: COLORS.primary,
     fontSize: FONT_SIZES.md,
@@ -1231,7 +1486,7 @@ const styles = StyleSheet.create({
   // Active input row styles
   activeInputRow: {
     flexDirection: 'row',
-    height: 70,
+    height: 100, // Increased from 70 to accommodate the Last X values
     alignItems: 'center',
     backgroundColor: COLORS.primary,
   },
@@ -1477,5 +1732,17 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: COLORS.primary,
     borderRadius: BORDER_RADIUS.round,
+  },
+  completedIndicator: {
+    width: 80,
+    height: '100%',
+    backgroundColor: COLORS.background,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  previousValueText: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: '400',
+    marginTop: 2,
   },
 }); 

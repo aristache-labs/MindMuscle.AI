@@ -102,25 +102,11 @@ export interface WorkoutSession {
   updated_at: string;
 }
 
-// Update the ExerciseSet interface to match our new structure
-export interface ExerciseHistory {
-  id?: string;
-  session_id: string;
-  exercise_id: string;
-  sets_completed: number;
-  total_volume: number;
-  sets_data: Array<{
-    set: number;
-    weight: number;
-    reps: number;
-  }>;
-  notes?: string;
-}
+
 
 // Update the interface for offline workout data
 interface OfflineWorkoutData {
   sessions: WorkoutSession[];
-  exerciseHistory: ExerciseHistory[];
 }
 
 // Add new interface for user exercise history entry
@@ -715,7 +701,7 @@ const workoutPlanService = {
       const data = await AsyncStorage.getItem(STORAGE_KEYS.OFFLINE_WORKOUTS);
       
       if (!data) {
-        return { sessions: [], exerciseHistory: [] };
+        return { sessions: [] };
       }
       
       let parsedData: OfflineWorkoutData;
@@ -725,12 +711,12 @@ const workoutPlanService = {
       } catch (parseError) {
         logger.error('Error parsing offline workout data:', parseError);
         // If JSON is corrupted, return empty data
-        return { sessions: [], exerciseHistory: [] };
+        return { sessions: [] };
       }
       
       // Ensure the structure is valid
       if (!parsedData || typeof parsedData !== 'object') {
-        return { sessions: [], exerciseHistory: [] };
+        return { sessions: [] };
       }
       
       // Ensure sessions array exists and is valid
@@ -738,43 +724,11 @@ const workoutPlanService = {
         parsedData.sessions = [];
       }
       
-      // Ensure exerciseHistory array exists and is valid
-      if (!Array.isArray(parsedData.exerciseHistory)) {
-        parsedData.exerciseHistory = [];
-      }
-      
-      // Validate each exercise history item
-      parsedData.exerciseHistory = parsedData.exerciseHistory.map(history => {
-        // Ensure sets_data is always an array
-        if (!history.sets_data || !Array.isArray(history.sets_data)) {
-          history.sets_data = [];
-        }
-        
-        // Ensure each set has required properties
-        history.sets_data = history.sets_data.filter(set => {
-          if (!set || typeof set !== 'object') return false;
-          // Convert null/undefined values to defaults
-          set.set = set.set || 0;
-          set.weight = set.weight || 0;
-          set.reps = set.reps || 0;
-          return true;
-        });
-        
-        // Recalculate sets_completed and total_volume
-        history.sets_completed = history.sets_data.length;
-        history.total_volume = history.sets_data.reduce(
-          (sum, set) => sum + ((set?.weight || 0) * (set?.reps || 0)), 
-          0
-        );
-        
-        return history;
-      });
-      
       return parsedData;
     } catch (error) {
       logger.error('Error getting offline workout data:', error);
       // Return empty data on any error
-      return { sessions: [], exerciseHistory: [] };
+      return { sessions: [] };
     }
   },
 
@@ -783,54 +737,8 @@ const workoutPlanService = {
     try {
       // Create a validated copy of the data to ensure we never save corrupt data
       const validatedData: OfflineWorkoutData = {
-        sessions: Array.isArray(data.sessions) ? data.sessions : [],
-        exerciseHistory: []
+        sessions: Array.isArray(data.sessions) ? data.sessions : []
       };
-      
-      // Validate each exercise history item
-      if (Array.isArray(data.exerciseHistory)) {
-        validatedData.exerciseHistory = data.exerciseHistory.map(history => {
-          // Ensure we have a valid item
-          if (!history || typeof history !== 'object') {
-            return {
-              session_id: '',
-              exercise_id: '',
-              sets_completed: 0,
-              total_volume: 0,
-              sets_data: []
-            };
-          }
-          
-          // Ensure required fields exist
-          const validHistory = {
-            ...history,
-            session_id: history.session_id || '',
-            exercise_id: history.exercise_id || '',
-            sets_completed: 0,
-            total_volume: 0,
-            sets_data: [] as Array<{set: number; weight: number; reps: number}>
-          };
-          
-          // Ensure sets_data is valid
-          if (Array.isArray(history.sets_data)) {
-            validHistory.sets_data = history.sets_data
-              .filter(set => set && typeof set === 'object')
-              .map(set => ({
-                set: typeof set.set === 'number' ? set.set : 0,
-                weight: typeof set.weight === 'number' ? set.weight : 0,
-                reps: typeof set.reps === 'number' ? set.reps : 0
-              }));
-              
-            // Recalculate total values
-            validHistory.sets_completed = validHistory.sets_data.length;
-            validHistory.total_volume = validHistory.sets_data.reduce(
-              (sum, set) => sum + (set.weight * set.reps), 0
-            );
-          }
-          
-          return validHistory;
-        });
-      }
       
       await AsyncStorage.setItem(STORAGE_KEYS.OFFLINE_WORKOUTS, JSON.stringify(validatedData));
     } catch (error) {
@@ -852,7 +760,7 @@ const workoutPlanService = {
     try {
       const offlineData = await this.getOfflineWorkoutData();
       
-      if (offlineData.sessions.length === 0 && offlineData.exerciseHistory.length === 0) {
+      if (offlineData.sessions.length === 0) {
         return;
       }
       
@@ -871,19 +779,12 @@ const workoutPlanService = {
         return;
       }
       
-      // Keep only exercise history associated with remaining sessions
-      const validSessionIds = new Set(freshSessions.map(s => s.id));
-      const freshExerciseHistory = offlineData.exerciseHistory.filter(history => {
-        return validSessionIds.has(history.session_id);
-      });
-      
       // Save the filtered data
       await this.saveOfflineWorkoutData({
-        sessions: freshSessions,
-        exerciseHistory: freshExerciseHistory
+        sessions: freshSessions
       });
       
-      logger.log(`Cleaned stale offline data: removed ${offlineData.sessions.length - freshSessions.length} sessions and ${offlineData.exerciseHistory.length - freshExerciseHistory.length} exercise records`);
+      logger.log(`Cleaned stale offline data: removed ${offlineData.sessions.length - freshSessions.length} sessions`);
     } catch (error) {
       logger.error('Error cleaning stale offline data:', error);
     }
@@ -963,156 +864,114 @@ const workoutPlanService = {
     }
   },
 
-  // Update the logExerciseSet function signature
+  // Updated logExerciseSet function to avoid stack depth issues
   async logExerciseSet(sessionId: string, exerciseId: string, setNumber: number, setData: { weight: number; reps: number }): Promise<void> {
     try {
-      // Verify authentication first
+      // Get current user session
       const { data: { session }, error: authError } = await supabase.auth.getSession();
       if (authError || !session) {
         logger.error('Authentication error in logExerciseSet:', authError);
         await this.logExerciseSetOffline(sessionId, exerciseId, setNumber, setData);
         return;
       }
-
+      
       const userId = session.user.id;
+      const now = new Date().toISOString();
 
-      // Verify the session exists and belongs to the current user
-      const { data: sessionData, error: sessionError } = await supabase
-        .from('workout_sessions')
-        .select('id, user_id')
-        .eq('id', sessionId)
-        .single();
-
-      if (sessionError || !sessionData) {
-        logger.error('Session not found or error:', sessionError);
-        await this.logExerciseSetOffline(sessionId, exerciseId, setNumber, setData);
-        return;
-      }
-
-      if (sessionData.user_id !== session.user.id) {
-        logger.error('Session belongs to different user');
-        throw new Error('Unauthorized');
-      }
-
-      // Check network status
+      // Check if we're online
       const networkState = await NetInfo.fetch();
       if (!networkState.isConnected || !networkState.isInternetReachable) {
-        logger.log('Offline detected, saving exercise set locally');
+        logger.debug('Device is offline, saving set data for later sync');
         await this.logExerciseSetOffline(sessionId, exerciseId, setNumber, setData);
         return;
       }
-
-      // Try to update online
-      // First check if record exists for this session + exercise
-      const { data: existingRecord, error: queryError } = await supabase
-        .from('workout_exercise_history')
-        .select('id, sets_data')
-        .eq('session_id', sessionId)
-        .eq('exercise_id', exerciseId)
-        .single();
-
-      // Define the new set data
-      const newSetData = {
-        set: setNumber,
-        weight: setData.weight,
-        reps: setData.reps
-      };
-
-      if (!queryError && existingRecord) {
-        // Record exists - update it with the new set
-        let existingSetsData = existingRecord.sets_data || [];
-        if (!Array.isArray(existingSetsData)) {
-          existingSetsData = [];
-        }
-
-        // Find if this set already exists in the array
-        const setIndex = existingSetsData.findIndex((s: any) => s.set === setNumber);
-        if (setIndex >= 0) {
-          // Update existing set
-          existingSetsData[setIndex] = newSetData;
-        } else {
-          // Add new set
-          existingSetsData.push(newSetData);
-        }
-
-        // Calculate total volume
-        const totalVolume = existingSetsData.reduce(
-          (sum: number, set: any) => sum + (set.weight * set.reps), 0
-        );
-
-        // Update record
-        const { error: updateError } = await supabase
-          .from('workout_exercise_history')
-          .update({
-            sets_completed: existingSetsData.length,
-            total_volume: totalVolume,
-            sets_data: existingSetsData,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', existingRecord.id);
-
-        if (updateError) {
-          logger.error('Error updating exercise history:', updateError);
-          await this.logExerciseSetOffline(sessionId, exerciseId, setNumber, setData);
-          return;
-        }
-      } else {
-        // Record doesn't exist - create a new one
-        const newRecord = {
-          id: await Crypto.randomUUID(),
-          session_id: sessionId,
-          exercise_id: exerciseId,
-          sets_completed: 1,
-          total_volume: setData.weight * setData.reps,
-          sets_data: [newSetData],
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-
-        const { error: insertError } = await supabase
-          .from('workout_exercise_history')
-          .insert([newRecord]);
-
-        if (insertError) {
-          logger.error('Error inserting exercise history:', insertError);
-          await this.logExerciseSetOffline(sessionId, exerciseId, setNumber, setData);
-          return;
-        }
-      }
-
-      // Now also save to user_exercises_history for long-term tracking
+      
+      // OPERATION: Handle user_exercises_history table
       try {
-        await this.logUserExerciseHistory(
-          userId,
-          exerciseId,
-          sessionId,
-          setNumber,
-          setData.weight,
-          setData.reps
-        );
+        // Get exercise name
+        const { data: exerciseData } = await supabase
+          .from('exercises')
+          .select('name')
+          .eq('id', exerciseId)
+          .single();
+
+        const exerciseName = exerciseData?.name || 'Unknown Exercise';
         
-        // Also directly update personal records
+        // Check if record already exists
+        const { data: existingUserHistory, error: userHistoryError } = await supabase
+          .from('user_exercises_history')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('exercise_id', exerciseId)
+          .eq('session_id', sessionId)
+          .eq('set_number', setNumber)
+          .single();
+          
+        if (!userHistoryError && existingUserHistory) {
+          // Update existing record
+          const { error: updateError } = await supabase
+            .from('user_exercises_history')
+            .update({
+              weight: setData.weight,
+              reps: setData.reps,
+              updated_at: now
+            })
+            .eq('id', existingUserHistory.id);
+            
+          if (updateError) {
+            logger.error('Error updating user_exercises_history:', updateError);
+          } else {
+            logger.debug(`Updated user exercise history for set ${setNumber}`);
+          }
+        } else {
+          // Insert new record
+          const { error: insertError } = await supabase
+            .from('user_exercises_history')
+            .insert([{
+              user_id: userId,
+              exercise_id: exerciseId,
+              exercise_name: exerciseName,
+              session_id: sessionId,
+              set_number: setNumber,
+              weight: setData.weight,
+              reps: setData.reps,
+              completed_at: now,
+              personal_record: false, // Will be updated separately
+              created_at: now,
+              updated_at: now
+            }]);
+            
+          if (insertError) {
+            logger.error('Error inserting user_exercises_history:', insertError);
+          } else {
+            logger.debug(`Created user exercise history for set ${setNumber}`);
+          }
+        }
+      } catch (error) {
+        logger.error('Error handling user_exercises_history:', error);
+        // Continue with other operations even if this one fails
+      }
+      
+      // OPERATION: Handle personal records
+      try {
         await this.checkAndUpdatePersonalRecord(
           userId,
           exerciseId,
           setData.weight,
           setData.reps
         );
-        
-        logger.debug('Successfully saved exercise data to history and personal records');
-      } catch (historyError) {
-        logger.error('Error saving to user_exercises_history:', historyError);
-        // Continue execution, this is not critical for workout logging
+      } catch (prError) {
+        logger.error('Error updating personal records:', prError);
+        // Don't let PR errors stop the show
       }
-
     } catch (error) {
       logger.error('Error in logExerciseSet:', error);
-      // Save for offline sync
+      // Save for offline sync as a fallback
       await this.logExerciseSetOffline(sessionId, exerciseId, setNumber, setData);
     }
   },
   
-  // Separate function for offline logging to reduce code duplication
+  // Separate function for offline logging to user exercise history
   async logExerciseSetOffline(
     sessionId: string, 
     exerciseId: string, 
@@ -1140,35 +999,6 @@ const workoutPlanService = {
       logger.log(`Saved exercise set to offline queue for session ${sessionId} (${queue.length} items queued)`);
     } catch (error) {
       logger.error('Error saving exercise set offline:', error);
-    }
-  },
-
-  // Update the getWorkoutExerciseHistory function
-  async getWorkoutExerciseHistory(sessionId: string): Promise<ExerciseHistory[]> {
-    try {
-      const { data, error } = await supabase
-        .from('workout_exercise_history')
-        .select(`
-          *,
-          exercises(
-            name,
-            image_url,
-            muscle_group,
-            primary_muscles
-          )
-        `)
-        .eq('session_id', sessionId)
-        .order('created_at', { ascending: true });
-        
-      if (error) {
-        logger.error('Error fetching workout exercise history:', error);
-        return [];
-      }
-      
-      return data as ExerciseHistory[];
-    } catch (error) {
-      logger.error('Error in getWorkoutExerciseHistory:', error);
-      return [];
     }
   },
 
@@ -1262,7 +1092,7 @@ const workoutPlanService = {
       const failedItems = [];
       for (const item of queue) {
         try {
-          const { error } = await supabase.from('workout_exercise_history').insert({
+          const { error } = await supabase.from('user_exercises_history').insert({
             user_id: userId,
             session_id: item.session_id,
             exercise_id: item.exercise_id,
@@ -1296,13 +1126,14 @@ const workoutPlanService = {
     }
   },
 
+  // Fixed syncOfflineExerciseData function
   async syncOfflineExerciseData(): Promise<boolean> {
     try {
       // Get all AsyncStorage keys first to check if we have any data to sync
       const keys = await AsyncStorage.getAllKeys();
       const offlineSessionKeys = keys.filter(key => key.startsWith('offline_workout_session_'));
       const offlineQueueKeys = keys.filter(key => key.startsWith('offline_exercise_sets_'));
-      
+
       // If there's no offline data, return early
       if (offlineSessionKeys.length === 0 && offlineQueueKeys.length === 0) {
         logger.log('No offline data to sync');
@@ -1315,19 +1146,19 @@ const workoutPlanService = {
         logger.error('Authentication error in syncOfflineExerciseData:', authError);
         return false;
       }
-      
+
       // Get current user ID
       const userId = session.user.id;
       if (!userId) {
         logger.error('Cannot sync offline data without a user ID');
         return false;
       }
-      
+
       logger.log(`Starting sync for user ${userId} with ${offlineSessionKeys.length} sessions and ${offlineQueueKeys.length} exercise queues`);
-      
+
       // Create a map to store session creation status
       const sessionCreationStatus = new Map<string, boolean>();
-      
+
       // First, process all sessions
       for (const sessionKey of offlineSessionKeys) {
         const sessionString = await AsyncStorage.getItem(sessionKey);
@@ -1335,14 +1166,13 @@ const workoutPlanService = {
           logger.log(`No data found for session key ${sessionKey}`);
           continue;
         }
-        
+
         try {
           const sessionObj = JSON.parse(sessionString);
           if (!sessionObj || !sessionObj.id) {
             logger.log(`Invalid session data for key ${sessionKey}`);
             continue;
           }
-
           // Ensure required session fields are present
           const sessionToCreate = {
             id: sessionObj.id,
@@ -1357,46 +1187,46 @@ const workoutPlanService = {
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           };
-          
+
           // Check if session already exists
           const { data: existingSession, error: checkError } = await supabase
             .from('workout_sessions')
             .select('id, user_id')
             .eq('id', sessionToCreate.id)
             .single();
-            
+
           if (checkError && checkError.code !== 'PGRST116') { // PGRST116 is "not found" error
             logger.error(`Error checking session ${sessionToCreate.id}:`, checkError);
             sessionCreationStatus.set(sessionToCreate.id, false);
             continue;
           }
-            
+
           if (!existingSession) {
             // Session doesn't exist, create it
             logger.log(`Creating session ${sessionToCreate.id}...`);
             const { error: insertError } = await supabase
               .from('workout_sessions')
               .insert(sessionToCreate);
-              
+
             if (insertError) {
               logger.error(`Failed to create session ${sessionToCreate.id}:`, insertError);
               sessionCreationStatus.set(sessionToCreate.id, false);
               continue; // Skip to next session if creation fails
             }
-            
+
             // Verify the session was created
             const { data: verifySession, error: verifyError } = await supabase
               .from('workout_sessions')
               .select('id, user_id')
               .eq('id', sessionToCreate.id)
               .single();
-              
+
             if (verifyError || !verifySession) {
               logger.error(`Failed to verify session ${sessionToCreate.id}:`, verifyError);
               sessionCreationStatus.set(sessionToCreate.id, false);
               continue;
             }
-            
+
             logger.log(`Successfully created and verified session ${sessionToCreate.id}`);
             sessionCreationStatus.set(sessionToCreate.id, true);
           } else {
@@ -1416,51 +1246,46 @@ const workoutPlanService = {
           }
         }
       }
-      
+
       // Give a small delay to ensure database consistency
       await new Promise(resolve => setTimeout(resolve, 1000));
-      
+
       // Now process exercise data
       let allSuccess = true;
-      
+
       // Process each queue
       for (const queueKey of offlineQueueKeys) {
         const queueString = await AsyncStorage.getItem(queueKey) || '[]';
         let queue = JSON.parse(queueString);
-        
+
         if (queue.length === 0) {
           await AsyncStorage.removeItem(queueKey);
           continue;
         }
-        
+
         // Extract the session ID from the key
         const sessionId = queueKey.replace('offline_exercise_sets_', '');
         logger.log(`Processing queue for session ${sessionId} with ${queue.length} items`);
-
         // Skip if session creation failed or status unknown
         if (!sessionCreationStatus.get(sessionId)) {
           logger.log(`Skipping exercise data for session ${sessionId} - session not verified`);
           continue;
         }
-
         // Double check session exists and belongs to user
         const { data: sessionData, error: sessionError } = await supabase
           .from('workout_sessions')
           .select('id, user_id')
           .eq('id', sessionId)
           .single();
-
         if (sessionError || !sessionData) {
           logger.error(`Session ${sessionId} not found or error:`, sessionError);
           continue;
         }
-
         if (sessionData.user_id !== userId) {
           logger.error(`Session ${sessionId} belongs to different user, removing queue`);
           await AsyncStorage.removeItem(queueKey);
           continue;
         }
-
         // Group items by exercise_id
         const exerciseGroups: {[key: string]: any[]} = {};
         for (const item of queue) {
@@ -1469,53 +1294,154 @@ const workoutPlanService = {
           }
           exerciseGroups[item.exercise_id].push(item);
         }
-
         const failedItems = [];
-        
+
         // Process each exercise group
         for (const [exerciseId, items] of Object.entries(exerciseGroups)) {
           try {
             logger.log(`Processing ${items.length} sets for exercise ${exerciseId}`);
-            
-            // Format data according to the expected table structure
-            const sets_data = items.map(item => ({
-              set: item.set_number,
-              weight: item.weight,
-              reps: item.reps
-            }));
 
-            // Calculate total volume
-            const total_volume = sets_data.reduce(
-              (sum, set) => sum + (set.weight * set.reps), 0
-            );
+            // Check if we already have a record for this exercise in this session
+            const { data: existing, error: checkError } = await supabase
+              .from('user_exercises_history')
+              .select('id')
+              .eq('session_id', sessionId)
+              .eq('exercise_id', exerciseId)
+              .single();
 
-            // Generate a new UUID for the record
-            const historyId = await Crypto.randomUUID();
+            if (!checkError && existing) {
+              // We have an existing record - update it with all sets
+              logger.log(`Updating existing record for exercise ${exerciseId}`);
 
-            // Create the exercise history record
-            const historyRecord = {
-              id: historyId,
-              session_id: sessionId,
-              exercise_id: exerciseId,
-              sets_completed: sets_data.length,
-              total_volume: total_volume,
-              sets_data: sets_data,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            };
+              // Create an array of all sets
+              const sets_data = items.map(item => ({
+                set: item.set_number,
+                weight: item.weight,
+                reps: item.reps
+              }));
 
-            // Try to insert new record
-            const { error: insertError } = await supabase
-              .from('workout_exercise_history')
-              .insert(historyRecord);
+              // Merge with existing sets, avoiding duplicates
+              const existingSets = Array.isArray(existing.sets_data) ? existing.sets_data : [];
+              const setIds = new Set(sets_data.map((s: any) => s.set));
+              const filteredExistingSets = existingSets.filter((s: any) => !setIds.has(s.set));
+              const mergedSets = [...filteredExistingSets, ...sets_data];
 
-            if (insertError) {
-              logger.error(`Error inserting exercise history: ${JSON.stringify(insertError)}`);
-              logger.error('Failed record:', JSON.stringify(historyRecord));
-              failedItems.push(...items);
-              allSuccess = false;
+              // Calculate total volume
+              const totalVolume = mergedSets.reduce(
+                (sum: number, set: any) => sum + (set.weight * set.reps), 0
+              );
+
+              // Update the record
+              const { error: updateError } = await supabase
+                .from('user_exercises_history')
+                .update({
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', existing.id);
+
+              if (updateError) {
+                logger.error(`Error updating exercise history: ${JSON.stringify(updateError)}`);
+                failedItems.push(...items);
+                allSuccess = false;
+              } else {
+                logger.log(`Successfully updated exercise history for ${exerciseId}`);
+
+                // Update personal records for each set
+                for (const item of items) {
+                  try {
+                    // Also sync to user_exercises_history table
+                    await this.syncSetToUserExercisesHistory(
+                      userId,
+                      exerciseId,
+                      sessionId,
+                      item.set_number,
+                      item.weight,
+                      item.reps
+                    );
+                    
+                    await this.checkAndUpdatePersonalRecord(
+                      userId,
+                      exerciseId,
+                      item.weight,
+                      item.reps
+                    );
+                  } catch (prError) {
+                    logger.error(`Error updating personal record: ${prError}`);
+                    // Don't fail the sync because of PR updates
+                  }
+                }
+              }
             } else {
-              logger.log(`Successfully inserted exercise history for ${exerciseId}`);
+              // Format data according to the expected table structure
+              const sets_data = items.map(item => ({
+                set: item.set_number,
+                weight: item.weight,
+                reps: item.reps
+              }));
+              // Calculate total volume
+              const total_volume = sets_data.reduce(
+                (sum, set) => sum + (set.weight * set.reps), 0
+              );
+              // Generate a new UUID for the record
+              const historyId = await Crypto.randomUUID();
+              // Create the exercise history record
+              const historyRecord = {
+                id: historyId,
+                session_id: sessionId,
+                exercise_id: exerciseId,
+                sets_completed: sets_data.length,
+                total_volume: total_volume,
+                sets_data: sets_data,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              };
+              // Try to insert new record
+              const { error: insertError } = await supabase
+                .from('user_exercises_history')
+                .insert({
+                  user_id: userId,
+                  exercise_id: exerciseId,
+                  session_id: sessionId,
+                  set_number: 1, // Default set number
+                  weight: 0,     // Default weight
+                  reps: 0,       // Default reps
+                  completed_at: new Date().toISOString(),
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                });
+              if (insertError) {
+                logger.error(`Error inserting exercise history: ${JSON.stringify(insertError)}`);
+                                  logger.error('Failed to insert user exercise history');
+                failedItems.push(...items);
+                allSuccess = false;
+              } else {
+                logger.log(`Successfully inserted exercise history for ${exerciseId}`);
+
+                // Update personal records for each set
+                for (const item of items) {
+                  try {
+                    // Also sync to user_exercises_history table
+                    await this.syncSetToUserExercisesHistory(
+                      userId,
+                      exerciseId,
+                      sessionId,
+                      item.set_number,
+                      item.weight,
+                      item.reps
+                    );
+                    
+                    await this.checkAndUpdatePersonalRecord(
+                      userId,
+                      exerciseId,
+                      item.weight,
+                      item.reps
+                    );
+                  } catch (prError) {
+                    logger.error(`Error updating personal record: ${prError}`);
+                    // Don't fail the sync because of PR updates
+                  }
+                }
+              }
             }
           } catch (error) {
             logger.error(`Error processing exercise ${exerciseId}:`, error);
@@ -1523,7 +1449,7 @@ const workoutPlanService = {
             allSuccess = false;
           }
         }
-        
+
         // Update queue with failed items or remove it
         if (failedItems.length > 0) {
           await AsyncStorage.setItem(queueKey, JSON.stringify(failedItems));
@@ -1531,14 +1457,14 @@ const workoutPlanService = {
           await AsyncStorage.removeItem(queueKey);
         }
       }
-      
+
       // Clean up offline session data if everything synced
       if (allSuccess) {
         for (const sessionKey of offlineSessionKeys) {
           await AsyncStorage.removeItem(sessionKey);
         }
       }
-      
+
       return allSuccess;
     } catch (error) {
       logger.error('Error syncing offline exercise data:', error);
@@ -1549,22 +1475,20 @@ const workoutPlanService = {
     }
   },
 
-  // Sync offline data with server - with improved error handling and validation
-  async syncOfflineData(): Promise<void> {
+  // Sync offline data with server with fixed return type
+  async syncOfflineData(): Promise<boolean> {
     try {
       const offlineData = await this.getOfflineWorkoutData();
       
-      if (offlineData.sessions.length === 0 && offlineData.exerciseHistory.length === 0) {
+      if (offlineData.sessions.length === 0) {
         logger.log('No offline data to sync');
-        return;
+        return true;
       }
 
-      logger.log(`Syncing offline data: ${offlineData.sessions.length} sessions, ${offlineData.exerciseHistory.length} exercise records`);
+      logger.log(`Syncing offline data: ${offlineData.sessions.length} sessions`);
       
       let syncedSessions = 0;
-      let syncedExercises = 0;
       let failedSessions = 0;
-      let failedExercises = 0;
       
       // Keep track of successfully synced session IDs
       const syncedSessionIds = new Set<string>();
@@ -1627,106 +1551,33 @@ const workoutPlanService = {
         }
       }
 
-      // Only sync exercise history for sessions that were successfully synced
-      for (const history of offlineData.exerciseHistory) {
-        try {
-          // Skip if session_id is missing or if the session wasn't successfully synced
-          if (!history.session_id || !syncedSessionIds.has(history.session_id)) {
-            logger.log(`Skipping exercise history for non-synced session: ${history.session_id}`);
-            failedExercises++;
-            continue;
-          }
-          
-          // Skip if exercise_id is missing
-          if (!history.exercise_id) {
-            logger.log('Skipping exercise history with missing exercise_id');
-            failedExercises++;
-            continue;
-          }
-          
-          // Validate and ensure each exercise history has a valid sets_data array
-          if (!history.sets_data || !Array.isArray(history.sets_data)) {
-            logger.log(`Fixing invalid sets_data for exercise ${history.exercise_id}`);
-            history.sets_data = [];
-          }
-          
-          // Ensure each item in sets_data is a valid object with required properties
-          history.sets_data = history.sets_data.filter(item => {
-            if (!item || typeof item !== 'object') {
-              logger.log('Removing invalid set data item');
-              return false;
-            }
-            return true;
-          });
-          
-          // Fix any null or undefined values in each set
-          history.sets_data = history.sets_data.map(item => ({
-            set: typeof item.set === 'number' ? item.set : 0,
-            weight: typeof item.weight === 'number' ? item.weight : 0,
-            reps: typeof item.reps === 'number' ? item.reps : 0
-          }));
-          
-          // Recalculate sets_completed and total_volume to ensure consistency
-          history.sets_completed = history.sets_data.length;
-          history.total_volume = history.sets_data.reduce(
-            (sum, set) => sum + (set.weight * set.reps), 
-            0
-          );
-          
-          // If history data is empty, skip syncing
-          if (history.sets_data.length === 0) {
-            logger.log(`Skipping empty exercise history for ${history.exercise_id}`);
-            syncedExercises++; // Count as synced since we're intentionally skipping
-            continue;
-          }
-          
-          const { error } = await supabase
-            .from('workout_exercise_history')
-            .upsert([history]);
-
-          if (error) {
-            logger.error(`Error syncing exercise history for ${history.exercise_id}:`, error);
-            failedExercises++;
-          } else {
-            syncedExercises++;
-          }
-        } catch (historyError) {
-          logger.error(`Exception syncing exercise history for ${history.exercise_id}:`, historyError);
-          failedExercises++;
-        }
-      }
-
       // Log sync results
-      logger.log(`Sync results: ${syncedSessions}/${offlineData.sessions.length} sessions synced, ${syncedExercises}/${offlineData.exerciseHistory.length} exercise records synced`);
+      logger.log(`Sync results: ${syncedSessions}/${offlineData.sessions.length} sessions synced`);
       
       // If all items synced successfully or failed permanently, clear the cache
       // Otherwise, keep failed items for retry
-      if (failedSessions === 0 && failedExercises === 0) {
+      if (failedSessions === 0) {
         // All synced successfully, clear all cached data
-        await this.saveOfflineWorkoutData({ sessions: [], exerciseHistory: [] });
+        await this.saveOfflineWorkoutData({ sessions: [] });
         logger.log('All data synced successfully. Offline cache cleared.');
-      } else if (syncedSessions > 0 || syncedExercises > 0) {
-        // Some items synced, keep only the failed ones and remove exercises with invalid session ids
+      } else if (syncedSessions > 0) {
+        // Some items synced, keep only the failed ones
         const remainingSessions = offlineData.sessions.filter((_, index) => index >= syncedSessions);
         
-        // Only keep exercise history records that have valid session IDs in the remaining sessions
-        const validSessionIds = new Set(remainingSessions.map(s => s.id));
-        const remainingExercises = offlineData.exerciseHistory
-          .filter((_, index) => index >= syncedExercises)
-          .filter(history => validSessionIds.has(history.session_id));
-        
         await this.saveOfflineWorkoutData({ 
-          sessions: remainingSessions, 
-          exerciseHistory: remainingExercises 
+          sessions: remainingSessions
         });
-        logger.log(`Partial sync completed. Keeping ${remainingSessions.length} sessions and ${remainingExercises.length} exercise records for retry.`);
+        logger.log(`Partial sync completed. Keeping ${remainingSessions.length} sessions for retry.`);
       }
       
       // Perform a cleanup of any stale data (older than 7 days)
       await this.cleanStaleOfflineData();
+      
+      return (failedSessions === 0);
     } catch (error) {
       logger.error('Error syncing offline data:', error);
       // Don't throw the error - just log it
+      return false;
     }
   },
 
@@ -1750,90 +1601,61 @@ const workoutPlanService = {
         reps
       }));
 
-      // Check if this entry already exists
-      const { data: existingEntry, error: queryError } = await supabase
-        .from('user_exercises_history')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('exercise_id', exerciseId)
-        .eq('session_id', sessionId)
-        .eq('set_number', setNumber)
-        .maybeSingle();
-
       const now = new Date().toISOString();
-      
-      // Wrap database operations in a try-catch to handle specific database errors
-      try {
-        if (existingEntry) {
-          // Update existing entry
-          const { error: updateError } = await supabase
-            .from('user_exercises_history')
-            .update({
-              weight,
-              reps,
-              notes,
-              updated_at: now
-            })
-            .eq('id', existingEntry.id);
-            
-            if (updateError) {
-              // Check for stack depth limit error
-              if (updateError.message && updateError.message.includes('stack depth limit exceeded')) {
-                logger.warn('Database stack depth limit exceeded - this may indicate complex database triggers');
-                // Return true to prevent further error propagation
-                return true;
-              }
-              
-              logger.error('Error updating user exercise history:', updateError);
-              return false;
-            }
-        } else {
-          // Insert new entry - the personal_record flag will be set by the database trigger
-          const { error: insertError } = await supabase
-            .from('user_exercises_history')
-            .insert([{
-              user_id: userId,
-              exercise_id: exerciseId,
-              session_id: sessionId,
-              weight,
-              reps,
-              set_number: setNumber,
-              completed_at: now,
-              notes,
-              created_at: now,
-              updated_at: now
-            }]);
-            
-            if (insertError) {
-              // Check for stack depth limit error
-              if (insertError.message && insertError.message.includes('stack depth limit exceeded')) {
-                logger.warn('Database stack depth limit exceeded - this may indicate complex database triggers');
-                // Return true to prevent further error propagation
-                return true;
-              }
-              
-              logger.error('Error inserting user exercise history:', insertError);
-              return false;
-            }
+
+      // First try to insert - if it fails due to duplicate, then update
+      const { error: insertError } = await supabase
+        .from('user_exercises_history')
+        .insert([{
+          user_id: userId,
+          exercise_id: exerciseId,
+          session_id: sessionId,
+          weight,
+          reps,
+          set_number: setNumber,
+          completed_at: now,
+          notes,
+          created_at: now,
+          updated_at: now
+        }])
+        .select()
+        .single();
+
+      if (insertError) {
+        // If error is not a unique violation, it's a real error
+        if (!insertError.message?.includes('duplicate key value violates unique constraint')) {
+          logger.error('Error inserting user exercise history:', insertError);
+          return false;
         }
-      } catch (dbError: any) {
-        // Specifically handle database stack depth errors
-        if (dbError.message && dbError.message.includes('stack depth limit exceeded')) {
-          logger.warn('Database stack depth limit exceeded when saving exercise history');
-          // Return true to prevent further error propagation
-          return true;
+
+        // If it was a duplicate, try to update
+        const { error: updateError } = await supabase
+          .from('user_exercises_history')
+          .update({
+            weight,
+            reps,
+            notes,
+            updated_at: now
+          })
+          .eq('user_id', userId)
+          .eq('exercise_id', exerciseId)
+          .eq('session_id', sessionId)
+          .eq('set_number', setNumber);
+
+        if (updateError) {
+          logger.error('Error updating user exercise history:', updateError);
+          return false;
         }
-        throw dbError; // re-throw any other error for the outer catch block
       }
 
-      // Check and update personal records - wrap in try-catch to handle errors independently
+      // After successful insert/update, try to update personal records
+      // But don't fail if personal records update fails
       try {
         await this.checkAndUpdatePersonalRecord(userId, exerciseId, weight, reps);
-      } catch (prError: any) {
-        // Log but don't fail if personal record update fails
+      } catch (prError) {
         logger.error('Error updating personal records:', prError);
       }
-      
+
       return true;
     } catch (error) {
       logger.error('Error in logUserExerciseHistory:', error);
@@ -1849,89 +1671,59 @@ const workoutPlanService = {
     reps: number
   ): Promise<void> {
     try {
-      // First, check if this is actually a personal record
-      const { data: existingRecords, error: queryError } = await supabase
-        .from('personal_records')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('exercise_id', exerciseId)
-        .eq('reps', reps)
-        .order('weight', { ascending: false })
-        .maybeSingle();
-
+      // Direct upsert approach for personal records
       const now = new Date();
       const today = now.toISOString().split('T')[0]; // YYYY-MM-DD format
       
-      // If no record exists or new weight is greater, update the personal record
-      if (!existingRecords || (existingRecords && weight > existingRecords.weight)) {
-        try {
-          if (existingRecords) {
-            // Update existing record
-            const { error: updateError } = await supabase
-              .from('personal_records')
-              .update({
-                weight,
-                date: today,
-                updated_at: now.toISOString()
-              })
-              .eq('id', existingRecords.id);
-              
-            if (updateError) {
-              // Check for stack depth limit error
-              if (updateError.message && updateError.message.includes('stack depth limit exceeded')) {
-                logger.warn('Database stack depth limit exceeded when updating personal record');
-                return;
-              }
-              
-              logger.error('Error updating personal record:', updateError);
-            } else {
-              logger.debug('Updated personal record', () => ({
-                exerciseId,
-                reps,
-                previousWeight: existingRecords.weight,
-                newWeight: weight
-              }));
-            }
-          } else {
-            // Insert new record
-            const { error: insertError } = await supabase
-              .from('personal_records')
-              .insert([{
-                user_id: userId,
-                exercise_id: exerciseId,
-                weight,
-                reps,
-                date: today,
-                created_at: now.toISOString(),
-                updated_at: now.toISOString()
-              }]);
-              
-            if (insertError) {
-              // Check for stack depth limit error
-              if (insertError.message && insertError.message.includes('stack depth limit exceeded')) {
-                logger.warn('Database stack depth limit exceeded when inserting personal record');
-                return;
-              }
-              
-              logger.error('Error inserting personal record:', insertError);
-            } else {
-              logger.debug('Created new personal record', () => ({
-                exerciseId,
-                reps,
-                weight
-              }));
-            }
+      // First check if a personal record exists for this user, exercise, and rep count
+      const { data: existingRecord } = await supabase
+        .from('personal_records')
+        .select('id, weight')
+        .eq('user_id', userId)
+        .eq('exercise_id', exerciseId)
+        .eq('reps', reps)
+        .maybeSingle();
+      
+      // Only update if the new weight is higher than the existing record
+      if (existingRecord) {
+        if (weight > existingRecord.weight) {
+          logger.debug(`Updating personal record: ${weight} > ${existingRecord.weight} for ${reps} reps`);
+          
+          const { error } = await supabase
+            .from('personal_records')
+            .update({
+              weight,
+              date: today,
+              updated_at: now.toISOString()
+            })
+            .eq('id', existingRecord.id);
+            
+          if (error) {
+            logger.error('Error updating personal record:', error);
           }
-        } catch (dbError: any) {
-          // Specifically handle database stack depth errors
-          if (dbError.message && dbError.message.includes('stack depth limit exceeded')) {
-            logger.warn('Database stack depth limit exceeded in personal records operation');
-            return;
-          }
-          throw dbError; // re-throw other errors
+        }
+      } else {
+        // No record exists, create a new one
+        logger.debug(`Creating new personal record: ${weight} for ${reps} reps`);
+        
+        const { error } = await supabase
+          .from('personal_records')
+          .insert({
+            user_id: userId,
+            exercise_id: exerciseId,
+            weight,
+            reps,
+            date: today,
+            created_at: now.toISOString(),
+            updated_at: now.toISOString()
+          });
+          
+        if (error) {
+          logger.error('Error inserting personal record:', error);
         }
       }
     } catch (error) {
+      // Catch-all error handling
       logger.error('Error checking/updating personal record:', error);
     }
   },
@@ -2031,6 +1823,110 @@ const workoutPlanService = {
     } catch (error) {
       logger.error('Error in getMaxWeightLifted:', error);
       return null;
+    }
+  },
+
+  // Add method to sync a set to user_exercises_history
+  async syncSetToUserExercisesHistory(
+    userId: string,
+    exerciseId: string,
+    sessionId: string,
+    setNumber: number,
+    weight: number,
+    reps: number
+  ): Promise<void> {
+    try {
+      const now = new Date().toISOString();
+
+      // Fetch exercise name
+      const { data: exerciseData } = await supabase
+        .from('exercises')
+        .select('name')
+        .eq('id', exerciseId)
+        .single();
+
+      const exerciseName = exerciseData?.name || 'Unknown Exercise';
+
+      // Check if record already exists
+      const { data: existingRecord, error: checkError } = await supabase
+        .from('user_exercises_history')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('exercise_id', exerciseId)
+        .eq('session_id', sessionId)
+        .eq('set_number', setNumber)
+        .single();
+
+      if (!checkError && existingRecord) {
+        // Update existing record
+        const { error: updateError } = await supabase
+          .from('user_exercises_history')
+          .update({
+            weight,
+            reps,
+            exercise_name: exerciseName,
+            updated_at: now
+          })
+          .eq('id', existingRecord.id);
+        if (updateError) {
+          logger.error(`Failed to update user_exercises_history for set ${setNumber}:`, updateError);
+        } else {
+          logger.debug(`Updated existing user exercise history record for set ${setNumber}`);
+        }
+      } else {
+        // Insert new record
+        const { error: insertError } = await supabase
+          .from('user_exercises_history')
+          .insert([{
+            user_id: userId,
+            exercise_id: exerciseId,
+            exercise_name: exerciseName,
+            session_id: sessionId,
+            weight,
+            reps,
+            set_number: setNumber,
+            completed_at: now,
+            personal_record: false, // Will be updated by checkAndUpdatePersonalRecord if needed
+            created_at: now,
+            updated_at: now
+          }]);
+
+        if (insertError) {
+          logger.error(`Failed to insert user_exercises_history for set ${setNumber}:`, insertError);
+          // If error is duplicate, try update
+          if (insertError.message?.includes('duplicate key value')) {
+            const { error: updateError } = await supabase
+              .from('user_exercises_history')
+              .update({
+                weight,
+                reps,
+                exercise_name: exerciseName,
+                updated_at: now
+              })
+              .eq('user_id', userId)
+              .eq('exercise_id', exerciseId)
+              .eq('session_id', sessionId)
+              .eq('set_number', setNumber);
+            if (updateError) {
+              logger.error(`Failed to update after duplicate insert for set ${setNumber}:`, updateError);
+            } else {
+              logger.debug(`Updated user exercise history after duplicate insert for set ${setNumber}`);
+            }
+          }
+        } else {
+          logger.debug(`Created new user exercise history record for set ${setNumber}`);
+        }
+      }
+
+      // After successful insert/update, try to update personal records
+      // But don't fail if personal records update fails
+      try {
+        await this.checkAndUpdatePersonalRecord(userId, exerciseId, weight, reps);
+      } catch (prError) {
+        logger.error('Error updating personal records:', prError);
+      }
+    } catch (error) {
+      logger.error(`Error syncing set ${setNumber} to user_exercises_history:`, error);
     }
   },
 };

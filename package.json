@@ -54,7 +54,7 @@
     "expo-system-ui": "~5.0.7",
     "expo-updates": "~0.28.12",
     "expo-web-browser": "~14.1.6",
-    "firebase": "^10.10.0",
+    "firebase": "^10.14.1",
     "nativewind": "^2.0.11",
     "node-libs-react-native": "^1.2.1",
     "openai": "^4.46.0",

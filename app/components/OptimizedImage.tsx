@@ -83,8 +83,8 @@ const getOptimalImageDimensions = (style: any): { width: number, height: number 
 const optimizeImageUri = (uri: string, dimensions: { width: number, height: number }): string => {
   if (!uri) return uri;
   
-  // Don't optimize local assets or data URIs
-  if (uri.startsWith('data:') || !uri.startsWith('http')) {
+  // Don't optimize local assets, data URIs, or SVGs
+  if (uri.startsWith('data:') || !uri.startsWith('http') || uri.endsWith('.svg')) {
     return uri;
   }
   
@@ -109,6 +109,11 @@ const calculateEstimatedSize = (uri: string, dimensions: { width: number, height
   const bytesPerPixel = 4; // Assume RGBA
   let estimatedBytes = pixelCount * bytesPerPixel;
   
+  // SVGs are much smaller
+  if (uri.endsWith('.svg')) {
+    return 10 * 1024; // Assume 10KB for SVG
+  }
+  
   // Adjust based on image format (if we can detect it)
   if (uri.endsWith('.jpg') || uri.endsWith('.jpeg')) {
     estimatedBytes = Math.ceil(estimatedBytes * 0.25); // JPG compression
@@ -121,6 +126,16 @@ const calculateEstimatedSize = (uri: string, dimensions: { width: number, height
   }
   
   return Math.max(1024, estimatedBytes); // Minimum 1KB
+};
+
+// Check if an image is an SVG (for special loading behavior)
+const isSvgImage = (source: any): boolean => {
+  if (typeof source === 'string') {
+    return source.endsWith('.svg');
+  } else if (typeof source === 'object' && source !== null && source.uri) {
+    return source.uri.endsWith('.svg');
+  }
+  return false;
 };
 
 // Performance tracking interface
@@ -172,7 +187,7 @@ export default function OptimizedImage({
   testID,
 }: OptimizedImageProps) {
   // State
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Start with false to avoid flash
   const [error, setError] = useState(false);
   const [isCached, setIsCached] = useState(false);
   const [timing, setTiming] = useState<ImageTiming>({
@@ -180,6 +195,9 @@ export default function OptimizedImage({
     loadEnd: null,
     loadDuration: null,
   });
+
+  // Check if this is an SVG
+  const isSvg = useMemo(() => isSvgImage(source), [source]);
 
   // Process the source for expo-image
   const processedSource = useMemo(() => {
@@ -207,6 +225,11 @@ export default function OptimizedImage({
 
     // Handle string URI
     if (typeof source === 'string') {
+      // Don't optimize SVGs, just return as is
+      if (source.endsWith('.svg')) {
+        return source;
+      }
+      
       // Apply dimension optimization to remote URLs
       const optimizedUri = optimizeImageUri(source, dimensions);
       
@@ -216,6 +239,11 @@ export default function OptimizedImage({
     // Handle Source object
     if (typeof source === 'object' && source !== null && 'uri' in source && source.uri) {
       const uri = source.uri;
+      
+      // Don't optimize SVGs, just return as is
+      if (uri && uri.endsWith('.svg')) {
+        return source;
+      }
       
       // Apply dimension optimization to remote URLs
       const optimizedUri = uri ? optimizeImageUri(uri, dimensions) : null;
@@ -238,23 +266,38 @@ export default function OptimizedImage({
   // Check if the image is in the cache
   useEffect(() => {
     const checkCache = async () => {
-      if (typeof processedSource === 'object' && processedSource !== null && 'uri' in processedSource) {
-        const uri = processedSource.uri;
+      try {
+        let uri: string | null = null;
+        
+        if (typeof processedSource === 'object' && processedSource !== null && 'uri' in processedSource) {
+          uri = processedSource.uri;
+        } else if (typeof processedSource === 'string') {
+          uri = processedSource;
+        } else if (typeof processedSource === 'number') {
+          // Local assets are always considered cached
+          setIsCached(true);
+          setLoading(false);
+          return;
+        }
+        
         if (uri) {
-          try {
-            const cached = await isImageCached(uri);
-            setIsCached(cached);
-          } catch (err) {
-            setIsCached(false);
+          // SVGs should always be considered cached since they're preloaded at app start
+          if (uri.endsWith('.svg')) {
+            setIsCached(true);
+            setLoading(false);
+            return;
+          }
+          
+          const cached = await isImageCached(uri);
+          setIsCached(cached);
+          
+          // If already cached, no need to show loading
+          if (cached) {
+            setLoading(false);
           }
         }
-      } else if (typeof processedSource === 'string') {
-        try {
-          const cached = await isImageCached(processedSource);
-          setIsCached(cached);
-        } catch (err) {
-          setIsCached(false);
-        }
+      } catch (err) {
+        setIsCached(false);
       }
     };
     
@@ -274,10 +317,10 @@ export default function OptimizedImage({
 
   // Handle load start
   const handleLoadStart = () => {
-    // Check if image is already in cache
-    if (isCached) {
+    // Skip loading indicator for already cached images and SVGs
+    if (isCached || isSvg) {
       if (DEBUG_OPTIMIZED_IMAGE) {
-        console.log(`🖼️ [OptimizedImage] ${debugLabel || 'Image'} already in cache, skipping load indicators`);
+        console.log(`🖼️ [OptimizedImage] ${debugLabel || (isSvg ? 'SVG' : 'Image')} already in cache or is SVG, skipping load indicators`);
       }
       setLoading(false);
       
@@ -285,6 +328,15 @@ export default function OptimizedImage({
         onLoadStart();
       }
       
+      return;
+    }
+    
+    // For local assets (numbers from require()), skip loading indicator
+    if (typeof source === 'number') {
+      setLoading(false);
+      if (onLoadStart) {
+        onLoadStart();
+      }
       return;
     }
     
@@ -409,8 +461,8 @@ export default function OptimizedImage({
         />
       )}
       
-      {/* Loading Indicator */}
-      {loading && showLoader && (
+      {/* Loading Indicator - hidden for SVGs and cached images */}
+      {loading && showLoader && !isSvg && !isCached && (
         <ActivityIndicator
           style={styles.loader}
           color={loaderColor}

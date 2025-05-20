@@ -1,239 +1,129 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, FlatList, Pressable, ActivityIndicator, Dimensions } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, View, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Text, IconButton, Divider } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import workoutPlanService, { WorkoutPlan } from '../services/workoutPlanService';
-import { MaterialIcons } from '@expo/vector-icons';
+import supabase from '../services/supabase';
 import OptimizedImage from '../components/OptimizedImage';
-import { markAsImportantImage, batchPreloadImages, ImagePriority } from '../utils/imagePreloader';
+import useImagePreloader from '../hooks/useImagePreloader';
 
-const { width } = Dimensions.get('window');
+interface Plan {
+  id: string;
+  title: string;
+  image_url?: string;
+  difficulty_level?: string;
+  estimated_duration?: number;
+  display_order?: number;
+  subtitle?: string;
+}
+
+interface Subcategory {
+  id: string;
+  title: string;
+  image_url?: string;
+  subtitle?: string;
+  display_order?: number;
+  category_identifier?: string;
+  identifier: string;
+}
+
+interface Category {
+  id: string;
+  name: string;
+  identifier: string;
+}
 
 export default function PlansScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
-  const subcategoryId = params.subcategoryId as string;
-  const title = params.title as string;
-  const accent = params.accent as string;
-  const subcategoryName = params.subcategoryName as string;
-  const subcategoryTitle = params.subcategoryTitle as string;
-  const subcategorySubtitle = params.subcategorySubtitle as string;
-  const categoryName = params.categoryName as string;
-  
-  const [plans, setPlans] = useState<WorkoutPlan[]>([]);
+  const insets = useSafeAreaInsets();
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [subcategory, setSubcategory] = useState<Subcategory | null>(null);
+  const [categoryName, setCategoryName] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
-  const [featuredPlan, setFeaturedPlan] = useState<WorkoutPlan | null>(null);
-  const [imagesPreloaded, setImagesPreloaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Map for plan images based on the ones in assets/exercises
-  const imageMap: { [key: string]: any } = {
-    'placeholder.jpg': require('../../assets/exercises/placeholder.jpg'),
-  };
+  // Preload subcategory hero image when available
+  const subcategoryImageUrl = subcategory?.image_url ? [subcategory.image_url] : [];
+  const imagePreloadStatus = useImagePreloader(subcategoryImageUrl, {
+    priority: 'high',
+    skipIfCached: true,
+    debugLabel: 'PlansScreen'
+  });
 
-  // Fetch workout plans
   useEffect(() => {
-    async function fetchPlans() {
+    const fetchData = async () => {
+      setIsLoading(true);
+      setError(null);
       try {
-        setIsLoading(true);
-        
-        let fetchedPlans: WorkoutPlan[] = [];
-        
-        // Fetch plans by subcategory if available
+        // Get subcategoryId from params, fallback to first if not provided
+        const subcategoryId = params.subcategoryId as string | undefined;
+        let subcat: Subcategory | null = null;
         if (subcategoryId) {
-          fetchedPlans = await workoutPlanService.getPlansBySubcategory(subcategoryId.toString());
+          const { data: subcatData, error: subcatError } = await supabase
+            .from('workout_subcategories')
+            .select('*')
+            .eq('identifier', subcategoryId)
+            .single();
+          if (subcatError) throw subcatError;
+          subcat = subcatData || null;
         } else {
-          // Fetch all plans as fallback
-          fetchedPlans = await workoutPlanService.getAllPlans();
+          // fallback to first subcategory
+          const { data: subcatData, error: subcatError } = await supabase
+            .from('workout_subcategories')
+            .select('*')
+            .order('display_order', { ascending: true })
+            .limit(1);
+          if (subcatError) throw subcatError;
+          subcat = subcatData && subcatData.length > 0 ? subcatData[0] : null;
         }
-        
-        // Set featured plan (first one or null)
-        if (fetchedPlans.length > 0) {
-          setFeaturedPlan(fetchedPlans[0]);
+        setSubcategory(subcat);
+
+        // Fetch the category name for the subcategory
+        if (subcat && subcat.category_identifier) {
+          const { data: catData, error: catError } = await supabase
+            .from('workout_categories')
+            .select('name')
+            .eq('identifier', subcat.category_identifier)
+            .single();
+          if (catError) throw catError;
+          setCategoryName(catData?.name || '');
         } else {
-          setFeaturedPlan(null);
+          setCategoryName('');
         }
-        
-        setPlans(fetchedPlans);
-        setIsLoading(false);
-        
-        // Preload images to improve performance
-        if (fetchedPlans.length > 0) {
-          const imagesToPreload = fetchedPlans
-            .map(plan => plan.image_url)
-            .filter((url): url is string => {
-              return !!url && typeof url === 'string' && url.startsWith('http');
-            });
-          
-          if (imagesToPreload.length > 0) {
-            // Mark featured plan image as important for immediate display
-            if (fetchedPlans[0]?.image_url && typeof fetchedPlans[0].image_url === 'string') {
-              markAsImportantImage(fetchedPlans[0].image_url);
-            }
-            
-            // Batch preload other images
-            batchPreloadImages(
-              imagesToPreload, 
-              ImagePriority.HIGH, 
-              5,
-              (progress) => {
-                if (progress === 1) {
-                  setImagesPreloaded(true);
-                }
-              }
-            );
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching plans:", error);
-        setPlans([]);
-        setFeaturedPlan(null);
+
+        // Fetch only plans for the current subcategory
+        const { data: plansData, error: plansError } = await supabase
+          .from('workout_plans')
+          .select('*')
+          .eq('subcategory_identifier', subcat?.identifier)
+          .order('display_order', { ascending: true });
+        if (plansError) throw plansError;
+        setPlans(plansData || []);
+      } catch (err: any) {
+        setError('Failed to load plans.');
+      } finally {
         setIsLoading(false);
       }
-    }
-
-    fetchPlans();
-  }, [subcategoryId]);
+    };
+    fetchData();
+  }, [params.subcategoryId]);
 
   const handleBackPress = () => {
-    // Check if we have subcategoryId and send back to discover with that subcategory
-    if (subcategoryId) {
-      router.push({
-        pathname: '/discover',
-        params: { 
-          subcategoryId,
-          category: categoryName,
-          title: subcategoryTitle || title
-        }
-      });
-    } else {
-      // If no subcategoryId, fallback to regular back navigation
-      router.back();
-    }
+    router.replace('/(tabs)/discover');
   };
 
-  const handlePlanPress = (planId: string, planTitle: string, index: number) => {
-    // Navigate to the plan details screen with the planId and planNumber
-    router.push({
-      pathname: "/(stack)/plan-details",
-      params: { 
-        planId, 
-        planTitle,
-        planNumber: index + 1,
-        subcategoryId: subcategoryId, // Pass subcategoryId for back navigation
-        accent: accent, // Pass accent color for maintaining color scheme
-        subcategoryName: subcategoryName,
-        subcategoryTitle: subcategoryTitle,
-        subcategorySubtitle: subcategorySubtitle,
-        categoryName: categoryName
-      }
-    });
+  const handlePlanPress = (plan: Plan) => {
+    router.push({ pathname: '/(stack)/plan-details', params: { planId: plan.id } });
   };
-
-  // Helper to get appropriate image source with fallback
-  const getImageSource = (imageUrl: string | null | undefined) => {
-    if (!imageUrl) return imageMap['placeholder.jpg'];
-    
-    // Check if it's a full URL (starts with http/https)
-    if (imageUrl.startsWith('http')) {
-      return { uri: imageUrl };
-    }
-    
-    // Check if it's a key in our image map
-    if (imageMap[imageUrl]) {
-      return imageMap[imageUrl];
-    }
-    
-    // Default fallback
-    return imageMap['placeholder.jpg'];
-  };
-
-  const renderPlanItem = ({ item, index }: { item: WorkoutPlan; index: number }) => {
-    // Get image source with fallback
-    const imageSource = getImageSource(item.image_url);
-    
-    // Get accent color from params (passed from subcategory) or from the default theme color
-    // Since accent_color is now removed from workout_plans and available only in workout_subcategories
-    const accentColor = accent || COLORS.primary;
-    
-    return (
-      <Pressable 
-        style={styles.planCard} 
-        onPress={() => handlePlanPress(item.id, item.title || 'Unnamed Plan', index)}
-        android_ripple={{ color: 'rgba(255,255,255,0.1)' }}
-      >
-        <View style={[styles.planCardAccent, { backgroundColor: accentColor }]} />
-        <View style={styles.planCardContent}>
-          <View style={styles.planCardLeft}>
-            <Text style={styles.planNumber}>PLAN {index + 1}</Text>
-          </View>
-          <IconButton
-            icon="chevron-right"
-            size={24}
-            iconColor={COLORS.primary}
-            style={styles.arrowIcon}
-          />
-        </View>
-      </Pressable>
-    );
-  };
-
-  // Get the featured plan image with fallback
-  const featuredImageSource = featuredPlan 
-    ? getImageSource(featuredPlan.image_url)
-    : imageMap['placeholder.jpg'];
-
-  // Get text color for featured title - use accent color from params or default to primary color
-  const featuredTextColor = accent || COLORS.primary;
-
-  // Format for the subtitle - changed to "subcategory subtitle • category name"
-  const getFormattedSubtitle = () => {
-    if (featuredPlan) {
-      // Try to get the subtitle from the plan
-      const subtitle = featuredPlan.subcategory_subtitle || subcategorySubtitle || '';
-      
-      // Get category name from params
-      const category = categoryName || '';
-      
-      // Use the format "subtitle • category" if both exist
-      if (subtitle && category) {
-        return `${subtitle} • ${category}`;
-      }
-      
-      // Fallbacks if either value is missing
-      if (subtitle) return subtitle;
-      if (category) return category;
-      
-      // Final fallback to days per week info
-      const daysText = `${featuredPlan.days_per_week} ${featuredPlan.days_per_week === 1 ? 'Day' : 'Days'} a Week`;
-      return daysText;
-    }
-    
-    // Fallback for when no plan is available but we have params
-    if (subcategorySubtitle && categoryName) {
-      return `${subcategorySubtitle} • ${categoryName}`;
-    } else if (subcategorySubtitle) {
-      return subcategorySubtitle;
-    } else if (categoryName) {
-      return categoryName;
-    }
-    
-    return subcategoryName || 'No plans available';
-  };
-
-  // Calculate content padding based on bottom insets
-  const contentPadding = insets.bottom + SPACING.xl;
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-      
       {/* Header */}
-      <View style={[styles.header, { marginTop: insets.top }]}>
+      <View style={[styles.header, { marginTop: insets.top }]}> 
         <View style={styles.headerLeft}>
           <IconButton
             icon="arrow-left"
@@ -249,59 +139,54 @@ export default function PlansScreen() {
         <View style={styles.headerRight} />
       </View>
       <Divider style={styles.divider} />
-      
-      {/* Featured Plan Image */}
-      <View style={styles.featuredImageContainer}>
-        <OptimizedImage
-          source={featuredImageSource}
-          style={styles.featuredImage}
-          resizeMode="cover"
-          priority="high"
-          cachePolicy="immutable"
-          isImportant={true}
-          showLoader={isLoading && !imagesPreloaded}
-          loaderColor={COLORS.primary}
-          loaderSize="large"
-          fallback={imageMap['placeholder.jpg']}
-          debugLabel="FeaturedPlanImage"
-        />
-        <LinearGradient
-          colors={['rgba(0,0,0,0.5)', 'rgba(0,0,0,0.6)', 'rgba(0,0,0,0.7)']}
-          style={styles.featuredGradient}
-        />
-        <View style={styles.featuredContent}>
-          <Text style={[styles.featuredTitle, { color: featuredTextColor }]}>
-            {title || (featuredPlan ? featuredPlan.title : subcategoryName || 'COMING SOON')}
-          </Text>
-          <Text style={styles.featuredSubtitle}>
-            {getFormattedSubtitle()}
-          </Text>
-        </View>
-      </View>
-      
-      {/* Plans List */}
       {isLoading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loadingText}>Loading workout plans...</Text>
+        </View>
+      ) : error ? (
+        <View style={styles.loadingContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      ) : plans.length === 0 ? (
+        <View style={styles.placeholderContainer}>
+          <Text style={styles.placeholderText}>No plans available.</Text>
         </View>
       ) : (
         <FlatList
-          data={plans}
-          keyExtractor={(item) => item.id}
-          renderItem={renderPlanItem}
-          contentContainerStyle={[
-            styles.plansList,
-            { paddingBottom: contentPadding }
-          ]}
-          showsVerticalScrollIndicator={false}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <MaterialIcons name="fitness-center" size={64} color={`${COLORS.primary}80`} />
-              <Text style={styles.emptyText}>No plans added yet</Text>
-              <Text style={styles.emptySubtext}>Plans for this category will be available soon</Text>
+          ListHeaderComponent={subcategory ? (
+            <View style={styles.heroContainer}>
+              {subcategory.image_url ? (
+                <OptimizedImage 
+                  source={{ uri: subcategory.image_url }}
+                  style={styles.heroImage}
+                  resizeMode="cover"
+                  fallback={require('../../assets/exercises/placeholder.jpg')}
+                  cachePolicy="immutable"
+                  isImportant={true}
+                  showLoader={false}
+                />
+              ) : (
+                <View style={[styles.heroImage, styles.heroImagePlaceholder]} />
+              )}
+              <View style={styles.heroTextContainer}>
+                <Text style={styles.heroTitle}>{subcategory.title}</Text>
+                <Text style={styles.heroSubtitle}>
+                  {subcategory.subtitle}
+                  {subcategory.subtitle && categoryName ? ', ' : ''}
+                  {categoryName}
+                </Text>
+              </View>
             </View>
-          }
+          ) : null}
+          data={plans}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.listContent}
+          renderItem={({ item }) => (
+            <TouchableOpacity style={styles.planCard} onPress={() => handlePlanPress(item)} activeOpacity={0.8}>
+              <Text style={styles.planCardTitle}>{item.title}</Text>
+              <IconButton icon="chevron-right" size={24} iconColor={COLORS.text} style={styles.planCardArrow} />
+            </TouchableOpacity>
+          )}
         />
       )}
     </View>
@@ -342,137 +227,98 @@ const styles = StyleSheet.create({
     height: 0.2,
     backgroundColor: COLORS.primary,
   },
-  featuredImageContainer: {
-    height: 220,
-    width: '100%',
-    position: 'relative',
-    marginBottom: SPACING.md,
-  },
-  featuredImage: {
-    width: '100%',
-    height: '100%',
-  },
-  featuredGradient: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: '100%',
-  },
-  featuredContent: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: SPACING.md,
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-  },
-  featuredTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    textTransform: 'uppercase',
-    textAlign: 'center',
-  },
-  featuredSubtitle: {
-    fontSize: 15,
-    color: COLORS.text,
-    opacity: 0.9,
-    marginTop: 4,
-    textAlign: 'center',
-  },
-  sectionTitleContainer: {
-    marginHorizontal: SPACING.md,
-    marginTop: SPACING.md,
-    marginBottom: SPACING.xs,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: COLORS.text,
-    marginBottom: SPACING.xs,
-  },
-  sectionDivider: {
-    backgroundColor: `${COLORS.primary}60`,
-    height: 2,
-    width: 40,
-  },
-  plansList: {
-    padding: SPACING.md,
-    paddingTop: SPACING.md,
-  },
-  planCard: {
-    height: 70,
-    marginBottom: SPACING.md,
-    borderRadius: BORDER_RADIUS.md,
-    overflow: 'hidden',
-    backgroundColor: `${COLORS.surface}60`,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 0.2,
-    borderColor: `${COLORS.primary}80`,
-  },
-  planCardAccent: {
-    width: 4,
-    height: '100%',
-  },
-  planCardContent: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: SPACING.md,
-  },
-  planCardLeft: {
-    flexDirection: 'column',
-  },
-  planNumber: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: COLORS.text,
-  },
-  planPhases: {
-    fontSize: 12,
-    color: COLORS.secondary,
-    marginTop: 4,
-  },
-  arrowIcon: {
-    margin: 0,
-  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  loadingText: {
-    color: COLORS.text,
-    marginTop: SPACING.md,
+  errorText: {
+    color: COLORS.error,
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
-  emptyContainer: {
-    padding: SPACING.xl,
-    alignItems: 'center',
-    justifyContent: 'center',
+  placeholderContainer: {
     flex: 1,
-    minHeight: 200,
-    backgroundColor: `${COLORS.surface}30`,
-    borderRadius: BORDER_RADIUS.md,
-    borderWidth: 0.2,
-    borderColor: `${COLORS.primary}80`,
-    marginTop: SPACING.md,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  emptyText: {
+  placeholderText: {
     color: COLORS.text,
     fontSize: 18,
     fontWeight: 'bold',
     textAlign: 'center',
     marginTop: SPACING.md,
   },
-  emptySubtext: {
-    color: COLORS.text,
-    opacity: 0.7,
-    fontSize: 14,
-    marginTop: SPACING.sm,
+  heroContainer: {
+    margin: SPACING.md,
+    borderRadius: BORDER_RADIUS.lg,
+    overflow: 'hidden',
+    backgroundColor: COLORS.surface,
+    marginBottom: SPACING.lg,
+    elevation: 2,
+  },
+  heroImage: {
+    width: '100%',
+    height: 260,
+    backgroundColor: COLORS.surfaceLight,
+  },
+  heroImagePlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  heroTextContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingBottom: 20,
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  heroTitle: {
+    color: '#D6FF2A',
+    fontSize: 26,
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+    textShadowColor: '#000',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 6,
     textAlign: 'center',
+  },
+  heroSubtitle: {
+    color: COLORS.text,
+    fontSize: 17,
+    fontWeight: '600',
+    marginTop: 4,
+    textShadowColor: '#000',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+    textAlign: 'center',
+  },
+  listContent: {
+    paddingBottom: SPACING.xl,
+  },
+  planCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.md,
+    marginHorizontal: SPACING.md,
+    marginBottom: SPACING.md,
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+    elevation: 1,
+  },
+  planCardTitle: {
+    flex: 1,
+    color: COLORS.text,
+    fontSize: 18,
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+  },
+  planCardArrow: {
+    margin: 0,
   },
 }); 

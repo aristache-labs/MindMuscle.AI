@@ -11,10 +11,16 @@ import { storage } from '../services/firebase';
 import { Asset } from 'expo-asset';
 import { LOADING_MESSAGES } from '../constants/loadingMessages';
 import * as FileSystem from 'expo-file-system';
-import { safePreloadImages, PreloadStrategy, strategicPreloadImages } from '../utils/imagePreloader';
-import { markAsImportantImage as markImageAsImportant } from '../utils/imagePreloader';
+import { 
+  safePreloadImages, 
+  PreloadStrategy, 
+  strategicPreloadImages, 
+  preloadModalAssets,
+  preloadAllSvgAssets,
+  clearImageCache,
+  markAsImportantImage as markImageAsImportant
+} from '../utils/imagePreloader';
 import exerciseService from '../services/exerciseService';
-import workoutPlanService from '../services/workoutPlanService';
 import logger from '../utils/logger';
 
 // Define storage bucket constants for compatibility with previous code
@@ -129,33 +135,122 @@ const preloadStaticImages = async () => {
       ...Object.values(STATIC_IMAGES.measurements),
       ...Object.values(STATIC_IMAGES.bodyModel),
       ...Object.values(STATIC_IMAGES.placeholders) // Add placeholder images
-    ];
+    ].filter(Boolean); // Filter out any undefined or null values
     
     // Add additional static images if they exist
     try {
       // Get SVG files if they exist
       if ('svg' in STATIC_IMAGES && typeof (STATIC_IMAGES as any).svg === 'object') {
-        Object.values((STATIC_IMAGES as any).svg).forEach(svg => staticImages.push(svg as number));
+        const svgValues = Object.values((STATIC_IMAGES as any).svg).filter(Boolean);
+        staticImages.push(...svgValues);
       }
       
       // Add muscle group SVGs if they exist
       if ('muscles' in STATIC_IMAGES && typeof (STATIC_IMAGES as any).muscles === 'object') {
-        Object.values((STATIC_IMAGES as any).muscles).forEach(muscle => staticImages.push(muscle as number));
+        const muscleValues = Object.values((STATIC_IMAGES as any).muscles).filter(Boolean);
+        staticImages.push(...muscleValues);
       }
       
       // Check if there are any navigation images
       if ('navigation' in STATIC_IMAGES && typeof (STATIC_IMAGES as any).navigation === 'object') {
-        staticImages.push(...Object.values((STATIC_IMAGES as any).navigation));
+        const navValues = Object.values((STATIC_IMAGES as any).navigation).filter(Boolean);
+        staticImages.push(...navValues);
       }
     } catch (e) {
       // Silently continue if additional images aren't available
+      logger.warn('Error loading additional static images', { context: { error: String(e) } });
     }
     
     await Asset.loadAsync(staticImages);
     logger.debugComponent('SPLASH_SCREEN', 'Static images preloaded');
 
+    // Specifically preload all SVG assets - make this a high priority
+    try {
+      logger.debugComponent('SPLASH_SCREEN', 'Preloading SVG assets specifically...');
+      
+      // Safely call preloadAllSvgAssets if available
+      if (typeof preloadAllSvgAssets === 'function') {
+        try {
+          const svgResult = await preloadAllSvgAssets();
+          if (svgResult.success) {
+            logger.debugComponent('SPLASH_SCREEN', `SVG assets preloaded successfully - loaded ${svgResult.count} SVGs in ${svgResult.duration}ms`);
+          } else {
+            logger.warn('Some SVG assets failed to preload');
+          }
+        } catch (svgError) {
+          logger.warn('Error in preloadAllSvgAssets', { context: { error: String(svgError) } });
+          // Continue with fallback method
+        }
+      } else {
+        // Fallback to a direct preload of critical SVGs
+        logger.warn('preloadAllSvgAssets function not found, using fallback method');
+        
+        // Safely load SVGs with error handling
+        const svgAssets = [];
+        try {
+          const frontSvg = require('../../assets/exercises/body_front.svg');
+          if (frontSvg) svgAssets.push(frontSvg);
+        } catch (e) {
+          logger.warn('Error loading body_front.svg', { context: { error: String(e) } });
+        }
+        
+        try {
+          const backSvg = require('../../assets/exercises/body_back.svg');
+          if (backSvg) svgAssets.push(backSvg);
+        } catch (e) {
+          logger.warn('Error loading body_back.svg', { context: { error: String(e) } });
+        }
+        
+        // Use Asset API for SVG preloading with timeout and retries
+        if (svgAssets.length > 0) {
+          let retryCount = 0;
+          const maxRetries = 3;
+          let success = false;
+          
+          while (retryCount < maxRetries && !success) {
+            try {
+              await Promise.race([
+                Asset.loadAsync(svgAssets),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('SVG preload timeout')), 5000))
+              ]);
+              success = true;
+              logger.debugComponent('SPLASH_SCREEN', 'Critical SVGs preloaded successfully');
+            } catch (svgError) {
+              retryCount++;
+              logger.warn(`SVG preload retry ${retryCount}/${maxRetries}`);
+            }
+          }
+          
+          if (!success) {
+            logger.warn('Failed to preload SVGs after retries');
+          }
+        } else {
+          logger.warn('No SVG assets found to preload');
+        }
+      }
+    } catch (svgError) {
+      logger.warn('Error in SVG specific preloading', { context: { error: String(svgError) } });
+    }
+
+    // Preload modal assets (muscle SVGs and exercise placeholders)
+    try {
+      logger.debugComponent('SPLASH_SCREEN', 'Preloading modal assets...');
+      const modalAssetsResult = await preloadModalAssets();
+      if (modalAssetsResult.success) {
+        logger.debugComponent('SPLASH_SCREEN', `Modal assets preloaded successfully in ${modalAssetsResult.duration}ms`);
+      } else {
+        logger.warn('Some modal assets failed to preload');
+      }
+    } catch (modalError) {
+      logger.warn('Error preloading modal assets', { context: { error: String(modalError) } });
+    }
+
     // Mark placeholder images as important to prevent them from being purged from cache
-    preloadAndCachePlaceholderImages();
+    try {
+      preloadAndCachePlaceholderImages();
+    } catch (placeholderError) {
+      logger.warn('Error caching placeholder images', { context: { error: String(placeholderError) } });
+    }
 
     return true;
   } catch (error) {
@@ -1161,16 +1256,6 @@ export default function SplashScreenManager({ children }: { children: React.Reac
       if (DEBUG_SPLASH_SCREEN) {
         console.log(`🚀 [SplashScreenManager] Starting app preparation at ${new Date().toISOString()}`);
         console.log(`📊 [SplashScreenManager] App config: batch size=${PRELOAD_CONFIG.BATCH_SIZE}, timeouts=${JSON.stringify(PRELOAD_CONFIG.TIMEOUT)}`);
-      }
-      
-      // Clean stale offline workout data at app startup to prevent RLS errors
-      try {
-        if (DEBUG_SPLASH_SCREEN) {
-          console.log('🧹 [SplashScreenManager] Cleaning stale offline workout data');
-        }
-        await workoutPlanService.cleanStaleOfflineData();
-      } catch (cleanupError) {
-                // Log but don't block app initialization if cleanup fails        logger.error('Error cleaning stale offline workout data:',           cleanupError instanceof Error ? cleanupError : new Error(String(cleanupError)));
       }
       
       try {

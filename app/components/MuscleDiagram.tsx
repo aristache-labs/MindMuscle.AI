@@ -31,7 +31,17 @@ const BodyView = React.memo(({ svg, loading, placeholderText }: BodyViewProps) =
     );
   }
   
-  return <SvgXml xml={svg} width="100%" height="100%" />;
+  // Safely render SVG, handling potential parsing errors
+  try {
+    return <SvgXml xml={svg} width="100%" height="100%" />;
+  } catch (error) {
+    console.warn('Error rendering SVG:', error);
+    return (
+      <View style={styles.bodyPlaceholder}>
+        <Text style={styles.placeholderText}>Error displaying diagram</Text>
+      </View>
+    );
+  }
 });
 
 BodyView.displayName = 'BodyView';

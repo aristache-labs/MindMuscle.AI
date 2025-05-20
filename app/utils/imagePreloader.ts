@@ -140,6 +140,31 @@ export enum PreloadStrategy {
   PREFETCH = 'prefetch'    // Load during idle time (future screens)
 }
 
+// Add a set to track preloaded SVGs
+export const preloadedSvgs = new Set<string>();
+
+// Define SVG paths for muscle groups with static requires to prevent dynamic require errors
+export const MUSCLE_SVG_ASSETS = {
+  front: require('../../assets/exercises/body_front.svg'),
+  back: require('../../assets/exercises/body_back.svg')
+  // Add other muscle SVGs if they exist in your assets
+};
+
+/**
+ * Safely check if an asset exists and return it
+ * This avoids the dynamic require issue by using static requires
+ * @param assetType The type of asset to load ('front', 'back', etc.)
+ * @returns The asset module or null if not found
+ */
+export const getSvgAsset = (assetType: 'front' | 'back'): any => {
+  try {
+    return MUSCLE_SVG_ASSETS[assetType] || null;
+  } catch (e) {
+    console.warn(`Could not get SVG asset: ${assetType}`, e);
+    return null;
+  }
+};
+
 /**
  * Format a URL for display in logs, making it more readable
  * @param url The URL to format
@@ -883,4 +908,133 @@ export const preloadImages = async (
       error: error instanceof Error ? error : new Error(String(error))
     };
   }
-}; 
+};
+
+/**
+ * Preload all SVG assets used in the app
+ * This should be called during app initialization
+ */
+export async function preloadAllSvgAssets() {
+  try {
+    if (DEBUG_IMAGE_PRELOADER) {
+      console.log('🧩 Preloading all SVG assets...');
+    }
+    
+    // Use static SVG assets directly - no dynamic requires
+    const svgAssets = [
+      MUSCLE_SVG_ASSETS.front, 
+      MUSCLE_SVG_ASSETS.back
+    ].filter(Boolean); // Filter out any null values
+    
+    if (svgAssets.length === 0) {
+      console.warn('No SVG assets found to preload');
+      return { success: false, error: new Error('No SVG assets found'), count: 0 };
+    }
+    
+    // Use Asset API for preloading
+    const startTime = Date.now();
+    const loadPromises = svgAssets.map(asset => {
+      if (!asset) return Promise.resolve(); // Skip null assets
+      
+      const assetModule = Asset.fromModule(asset);
+      
+      // Mark as preloaded
+      if (typeof asset === 'number') {
+        preloadedSvgs.add(String(asset));
+      }
+      
+      return assetModule.downloadAsync().catch(error => {
+        console.warn('Failed to download asset:', error);
+        return Promise.resolve(); // Don't fail the whole batch for one asset
+      });
+    });
+    
+    // Wait for all SVGs to download
+    await Promise.all(loadPromises);
+    
+    // Create global reference to preloaded SVGs
+    if (!(global as any).preloadedSvgAssets) {
+      (global as any).preloadedSvgAssets = {
+        bodyFront: MUSCLE_SVG_ASSETS.front,
+        bodyBack: MUSCLE_SVG_ASSETS.back,
+        // Add others as needed
+        timestamp: Date.now()
+      };
+    }
+    
+    const duration = Date.now() - startTime;
+    if (DEBUG_IMAGE_PRELOADER) {
+      console.log(`✅ All SVG assets preloaded successfully in ${duration}ms`);
+    }
+    
+    return { success: true, count: svgAssets.length, duration };
+  } catch (error) {
+    console.warn('Error preloading SVG assets:', error);
+    return { success: false, error, count: 0 };
+  }
+}
+
+/**
+ * Check if an SVG asset has been preloaded
+ * @param svgPath The path or module ID of the SVG
+ */
+export function isSvgPreloaded(svgPath: string | number): boolean {
+  // Convert number to string for checking
+  const key = String(svgPath);
+  return preloadedSvgs.has(key);
+}
+
+/**
+ * Preload critical modal assets (SVGs and common placeholder images)
+ * This should be called during app initialization
+ */
+export async function preloadModalAssets() {
+  try {
+    const startTime = Date.now();
+    if (DEBUG_IMAGE_PRELOADER) {
+      console.log('🔄 Preloading modal assets (SVGs and placeholders)...');
+    }
+    
+    // Create a list of assets to preload with static requires
+    const assetsToPreload = [
+      // SVG body diagrams - using the static MUSCLE_SVG_ASSETS
+      MUSCLE_SVG_ASSETS.front,
+      MUSCLE_SVG_ASSETS.back,
+      
+      // Common placeholder/fallback images
+      require('../../assets/exercises/placeholder.jpg'),
+      require('../../assets/exercises/pushup.jpg'),
+      require('../../assets/exercises/squat.jpg'),
+      require('../../assets/exercises/dumbbell.jpg')
+    ].filter(Boolean); // Filter out any null/undefined assets
+    
+    // First, preload SVGs specifically
+    await preloadAllSvgAssets();
+    
+    // Then preload the placeholder images - only filter non-SVG assets
+    const imageAssets = assetsToPreload.filter(asset => 
+      // Only include non-SVG assets since SVGs are handled by preloadAllSvgAssets
+      typeof asset === 'number' && 
+      !String(Asset.fromModule(asset).uri).endsWith('.svg')
+    );
+    
+    // Use Asset API for preloading
+    const assetPromises = imageAssets.map(asset => 
+      Asset.fromModule(asset).downloadAsync()
+    );
+    
+    // Wait for all assets to download
+    await Promise.all(assetPromises);
+    
+    const duration = Date.now() - startTime;
+    if (DEBUG_IMAGE_PRELOADER) {
+      console.log(`✅ Modal assets preloaded successfully in ${duration}ms`);
+    }
+    
+    // Return success
+    return { success: true, duration };
+  } catch (error) {
+    console.warn('Error preloading modal assets:', error);
+    return { success: false, error };
+  }
+} 

@@ -4,7 +4,8 @@ import {
   strategicPreloadImages, 
   PreloadStrategy,
   clearImageCache,
-  markAsImportantImage 
+  markAsImportantImage,
+  isSvgPreloaded
 } from '../utils/imagePreloader';
 
 export interface IntelligentPreloaderOptions {
@@ -75,6 +76,16 @@ export interface PreloadingInfo {
    */
   clearCache: () => Promise<void>;
 }
+
+// Helper to filter out SVGs from image URLs
+const filterOutSvgs = (urls: string[]): string[] => {
+  return urls.filter(url => !url.endsWith('.svg'));
+};
+
+// Helper to count SVGs in an array of URLs
+const countSvgsInUrls = (urls: string[]): number => {
+  return urls.filter(url => url.endsWith('.svg')).length;
+};
 
 // Navigation prediction model - map of screen ID to likely next screens
 // This could be enhanced with machine learning or custom user behavior tracking
@@ -175,24 +186,51 @@ export default function useIntelligentPreloader(
     }
     
     hasStarted.current = true;
+    
+    // Count SVGs (they're considered already loaded)
+    const svgCount = countSvgsInUrls(images);
+    
+    // Filter out SVGs for actual loading (they're already preloaded at app start)
+    const imagesToLoad = filterOutSvgs(images);
+    
+    // Update total count to include SVGs (but we don't need to load them)
     totalImagesRef.current = images.length;
+    
+    // If we only have SVGs, mark as complete immediately
+    if (imagesToLoad.length === 0 && svgCount > 0) {
+      setCriticalImagesLoaded(svgCount);
+      setProgress(1);
+      if (debug) {
+        console.log(`🔍 Intelligent preloader: All ${svgCount} images are SVGs, already preloaded`);
+      }
+      return;
+    }
     
     // Split images into critical (current screen) and anticipatory (next screens)
     const preloadCurrentScreenImages = async () => {
       if (debug) {
-        console.log(`🔍 Intelligent preloader: Loading ${images.length} images for screen ${screenId}`);
+        console.log(`🔍 Intelligent preloader: Loading ${imagesToLoad.length} images (+ ${svgCount} preloaded SVGs) for screen ${screenId}`);
+      }
+      
+      // Start with SVGs already counted as loaded
+      setCriticalImagesLoaded(svgCount);
+      // Initial progress based on preloaded SVGs
+      if (svgCount > 0) {
+        const svgProgress = svgCount / totalImagesRef.current;
+        setProgress(svgProgress * 0.7); // SVGs contribute to 70% of initial progress
       }
       
       // Start with critical images for current screen
       await strategicPreloadImages(
-        images,
+        imagesToLoad,
         PreloadStrategy.CRITICAL,
         undefined,
         (progress, completed, total) => {
           if (completed) {
-            setCriticalImagesLoaded(completed);
+            // Add SVG count to completed images
+            setCriticalImagesLoaded(completed + svgCount);
             // Overall progress is weighted 70% for critical images
-            setProgress(progress * 0.7);
+            setProgress((progress * 0.7) + (svgCount / totalImagesRef.current * 0.7));
           }
         }
       );
@@ -249,23 +287,47 @@ export default function useIntelligentPreloader(
       return;
     }
     
+    // Filter out SVGs as they should already be loaded
+    const svgCount = countSvgsInUrls(nextScreenImages);
+    const imagesToLoad = filterOutSvgs(nextScreenImages);
+    
+    // If we only have SVGs, count them as loaded and skip
+    if (imagesToLoad.length === 0 && svgCount > 0) {
+      setAnticipatoryImagesLoaded(svgCount);
+      // Update progress
+      setProgress(prev => prev + 0.2); // Add 20% for anticipatory SVGs
+      if (debug) {
+        console.log(`🔍 All ${svgCount} anticipatory images are SVGs, already preloaded`);
+      }
+      return;
+    }
+    
+    // Start with SVGs counted as already loaded
+    if (svgCount > 0) {
+      setAnticipatoryImagesLoaded(svgCount);
+      // Update progress for preloaded SVGs (part of the 20% for anticipatory)
+      const svgProgress = svgCount / nextScreenImages.length;
+      setProgress(prev => prev + (svgProgress * 0.2));
+    }
+    
     // Preload the next screen images with medium priority
     await strategicPreloadImages(
-      nextScreenImages,
+      imagesToLoad,
       PreloadStrategy.ANTICIPATORY,
       undefined,
       (progress, completed, total) => {
         if (completed) {
-          setAnticipatoryImagesLoaded(completed);
+          // Add SVG count to completed images
+          setAnticipatoryImagesLoaded(completed + svgCount);
           // Overall progress is weighted 20% for anticipatory images
           // Combined with critical (70%), leaves 10% for prefetch
-          setProgress(0.7 + (progress * 0.2));
+          setProgress(0.7 + ((progress * nextScreenImages.length + svgCount) / nextScreenImages.length * 0.2));
         }
       }
     );
     
     if (debug) {
-      console.log(`✅ Loaded ${nextScreenImages.length} anticipatory images for screens: ${nextScreens.join(', ')}`);
+      console.log(`✅ Loaded ${imagesToLoad.length} anticipatory images (+ ${svgCount} SVGs) for screens: ${nextScreens.join(', ')}`);
     }
     
     // For aggressive prefetching, try to load even more distant screens
@@ -295,22 +357,46 @@ export default function useIntelligentPreloader(
       });
       
       if (prefetchImages.length > 0) {
+        // Filter out SVGs
+        const prefetchSvgCount = countSvgsInUrls(prefetchImages);
+        const prefetchImagesToLoad = filterOutSvgs(prefetchImages);
+        
+        // If we only have SVGs, count them as loaded and skip
+        if (prefetchImagesToLoad.length === 0 && prefetchSvgCount > 0) {
+          setPrefetchImagesLoaded(prefetchSvgCount);
+          // Update progress for final 10%
+          setProgress(0.9 + 0.1); // Complete the progress
+          if (debug) {
+            console.log(`🔍 All ${prefetchSvgCount} prefetch images are SVGs, already preloaded`);
+          }
+          return;
+        }
+        
+        // Count SVGs as already loaded
+        if (prefetchSvgCount > 0) {
+          setPrefetchImagesLoaded(prefetchSvgCount);
+          // Update progress for SVGs (part of the final 10%)
+          const svgProgress = prefetchSvgCount / prefetchImages.length;
+          setProgress(prev => prev + (svgProgress * 0.1));
+        }
+        
         // Preload with lowest priority
         await strategicPreloadImages(
-          prefetchImages,
+          prefetchImagesToLoad,
           PreloadStrategy.PREFETCH,
           undefined,
           (progress, completed, total) => {
             if (completed) {
-              setPrefetchImagesLoaded(completed);
+              // Add SVG count to completed
+              setPrefetchImagesLoaded(completed + prefetchSvgCount);
               // Final 10% of progress
-              setProgress(0.9 + (progress * 0.1));
+              setProgress(0.9 + ((progress * prefetchImages.length + prefetchSvgCount) / prefetchImages.length * 0.1));
             }
           }
         );
         
         if (debug) {
-          console.log(`✅ Prefetched ${prefetchImages.length} images for second-level screens`);
+          console.log(`✅ Prefetched ${prefetchImagesToLoad.length} images (+ ${prefetchSvgCount} SVGs) for second-level screens`);
         }
       }
     }
@@ -335,15 +421,26 @@ export default function useIntelligentPreloader(
         return;
       }
       
+      // Filter out SVGs as they're already preloaded
+      const filteredImages = filterOutSvgs(imagesToLoad);
+      const svgCount = imagesToLoad.length - filteredImages.length;
+      
+      if (filteredImages.length === 0) {
+        if (debug) {
+          console.log(`🔍 All ${svgCount} images for screens (${screenIds.join(', ')}) are SVGs, already preloaded`);
+        }
+        return;
+      }
+      
       if (debug) {
-        console.log(`🚀 Strategic preloading (${screenIds.join(', ')}): ${imagesToLoad.length} images with priority high...`);
+        console.log(`🚀 Strategic preloading (${screenIds.join(', ')}): ${filteredImages.length} images (+ ${svgCount} SVGs) with priority high...`);
       }
       
       // Use critical strategy for manual loading
-      await strategicPreloadImages(imagesToLoad, PreloadStrategy.CRITICAL);
+      await strategicPreloadImages(filteredImages, PreloadStrategy.CRITICAL);
       
       if (debug) {
-        console.log(`✅ Strategic preloading complete: ${imagesToLoad.length} images`);
+        console.log(`✅ Strategic preloading complete: ${filteredImages.length} images (+ ${svgCount} SVGs)`);
       }
     });
   };

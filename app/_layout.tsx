@@ -8,7 +8,6 @@ import { useFonts } from 'expo-font';
 import { ThemeProvider } from './constants/theme';
 import { AuthProvider } from './store/AuthContext';
 import { ProfileProvider } from './store/ProfileContext';
-import { ProgressProvider } from './store/ProgressContext';
 import { GamificationProvider } from './store/GamificationContext';
 import AuthGuard from './components/AuthGuard';
 import * as Sentry from '@sentry/react-native';
@@ -19,7 +18,6 @@ import SplashScreenManager from './components/SplashScreenManager';
 import * as SplashScreen from 'expo-splash-screen';
 import { QueryProvider } from './components/QueryProvider';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { NetworkProvider } from './store/NetworkContext';
 
 // Initialize SplashScreen as early as possible
 try {
@@ -64,21 +62,15 @@ const RootApp = () => {
       <QueryProvider>
         <ThemeProvider>
           <AuthProvider>
-            <NetworkProvider>
-              <MeasurementsProvider>
-                <ProfileProvider>
-                  <ProgressProvider>
-                    <GamificationProvider>
-                      <SplashScreenManager>
-                        <AuthGuard>
-                          <Slot />
-                        </AuthGuard>
-                      </SplashScreenManager>
-                    </GamificationProvider>
-                  </ProgressProvider>
-                </ProfileProvider>
-              </MeasurementsProvider>
-            </NetworkProvider>
+            <MeasurementsProvider>
+              <ProfileProvider>
+                    <SplashScreenManager>
+                      <AuthGuard>
+                        <Slot />
+                      </AuthGuard>
+                    </SplashScreenManager>
+              </ProfileProvider>
+            </MeasurementsProvider>
           </AuthProvider>
         </ThemeProvider>
       </QueryProvider>

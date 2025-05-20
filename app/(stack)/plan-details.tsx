@@ -1,823 +1,380 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, ScrollView, Pressable, ActivityIndicator, Dimensions, Modal, Alert, FlatList, TouchableOpacity } from 'react-native';
-import { Text, IconButton, Divider, Button, Chip } from 'react-native-paper';
+import React, { useEffect, useState, useRef } from 'react';
+import { StyleSheet, View, ScrollView, TouchableOpacity, ActivityIndicator, Dimensions, FlatList } from 'react-native';
+import { Text, IconButton, Divider } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import workoutPlanService, { WorkoutPlan, PlanExercise } from '../services/workoutPlanService';
-import OptimizedImage from '../components/OptimizedImage';
-import { markAsImportantImage, batchPreloadImages, ImagePriority } from '../utils/imagePreloader';
 import supabase from '../services/supabase';
-import { useAuth } from '../store/AuthContext';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import OptimizedImage from '../components/OptimizedImage';
+import useImagePreloader from '../hooks/useImagePreloader';
 import ExerciseDetailsModal from '../components/ExerciseDetailsModal';
+import exerciseService from '../services/exerciseService';
 
-const { width } = Dimensions.get('window');
+interface Exercise {
+  id: string;
+  name: string;
+  sets: number;
+  reps_range: string;
+  image_url?: string;
+  primary_muscles?: string[];
+  exercise_name?: string;
+  workout_day: number;
+  exercise_id?: string;
+}
 
-// Add debug tracking for plan details screen
-const DEBUG_NAVIGATION = true;
+interface WorkoutDay {
+  day: number;
+  exercises: Exercise[];
+  total_exercises: number;
+  estimated_duration: number;
+  total_calories: number;
+}
 
-// Storage key for user's active plan
-const ACTIVE_PLAN_STORAGE_KEY = 'mindmuscle_active_plan';
+interface Plan {
+  id: string;
+  title: string;
+  difficulty_level?: string;
+  estimated_duration?: number;
+  workoutDays: WorkoutDay[];
+  category_name?: string;
+  subtitle?: string;
+  workout_frequency?: number;
+}
+
+const { width: screenWidth } = Dimensions.get('window');
 
 export default function PlanDetailsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
   const planId = params.planId as string;
-  const planNumber = params.planNumber as string;
-  const { user } = useAuth();
   
-  // Get accent color from params or default to primary color
-  const accentColor = params.accent as string || COLORS.primary;
-  
-  const [plan, setPlan] = useState<WorkoutPlan | null>(null);
-  const [exercises, setExercises] = useState<PlanExercise[]>([]);
+  const [plan, setPlan] = useState<Plan | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [totalDuration, setTotalDuration] = useState(0);
-  const [totalCalories, setTotalCalories] = useState(0);
-  const [imagesPreloaded, setImagesPreloaded] = useState(false);
-  const [isAddingPlan, setIsAddingPlan] = useState(false);
-  const [replacePlanModalVisible, setReplacePlanModalVisible] = useState(false);
-  const [existingPlanDetails, setExistingPlanDetails] = useState<any>(null);
-  
-  // Exercise details modal state
-  const [exerciseModalVisible, setExerciseModalVisible] = useState(false);
-  const [selectedExercise, setSelectedExercise] = useState<{
-    id: string;
-    name: string;
-    image?: string;
-  } | null>(null);
-  
-  // Multi-day workout support
-  const [workoutDays, setWorkoutDays] = useState<number[]>([1]); // Default to day 1
-  const [currentWorkoutDay, setCurrentWorkoutDay] = useState<number>(1);
-  const [exercisesByDay, setExercisesByDay] = useState<{[key: number]: PlanExercise[]}>({});
+  const [error, setError] = useState<string | null>(null);
+  const [currentDayIndex, setCurrentDayIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   
-  // Add these state variables to track per-day stats
-  const [dayStats, setDayStats] = useState<{[key: number]: {exercises: number, duration: number, calories: number}}>({});
+  // State for exercise details modal
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [selectedExercise, setSelectedExercise] = useState<{
+    id: string,
+    name: string,
+    image_url?: string,
+    primary_muscles?: string[],
+    secondary_muscles?: string[]
+  } | null>(null);
   
-  // Map for fallback exercise images based on the ones in assets/exercises
-  const fallbackImageMap: { [key: string]: any } = {
-    'fullbody.jpg': (global as any).placeholderImages?.fullbody || require('../../assets/exercises/fullbody.jpg'),
-    'dumbbell.jpg': (global as any).placeholderImages?.dumbbell || require('../../assets/exercises/dumbbell.jpg'),
-    'pushup.jpg': (global as any).placeholderImages?.pushup || require('../../assets/exercises/pushup.jpg'),
-    'squat.jpg': (global as any).placeholderImages?.squat || require('../../assets/exercises/squat.jpg'),
-    'yoga.jpg': (global as any).placeholderImages?.yoga || require('../../assets/exercises/yoga.jpg'),
-    'placeholder.jpg': (global as any).placeholderImages?.exercise || require('../../assets/exercises/placeholder.jpg'),
-  };
+  // Extract all exercise image URLs for preloading
+  const exerciseImageUrls = plan?.workoutDays
+    .flatMap(day => day.exercises)
+    .map(exercise => exercise.image_url)
+    .filter(url => !!url) as string[] || [];
+  
+  // Preload exercise images
+  const imagePreloadStatus = useImagePreloader(exerciseImageUrls, {
+    priority: 'high',
+    skipIfCached: true,
+    debugLabel: 'PlanDetails'
+  });
 
-  // Day navigation handler through buttons
-  const handleDayChange = (dayNumber: number) => {
-    setCurrentWorkoutDay(dayNumber);
-    
-    // Find the index of the day and scroll to it
-    const dayIndex = workoutDays.indexOf(dayNumber);
-    if (dayIndex !== -1 && flatListRef.current) {
-      flatListRef.current.scrollToIndex({
-        index: dayIndex,
-        animated: true
-      });
-    }
-  };
-
-  // Navigate between days via direction
-  const handleDayNavigation = (direction: 'left' | 'right') => {
-    const currentIndex = workoutDays.indexOf(currentWorkoutDay);
-    let nextIndex;
-    
-    if (direction === 'left' && currentIndex < workoutDays.length - 1) {
-      // Next day (to the right)
-      nextIndex = currentIndex + 1;
-    } else if (direction === 'right' && currentIndex > 0) {
-      // Previous day (to the left)
-      nextIndex = currentIndex - 1;
-    } else {
-      // Edge cases - no more days in this direction
-      return;
-    }
-    
-    if (nextIndex !== undefined) {
-      setCurrentWorkoutDay(workoutDays[nextIndex]);
-      
-      // Scroll to the corresponding index
-      if (flatListRef.current) {
-        flatListRef.current.scrollToIndex({
-          index: nextIndex,
-          animated: true
-        });
-      }
-    }
-  };
-
-  // Fetch plan and exercises
   useEffect(() => {
-    async function fetchPlanDetails() {
+    const fetchPlanDetails = async () => {
+      setIsLoading(true);
+      setError(null);
+      
       try {
-        setIsLoading(true);
-        
-        // Fetch plan details
-        if (planId) {
-          const planData = await workoutPlanService.getPlanById(planId);
+        // Fetch the plan data
+        const { data: planData, error: planError } = await supabase
+          .from('workout_plans')
+          .select('*, workout_subcategories!workout_plans_subcategory_id_fkey(title, category_identifier, subtitle)')
+          .eq('id', planId)
+          .single();
           
-          if (planData) {
-            setPlan(planData);
+        if (planError) throw planError;
+        
+        // Fetch the category name
+        let categoryName = '';
+        if (planData?.workout_subcategories?.category_identifier) {
+          const { data: categoryData, error: categoryError } = await supabase
+            .from('workout_categories')
+            .select('name')
+            .eq('identifier', planData.workout_subcategories.category_identifier)
+            .single();
             
-            // Fetch available workout days first
-            const availableDays = await workoutPlanService.getPlanWorkoutDays(planId);
-            setWorkoutDays(availableDays);
-            
-            // Organize exercises by workout day
-            const exercisesByDayMap: {[key: number]: PlanExercise[]} = {};
-            let allExercises: PlanExercise[] = [];
-            
-            // For tracking stats per day
-            const dayStatsMap: {[key: number]: {exercises: number, duration: number, calories: number}} = {};
-            
-            // Fetch exercises for all days
-            for (const day of availableDays) {
-              const dayExercises = await workoutPlanService.getPlanExercises(planId, day);
-              exercisesByDayMap[day] = dayExercises;
-              allExercises = [...allExercises, ...dayExercises];
-              
-              // Calculate stats for this specific day
-              let dayDuration = 0;
-              let dayCalories = 0;
-              
-              dayExercises.forEach(exercise => {
-                const setsTime = exercise.sets * 45; 
-                const restTime = (exercise.sets - 1) * (exercise.rest_time || 60);
-                dayDuration += setsTime + restTime;
-                dayCalories += Math.floor((setsTime + restTime) / 60 * 10);
-              });
-              
-              // Store per-day stats
-              dayStatsMap[day] = {
-                exercises: dayExercises.length,
-                duration: Math.ceil(dayDuration / 60),
-                calories: dayCalories
-              };
-            }
-            
-            setDayStats(dayStatsMap);
-            setExercisesByDay(exercisesByDayMap);
-            setExercises(allExercises);
-            
-            // Calculate overall stats (still needed for other parts of the app)
-            let duration = 0;
-            let calories = 0;
-            
-            allExercises.forEach(exercise => {
-              const setsTime = exercise.sets * 45; 
-              const restTime = (exercise.sets - 1) * (exercise.rest_time || 60);
-              duration += setsTime + restTime;
-              calories += Math.floor((setsTime + restTime) / 60 * 10);
-            });
-            
-            setTotalDuration(Math.ceil(duration / 60));
-            setTotalCalories(calories);
-            
-            // Preload exercise images for better performance
-            const imagesToPreload = allExercises
-              .map(exercise => exercise.image_url)
-              .filter((url): url is string => {
-                return !!url && typeof url === 'string' && url.startsWith('http');
-              });
-              
-            if (imagesToPreload.length > 0) {
-              batchPreloadImages(
-                imagesToPreload,
-                ImagePriority.HIGH,
-                5,
-                (progress) => {
-                  if (progress === 1) {
-                    setImagesPreloaded(true);
-                  }
-                }
-              );
-            }
-            
-            // Mark plan image as important if available
-            if (planData.image_url && typeof planData.image_url === 'string') {
-              markAsImportantImage(planData.image_url);
-            }
+          if (!categoryError && categoryData) {
+            categoryName = categoryData.name;
           }
         }
         
-        setIsLoading(false);
-      } catch (error) {
-        console.error('Error in fetchPlanDetails:', error);
+        // Fetch the exercises for this plan
+        const { data: exercisesData, error: exercisesError } = await supabase
+          .from('workout_plan_exercises')
+          .select(`
+            id,
+            sets,
+            reps_range,
+            exercise_id,
+            workout_day,
+            exercise_name,
+            exercises:exercise_id (
+              id,
+              name,
+              image_url,
+              primary_muscles
+            )
+          `)
+          .eq('plan_id', planId)
+          .order('workout_day', { ascending: true })
+          .order('order', { ascending: true });
+          
+        if (exercisesError) throw exercisesError;
+        
+        // Process exercise data
+        
+        // Group exercises by workout day
+        const exercisesByDay: { [key: number]: Exercise[] } = {};
+        exercisesData.forEach((item: any) => {
+          const day = item.workout_day || 0;
+          if (!exercisesByDay[day]) {
+            exercisesByDay[day] = [];
+          }
+          
+          exercisesByDay[day].push({
+            id: item.id,
+            name: item.exercise_name || item.exercises?.name,
+            sets: item.sets,
+            reps_range: item.reps_range,
+            image_url: item.exercises?.image_url,
+            primary_muscles: item.exercises?.primary_muscles,
+            workout_day: day,
+            exercise_id: item.exercises?.id
+          });
+        });
+        
+        // Convert to array of workout days with per-day statistics
+        const workoutDays = Object.keys(exercisesByDay).map(dayKey => {
+          const dayNum = parseInt(dayKey, 10);
+          const dayExercises = exercisesByDay[dayNum];
+          
+          // Calculate per-day statistics based on actual exercise data
+          const exerciseCount = dayExercises.length;
+          
+          // Calculate estimated duration based on sets, reps, and rest time
+          let totalDuration = 0;
+          dayExercises.forEach(exercise => {
+            const sets = exercise.sets || 3;
+            const repRange = exercise.reps_range || '8-12';
+            
+            // Parse rep range to get average reps (e.g., "8-12" -> 10)
+            let avgReps = 10; // Default
+            if (repRange.includes('-')) {
+              const [min, max] = repRange.split('-').map(num => parseInt(num, 10));
+              if (!isNaN(min) && !isNaN(max)) {
+                avgReps = Math.floor((min + max) / 2);
+              }
+            } else if (!isNaN(parseInt(repRange, 10))) {
+              avgReps = parseInt(repRange, 10);
+            }
+            
+            // Estimate time per rep at ~2-3 seconds
+            const timePerSet = avgReps * 2.5; // seconds
+            
+            // Rest time between sets (typically 60-90 seconds)
+            const restTime = 75; // seconds
+            
+            // Total time for this exercise (all sets + rest between sets)
+            const exerciseTime = (sets * timePerSet) + (restTime * (sets - 1));
+            
+            // Add to total duration (convert to minutes)
+            totalDuration += exerciseTime / 60;
+          });
+          
+          // Round up to nearest minute
+          const estimatedDuration = Math.ceil(totalDuration);
+          
+          // Calculate calories based on duration with a more realistic formula
+          // Moderate exercise burns approximately 7-10 calories per minute depending on intensity
+          const calorieRate = 8.5; // calories per minute for moderate-high intensity workout
+          const estimatedCalories = Math.round(estimatedDuration * calorieRate);
+          
+          return {
+            day: dayNum,
+            exercises: dayExercises,
+            total_exercises: exerciseCount,
+            estimated_duration: estimatedDuration,
+            total_calories: estimatedCalories
+          };
+        }).sort((a, b) => a.day - b.day);
+        
+        // Format the data
+        const formattedPlan: Plan = {
+          id: planData.id,
+          title: planData.title,
+          difficulty_level: planData.difficulty_level,
+          estimated_duration: planData.estimated_duration,
+          workoutDays: workoutDays,
+          category_name: categoryName || 'Workout Plan',
+          subtitle: planData.workout_subcategories?.subtitle,
+          workout_frequency: planData.workout_frequency || workoutDays.length
+        };
+        
+        setPlan(formattedPlan);
+      } catch (err: any) {
+        setError('Failed to load plan details.');
+        console.error('Error fetching plan details:', err);
+      } finally {
         setIsLoading(false);
       }
+    };
+    
+    if (planId) {
+      fetchPlanDetails();
     }
-
-    fetchPlanDetails();
   }, [planId]);
 
-  // Handle viewable exercises change
-  const handleViewableItemsChanged = ({ viewableItems }: { viewableItems: any[] }) => {
-    if (viewableItems.length > 0) {
-      const visibleDay = viewableItems[0].item;
-      setCurrentWorkoutDay(visibleDay);
-    }
-  };
-
-  // Configure viewability config for FlatList
-  const viewabilityConfig = {
-    itemVisiblePercentThreshold: 50
-  };
-
-  // Create ref for viewability callback
-  const viewabilityConfigCallbackPairs = useRef([
-    { viewabilityConfig, onViewableItemsChanged: handleViewableItemsChanged }
-  ]);
-
   const handleBackPress = () => {
-    if (DEBUG_NAVIGATION) {
-      console.log('🔀 NAVIGATION: Going back from plan-details screen');
-    }
-    
-    // Always use explicit navigation to plans screen instead of router.back()
-    // We need to preserve the subcategoryId if it was passed to ensure proper data loading
-    const subcategoryId = params.subcategoryId as string;
-    const accent = params.accent as string;
-    const title = params.subcategoryTitle as string || params.planTitle as string;
-    const subcategoryName = params.subcategoryName as string;
-    const subcategoryTitle = params.subcategoryTitle as string;
-    const subcategorySubtitle = params.subcategorySubtitle as string;
-    const categoryName = params.categoryName as string;
-    
-    // Always navigate to plans - explicitly set the path to ensure proper navigation
-    router.push({
-      pathname: "/(stack)/plans",
-      params: subcategoryId ? { 
-        subcategoryId,
-        accent, // Pass the accent color to preserve it when navigating back
-        title,
-        subcategoryName,
-        subcategoryTitle,
-        subcategorySubtitle,
-        categoryName
-      } : {}
-    });
+    router.back();
   };
 
-  const handleAddToMyPlan = async () => {
-    if (!plan || isAddingPlan || !user) return;
-    
+  const handleStartPlan = () => {
+    // TODO: Implement starting the workout plan
+    console.log('Starting plan:', planId);
+  };
+
+  // Handle day change
+  const handleDayChange = (index: number) => {
+    setCurrentDayIndex(index);
+    flatListRef.current?.scrollToIndex({ animated: true, index });
+  };
+
+  // Handle scroll end to update current day index
+  const handleMomentumScrollEnd = (event: any) => {
+    const contentOffsetX = event.nativeEvent.contentOffset.x;
+    const newIndex = Math.round(contentOffsetX / screenWidth);
+    setCurrentDayIndex(newIndex);
+  };
+
+  // Handle exercise press to show details modal
+  const handleExercisePress = async (exercise: Exercise) => {
     try {
-      setIsAddingPlan(true);
-      
-      if (DEBUG_NAVIGATION) {
-        console.log('📋 PLAN: Adding plan to My Plan:', plan.title || `Plan ${planNumber || ''}`);
-      }
-      
-      // First check if user already has an active plan
-      try {
-        const { data: existingPlans, error: checkError } = await supabase
-          .from('user_active_plans')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('status', 'InProgress')
-          .limit(1);
-          
-        if (checkError) {
-          console.error('Error checking for existing plan:', checkError);
-          setIsAddingPlan(false);
-          Alert.alert('Error', 'Failed to check for existing plans. Please try again.');
-          return;
-        }
-        
-        // If there's an existing plan, show replacement modal
-        if (existingPlans && existingPlans.length > 0) {
-          setExistingPlanDetails(existingPlans[0]);
-          setReplacePlanModalVisible(true);
-          setIsAddingPlan(false);
-          return;
-        }
-        
-        // If no existing plan, add the new one directly
-        await addNewPlan();
-      } catch (fetchError) {
-        console.error('Exception checking for existing plans:', fetchError);
-        
-        // Ask the user if they want to try adding the plan anyway
-        Alert.alert(
-          'Warning', 
-          'Unable to check for existing plans. Do you want to try adding this plan anyway?',
-          [
-            {
-              text: 'Cancel',
-              style: 'cancel',
-              onPress: () => setIsAddingPlan(false)
-            },
-            {
-              text: 'Try Anyway',
-              onPress: () => addNewPlan()
-            }
-          ]
-        );
-      }
-    } catch (error) {
-      console.error('Error in handleAddToMyPlan:', error);
-      setIsAddingPlan(false);
-      Alert.alert('Error', 'Failed to add plan. Please try again.');
-    }
-  };
-
-  const handleReplacePlan = async (planToReplace = null) => {
-    try {
-      // Use provided plan or existingPlanDetails from state
-      const planDetail = planToReplace || existingPlanDetails;
-      
-      if (!planDetail || !user) {
-        console.error('Missing plan details or user');
-        setIsAddingPlan(false);
-        return;
-      }
-      
-      setIsAddingPlan(true);
-      
-      // First explicitly delete the existing plan
-      console.log('Deleting existing plan:', planDetail.id);
-      
-      // Show user feedback
-      Alert.alert('Processing', 'Removing current plan and adding new plan. This may take a moment...');
-      
-      // Use our improved method to delete plan with associated sessions
-      const planDeleted = await workoutPlanService.deleteActivePlanWithSessions(planDetail.id);
-      
-      if (!planDeleted) {
-        console.error('Error deleting existing plan with sessions');
-        Alert.alert('Error', 'Failed to replace your current plan. The app will attempt to fix this issue. Please try again.');
-        setIsAddingPlan(false);
-        
-        // As an emergency fallback, try a direct deletion of the old plan
-        // This might fail but it's worth trying
-        try {
-          console.log('Attempting emergency plan deletion as fallback');
-          
-          // Try a direct delete without checking constraints
-          const { error: directDeleteError } = await supabase
-            .from('user_active_plans')
-            .delete()
-            .eq('id', planDetail.id);
-            
-          if (directDeleteError) {
-            console.error('Direct plan deletion also failed:', directDeleteError);
-          } else {
-            console.log('Direct plan deletion succeeded, you may now try adding the plan again');
-            Alert.alert(
-              'Plan Removed',
-              'Your previous plan has been removed. Please try adding the new plan again.',
-              [{ text: 'OK' }]
-            );
-          }
-        } catch (emergencyError) {
-          console.error('Emergency deletion failed:', emergencyError);
-        }
-        
-        return;
-      }
-      
-      // Wait for deletion to complete
-      await new Promise(resolve => setTimeout(resolve, 800));
-      
-      // 3. Now insert the new plan
-      const weekProgressionData = {
-        "1": "Adaptation",
-        "2": "Accumulation",
-        "3": "Intensification", 
-        "4": "Realization",
-        "5": "Recovery"
-      };
-      
-      const { data: newPlan, error: insertError } = await supabase
-        .from('user_active_plans')
-        .insert({
-          user_id: user.id,
-          plan_id: planId,
-          name: plan?.title || `Plan ${planNumber || ''}`,
-          subtitle: plan?.subcategory_subtitle || '',
-          exercise_count: exercises.length,
-          duration: totalDuration,
-          calories: totalCalories,
-          accent_color: accentColor,
-          status: 'InProgress',
-          is_active: true,
-          source_type: 'default_plan',
-          section: 'default_plan',
-          source_identifier: plan?.identifier || (params.subcategoryId as string || ''),
-          workout_frequency: plan?.workout_frequency || 1,
-          current_week: 1,
-          week_started_at: new Date().toISOString(),
-          week_progression: weekProgressionData
-        })
-        .select()
-        .single();
-      
-      if (insertError) {
-        console.error('Error inserting new plan after replacement:', insertError);
-        Alert.alert('Error', 'Failed to add new plan after replacing old one. Please try again.');
-        setIsAddingPlan(false);
-        return;
-      }
-      
-      // 4. Add the exercises for the new plan
-      if (exercises.length > 0 && newPlan) {
-        // Log workout days distribution for debugging
-        const workoutDayDistribution: {[key: number]: number} = {};
-        exercises.forEach(ex => {
-          const day = ex.workout_day || 0;
-          workoutDayDistribution[day] = (workoutDayDistribution[day] || 0) + 1;
-        });
-        console.log('Exercises by workout day:', workoutDayDistribution);
-        
-        const exercisesToInsert = exercises.map((ex, index) => ({
-          active_plan_id: newPlan.id,
-          exercise_id: ex.exercise_id,
-          name: ex.name,
-          sets: ex.sets,
-          reps: ex.reps,
-          rest_time: ex.rest_time,
-          order_position: index + 1,
-          image_url: ex.image_url || '',
-          workout_day: ex.workout_day || 0  // Ensure workout_day is included
-        }));
-        
-        const { error: exerciseError } = await supabase
-          .from('user_active_plan_exercises')
-          .insert(exercisesToInsert);
-          
-        if (exerciseError) {
-          console.error('Error inserting plan exercises:', exerciseError);
-          Alert.alert('Error', 'Your plan was replaced but exercises could not be added. You may need to select a new plan.');
-          setIsAddingPlan(false);
-          return;
-        }
-      }
-      
-      // Success! Navigate to home screen
-      router.replace("/(tabs)");
-      
-      // Close the modal
-      setReplacePlanModalVisible(false);
-    } catch (error) {
-      console.error('Error replacing plan:', error);
-      Alert.alert('Error', 'Failed to replace plan. Please try again.');
-    } finally {
-      setIsAddingPlan(false);
-    }
-  };
-
-  const addNewPlan = async () => {
-    try {
-      setIsAddingPlan(true);
-      
-      // Check if user is logged in
-      if (!user) {
-        Alert.alert('Error', 'You need to be logged in to add a plan.');
-        setIsAddingPlan(false);
-        return;
-      }
-      
-      // Get all active plans for this user
-      const { data: activePlans, error: fetchError } = await supabase
-        .from('user_active_plans')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('status', 'InProgress');
-        
-      if (fetchError) {
-        console.error('Error fetching existing plans:', fetchError);
-        Alert.alert('Error', 'Could not check existing plans. Please try again.');
-        setIsAddingPlan(false);
-        return;
-      }
-      
-      // If we have existing plans, delete them using our improved method
-      if (activePlans && activePlans.length > 0) {
-        console.log(`Found ${activePlans.length} existing plans to delete`);
-        
-        // Show loading message to user
-        Alert.alert('Processing', 'Preparing your new plan. This may take a moment...');
-        
-        // Delete each plan one by one
-        for (const plan of activePlans) {
-          console.log(`Deleting plan ${plan.id}`);
-          const planDeleted = await workoutPlanService.deleteActivePlanWithSessions(plan.id);
-          
-          if (!planDeleted) {
-            console.warn(`Failed to delete plan ${plan.id}, trying to continue...`);
-            
-            // Try direct deletion as a fallback
-            try {
-              const { error: directDeleteError } = await supabase
-                .from('user_active_plans')
-                .delete()
-                .eq('id', plan.id);
-                
-              if (directDeleteError) {
-                console.error(`Direct deletion of plan ${plan.id} failed:`, directDeleteError);
-                // Keep going despite the error
-              } else {
-                console.log(`Successfully deleted plan ${plan.id} with direct deletion`);
-              }
-            } catch (directError) {
-              console.error(`Exception during direct deletion of plan ${plan.id}:`, directError);
-            }
-          }
-        }
-        
-        // Give the database time to process deletions
-        await new Promise(resolve => setTimeout(resolve, 800));
-      }
-      
-      // Now insert the new plan
-      const weekProgressionData = {
-        "1": "Adaptation",
-        "2": "Accumulation",
-        "3": "Intensification", 
-        "4": "Realization",
-        "5": "Recovery"
-      };
-      
-      const { data: newPlan, error: insertError } = await supabase
-        .from('user_active_plans')
-        .insert({
-          user_id: user.id,
-          plan_id: planId,
-          name: plan?.title || `Plan ${planNumber || ''}`,
-          subtitle: plan?.subcategory_subtitle || '',
-          exercise_count: exercises.length,
-          duration: totalDuration,
-          calories: totalCalories,
-          accent_color: accentColor,
-          status: 'InProgress',
-          is_active: true,
-          source_type: 'default_plan',
-          section: 'default_plan',
-          source_identifier: plan?.identifier || (params.subcategoryId as string || ''),
-          workout_frequency: plan?.workout_frequency || 1,
-          current_week: 1,
-          week_started_at: new Date().toISOString(),
-          week_progression: weekProgressionData
-        })
-        .select()
-        .single();
-      
-      if (insertError) {
-        console.error('Error inserting plan:', insertError);
-        Alert.alert('Error', 'Failed to add plan. Please try again later.');
-        setIsAddingPlan(false);
-        return;
-      }
-      
-      // Add exercises for the active plan
-      if (exercises.length > 0 && newPlan) {
-        try {
-          // Log workout days distribution for debugging
-          const workoutDayDistribution: {[key: number]: number} = {};
-          exercises.forEach(ex => {
-            const day = ex.workout_day || 0;
-            workoutDayDistribution[day] = (workoutDayDistribution[day] || 0) + 1;
-          });
-          console.log('Exercises by workout day:', workoutDayDistribution);
-          
-          const exercisesToInsert = exercises.map((ex, index) => ({
-            active_plan_id: newPlan.id,
-            exercise_id: ex.exercise_id,
-            name: ex.name,
-            sets: ex.sets,
-            reps: ex.reps,
-            rest_time: ex.rest_time,
-            order_position: index + 1,
-            image_url: ex.image_url || '',
-            workout_day: ex.workout_day || 0  // Ensure workout_day is included
-          }));
-          
-          const { error: exerciseError } = await supabase
-            .from('user_active_plan_exercises')
-            .insert(exercisesToInsert);
-            
-          if (exerciseError) {
-            console.error('Error inserting plan exercises:', exerciseError);
-            Alert.alert('Error', 'Failed to add exercises to new plan.');
-            setIsAddingPlan(false);
-            return;
-          }
-        } catch (insertExercisesError) {
-          console.error('Exception inserting exercises:', insertExercisesError);
-          Alert.alert('Error', 'Failed to add exercises to new plan.');
-          setIsAddingPlan(false);
-          return;
-        }
-      }
-      
-      // Success! Navigate to home screen
-      router.replace("/(tabs)");
-    } catch (error) {
-      console.error('Error in addNewPlan:', error);
-      Alert.alert('Error', 'Failed to add plan. Please try again.');
-    } finally {
-      setIsAddingPlan(false);
-    }
-  };
-
-  // Handle exercise modal close
-  const handleExerciseModalClose = () => {
-    setExerciseModalVisible(false);
-  };
-
-  // Navigate to exercise details screen
-  const handleExercisePress = (exercise: PlanExercise) => {
-    // Check if we have a valid exercise ID
-    if (exercise.exercise_id) {
-      // Get proper image URL to pass
-      let imageUrl = '';
-      
-      // If the exercise has a valid image_url that's a full URL, use it
-      if (exercise.image_url && exercise.image_url.startsWith('http')) {
-        imageUrl = exercise.image_url;
-      } 
-      // Otherwise, we need to find an appropriate placeholder
-      else if (exercise.primary_muscles) {
-        // Try to determine a specific placeholder based on primary muscles
-        if (exercise.primary_muscles.some(m => m.toLowerCase().includes('chest'))) {
-          imageUrl = 'placeholder_pushup';
-        } else if (exercise.primary_muscles.some(m => m.toLowerCase().includes('quad'))) {
-          imageUrl = 'placeholder_squat';
-        } else if (exercise.primary_muscles.some(m => m.toLowerCase().includes('bicep') || m.toLowerCase().includes('tricep'))) {
-          imageUrl = 'placeholder_dumbbell';
-        } else {
-          imageUrl = 'placeholder_default';
-        }
-      } else {
-        imageUrl = 'placeholder_default';
-      }
-      
-      // Set the selected exercise and show the modal
+      // Show the modal immediately with basic info
       setSelectedExercise({
-        id: exercise.exercise_id,
-        name: exercise.name || 'Exercise',
-        image: imageUrl
+        id: exercise.id,
+        name: exercise.name,
+        image_url: exercise.image_url,
+        primary_muscles: Array.isArray(exercise.primary_muscles) ? exercise.primary_muscles : [],
+        secondary_muscles: []
       });
+      setIsModalVisible(true);
       
-      setExerciseModalVisible(true);
-    }
-  };
-
-  // Helper to get appropriate image source with fallback
-  const getImageSource = (exercise: PlanExercise) => {
-    // If the exercise has a valid image_url, use it
-    if (exercise.image_url) {
-      // Check if it's a full URL (starts with http/https)
-      if (exercise.image_url.startsWith('http')) {
-        return { uri: exercise.image_url };
-      } 
-      // Check if it's a key in our fallback image map
-      else if (fallbackImageMap[exercise.image_url]) {
-        return fallbackImageMap[exercise.image_url];
+      // Then fetch complete data in the background
+      setIsLoading(true);
+      
+      // Get the actual exercise ID from the exercise object
+      const actualExerciseId = exercise.exercise_id || exercise.id;
+      
+      if (!actualExerciseId) {
+        console.error('No valid exercise ID found for this exercise');
+        throw new Error('Missing exercise ID');
       }
-    }
-    
-    // Determine fallback based on muscle group if possible
-    if (exercise.muscle_group) {
-      const muscleGroup = exercise.muscle_group.toLowerCase();
-      if (muscleGroup.includes('chest')) {
-        return fallbackImageMap['pushup.jpg'];
-      } else if (muscleGroup.includes('leg') || muscleGroup.includes('quad')) {
-        return fallbackImageMap['squat.jpg'];
-      }
-    }
-    
-    // Check if exercise has primary muscles that can help us determine a suitable image
-    if (exercise.primary_muscles && exercise.primary_muscles.length > 0) {
-      const primaryMuscle = exercise.primary_muscles[0].toLowerCase();
-      if (primaryMuscle.includes('chest')) {
-        return fallbackImageMap['pushup.jpg'];
-      } else if (primaryMuscle.includes('quad') || primaryMuscle.includes('glute')) {
-        return fallbackImageMap['squat.jpg'];
-      } else if (primaryMuscle.includes('bicep') || primaryMuscle.includes('tricep')) {
-        return fallbackImageMap['dumbbell.jpg'];
-      }
-    }
-    
-    // Default fallback
-    return fallbackImageMap['placeholder.jpg'];
-  };
-
-  // Get plan title or fallback
-  const getPlanTitle = () => {
-    return `PLAN ${planNumber || ''}`;
-  };
-
-  // Render an individual exercise row
-  const renderExerciseItem = (exercise: PlanExercise, index: number) => {
-    if (!exercise.name) {
-      return null;
-    }
-
-    const imageSource = getImageSource(exercise);
-    const debugLabel = `Exercise-${exercise.id || index}`;
-
-    return (
-      <Pressable 
-        key={exercise.id || `exercise-${index}`}
-        style={styles.exerciseCard}
-        onPress={() => handleExercisePress(exercise)}
-        android_ripple={{ color: 'rgba(255,255,255,0.1)' }}
-      >
-        <View style={styles.exerciseLeft}>
-          <OptimizedImage
-            source={imageSource}
-            style={styles.exerciseImage}
-            resizeMode="cover"
-            priority="normal"
-            cachePolicy="immutable"
-            showLoader={!imagesPreloaded}
-            fallback={fallbackImageMap['placeholder.jpg']}
-            debugLabel={debugLabel}
-          />
-        </View>
-        <View style={styles.exerciseMiddle}>
-          <Text style={styles.exerciseName}>{exercise.name}</Text>
-          <Text style={styles.exerciseDetails}>
-            {exercise.sets} sets · {exercise.reps} reps
-            {exercise.rest_time ? ` · ${exercise.rest_time}s rest` : ''}
-          </Text>
-        </View>
-        <View style={styles.exerciseRight}>
-          <IconButton
-            icon="chevron-right"
-            size={24}
-            iconColor={COLORS.text}
-          />
-        </View>
-      </Pressable>
-    );
-  };
-
-  // Render a day's worth of exercises
-  const renderDayExercises = ({ item: dayNumber, index }: { item: number, index: number }) => {
-    const dayExercises = exercisesByDay[dayNumber] || [];
-    
-    return (
-      <View style={[styles.dayExercisesContainer, { width }]}>
-        <View style={styles.exercisesContainer}>
-          {dayExercises.length > 0 ? (
-            dayExercises.map((exercise, index) => renderExerciseItem(exercise, index))
-          ) : (
-            <Text style={styles.noExercisesText}>No exercises available for this day.</Text>
-          )}
-        </View>
+      
+      // Fetch complete exercise data from the exercises table
+      try {
+        const { data: exerciseData, error } = await supabase
+          .from('exercises')
+          .select('id, name, image_url, primary_muscles, secondary_muscles')
+          .eq('id', actualExerciseId)
+          .single();
         
-        {/* Add pagination dots directly below exercises */}
-        {workoutDays.length > 1 && (
-          <View style={styles.paginationContainer}>
-            {workoutDays.map(day => (
-              <TouchableOpacity
-                key={`dot-${day}`}
-                onPress={() => handleDayChange(day)}
-                style={[
-                  styles.paginationDot,
-                  currentWorkoutDay === day && styles.activePaginationDot
-                ]}
-              />
-            ))}
-          </View>
-        )}
+        if (error) {
+          console.error('Error fetching exercise details:', error);
+          throw error;
+        }
+        
+        if (exerciseData) {
+          // Update the modal with complete data
+          setSelectedExercise({
+            id: exerciseData.id,
+            name: exerciseData.name,
+            image_url: exerciseData.image_url,
+            primary_muscles: Array.isArray(exerciseData.primary_muscles) 
+              ? exerciseData.primary_muscles 
+              : [],
+            secondary_muscles: Array.isArray(exerciseData.secondary_muscles)
+              ? exerciseData.secondary_muscles
+              : []
+          });
+        }
+      } catch (fetchError) {
+        console.error('Error fetching exercise details from Supabase:', fetchError);
+        // Even if fetch fails, still show what we have
+      }
+    } catch (error) {
+      console.error('Error in handleExercisePress:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  // Close the modal
+  const handleCloseModal = () => {
+    setIsModalVisible(false);
+  };
+
+  // Render workout day content
+  const renderWorkoutDay = ({ item, index }: { item: WorkoutDay, index: number }) => {
+    return (
+      <View style={{ width: screenWidth }}>
+        <ScrollView contentContainerStyle={styles.dayContentContainer}>
+          <Text style={styles.dayTitle}>
+            DAY {item.day + 1}
+          </Text>
+          
+          {item.exercises.map((exercise) => (
+            <View key={exercise.id} style={styles.exerciseCard}>
+              <View style={styles.exerciseLeftContent}>
+                <OptimizedImage
+                  source={exercise.image_url ? { uri: exercise.image_url } : require('../../assets/exercises/placeholder.jpg')}
+                  style={styles.exerciseImage}
+                  fallback={require('../../assets/exercises/placeholder.jpg')}
+                  resizeMode="cover"
+                  cachePolicy="immutable"
+                  showLoader={false}
+                  isImportant={index < 5} // Mark first few exercises as important
+                />
+                <TouchableOpacity 
+                  style={styles.exerciseDetails}
+                  onPress={() => handleExercisePress(exercise)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.exerciseName}>{exercise.name}</Text>
+                  <Text style={styles.exerciseSets}>{exercise.sets} sets x {exercise.reps_range} reps</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))}
+        </ScrollView>
       </View>
     );
   };
 
-  // Calculate content padding based on bottom insets
-  const contentPadding = insets.bottom + SPACING.xl;
-  
-  // Determine if we should show the start plan button
-  const shouldShowStartButton = (exercises.length > 0 && !isLoading);
-
-  // Add this new function for the modal button
-  const onReplacePlanPress = async () => {
-    // Close modal first to avoid visual issues if there's an error
-    setReplacePlanModalVisible(false);
-    
-    // Small delay to allow modal to close before starting replacement
-    setTimeout(() => {
-      handleReplacePlan(existingPlanDetails);
-    }, 300);
-  };
-
-  // Get current day's stats
-  const currentDayStats = dayStats[currentWorkoutDay] || { exercises: 0, duration: 0, calories: 0 };
-
   return (
-    <View style={styles.container}>
+    <GestureHandlerRootView style={styles.container}>
       <StatusBar style="light" />
+      
+      {/* Exercise Details Modal */}
+      <ExerciseDetailsModal
+        visible={isModalVisible}
+        onClose={handleCloseModal}
+        exerciseId={selectedExercise?.id || ''}
+        exerciseName={selectedExercise?.name || ''}
+        exerciseImage={selectedExercise?.image_url}
+        primary_muscles={selectedExercise?.primary_muscles}
+        secondary_muscles={selectedExercise?.secondary_muscles}
+      />
       
       {/* Header */}
       <View style={[styles.header, { marginTop: insets.top }]}>
@@ -831,7 +388,7 @@ export default function PlanDetailsScreen() {
           />
         </View>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>{getPlanTitle()}</Text>
+          <Text style={styles.headerTitle}>{plan?.title || 'PLAN'}</Text>
         </View>
         <View style={styles.headerRight} />
       </View>
@@ -840,147 +397,101 @@ export default function PlanDetailsScreen() {
       {isLoading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loadingText}>Loading plan details...</Text>
         </View>
-      ) : (
-        <GestureHandlerRootView style={{ flex: 1 }}>
-          <ScrollView 
-            style={styles.scrollView}
-            contentContainerStyle={{ paddingBottom: contentPadding }}
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Plan Summary */}
-            <View style={styles.summaryContainer}>
-              <Text style={styles.planTypeLabel}>{plan?.subcategory_subtitle || 'Unknown'}</Text>
-              
-              <View style={styles.statsRow}>
+      ) : error ? (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      ) : plan ? (
+        <View style={styles.contentWrapper}>
+          {/* Plan Overview Card */}
+          <View style={styles.planOverviewCard}>
+            <Text style={styles.planOverviewTitle}>
+              {plan.subtitle || plan.category_name}
+            </Text>
+            {plan.workoutDays.length > 0 && (
+              <View style={styles.planStats}>
                 <View style={styles.statItem}>
-                  <MaterialCommunityIcons name="lightning-bolt" size={18} color={COLORS.primary} />
-                  <Text style={styles.statValue}>{currentDayStats.exercises} Exercises</Text>
+                  <IconButton icon="flash" size={18} iconColor={COLORS.primary} style={styles.statIcon} />
+                  <Text style={styles.statValue}>{plan.workoutDays[currentDayIndex].total_exercises} Exercises</Text>
                 </View>
-                
                 <View style={styles.statItem}>
-                  <MaterialCommunityIcons name="clock-outline" size={18} color={COLORS.primary} />
-                  <Text style={styles.statValue}>{currentDayStats.duration} Min</Text>
+                  <IconButton icon="clock-outline" size={18} iconColor={COLORS.primary} style={styles.statIcon} />
+                  <Text style={styles.statValue}>{plan.workoutDays[currentDayIndex].estimated_duration} Min</Text>
                 </View>
-                
                 <View style={styles.statItem}>
-                  <MaterialCommunityIcons name="fire" size={18} color={COLORS.primary} />
-                  <Text style={styles.statValue}>{currentDayStats.calories} Cal</Text>
+                  <IconButton icon="fire" size={18} iconColor={COLORS.primary} style={styles.statIcon} />
+                  <Text style={styles.statValue}>{plan.workoutDays[currentDayIndex].total_calories} Cal</Text>
                 </View>
-              </View>
-            </View>
-            
-            {/* Day indicator with simplified display */}
-            {workoutDays.length > 1 && (
-              <View style={styles.dayIndicatorContainer}>
-                <View style={styles.dayNavigationRow}>
-                  <Text style={styles.dayIndicatorText}>
-                    Day {currentWorkoutDay}
-                  </Text>
-                </View>
-                <Text style={styles.swipeInstructionText}>
-                  Swipe to navigate between days
-                </Text>
               </View>
             )}
             
-            {/* FlatList for horizontal day scrolling */}
+            {plan.workoutDays.length > 1 && (
+              <View style={styles.daySelector}>
+                <View style={styles.dayPills}>
+                  {plan.workoutDays.map((day, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      style={[
+                        styles.dayPill,
+                        currentDayIndex === index && styles.activeDayPill
+                      ]}
+                      onPress={() => handleDayChange(index)}
+                    >
+                      <Text 
+                        style={[
+                          styles.dayPillText,
+                          currentDayIndex === index && styles.activeDayPillText
+                        ]}
+                      >
+                        {day.day + 1}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+          </View>
+          
+          {/* Exercise Days Slider */}
+          {plan.workoutDays.length > 0 ? (
             <FlatList
               ref={flatListRef}
-              data={workoutDays}
-              renderItem={renderDayExercises}
-              keyExtractor={(item) => `day-${item}`}
+              data={plan.workoutDays}
+              keyExtractor={(item) => `day-${item.day}`}
+              renderItem={renderWorkoutDay}
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
-              viewabilityConfigCallbackPairs={viewabilityConfigCallbackPairs.current}
-              initialScrollIndex={workoutDays.indexOf(currentWorkoutDay)}
+              onMomentumScrollEnd={handleMomentumScrollEnd}
+              initialScrollIndex={currentDayIndex}
               getItemLayout={(data, index) => ({
-                length: width,
-                offset: width * index,
+                length: screenWidth,
+                offset: screenWidth * index,
                 index,
               })}
-              onScrollToIndexFailed={(info) => {
-                // Handle scroll failures gracefully
-                const wait = new Promise(resolve => setTimeout(resolve, 100));
-                wait.then(() => {
-                  flatListRef.current?.scrollToIndex({ index: 0, animated: false });
-                });
-              }}
+              style={styles.daySlider}
             />
-
-            {/* Pagination dots removed from here - now inside each day's view */}
-          </ScrollView>
-        </GestureHandlerRootView>
-      )}
-      
-      {/* Bottom action button */}
-      <View style={styles.bottomButtonContainer}>
-        <Button
-          mode="contained"
-          onPress={handleAddToMyPlan}
-          style={styles.startButton}
-          labelStyle={styles.startButtonLabel}
-          loading={isAddingPlan}
-          disabled={isAddingPlan}
-        >
-          START THIS PLAN
-        </Button>
-      </View>
-      
-      {/* Replace Plan Modal */}
-      <Modal
-        visible={replacePlanModalVisible}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => {
-          setReplacePlanModalVisible(false);
-          setIsAddingPlan(false);
-        }}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>Replace Current Plan?</Text>
-            <Text style={styles.modalMessage}>
-              You already have a training plan in progress ({existingPlanDetails?.name || 'Active Plan'}). 
-              Replacing it will delete your current progress. Would you like to continue?
-            </Text>
-            <Button
-              mode="contained"
-              style={[styles.modalButton, { backgroundColor: COLORS.error }]}
-              onPress={onReplacePlanPress}
-              loading={isAddingPlan}
-              disabled={isAddingPlan}
-            >
-              Replace Current Plan
-            </Button>
-            <Button
-              mode="text"
-              style={styles.modalButton}
-              onPress={() => {
-                setReplacePlanModalVisible(false);
-                setIsAddingPlan(false);
-              }}
-              disabled={isAddingPlan}
-            >
-              Cancel
-            </Button>
+          ) : (
+            <View style={styles.noExercisesContainer}>
+              <Text style={styles.noExercisesText}>No exercises found for this plan.</Text>
+            </View>
+          )}
+          
+          {/* Fixed Start Plan Button */}
+          <View style={styles.fixedButtonContainer}>
+            <TouchableOpacity style={styles.startButton} onPress={handleStartPlan}>
+              <Text style={styles.startButtonText}>START THIS PLAN</Text>
+            </TouchableOpacity>
+            <View style={styles.buttonBottomFill} />
           </View>
         </View>
-      </Modal>
-      
-      {/* Exercise Details Modal */}
-      {selectedExercise && (
-        <ExerciseDetailsModal
-          visible={exerciseModalVisible}
-          onClose={handleExerciseModalClose}
-          exerciseId={selectedExercise.id}
-          exerciseName={selectedExercise.name}
-          exerciseImage={selectedExercise.image}
-        />
+      ) : (
+        <View style={styles.placeholderContainer}>
+          <Text style={styles.placeholderText}>Plan not found.</Text>
+        </View>
       )}
-    </View>
+    </GestureHandlerRootView>
   );
 }
 
@@ -1018,275 +529,190 @@ const styles = StyleSheet.create({
     height: 0.2,
     backgroundColor: COLORS.primary,
   },
-  scrollView: {
-    flex: 1,
-  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  loadingText: {
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.lg,
+  },
+  errorText: {
+    color: COLORS.error,
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  placeholderContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  placeholderText: {
     color: COLORS.text,
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
     marginTop: SPACING.md,
   },
-  summaryContainer: {
-    padding: SPACING.md,
-    marginHorizontal: SPACING.md,
-    marginTop: SPACING.md,
-    borderRadius: BORDER_RADIUS.md,
-    backgroundColor: `${COLORS.surface}30`,
+  contentWrapper: {
+    flex: 1,
     position: 'relative',
-    overflow: 'hidden',
-    borderWidth: 0.2,
-    borderColor: `${COLORS.primary}80`,
   },
-  gradientBackground: {
+  daySlider: {
+    flex: 1,
+  },
+  dayContentContainer: {
+    paddingHorizontal: SPACING.md,
+    paddingBottom: 100,
+  },
+  noExercisesContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+  },
+  noExercisesText: {
+    color: COLORS.text,
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  fixedButtonContainer: {
     position: 'absolute',
+    bottom: 0,
     left: 0,
     right: 0,
-    top: 0,
-    bottom: 0,
+    backgroundColor: COLORS.background,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingBottom: 50,
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    elevation: 5,
   },
-  planTypeLabel: {
-    fontSize: 16,
+  planOverviewCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
+    margin: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  planOverviewTitle: {
     color: COLORS.text,
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: SPACING.sm,
     textAlign: 'center',
-    marginBottom: SPACING.xs,
-    fontWeight: '600',
   },
-  statsRow: {
+  planStats: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: SPACING.xs,
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    marginTop: SPACING.sm,
   },
   statItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: `${COLORS.surfaceLight}30`,
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.xs / 5,
-    borderRadius: BORDER_RADIUS.sm,
+    marginRight: SPACING.lg,
+  },
+  statIcon: {
+    margin: 0,
+    padding: 0,
   },
   statValue: {
     color: COLORS.text,
-    marginLeft: 4,
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  sectionTitleContainer: {
-    marginHorizontal: SPACING.md,
-    marginTop: SPACING.md,
-    marginBottom: SPACING.xs,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: COLORS.text,
-    marginBottom: SPACING.xs,
-  },
-  sectionDivider: {
-    backgroundColor: `${COLORS.primary}60`,
-    height: 2,
-    width: 40,
-  },
-  dayExercisesContainer: {
-    flex: 1,
-    paddingBottom: 0,
-  },
-  exercisesContainer: {
-    marginHorizontal: SPACING.md,
-    marginTop: 0,
-    marginBottom: 0,
-  },
-  workoutDaysTabs: {
-    marginHorizontal: SPACING.md,
-    marginBottom: SPACING.md,
-  },
-  workoutDaysTabsContent: {
-    paddingVertical: SPACING.xs,
-    gap: SPACING.xs,
-  },
-  dayTab: {
-    marginRight: SPACING.xs,
-    backgroundColor: COLORS.surface,
-  },
-  dayTabText: {
     fontSize: 14,
-    color: COLORS.text,
   },
-  selectedDayTabText: {
-    color: '#000',
-    fontWeight: 'bold',
+  daySelector: {
+    marginTop: SPACING.md,
+    alignItems: 'center',
   },
-  exercisesTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: COLORS.text,
-    marginBottom: SPACING.md,
-  },
-  exerciseCard: {
+  dayPills: {
     flexDirection: 'row',
-    backgroundColor: `${COLORS.surface}60`,
-    borderRadius: BORDER_RADIUS.md,
-    marginBottom: SPACING.md,
-    overflow: 'hidden',
-    height: 90,
-    borderWidth: 0.2,
-    borderColor: `${COLORS.primary}80`,
-  },
-  exerciseLeft: {
-    width: 90,
-    height: 90,
-  },
-  exerciseImage: {
-    width: 90,
-    height: 90,
-  },
-  exerciseMiddle: {
-    flex: 1,
-    paddingHorizontal: SPACING.md,
     justifyContent: 'center',
+    marginTop: SPACING.xs,
+    flexWrap: 'wrap',
   },
-  exerciseName: {
+  dayPill: {
+    backgroundColor: COLORS.surfaceLight,
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    marginHorizontal: 4,
+    marginBottom: 4,
+  },
+  activeDayPill: {
+    backgroundColor: COLORS.primary,
+  },
+  dayPillText: {
     color: COLORS.text,
-    fontWeight: 500,
-    fontSize: 15,
-  },
-  exerciseDetails: {
-    color: `${COLORS.text}B3`, // 70% opacity
-    fontSize: 13,
-    marginTop: 4,
-  },
-  exerciseRight: {
-    width: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingRight: SPACING.sm,
-  },
-  emptyContainer: {
-    padding: SPACING.xl,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 20,
-    backgroundColor: COLORS.surface,
-    borderRadius: BORDER_RADIUS.md,
-    borderWidth: 1,
-    borderColor: `${COLORS.primary}20`,
-  },
-  emptyText: {
-    color: COLORS.text,
-    fontSize: 18,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginTop: SPACING.md,
-  },
-  emptySubtext: {
-    color: COLORS.text,
-    opacity: 0.7,
     fontSize: 14,
+    fontWeight: 'bold',
+  },
+  activeDayPillText: {
+    color: COLORS.text,
+  },
+  dayTitle: {
+    color: COLORS.primary,
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: SPACING.md,
     marginTop: SPACING.sm,
     textAlign: 'center',
   },
-  bottomButtonContainer: {
-    padding: SPACING.md,
-    borderTopWidth: 0.2,
-    borderTopColor: `${COLORS.primary}80`,
-    backgroundColor: COLORS.background,
-    paddingBottom: SPACING.xl,
-  },
-  startButton: {
-    borderRadius: BORDER_RADIUS.md,
-    height: 52,
-    justifyContent: 'center',
-  },
-  startButtonLabel: {
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  loadingIndicator: {
-    marginTop: SPACING.md,
-  },
-  noExercisesText: {
-    color: COLORS.text,
-    fontSize: 18,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginTop: SPACING.md,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'center',
+  exerciseCard: {
+    flexDirection: 'row',
     alignItems: 'center',
-    padding: SPACING.md,
-  },
-  modalContainer: {
+    justifyContent: 'space-between',
     backgroundColor: COLORS.surface,
     borderRadius: BORDER_RADIUS.md,
-    padding: SPACING.md,
-    width: '90%',
-    maxWidth: 400,
+    marginBottom: SPACING.sm,
+    padding: SPACING.sm,
+  },
+  exerciseLeftContent: {
+    flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
   },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: COLORS.error,
-    marginBottom: SPACING.sm,
-    textAlign: 'center',
-  },
-  modalMessage: {
-    fontSize: 16,
-    color: COLORS.text,
-    marginBottom: SPACING.lg,
-    textAlign: 'center',
-  },
-  modalButton: {
-    width: '100%',
-    marginBottom: SPACING.sm,
+  exerciseImage: {
+    width: 64,
+    height: 64,
     borderRadius: BORDER_RADIUS.sm,
+    marginRight: SPACING.md,
+    backgroundColor: COLORS.surfaceLight,
   },
-  paginationContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginVertical: SPACING.xs,
+  exerciseDetails: {
+    flex: 1,
   },
-  paginationDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: COLORS.secondary,
-    marginHorizontal: 5,
-  },
-  activePaginationDot: {
-    width: 10,
-    height: 10, 
-    borderRadius: 5,
-    backgroundColor: COLORS.primary,
-  },
-  dayIndicatorContainer: {
-    alignItems: 'center',
-    marginVertical: SPACING.sm,
-    paddingVertical: SPACING.sm,
-    marginHorizontal: SPACING.md,
-  },
-  dayIndicatorText: {
+  exerciseName: {
+    color: COLORS.text,
     fontSize: 16,
     fontWeight: 'bold',
-    color: COLORS.text,
+    marginBottom: 4,
   },
-  dayNavigationRow: {
-    flexDirection: 'row',
+  exerciseSets: {
+    color: COLORS.secondary,
+    fontSize: 14,
+  },
+  startButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
     alignItems: 'center',
-    justifyContent: 'center',
   },
-  swipeInstructionText: {
-    fontSize: 12,
+  startButtonText: {
     color: COLORS.text,
-    opacity: 0.7,
-    textAlign: 'center',
-    marginTop: SPACING.xs/2,
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  buttonBottomFill: {
+    position: 'absolute',
+    bottom: -50,
+    left: 0,
+    right: 0,
+    height: 100,
+    backgroundColor: COLORS.background,
   },
 }); 

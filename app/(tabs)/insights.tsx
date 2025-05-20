@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, ScrollView, Dimensions, Pressable, Image, Modal, ActivityIndicator, Platform, Animated, Easing } from 'react-native';
 import { Text, Surface, Chip, useTheme, IconButton, Button, Provider } from 'react-native-paper';
-import { useProgress } from '../store/ProgressContext';
+
 import { Calendar } from 'react-native-calendars';
 import { format, addMonths } from 'date-fns';
 import { COLORS, SPACING, HEADER_HEIGHT } from '../constants/theme';
@@ -69,7 +69,6 @@ export default function InsightsScreen() {
     refreshMeasurements
   } = useMeasurements();
   const insets = useSafeAreaInsets();
-  const { metrics, loading: progressLoading } = useProgress();
   const [selectedFilter, setSelectedFilter] = useState('1w');
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [key, setKey] = useState(0);
@@ -301,14 +300,6 @@ export default function InsightsScreen() {
     '2025-04-02': { marked: true, dotColor: theme.colors.primary },
     '2025-04-04': { marked: true, dotColor: theme.colors.primary },
   };
-
-  if (progressLoading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text>Loading insights...</Text>
-      </View>
-    );
-  }
 
   const handleMonthChange = (date: { timestamp: number }) => {
     setCalendarDate(new Date(date.timestamp));

@@ -26,7 +26,8 @@ import Animated, {
   useAnimatedStyle, 
   useAnimatedGestureHandler,
   withTiming,
-  runOnJS
+  runOnJS,
+  Easing
 } from 'react-native-reanimated';
 import * as FileSystem from 'expo-file-system';
 import { Asset } from 'expo-asset';
@@ -36,8 +37,61 @@ import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import MuscleDiagram from './MuscleDiagram';
 import MuscleTags from './MuscleTags';
 import ExerciseInstructions from './ExerciseInstructions';
+import OptimizedImage from './OptimizedImage';
 
 const { width, height } = Dimensions.get('window');
+
+// Load and cache SVG assets once at module level
+let svgCache = {
+  frontBody: null as string | null,
+  backBody: null as string | null
+};
+
+// Safely load an SVG asset
+const safeLoadSvg = async (assetType: 'front' | 'back'): Promise<string | null> => {
+  try {
+    // Use static requires to avoid dynamic require errors
+    let assetModule; 
+    if (assetType === 'front') {
+      assetModule = require('../../assets/exercises/body_front.svg');
+    } else if (assetType === 'back') {
+      assetModule = require('../../assets/exercises/body_back.svg');
+    } else {
+      console.warn(`Unsupported SVG asset type: ${assetType}`);
+      return null;
+    }
+    
+    if (!assetModule) return null;
+    
+    const asset = Asset.fromModule(assetModule);
+    await asset.downloadAsync();
+    
+    if (asset.localUri) {
+      return await FileSystem.readAsStringAsync(asset.localUri);
+    }
+    return null;
+  } catch (error) {
+    console.warn(`Failed to load SVG: ${assetType}`, error);
+    return null;
+  }
+};
+
+// Initialize SVG cache asynchronously
+(async () => {
+  try {
+    // Only load if not already cached
+    if (!svgCache.frontBody) {
+      svgCache.frontBody = await safeLoadSvg('front');
+    }
+    
+    if (!svgCache.backBody) {
+      svgCache.backBody = await safeLoadSvg('back');
+    }
+  } catch (error) {
+    console.warn('Error initializing SVG cache:', error);
+    // Silent fail - we'll handle this in the component
+  }
+})();
 
 interface ExerciseDetailsModalProps {
   visible: boolean;
@@ -45,6 +99,8 @@ interface ExerciseDetailsModalProps {
   exerciseId: string;
   exerciseName: string;
   exerciseImage?: string;
+  primary_muscles?: string[];
+  secondary_muscles?: string[];
 }
 
 export default function ExerciseDetailsModal({ 
@@ -52,11 +108,17 @@ export default function ExerciseDetailsModal({
   onClose,
   exerciseId,
   exerciseName,
-  exerciseImage
+  exerciseImage,
+  primary_muscles,
+  secondary_muscles
 }: ExerciseDetailsModalProps) {
   const insets = useSafeAreaInsets();
-  // Animation for modal slide up
+  // Animation for modal slide up - calculate position based on 80% height
   const translateY = useSharedValue(height);
+  
+  // State for internal visibility to manage animation before unmounting
+  const [internalVisible, setInternalVisible] = useState(false);
+  const isClosing = useRef(false);
   
   // State management
   const [activeSection, setActiveSection] = useState<'muscles' | 'instructions'>('muscles');
@@ -67,8 +129,8 @@ export default function ExerciseDetailsModal({
     primaryMuscles: string[];
     secondaryMuscles: string[];
   } | null>(null);
-  const [frontBodySvg, setFrontBodySvg] = useState<string | null>(null);
-  const [backBodySvg, setBackBodySvg] = useState<string | null>(null);
+  const [frontBodySvg, setFrontBodySvg] = useState<string | null>(svgCache.frontBody);
+  const [backBodySvg, setBackBodySvg] = useState<string | null>(svgCache.backBody);
   
   // Animation for swipeable sections
   const translateX = useSharedValue(0);
@@ -89,26 +151,98 @@ export default function ExerciseDetailsModal({
   // Run animation when visibility changes
   useEffect(() => {
     if (visible) {
+      setInternalVisible(true);
+      isClosing.current = false;
+      
       // Reset scroll position when opening
       if (scrollViewRef.current) {
         scrollViewRef.current.scrollTo({ x: 0, y: 0, animated: false });
       }
       
-      // Animate the modal sliding up
-      translateY.value = withTiming(0, { duration: 300 });
-    } else {
-      // Animate the modal sliding down
-      translateY.value = withTiming(height, { duration: 300 });
+      // Start from bottom of screen (like when closing)
+      translateY.value = height;
+      
+      // Animate the modal sliding up with a smoother easing curve
+      setTimeout(() => {
+        translateY.value = withTiming(0, { // Position at top
+          duration: 400, 
+          easing: Easing.bezierFn(0.16, 1, 0.3, 1) // Custom easing for a more natural feel
+        });
+      }, 10); // Small delay to ensure starting position is set
+    } else if (!isClosing.current) {
+      // Don't do anything if we're not visible and not in closing state
+      return;
     }
   }, [visible, translateY]);
+  
+  // Try to load SVGs if not already in cache
+  useEffect(() => {
+    const loadSvgs = async () => {
+      try {
+        // Only load if not already cached
+        if (!frontBodySvg && !svgCache.frontBody) {
+          const content = await safeLoadSvg('front');
+          if (content) {
+            setFrontBodySvg(content);
+            svgCache.frontBody = content;
+          }
+        } else if (!frontBodySvg && svgCache.frontBody) {
+          setFrontBodySvg(svgCache.frontBody);
+        }
+        
+        if (!backBodySvg && !svgCache.backBody) {
+          const content = await safeLoadSvg('back');
+          if (content) {
+            setBackBodySvg(content);
+            svgCache.backBody = content;
+          }
+        } else if (!backBodySvg && svgCache.backBody) {
+          setBackBodySvg(svgCache.backBody);
+        }
+      } catch (error) {
+        console.warn('Error loading SVGs in component:', error);
+        // Silent fail - the diagram component will handle this
+      }
+    };
+    
+    if (visible) {
+      loadSvgs();
+    }
+  }, [visible, frontBodySvg, backBodySvg]);
+  
+  // Handle the actual closing of the modal
+  const performClose = () => {
+    isClosing.current = true;
+    
+    // Animate the modal sliding down with matching easing as opening
+    translateY.value = withTiming(height, { 
+      duration: 400,
+      easing: Easing.bezierFn(0.16, 1, 0.3, 1) // Use same easing as opening for consistency
+    }, () => {
+      // After animation completes, notify parent component
+      runOnJS(completeClose)();
+    });
+  };
+  
+  // Complete the closing process
+  const completeClose = () => {
+    setInternalVisible(false);
+    isClosing.current = false;
+    onClose();
+  };
+  
+  // Override the close handler to perform animation first
+  const handleClose = () => {
+    if (!isClosing.current) {
+      performClose();
+    }
+  };
   
   // Fetch exercise data from Supabase and SVG files
   useEffect(() => {
     if (visible && exerciseId) {
+      // Fetch exercise data
       fetchExerciseData(exerciseId);
-      
-      // Load SVG files
-      loadSvgFiles();
       
       // Fetch existing notes
       fetchExerciseNotes(exerciseId);
@@ -147,7 +281,7 @@ export default function ExerciseDetailsModal({
           textInputRef.current.blur();
           return true; // Prevent default back action while keyboard is visible
         } else {
-          onClose();
+          handleClose(); // Use our custom close handler for smooth animation
           return true; // Prevent default back action
         }
       }
@@ -164,29 +298,7 @@ export default function ExerciseDetailsModal({
     return () => {
       backHandler.remove();
     };
-  }, [visible, onClose]);
-
-  const loadSvgFiles = async () => {
-    try {
-      // Load front body SVG
-      const frontBodyAsset = Asset.fromModule(require('../../assets/exercises/body_front.svg'));
-      await frontBodyAsset.downloadAsync();
-      if (frontBodyAsset.localUri) {
-        const frontBodyContent = await FileSystem.readAsStringAsync(frontBodyAsset.localUri);
-        setFrontBodySvg(frontBodyContent);
-      }
-      
-      // Load back body SVG
-      const backBodyAsset = Asset.fromModule(require('../../assets/exercises/body_back.svg'));
-      await backBodyAsset.downloadAsync();
-      if (backBodyAsset.localUri) {
-        const backBodyContent = await FileSystem.readAsStringAsync(backBodyAsset.localUri);
-        setBackBodySvg(backBodyContent);
-      }
-
-    } catch (error) {
-    }
-  };
+  }, [visible]);
 
   const fetchExerciseData = async (exerciseId: string) => {
     try {
@@ -205,10 +317,17 @@ export default function ExerciseDetailsModal({
       
       if (data) {
         const exerciseInfo = {
-          instructions: data.instructions || '',
-          primaryMuscles: data.primary_muscles || [],
-          secondaryMuscles: data.secondary_muscles || []
+          instructions: data.instructions || [],
+          // Use provided props if available, otherwise use fetched data
+          primaryMuscles: Array.isArray(primary_muscles) && primary_muscles.length > 0 
+                         ? primary_muscles 
+                         : (Array.isArray(data.primary_muscles) ? data.primary_muscles : []),
+          secondaryMuscles: Array.isArray(secondary_muscles) && secondary_muscles.length > 0
+                           ? secondary_muscles
+                           : (Array.isArray(data.secondary_muscles) ? data.secondary_muscles : [])
         };
+        
+        
         
         setExerciseData(exerciseInfo);
       } else {
@@ -220,6 +339,7 @@ export default function ExerciseDetailsModal({
         });
       }
     } catch (error) {
+      console.error('Error fetching exercise details:', error);
     } finally {
       setLoading(false);
     }
@@ -234,7 +354,6 @@ export default function ExerciseDetailsModal({
         .eq('exercise_id', exerciseId)
         .maybeSingle();
       if (error) {
-
         return;
       }
 
@@ -352,10 +471,23 @@ export default function ExerciseDetailsModal({
     };
   });
 
+  // Use directly passed muscle data if available, fallback to fetched data
+  const effectivePrimaryMuscles = useMemo(() => {
+    return primary_muscles && primary_muscles.length > 0
+      ? primary_muscles 
+      : exerciseData?.primaryMuscles || [];
+  }, [primary_muscles, exerciseData?.primaryMuscles]);
+
+  const effectiveSecondaryMuscles = useMemo(() => {
+    return secondary_muscles && secondary_muscles.length > 0
+      ? secondary_muscles
+      : exerciseData?.secondaryMuscles || [];
+  }, [secondary_muscles, exerciseData?.secondaryMuscles]);
+
   // Check if secondary muscles exist
   const hasSecondaryMuscles = useMemo(() => {
-    return exerciseData?.secondaryMuscles && exerciseData.secondaryMuscles.length > 0;
-  }, [exerciseData?.secondaryMuscles]);
+    return (effectiveSecondaryMuscles && effectiveSecondaryMuscles.length > 0);
+  }, [effectiveSecondaryMuscles]);
   
   // Check if the exercise is cardio-focused
   const isCardioExercise = useMemo(() => {
@@ -363,12 +495,12 @@ export default function ExerciseDetailsModal({
     // 1. "Cardio" is in the primary muscles
     // 2. There are no back muscles in primary or secondary muscles
     
-    const primaryMuscles = exerciseData?.primaryMuscles || [];
-    const secondaryMuscles = exerciseData?.secondaryMuscles || [];
+    const primaryMuscles = effectivePrimaryMuscles || [];
+    const secondaryMuscles = effectiveSecondaryMuscles || [];
     
     // Check if cardio is in primary muscles
     const hasCardio = primaryMuscles.some(
-      muscle => muscle.toLowerCase().includes('cardio')
+      muscle => muscle?.toLowerCase().includes('cardio')
     );
     
     // List of back-specific muscles
@@ -377,12 +509,12 @@ export default function ExerciseDetailsModal({
     // Check if any back muscles are in primary or secondary
     const hasBackMuscles = [...primaryMuscles, ...secondaryMuscles].some(
       muscle => backMuscles.some(backMuscle => 
-        muscle.toLowerCase().includes(backMuscle)
+        muscle?.toLowerCase().includes(backMuscle)
       )
     );
     
     return hasCardio && !hasBackMuscles;
-  }, [exerciseData?.primaryMuscles, exerciseData?.secondaryMuscles]);
+  }, [effectivePrimaryMuscles, effectiveSecondaryMuscles]);
   
   // Helper function to get the correct image source
   const getImageSource = () => {
@@ -409,18 +541,18 @@ export default function ExerciseDetailsModal({
     }
   };
 
-  // Early return if not visible
-  if (!visible) return null;
+  // Early return now depends on internalVisible
+  if (!internalVisible) return null;
 
   return (
     <Modal
-      visible={visible}
+      visible={visible || isClosing.current}
       transparent={true}
       animationType="none"
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
       statusBarTranslucent
     >
-      <TouchableWithoutFeedback onPress={onClose}>
+      <TouchableWithoutFeedback onPress={handleClose}>
         <View style={[styles.modalOverlay, { zIndex: 9999 }]}>
           <TouchableWithoutFeedback onPress={e => e.stopPropagation()}>
             <Animated.View style={[styles.modalContainer, animatedModalStyle, { zIndex: 10000 }]}>
@@ -443,7 +575,7 @@ export default function ExerciseDetailsModal({
                         icon="close"
                         size={24}
                         iconColor="#fff"
-                        onPress={onClose}
+                        onPress={handleClose}
                         style={styles.closeButton}
                       />
                       <Text style={styles.headerTitle}>{exerciseName}</Text>
@@ -457,13 +589,19 @@ export default function ExerciseDetailsModal({
                       keyboardShouldPersistTaps="handled"
                       showsVerticalScrollIndicator={true}
                       nestedScrollEnabled={true}
+                      scrollEventThrottle={16}
+                      decelerationRate="fast"
+                      overScrollMode="never"
                     >
                       {/* Exercise Image/Video */}
                       <Pressable style={styles.mediaContainer} onPress={() => {}}>
-                        <Image 
+                        <OptimizedImage 
                           source={getImageSource()} 
                           style={styles.mediaImage}
                           resizeMode="cover"
+                          cachePolicy="immutable"
+                          fallback={require('../../assets/exercises/placeholder.jpg')}
+                          isImportant={true}
                         />
                         <View style={styles.playButtonOverlay}>
                           <MaterialIcons name="play-circle-filled" size={60} color="rgba(255,255,255,0.8)" />
@@ -512,37 +650,46 @@ export default function ExerciseDetailsModal({
                             <Surface style={styles.sectionContent}>
                               <Text style={styles.sectionTitle}>Muscles Worked</Text>
                               
-                              {/* Primary and Secondary muscle labels side by side */}
-                              <View style={styles.muscleLabelsContainer}>
-                                <Text style={[styles.primaryLabel, hasSecondaryMuscles ? {} : { flex: 2 }]}>Primary:</Text>
-                                {hasSecondaryMuscles && <Text style={styles.secondaryLabel}>Secondary:</Text>}
-                              </View>
-                              
-                              {/* Primary and Secondary muscle groups */}
-                              <View style={styles.muscleGroupsContainer}>
-                                <View style={[styles.primaryMuscleContainer, hasSecondaryMuscles ? {} : { flex: 2 }]}>
-                                  <MuscleTags 
-                                    muscles={exerciseData?.primaryMuscles || []} 
-                                    isPrimary={true} 
-                                  />
+                              {loading ? (
+                                <View style={styles.loadingContainer}>
+                                  <ActivityIndicator size="large" color={COLORS.primary} />
                                 </View>
-                                {hasSecondaryMuscles && (
-                                  <View style={styles.secondaryMuscleContainer}>
-                                    <MuscleTags 
-                                      muscles={exerciseData?.secondaryMuscles || []} 
-                                      isPrimary={false} 
-                                    />
+                              ) : (
+                                <>
+                                  {/* Primary and Secondary muscle labels side by side */}
+                                  <View style={styles.muscleLabelsContainer}>
+                                    <Text style={[styles.primaryLabel, hasSecondaryMuscles ? {} : { flex: 2 }]}>Primary:</Text>
+                                    {hasSecondaryMuscles && <Text style={styles.secondaryLabel}>Secondary:</Text>}
                                   </View>
-                                )}
-                              </View>
+                                  
+                                  {/* Primary and Secondary muscle groups */}
+                                  <View style={styles.muscleGroupsContainer}>
+                                    <View style={[styles.primaryMuscleContainer, hasSecondaryMuscles ? {} : { flex: 2 }]}>
+                                      <MuscleTags 
+                                        muscles={effectivePrimaryMuscles} 
+                                        isPrimary={true} 
+                                      />
+                                    </View>
+                                    {hasSecondaryMuscles && (
+                                      <View style={styles.secondaryMuscleContainer}>
+                                        <MuscleTags 
+                                          muscles={effectiveSecondaryMuscles} 
+                                          isPrimary={false} 
+                                        />
+                                      </View>
+                                    )}
+                                  </View>
+                                </>
+                              )}
                               
                               <MuscleDiagram 
                                 frontBodySvg={frontBodySvg}
                                 backBodySvg={backBodySvg}
-                                primaryMuscles={exerciseData?.primaryMuscles || []}
-                                secondaryMuscles={exerciseData?.secondaryMuscles || []}
+                                primaryMuscles={effectivePrimaryMuscles}
+                                secondaryMuscles={effectiveSecondaryMuscles}
                                 loading={loading}
                                 isCardioExercise={isCardioExercise}
+                                debugMode={false}
                               />
                             </Surface>
 
@@ -613,7 +760,7 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     width: '100%',
-    height: '94%',
+    height: '92%',
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
     overflow: 'hidden',
@@ -864,5 +1011,11 @@ const styles = StyleSheet.create({
   },
   keyboardSpacer: {
     height: Platform.OS === 'ios' ? 0 : 0, // Extra space at the bottom for keyboard
+  },
+  loadingContainer: {
+    minHeight: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: SPACING.sm,
   },
 }); 

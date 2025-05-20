@@ -34,24 +34,10 @@
         "backgroundColor": "#FFFFFF"
       },
       "package": "com.mindmuscle.ai",
-      "intentFilters": [
-        {
-          "action": "VIEW",
-          "autoVerify": true,
-          "data": [
-            {
-              "scheme": "mindmuscle",
-              "host": "reset-password"
-            }
-          ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
-        }
-      ],
       "edgeToEdgeEnabled": true,
       "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.CAMERA"
       ]
@@ -112,7 +98,7 @@
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/4509201333092432"
+      "url": "https://u.expo.dev/9858a5f6-fb78-441d-a3f8-baf6348ed857"
     }
   }
 }

@@ -7,6 +7,8 @@ import {
   isFastImageAvailable, 
   DEBUG_IMAGE_PRELOADER,
   isPlaceholderImage,
+  isSvgPreloaded,
+  preloadedSvgs,
   type Source,
   type Priority
 } from '../utils/imagePreloader';
@@ -20,6 +22,7 @@ export interface PreloadOptions {
   batchSize?: number;
   debugLabel?: string;
   skipIfCached?: boolean;
+  disableSvgLoading?: boolean; // New option to completely skip SVG loading
 }
 
 // Type for the hook's return value
@@ -34,6 +37,23 @@ export interface PreloadingStatus {
     endTime: number | null;
     duration: number | null;
   };
+}
+
+/**
+ * Helper to check if a source is an SVG
+ */
+function isSvgSource(source: string | { uri: string } | null): boolean {
+  if (!source) return false;
+  
+  if (typeof source === 'string') {
+    return source.endsWith('.svg');
+  }
+  
+  if (source.uri) {
+    return source.uri.endsWith('.svg');
+  }
+  
+  return false;
 }
 
 /**
@@ -52,7 +72,8 @@ export default function useImagePreloader(
     priority = 'normal',
     batchSize = 15,
     debugLabel = 'useImagePreloader',
-    skipIfCached = true
+    skipIfCached = true,
+    disableSvgLoading = true // By default, completely skip SVG loading
   } = options;
 
   // Use a ref to track if preloading has started to prevent duplicate loading
@@ -113,10 +134,18 @@ export default function useImagePreloader(
       typeof source === 'string' ? source : (source.uri || '')
     ).filter(uri => uri && typeof uri === 'string');
     
+    // Filter out SVGs if SVG loading is disabled
+    const nonSvgUris = disableSvgLoading 
+      ? uris.filter(uri => !uri.endsWith('.svg'))
+      : uris;
+    
+    // Count skipped SVGs
+    const skippedSvgCount = uris.length - nonSvgUris.length;
+    
     // Filter out already preloaded images if skipIfCached is true
     const urisToLoad = skipIfCached 
-      ? uris.filter(uri => !preloadedImagesCache.has(uri)) 
-      : uris;
+      ? nonSvgUris.filter(uri => !preloadedImagesCache.has(uri)) 
+      : nonSvgUris;
     
     // If all images are already preloaded, return early
     if (urisToLoad.length === 0) {
@@ -124,6 +153,7 @@ export default function useImagePreloader(
         loaded: true,
         error: null,
         progress: 1,
+        // Include SVGs in completed count
         completedCount: uris.length,
         totalCount: uris.length,
         timing: {
@@ -142,8 +172,8 @@ export default function useImagePreloader(
       loaded: false,
       error: null,
       progress: 0,
-      completedCount: 0,
-      totalCount: urisToLoad.length,
+      completedCount: skippedSvgCount, // Start with SVGs counted as already loaded
+      totalCount: uris.length, // Total includes SVGs
       timing: {
         startTime,
         endTime: null,
@@ -152,7 +182,7 @@ export default function useImagePreloader(
     }));
 
     if (DEBUG_IMAGE_PRELOADER) {
-      console.log(`🚀 [${debugLabel}] Starting to preload ${urisToLoad.length} images with priority ${priority}`);
+      console.log(`🚀 [${debugLabel}] Starting to preload ${urisToLoad.length} images with priority ${priority} (${skippedSvgCount} SVGs skipped)`);
     }
 
     // Preload function
@@ -164,7 +194,7 @@ export default function useImagePreloader(
           batches.push(urisToLoad.slice(i, i + batchSize));
         }
 
-        let completedCount = 0;
+        let completedCount = skippedSvgCount; // Start with SVGs counted as completed
 
         // Process each batch
         for (const batch of batches) {
@@ -184,7 +214,7 @@ export default function useImagePreloader(
 
           // Update progress
           completedCount += batch.length;
-          const progress = Math.min(completedCount / urisToLoad.length, 1);
+          const progress = Math.min(completedCount / uris.length, 1);
           
           setStatus(prev => ({
             ...prev,
@@ -193,7 +223,7 @@ export default function useImagePreloader(
           }));
 
           if (DEBUG_IMAGE_PRELOADER) {
-            console.log(`⏱️ [${debugLabel}] Batch completed: ${completedCount}/${urisToLoad.length} (${(progress * 100).toFixed(1)}%)`);
+            console.log(`⏱️ [${debugLabel}] Batch completed: ${completedCount}/${uris.length} (${(progress * 100).toFixed(1)}%)`);
           }
         }
 
@@ -205,7 +235,7 @@ export default function useImagePreloader(
           ...prev,
           loaded: true,
           progress: 1,
-          completedCount: urisToLoad.length,
+          completedCount: uris.length, // Total including SVGs
           timing: {
             ...prev.timing!,
             endTime,

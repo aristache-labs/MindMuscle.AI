@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useProgress } from './ProgressContext';
 
 interface Achievement {
   id: string;
@@ -21,6 +20,13 @@ interface UserStats {
   totalXp: number;
   nextLevelXp: number;
   achievements: Achievement[];
+}
+
+interface Metrics {
+  totalWorkouts: number;
+  streak: number;
+  personalRecords: any[];
+  averageWorkoutDuration: number;
 }
 
 interface GamificationContextType {
@@ -104,10 +110,9 @@ const GamificationContext = createContext<GamificationContextType>({
   loading: true,
 });
 
-export const GamificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const GamificationProvider: React.FC<{ children: React.ReactNode; metrics: Metrics }> = ({ children, metrics }) => {
   const [stats, setStats] = useState<UserStats>(defaultStats);
   const [loading, setLoading] = useState(true);
-  const { metrics } = useProgress();
 
   useEffect(() => {
     loadStats();

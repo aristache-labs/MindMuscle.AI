@@ -345,32 +345,47 @@ export default function PlanDetailsScreen() {
       // First explicitly delete the existing plan
       console.log('Deleting existing plan:', planDetail.id);
       
-      // 1. Delete the plan exercises first (to avoid foreign key constraints)
-      const { error: deleteExercisesError } = await supabase
-        .from('user_active_plan_exercises')
-        .delete()
-        .eq('active_plan_id', planDetail.id);
-        
-      if (deleteExercisesError) {
-        console.error('Error deleting existing exercises:', deleteExercisesError);
-        // Continue anyway as the plan deletion will cascade
-      }
+      // Show user feedback
+      Alert.alert('Processing', 'Removing current plan and adding new plan. This may take a moment...');
       
-      // 2. Now delete the plan itself
-      const { error: deletePlanError } = await supabase
-        .from('user_active_plans')
-        .delete()
-        .eq('id', planDetail.id);
-        
-      if (deletePlanError) {
-        console.error('Error deleting existing plan:', deletePlanError);
-        Alert.alert('Error', 'Failed to replace your current plan. Please try again.');
+      // Use our improved method to delete plan with associated sessions
+      const planDeleted = await workoutPlanService.deleteActivePlanWithSessions(planDetail.id);
+      
+      if (!planDeleted) {
+        console.error('Error deleting existing plan with sessions');
+        Alert.alert('Error', 'Failed to replace your current plan. The app will attempt to fix this issue. Please try again.');
         setIsAddingPlan(false);
+        
+        // As an emergency fallback, try a direct deletion of the old plan
+        // This might fail but it's worth trying
+        try {
+          console.log('Attempting emergency plan deletion as fallback');
+          
+          // Try a direct delete without checking constraints
+          const { error: directDeleteError } = await supabase
+            .from('user_active_plans')
+            .delete()
+            .eq('id', planDetail.id);
+            
+          if (directDeleteError) {
+            console.error('Direct plan deletion also failed:', directDeleteError);
+          } else {
+            console.log('Direct plan deletion succeeded, you may now try adding the plan again');
+            Alert.alert(
+              'Plan Removed',
+              'Your previous plan has been removed. Please try adding the new plan again.',
+              [{ text: 'OK' }]
+            );
+          }
+        } catch (emergencyError) {
+          console.error('Emergency deletion failed:', emergencyError);
+        }
+        
         return;
       }
       
       // Wait for deletion to complete
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 800));
       
       // 3. Now insert the new plan
       const weekProgressionData = {
@@ -414,6 +429,14 @@ export default function PlanDetailsScreen() {
       
       // 4. Add the exercises for the new plan
       if (exercises.length > 0 && newPlan) {
+        // Log workout days distribution for debugging
+        const workoutDayDistribution: {[key: number]: number} = {};
+        exercises.forEach(ex => {
+          const day = ex.workout_day || 0;
+          workoutDayDistribution[day] = (workoutDayDistribution[day] || 0) + 1;
+        });
+        console.log('Exercises by workout day:', workoutDayDistribution);
+        
         const exercisesToInsert = exercises.map((ex, index) => ({
           active_plan_id: newPlan.id,
           exercise_id: ex.exercise_id,
@@ -422,7 +445,8 @@ export default function PlanDetailsScreen() {
           reps: ex.reps,
           rest_time: ex.rest_time,
           order_position: index + 1,
-          image_url: ex.image_url || ''
+          image_url: ex.image_url || '',
+          workout_day: ex.workout_day || 0  // Ensure workout_day is included
         }));
         
         const { error: exerciseError } = await supabase
@@ -461,7 +485,59 @@ export default function PlanDetailsScreen() {
         return;
       }
       
-      // Prepare week progression data
+      // Get all active plans for this user
+      const { data: activePlans, error: fetchError } = await supabase
+        .from('user_active_plans')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('status', 'InProgress');
+        
+      if (fetchError) {
+        console.error('Error fetching existing plans:', fetchError);
+        Alert.alert('Error', 'Could not check existing plans. Please try again.');
+        setIsAddingPlan(false);
+        return;
+      }
+      
+      // If we have existing plans, delete them using our improved method
+      if (activePlans && activePlans.length > 0) {
+        console.log(`Found ${activePlans.length} existing plans to delete`);
+        
+        // Show loading message to user
+        Alert.alert('Processing', 'Preparing your new plan. This may take a moment...');
+        
+        // Delete each plan one by one
+        for (const plan of activePlans) {
+          console.log(`Deleting plan ${plan.id}`);
+          const planDeleted = await workoutPlanService.deleteActivePlanWithSessions(plan.id);
+          
+          if (!planDeleted) {
+            console.warn(`Failed to delete plan ${plan.id}, trying to continue...`);
+            
+            // Try direct deletion as a fallback
+            try {
+              const { error: directDeleteError } = await supabase
+                .from('user_active_plans')
+                .delete()
+                .eq('id', plan.id);
+                
+              if (directDeleteError) {
+                console.error(`Direct deletion of plan ${plan.id} failed:`, directDeleteError);
+                // Keep going despite the error
+              } else {
+                console.log(`Successfully deleted plan ${plan.id} with direct deletion`);
+              }
+            } catch (directError) {
+              console.error(`Exception during direct deletion of plan ${plan.id}:`, directError);
+            }
+          }
+        }
+        
+        // Give the database time to process deletions
+        await new Promise(resolve => setTimeout(resolve, 800));
+      }
+      
+      // Now insert the new plan
       const weekProgressionData = {
         "1": "Adaptation",
         "2": "Accumulation",
@@ -470,24 +546,6 @@ export default function PlanDetailsScreen() {
         "5": "Recovery"
       };
       
-      // First, delete ANY existing active plans for this user
-      const { error: deleteError } = await supabase
-        .from('user_active_plans')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('status', 'InProgress');
-        
-      if (deleteError) {
-        console.error('Error deleting existing plans:', deleteError);
-        Alert.alert('Error', 'Could not delete existing plans. Please try again.');
-        setIsAddingPlan(false);
-        return;
-      }
-      
-      // Wait to ensure deletion is complete
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Now insert the new plan
       const { data: newPlan, error: insertError } = await supabase
         .from('user_active_plans')
         .insert({
@@ -522,6 +580,14 @@ export default function PlanDetailsScreen() {
       // Add exercises for the active plan
       if (exercises.length > 0 && newPlan) {
         try {
+          // Log workout days distribution for debugging
+          const workoutDayDistribution: {[key: number]: number} = {};
+          exercises.forEach(ex => {
+            const day = ex.workout_day || 0;
+            workoutDayDistribution[day] = (workoutDayDistribution[day] || 0) + 1;
+          });
+          console.log('Exercises by workout day:', workoutDayDistribution);
+          
           const exercisesToInsert = exercises.map((ex, index) => ({
             active_plan_id: newPlan.id,
             exercise_id: ex.exercise_id,
@@ -530,7 +596,8 @@ export default function PlanDetailsScreen() {
             reps: ex.reps,
             rest_time: ex.rest_time,
             order_position: index + 1,
-            image_url: ex.image_url || ''
+            image_url: ex.image_url || '',
+            workout_day: ex.workout_day || 0  // Ensure workout_day is included
           }));
           
           const { error: exerciseError } = await supabase

@@ -1929,6 +1929,174 @@ const workoutPlanService = {
       logger.error(`Error syncing set ${setNumber} to user_exercises_history:`, error);
     }
   },
+
+  // Improved deleteActivePlanWithSessions method
+  async deleteActivePlanWithSessions(planId: string): Promise<boolean> {
+    try {
+      logger.debug(`Starting deletion process for active plan: ${planId}`);
+      
+      // First verify the plan exists
+      const { data: planData, error: planCheckError } = await supabase
+        .from('user_active_plans')
+        .select('id')
+        .eq('id', planId)
+        .single();
+        
+      if (planCheckError) {
+        logger.error(`Plan ${planId} not found or error checking:`, planCheckError);
+        return false;
+      }
+      
+      logger.debug(`Verified plan exists: ${planId}`);
+      
+      // 1. Get all workout sessions for this plan with detailed logging
+      const { data: sessions, error: sessionsError } = await supabase
+        .from('workout_sessions')
+        .select('id, start_time, status')
+        .eq('active_plan_id', planId);
+        
+      if (sessionsError) {
+        logger.error(`Error fetching workout sessions for plan ${planId}:`, sessionsError);
+        return false;
+      }
+      
+      if (!sessions || sessions.length === 0) {
+        logger.debug(`No workout sessions found for plan ${planId}, proceeding with deletion`);
+      } else {
+        logger.debug(`Found ${sessions.length} workout sessions to delete for plan ${planId}`);
+        logger.debug(`Session IDs: ${sessions.map(s => s.id).join(', ')}`);
+        
+        const sessionIds = sessions.map(s => s.id);
+        
+        // 2. First delete all exercise history records associated with these sessions
+        logger.debug(`Deleting exercise history for ${sessionIds.length} sessions`);
+        const { data: historyData, error: historyCheckError } = await supabase
+          .from('user_exercises_history')
+          .select('count')
+          .in('session_id', sessionIds);
+          
+        if (!historyCheckError) {
+          logger.debug(`Found exercise history records to delete: ${JSON.stringify(historyData)}`);
+        }
+        
+        // Delete exercise history with thorough error handling
+        try {
+          const { error: historyError } = await supabase
+            .from('user_exercises_history')
+            .delete()
+            .in('session_id', sessionIds);
+            
+          if (historyError) {
+            logger.error(`Error deleting exercise history for plan ${planId}:`, historyError);
+            return false;
+          }
+          
+          logger.debug(`Successfully deleted exercise history for ${sessionIds.length} sessions`);
+        } catch (deleteHistoryError) {
+          logger.error(`Exception deleting exercise history for plan ${planId}:`, deleteHistoryError);
+          return false;
+        }
+        
+        // 3. Now delete each session individually to ensure success
+        let allSessionsDeleted = true;
+        for (const sessionId of sessionIds) {
+          try {
+            logger.debug(`Deleting session ${sessionId}`);
+            const { error: sessionError } = await supabase
+              .from('workout_sessions')
+              .delete()
+              .eq('id', sessionId);
+              
+            if (sessionError) {
+              logger.error(`Error deleting session ${sessionId}:`, sessionError);
+              allSessionsDeleted = false;
+            } else {
+              logger.debug(`Successfully deleted session ${sessionId}`);
+            }
+          } catch (deleteSessionError) {
+            logger.error(`Exception deleting session ${sessionId}:`, deleteSessionError);
+            allSessionsDeleted = false;
+          }
+        }
+        
+        if (!allSessionsDeleted) {
+          logger.error(`Some sessions could not be deleted for plan ${planId}`);
+          
+          // Verify what sessions remain
+          const { data: remainingSessions } = await supabase
+            .from('workout_sessions')
+            .select('id, active_plan_id')
+            .eq('active_plan_id', planId);
+            
+          if (remainingSessions && remainingSessions.length > 0) {
+            logger.error(`${remainingSessions.length} sessions still remain for plan ${planId}: ${JSON.stringify(remainingSessions)}`);
+            return false;
+          } else {
+            logger.debug(`Verified all sessions are now deleted for plan ${planId}`);
+          }
+        } else {
+          logger.debug(`All ${sessionIds.length} sessions successfully deleted for plan ${planId}`);
+        }
+      }
+      
+      // 4. Double check that no sessions remain before proceeding
+      const { data: checkSessions } = await supabase
+        .from('workout_sessions')
+        .select('count')
+        .eq('active_plan_id', planId);
+        
+      if (checkSessions && checkSessions[0]?.count > 0) {
+        logger.error(`Found ${checkSessions[0].count} remaining sessions for plan ${planId}, cannot safely delete plan`);
+        return false;
+      }
+      
+      // 5. Now delete the plan exercises
+      logger.debug(`Deleting exercises for plan ${planId}`);
+      try {
+        const { error: exercisesError } = await supabase
+          .from('user_active_plan_exercises')
+          .delete()
+          .eq('active_plan_id', planId);
+          
+        if (exercisesError) {
+          logger.error(`Error deleting plan exercises for ${planId}:`, exercisesError);
+          // Continue anyway, not a blocker for plan deletion
+          logger.debug(`Continuing with plan deletion despite exercise deletion error`);
+        } else {
+          logger.debug(`Successfully deleted exercises for plan ${planId}`);
+        }
+      } catch (exerciseDeleteError) {
+        logger.error(`Exception deleting exercises for plan ${planId}:`, exerciseDeleteError);
+        // Continue anyway, not a blocker for plan deletion
+        logger.debug(`Continuing with plan deletion despite exercise deletion error`);
+      }
+      
+      // 6. Finally delete the plan itself with a small delay to ensure DB consistency
+      await new Promise(resolve => setTimeout(resolve, 300));
+      logger.debug(`Deleting plan ${planId}`);
+      
+      try {
+        const { error: planError } = await supabase
+          .from('user_active_plans')
+          .delete()
+          .eq('id', planId);
+          
+        if (planError) {
+          logger.error(`Error deleting active plan ${planId}:`, planError);
+          return false;
+        }
+        
+        logger.debug(`Successfully deleted active plan: ${planId}`);
+        return true;
+      } catch (planDeleteError) {
+        logger.error(`Exception deleting active plan ${planId}:`, planDeleteError);
+        return false;
+      }
+    } catch (error) {
+      logger.error(`Error in deleteActivePlanWithSessions for plan ${planId}:`, error);
+      return false;
+    }
+  },
 };
 
 export default workoutPlanService; 

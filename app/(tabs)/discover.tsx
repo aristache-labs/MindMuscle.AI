@@ -379,6 +379,9 @@ export default function DiscoverScreen() {
     }
   }).current;
   
+  // Add a new ref to track section indices and offsets
+  const sectionIndexesRef = useRef<{[key: string]: {index: number, height: number, offset: number}}>({});
+  
   // Configure viewability 
   const viewabilityConfig = {
     itemVisiblePercentThreshold: 30, // Item is considered visible when 30% of it is visible
@@ -409,6 +412,79 @@ export default function DiscoverScreen() {
   const totalHeaderH = HEADER_HEIGHT + filterHeaderH;
   const categoryBarTop = insets.top + HEADER_HEIGHT + filterHeaderH;
 
+  // Use scroll listener to update current section
+  useEffect(() => {
+    const listener = scrollY.addListener(({ value }) => {
+      // Calculate the threshold position where the category bar is located
+      // Add header height to get the bottom edge of the category bar
+      const categoryBarThreshold = CATEGORY_HEIGHT + 10; // Adding offset to trigger earlier
+      
+      // Determine scroll direction for transition bias
+      const isScrollingDown = value > (scrollY as any)._lastValue || 0;
+      (scrollY as any)._lastValue = value;
+      
+      // Find which section header is closest to the category bar threshold
+      let newSectionTitle = '';
+      
+      // For optimal transitions, we want to:
+      // - When scrolling down: trigger before the section header reaches the bar
+      // - When scrolling up: trigger when the section header is approaching the bar
+      Object.entries(sectionIndexesRef.current).forEach(([title, info]) => {
+        // Calculate how far the section top is from our trigger point
+        // We adjust this value to trigger the transition earlier
+        const sectionPosition = info.offset - value;
+        
+        // Add an early trigger offset (pixels before actually reaching the bar)
+        const earlyTriggerOffset = 50; // Pixels before the bar to trigger change
+        const adjustedPosition = sectionPosition - earlyTriggerOffset;
+        
+        if (isScrollingDown) {
+          // When scrolling down, trigger when section is approaching but before reaching the bar
+          // This makes the text change earlier than before
+          if (adjustedPosition <= categoryBarThreshold && adjustedPosition > -info.height) {
+            newSectionTitle = title;
+          }
+        } else {
+          // When scrolling up, be more sensitive to approaching sections
+          if (sectionPosition < categoryBarThreshold + earlyTriggerOffset && 
+              sectionPosition > -info.height / 2) {
+            newSectionTitle = title;
+          }
+        }
+      });
+      
+      // Only update if we found a section and it's different from current
+      if (newSectionTitle && newSectionTitle !== currentSection) {
+        // Prepare animation based on scroll direction
+        fadeAnim.setValue(0);
+        slideAnim.setValue(isScrollingDown ? 20 : -20); // Move from bottom or top
+        
+        // Update section title
+        setCurrentSection(newSectionTitle);
+        
+        // Animate the transition
+        Animated.parallel([
+          Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 180, // Even faster animation for responsiveness
+            useNativeDriver: true,
+            easing: Easing.out(Easing.ease),
+          }),
+          Animated.timing(slideAnim, {
+            toValue: 0, 
+            duration: 180,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.ease),
+          })
+        ]).start();
+      }
+    });
+    
+    return () => {
+      scrollY.removeListener(listener);
+    };
+  }, [scrollY, currentSection, categoryBarTop, fadeAnim, slideAnim]);
+
   // Define a constant item layout to improve SectionList performance
   const getItemLayout = (data: any, index: number) => {
     // Fixed height for items simplifies calculations and improves performance
@@ -419,6 +495,32 @@ export default function DiscoverScreen() {
       index
     };
   };
+
+  // Update section indexes when sections change
+  useEffect(() => {
+    if (sections.length > 0) {
+      // Calculate section offsets and indexes
+      let currentOffset = CATEGORY_HEIGHT; // Start after the initial padding
+      const newSectionIndexes: typeof sectionIndexesRef.current = {};
+      
+      sections.forEach((section, index) => {
+        const sectionHeight = section.data.length * (CARD_HEIGHT + 6 + 16) + SECTION_HEADER_HEIGHT;
+        newSectionIndexes[section.title] = {
+          index,
+          height: sectionHeight,
+          offset: currentOffset
+        };
+        currentOffset += sectionHeight;
+      });
+      
+      sectionIndexesRef.current = newSectionIndexes;
+      
+      // Initialize current section if not set
+      if (!currentSection && sections.length > 0) {
+        setCurrentSection(sections[0].title);
+      }
+    }
+  }, [sections, currentSection]);
 
   // Fetch workout categories and subcategories from Supabase
   useEffect(() => {
@@ -563,7 +665,17 @@ export default function DiscoverScreen() {
       return <View style={{ height: 0, opacity: 0 }} />;
     }
     return (
-      <View style={styles.sectionHeader}>
+      <View 
+        style={styles.sectionHeader}
+        onLayout={(event: LayoutChangeEvent) => {
+          // Update section height when rendered
+          const { height } = event.nativeEvent.layout;
+          setSectionHeights(prev => ({
+            ...prev,
+            [section.title]: height
+          }));
+        }}
+      >
         <Text style={styles.sectionHeaderText}>{section.title}</Text>
       </View>
     );
@@ -654,8 +766,8 @@ export default function DiscoverScreen() {
           style={[
             styles.categoryText,
             { 
-              opacity: currentSection ? 1 : 0,
-              transform: [{ translateY: currentSection ? 0 : -20 }] 
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }] 
             }
           ]}
         >

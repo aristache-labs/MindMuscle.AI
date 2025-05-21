@@ -2,6 +2,9 @@
 
 A React Native Expo application for AI-powered fitness coaching and progress tracking, featuring secure computation with Supabase MPC and Sentry.io MPC.
 
+## Later requirements implementation
+  - WatermelondDB offline with the Supabase database
+
 ## Features
 
 - 🤖 AI Coaching

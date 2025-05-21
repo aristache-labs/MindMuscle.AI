@@ -1,53 +1,27 @@
 /**
- * Polyfills for React Native compatibility
- * This file should be imported early in the app bootstrap process
+ * MindMuscle.AI Polyfills
+ * 
+ * This file imports all polyfills needed for the application.
+ * Import this file at the entry point of your app.
  */
 
-// URL polyfill
+// WHATWG streams:
+import 'web-streams-polyfill/ponyfill/es6';
+// React Native URL polyfill
 import 'react-native-url-polyfill/auto';
+import 'react-native-get-random-values';
 
-// Buffer polyfill
-import { Buffer } from 'buffer';
-if (typeof global !== 'undefined') {
-  global.Buffer = Buffer;
+// Buffer for binary data handling
+global.Buffer = require('buffer').Buffer;
+
+// Web Streams Polyfill
+import 'web-streams-polyfill';
+
+// Ensure fetch is available (should be built into React Native)
+if (!global.fetch) {
+  console.warn('Fetch API not available, using polyfill');
+  global.fetch = require('node-fetch');
 }
 
-// Custom WebSocket implementation to replace ws
-import wsModule, { WebSocket } from './WebSocket';
-if (typeof global !== 'undefined') {
-  // Make our custom implementation available
-  (global as any).wsCustomImpl = wsModule;
-}
-
-// Web streams polyfill - import directly from the package
-import * as webStreamsPolyfill from './StreamsPolyfill';
-
-// Add ReadableStream to global scope if needed
-if (typeof global !== 'undefined' && !global.ReadableStream) {
-  // Use type assertions to avoid TypeScript errors
-  (global as any).ReadableStream = webStreamsPolyfill.ReadableStream;
-  (global as any).WritableStream = webStreamsPolyfill.WritableStream;
-  (global as any).TransformStream = webStreamsPolyfill.TransformStream;
-}
-
-// Import http-shim to ensure it's available
-import * as httpShim from './http-shim.js';
-if (typeof global !== 'undefined') {
-  (global as any).httpShim = httpShim;
-}
-
-// Import https-shim to ensure it's available
-import * as httpsShim from './https-shim.js';
-if (typeof global !== 'undefined') {
-  (global as any).httpsShim = httpsShim;
-}
-
-// Console message for debugging
-console.log('React Native polyfills initialized with custom WebSocket, HTTP, and HTTPS shims');
-
-// Define a default export to satisfy Expo Router
-export default {
-  init: () => {
-    console.log('React Native polyfills initialized with custom WebSocket, HTTP, and HTTPS shims');
-  }
-}; 
+// Export to ensure the file is not tree-shaken
+export const polyfillsLoaded = true; 

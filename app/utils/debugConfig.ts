@@ -21,8 +21,8 @@ export const DEBUG_CONFIG = {
   
   // Add workout-specific debug flags
   WORKOUT_PLAN: false,
-  WORKOUT_SESSION: true,
-  EXERCISE: true
+  WORKOUT_SESSION: false,
+  EXERCISE: false
 };
 
 /**

@@ -119,6 +119,18 @@ mindmuscle-ai/
 └── tsconfig.json           # TypeScript configuration
 ```
 
+## Node.js Polyfills
+
+We use community-maintained polyfills for Node.js modules:
+
+- **Polyfill Strategy**: We use `node-libs-react-native` to provide React Native-compatible implementations of Node.js core modules.
+- **Metro Config**: Metro resolver is configured to use polyfills from `node-libs-react-native`.
+- **Polyfill Imports**: Essential polyfills like Buffer and URL are imported in the app entry point.
+- **Best Practices**:
+  - Use React Native-compatible libraries (fetch instead of http, AsyncStorage instead of fs)
+  - Avoid server-side logic in the mobile bundle
+  - Keep Node.js API dependencies to a minimum
+
 ## Tech Stack
 
 - **Framework**: React Native with Expo

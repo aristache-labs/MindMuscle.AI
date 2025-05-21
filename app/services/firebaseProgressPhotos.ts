@@ -289,6 +289,10 @@ class FirebaseProgressPhotoService {
         
         // Delete from Firebase Storage
         console.log(`Deleting file from Firebase Storage: ${storagePath}`);
+        if (!storage) {
+          console.error('Firebase storage is not initialized');
+          throw new Error('Firebase storage is not available');
+        }
         const photoRef = ref(storage, storagePath);
         await deleteObject(photoRef);
       } catch (storageError) {

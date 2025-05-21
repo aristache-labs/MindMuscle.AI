@@ -305,6 +305,10 @@ class FirebaseAvatarService {
         }
         
         // Delete from Firebase Storage
+        if (!storage) {
+          console.error('Firebase storage is not initialized');
+          throw new Error('Firebase storage is not available');
+        }
         const photoRef = ref(storage, storagePath);
         await deleteObject(photoRef);
         

@@ -92,7 +92,9 @@
       "eas": {
         "projectId": "9858a5f6-fb78-441d-a3f8-baf6348ed857"
       },
-      "router": {}
+      "router": {
+        "ignore": ["**/constants/**", "**/services/**", "**/types/**", "**/utils/**", "**/components/**"]
+      }
     },
     "runtimeVersion": {
       "policy": "appVersion"

@@ -9,4 +9,9 @@ declare module 'react-native-polyfill-globals' {
 }
 
 // Other module declarations as needed
-declare module 'web-streams-polyfill'; 
+declare module 'web-streams-polyfill';
+
+// Default export to satisfy Expo Router
+export default function GlobalTypes() {
+  return null;
+} 

@@ -1,6 +1,5 @@
 import logger from './logger';
 import { DebugFlags } from './debugConfig';
-import React from 'react';
 
 /**
  * Helper function for conditional debug logging in components
@@ -108,9 +107,4 @@ export const loggers = {
   dataSync: createComponentLogger('DATA_SYNC'),
   performance: createComponentLogger('PERFORMANCE'),
   api: createComponentLogger('API')
-};
-
-// Default export to satisfy Expo Router
-export default function DebugHelpers() {
-  return null;
-} 
+}; 

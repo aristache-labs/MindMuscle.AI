@@ -4,7 +4,6 @@
  * Edit this file to enable/disable debugging for different components.
  * Set values to true to enable debugging, false to disable.
  */
-import React from 'react';
 
 export const DEBUG_CONFIG = {
   // Master switch - enables all debugging when true
@@ -29,9 +28,4 @@ export const DEBUG_CONFIG = {
 /**
  * Type definition for debug flags
  */
-export type DebugFlags = typeof DEBUG_CONFIG;
-
-// Default export to satisfy Expo Router
-export default function DebugConfig() {
-  return null;
-} 
+export type DebugFlags = typeof DEBUG_CONFIG; 

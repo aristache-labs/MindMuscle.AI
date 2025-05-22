@@ -252,6 +252,29 @@ export default function PlanDetailsScreen() {
     setIsStartingPlan(true);
     
     try {
+      // Fetch user's preferred workout days first
+      const { data: userProfileData, error: profileError } = await supabase
+        .from('user_profile_details')
+        .select('workout_days')
+        .eq('user_id', user.id)
+        .single();
+        
+      if (profileError && profileError.code !== 'PGRST116') { // PGRST116 is 'not found' error
+        console.error('Error fetching user workout days:', profileError);
+        throw profileError;
+      }
+      
+      // Get the user's preferred workout days if they exist
+      let userWorkoutDays = userProfileData?.workout_days || [];
+      
+      // If the user hasn't set workout days yet, we'll handle this in my-plan.tsx
+      // by showing a prompt to set workout preferences
+      if (userWorkoutDays.length === 0) {
+        console.log('User has not set workout preferences yet');
+      } else {
+        console.log('User preferred workout days:', userWorkoutDays);
+      }
+      
       // Check if user already has an active plan
       const { data: existingPlans, error: fetchError } = await supabase
         .from('user_active_plans')
@@ -272,6 +295,10 @@ export default function PlanDetailsScreen() {
         if (updateError) throw updateError;
       }
       
+      // Get today's date for the start date
+      const startDate = new Date().toISOString().split('T')[0];
+      console.log('Plan start date:', startDate);
+      
       // Insert the new plan as the active plan
       const { error: insertError } = await supabase
         .from('user_active_plans')
@@ -279,8 +306,10 @@ export default function PlanDetailsScreen() {
           user_id: user.id,
           plan_id: planId,
           is_active: true,
-          current_day: 0,
-          start_date: new Date().toISOString().split('T')[0]
+          current_day: 0, // Always start with day 0
+          start_date: startDate,
+          // Store user's workout days preference to ensure consistency
+          workout_days_preference: userWorkoutDays
         });
         
       if (insertError) throw insertError;

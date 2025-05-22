@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   View, 
   ActivityIndicator, 
@@ -186,6 +186,8 @@ export default function OptimizedImage({
   onError,
   testID,
 }: OptimizedImageProps) {
+  // Reference to track if component is mounted
+  const isMounted = useRef(true);
   // State
   const [loading, setLoading] = useState(false); // Start with false to avoid flash
   const [error, setError] = useState(false);
@@ -317,35 +319,25 @@ export default function OptimizedImage({
 
   // Handle load start
   const handleLoadStart = () => {
-    // Skip loading indicator for already cached images and SVGs
-    if (isCached || isSvg) {
-      if (DEBUG_OPTIMIZED_IMAGE) {
-        console.log(`🖼️ [OptimizedImage] ${debugLabel || (isSvg ? 'SVG' : 'Image')} already in cache or is SVG, skipping load indicators`);
-      }
-      setLoading(false);
-      
-      if (onLoadStart) {
-        onLoadStart();
-      }
-      
-      return;
-    }
-    
-    // For local assets (numbers from require()), skip loading indicator
+    // Skip for local assets
     if (typeof source === 'number') {
-      setLoading(false);
+      if (isMounted.current) {
+        setLoading(false);
+      }
       if (onLoadStart) {
         onLoadStart();
       }
       return;
     }
     
-    setTiming(prev => ({
-      ...prev,
-      loadStart: Date.now(),
-    }));
-    
-    setLoading(true);
+    if (isMounted.current) {
+      setTiming(prev => ({
+        ...prev,
+        loadStart: Date.now(),
+      }));
+      
+      setLoading(true);
+    }
     
     if (onLoadStart) {
       onLoadStart();
@@ -379,21 +371,24 @@ export default function OptimizedImage({
       }
     }
     
-    setLoading(false);
-    setError(false);
-    
-    const endTime = Date.now();
-    const startTime = timing.loadStart;
-    const duration = startTime ? endTime - startTime : null;
-    
-    setTiming(prev => ({
-      ...prev,
-      loadEnd: endTime,
-      loadDuration: duration,
-    }));
-    
-    if (DEBUG_OPTIMIZED_IMAGE && duration) {
-      console.log(`🖼️ [OptimizedImage] ${debugLabel || 'Image'} loaded in ${duration}ms`);
+    // Only update state if component is still mounted
+    if (isMounted.current) {
+      setLoading(false);
+      setError(false);
+      
+      const endTime = Date.now();
+      const startTime = timing.loadStart;
+      const duration = startTime ? endTime - startTime : null;
+      
+      setTiming(prev => ({
+        ...prev,
+        loadEnd: endTime,
+        loadDuration: duration,
+      }));
+      
+      if (DEBUG_OPTIMIZED_IMAGE && duration) {
+        console.log(`🖼️ [OptimizedImage] ${debugLabel || 'Image'} loaded in ${duration}ms`);
+      }
     }
     
     if (onLoadEnd) {
@@ -406,11 +401,14 @@ export default function OptimizedImage({
 
   // Handle errors
   const handleError = (event: any) => {
-    setLoading(false);
-    setError(true);
-    
-    if (DEBUG_OPTIMIZED_IMAGE) {
-      console.error(`🖼️ [OptimizedImage] ${debugLabel || 'Image'} error:`, event);
+    // Only update state if component is still mounted
+    if (isMounted.current) {
+      setLoading(false);
+      setError(true);
+      
+      if (DEBUG_OPTIMIZED_IMAGE) {
+        console.error(`🖼️ [OptimizedImage] ${debugLabel || 'Image'} error:`, event);
+      }
     }
     
     if (onError) {
@@ -435,6 +433,14 @@ export default function OptimizedImage({
         return 'cover';
     }
   }
+
+  // Set up cleanup when component unmounts
+  useEffect(() => {
+    return () => {
+      // Mark component as unmounted to prevent state updates
+      isMounted.current = false;
+    };
+  }, []);
 
   // Render component
   return (

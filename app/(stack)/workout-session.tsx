@@ -440,8 +440,20 @@ export default function WorkoutSessionScreen() {
         const reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
         const setVolume = parseFloat((weight * reps).toFixed(1)); // Ensure precision to 1 decimal place
         
-        setTotalVolume(prev => parseFloat((prev + setVolume).toFixed(1)));
-        setTotalReps(prev => prev + reps);
+        // Log the values for debugging
+        console.log(`Set completed - Weight: ${weight}, Reps: ${reps}, Volume: ${setVolume}`);
+        
+        setTotalVolume(prev => {
+          const newTotal = parseFloat((prev + setVolume).toFixed(1));
+          console.log(`Updated total volume: ${newTotal}`);
+          return newTotal;
+        });
+        
+        setTotalReps(prev => {
+          const newTotal = prev + reps;
+          console.log(`Updated total reps: ${newTotal}`);
+          return newTotal;
+        });
         
         // Store the last values for this exercise if they're valid
         if (currentSet.weight !== '-' && currentSet.weight !== '' && currentSet.reps !== '-' && currentSet.reps !== '') {
@@ -504,8 +516,22 @@ export default function WorkoutSessionScreen() {
             if (allExercisesCompleted) {
               // All exercises and all sets are completed, save the workout data
               console.log('All exercises in the workout completed, saving data to database...');
+              
+              // Calculate the latest volume and reps including the last set
+              const weight = currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight);
+              const reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
+              const setVolume = parseFloat((weight * reps).toFixed(1));
+              
+              // Calculate the new totals including this last set
+              const newTotalVolume = parseFloat((totalVolume + setVolume).toFixed(1));
+              const newTotalReps = totalReps + reps;
+              
+              console.log(`Last set - Weight: ${weight}, Reps: ${reps}, Volume: ${setVolume}`);
+              console.log(`Passing fresh totals to completeWorkout - Volume: ${newTotalVolume}, Reps: ${newTotalReps}`);
+              
+              // Pass the fresh values directly to completeWorkout
               setTimeout(() => {
-                completeWorkout();
+                completeWorkout(newTotalVolume, newTotalReps);
               }, 500);
             } else {
               // Just move to the next exercise (which will be the last one)
@@ -657,7 +683,13 @@ export default function WorkoutSessionScreen() {
                   if (allExercisesCompleted) {
                     // All exercises are completed, save workout data
                     console.log('All exercises completed via Log All Sets, saving workout data...');
-                    completeWorkout();
+                    
+                    // Use the current UI state values which should be accurate after the timeout
+                    const currentTotalVolume = totalVolume;
+                    const currentTotalReps = totalReps;
+                    
+                    console.log(`Log All Sets - Passing current totals to completeWorkout - Volume: ${currentTotalVolume}, Reps: ${currentTotalReps}`);
+                    completeWorkout(currentTotalVolume, currentTotalReps);
                   } else {
                     // Not all exercises are completed, just move to next exercise
                     console.log('All sets completed via Log All, moving to next exercise');
@@ -799,7 +831,7 @@ export default function WorkoutSessionScreen() {
     }
   };
 
-  const completeWorkout = async () => {
+  const completeWorkout = async (overrideVolume?: number, overrideReps?: number) => {
     if (!user || !planId || !workoutStartTime) {
       console.error('Missing required data for workout completion', { user: !!user, planId, workoutStartTime: !!workoutStartTime });
       return;
@@ -808,10 +840,17 @@ export default function WorkoutSessionScreen() {
     // Stop the workout timer
     setWorkoutTimerActive(false);
     
-    // Final calculation of workout metrics
+    // Use override values if provided, otherwise fall back to state values
+    // This ensures we capture the most up-to-date values including the last set
     const finalDuration = workoutDuration;
-    const finalVolume = totalVolume;
-    const finalReps = totalReps;
+    const finalVolume = overrideVolume !== undefined ? overrideVolume : totalVolume;
+    const finalReps = overrideReps !== undefined ? overrideReps : totalReps;
+    
+    console.log(`Final values for database - Volume: ${finalVolume}, Reps: ${finalReps}`);
+    console.log(`State values were - Volume: ${totalVolume}, Reps: ${totalReps}`);
+    if (overrideVolume !== undefined) {
+      console.log('Using override values from last set completion');
+    }
     
     console.log('Starting workout completion with data:', {
       planId,
@@ -849,10 +888,11 @@ export default function WorkoutSessionScreen() {
           cycle_week: cycleWeek,
           week_name: weekName,
           workout_duration: formattedDuration, // Save formatted duration in hh:mm:ss format
-          calories_burned: Math.round(workoutDurationMinutes * 8.5), // Rough estimate
+          calories_burned: Math.round(workoutDurationMinutes * 8.5), // Match the calculation used in plan-details.tsx (8.5 calories per minute)
           total_volume: finalVolume, // Add total volume (kg)
           total_reps: finalReps, // Add total reps
-          completed_at: new Date().toISOString() // Add completion timestamp
+          completed_at: new Date().toISOString(), // Add completion timestamp
+          exercises_count: exercises.length // Store the actual number of exercises
         })
         .select('id')
         .single();
@@ -925,24 +965,37 @@ export default function WorkoutSessionScreen() {
         const { completed_workouts, current_week, current_day } = planData;
         let updatedWeek = current_week;
         let updatedCompleted = false;
+        let updatedDay = current_day;
         
-        // Calculate new completed workouts count
-        const newCompletedWorkouts = (completed_workouts || 0) + 1;
+        // Check if this is a redone workout (started with forceStart parameter)
+        const forceStartParam = params.forceStart;
+        const isRedoWorkout = forceStartParam === 'true';
         
-        // Check if we should advance to the next week
-        const workoutsPerWeek = 3; // 3 workouts per week based on requirements
-        
-        if (newCompletedWorkouts % workoutsPerWeek === 0) {
-          // We've completed a full week
-          if (current_week < 5) {
-            // Advance to next week
-            updatedWeek = current_week + 1;
-            console.log(`Advancing to week ${updatedWeek}`);
-          } else if (current_week === 5) {
-            // We've completed the full 5-week cycle
-            updatedCompleted = true;
-            console.log('Completed the full 5-week cycle');
+        // Only increment completed workouts count if this is NOT a redone workout
+        let newCompletedWorkouts = completed_workouts || 0;
+        if (!isRedoWorkout) {
+          newCompletedWorkouts += 1;
+          
+          // Check if we should advance to the next week
+          const workoutsPerWeek = 3; // 3 workouts per week based on requirements
+          
+          if (newCompletedWorkouts % workoutsPerWeek === 0) {
+            // We've completed a full week
+            if (current_week < 5) {
+              // Advance to next week
+              updatedWeek = current_week + 1;
+              console.log(`Advancing to week ${updatedWeek}`);
+            } else if (current_week === 5) {
+              // We've completed the full 5-week cycle
+              updatedCompleted = true;
+              console.log('Completed the full 5-week cycle');
+            }
           }
+          
+          // Only update the current day if this is not a redone workout
+          updatedDay = (current_day + 1) % workoutsPerWeek; // Cycle through 0, 1, 2
+        } else {
+          console.log('This is a redone workout - not incrementing completed workouts count or advancing week');
         }
         
         // Update the active plan
@@ -951,7 +1004,7 @@ export default function WorkoutSessionScreen() {
           .update({
             completed_workouts: newCompletedWorkouts,
             current_week: updatedWeek,
-            current_day: (current_day + 1) % workoutsPerWeek, // Cycle through 0, 1, 2
+            current_day: updatedDay,
             last_workout_date: new Date().toISOString(),
             completed: updatedCompleted
             // We're already storing workout metrics in user_workout_history
@@ -983,6 +1036,20 @@ export default function WorkoutSessionScreen() {
       // Set workout as completed
       setIsWorkoutCompleted(true);
       setIsLoading(false);
+      
+      // Check if this workout was started from the REDO WORKOUT button
+      // If so, don't try to navigate back since we're already on the my-plan screen
+      const forceStartParam = params.forceStart;
+      if (forceStartParam === 'true') {
+        // Don't navigate back, we're already on the right screen
+        // Just show the completion UI
+        console.log('Workout completed after REDO, staying on current screen');
+      } else {
+        // CRITICAL FIX: Use router.replace instead of router.push to avoid navigation stack issues
+        // This prevents the brief redirect to profile screen
+        console.log('Workout completed, replacing current screen with my-plan screen');
+        router.replace('/(stack)/my-plan');
+      }
       
     } catch (error) {
       setIsLoading(false);

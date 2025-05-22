@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Dimensions, FlatList } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Dimensions, FlatList, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Appbar, Button, Divider, IconButton, FAB } from 'react-native-paper';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
@@ -463,9 +463,31 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     }
   };
   
-  const handleStartWorkout = () => {
-    // TODO: Implement starting the workout
-    console.log('Starting workout for day:', activeDay);
+  const handleStartWorkout = async () => {
+    if (!plan || activeDay === null || !user) return;
+    
+    try {
+      // Get plan data with cycle week information
+      const cycleData = await workoutPlanService.getActivePlanWithCycleWeek(user.id, plan.id);
+      
+      if (!cycleData) {
+        throw new Error('Failed to get plan cycle data');
+      }
+      
+      // Navigate to workout session
+      router.push({
+        pathname: '/(stack)/workout-session',
+        params: { 
+          planId: plan.id,
+          workoutDay: activeDay,
+          cycleWeek: cycleData.currentWeek,
+          weekName: cycleData.weekName
+        }
+      });
+    } catch (err) {
+      console.error('Error starting workout:', err);
+      Alert.alert('Error', 'Failed to start workout');
+    }
   };
   
   // Setup weekly calendar days
@@ -610,7 +632,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         contentContainerStyle={[
           styles.scrollContent,
           { 
-            paddingBottom: insets.bottom + 100, // Include bottom insets for FAB spacing
+            paddingBottom: insets.bottom + 150, // Increased from 100 to 150 for more space
             paddingTop: embedded ? SPACING.xxl * 2.5 : SPACING.xl // Increased padding in both modes
           }
         ]}
@@ -975,13 +997,12 @@ const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
     margin: 16,
-    right: 0,
-    bottom: 0,
-    left: 0,
+    bottom: 130,
     alignSelf: 'center',
     backgroundColor: '#7B69EE',
     elevation: 8,
     borderRadius: 30,
+    width: 200,
   },
   noWorkoutContainer: {
     padding: SPACING.md,

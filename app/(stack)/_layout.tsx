@@ -44,6 +44,7 @@ export default function StackLayout() {
           fullScreenGestureEnabled: false,
         }}
       /> 
+
       <Stack.Screen
         name="ai-coaching"
         options={{
@@ -89,6 +90,15 @@ export default function StackLayout() {
           gestureEnabled: true,
           fullScreenGestureEnabled: true,
           animationDuration: 250,
+        }}
+      />
+      <Stack.Screen
+        name="workout-session"
+        options={{
+          headerShown: false,
+          animation: 'slide_from_right',
+          gestureEnabled: true,
+          fullScreenGestureEnabled: true,
         }}
       />
     </Stack>

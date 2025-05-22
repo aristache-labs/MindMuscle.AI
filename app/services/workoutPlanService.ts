@@ -155,6 +155,72 @@ export const getUserWorkoutDays = async (userId: string): Promise<string[]> => {
   }
 };
 
+// Get the active plan with cycle week information
+export const getActivePlanWithCycleWeek = async (userId: string, planId: string): Promise<{
+  currentWeek: number;
+  weekName: string;
+  planId: string;
+  workoutDay: number;
+} | null> => {
+  try {
+    // Get the active plan information
+    const { data: planData, error: planError } = await supabase
+      .from('user_active_plans')
+      .select('current_week, current_day, plan_id')
+      .eq('user_id', userId)
+      .eq('plan_id', planId)
+      .eq('is_active', true)
+      .single();
+      
+    if (planError) throw planError;
+    
+    if (!planData) return null;
+    
+    // Get the week name
+    const { data: weekData, error: weekError } = await supabase
+      .from('workout_cycle_weeks')
+      .select('name')
+      .eq('week_number', planData.current_week)
+      .single();
+      
+    if (weekError) {
+      console.error('Error fetching cycle week name:', weekError);
+      // Return default if we can't get the week name
+      return {
+        currentWeek: planData.current_week || 1,
+        weekName: getDefaultWeekName(planData.current_week || 1),
+        planId: planData.plan_id,
+        workoutDay: planData.current_day || 0
+      };
+    }
+    
+    return {
+      currentWeek: planData.current_week || 1,
+      weekName: weekData?.name || getDefaultWeekName(planData.current_week || 1),
+      planId: planData.plan_id,
+      workoutDay: planData.current_day || 0
+    };
+  } catch (error) {
+    console.error('Error fetching plan cycle week:', error);
+    return null;
+  }
+};
+
+// Helper function to get default week name based on week number
+const getDefaultWeekName = (weekNumber: number): string => {
+  const weekNames = [
+    'Adaptation',
+    'Accumulation',
+    'Intensification',
+    'Realization',
+    'Recovery'
+  ];
+  
+  // Adjust for 0-based index, ensuring we stay within bounds
+  const index = (weekNumber - 1) % 5;
+  return weekNames[index];
+};
+
 export default {
   saveActivePlan,
   getActivePlan,
@@ -162,5 +228,6 @@ export default {
   clearActivePlan,
   getPlanById,
   updateUserWorkoutDays,
-  getUserWorkoutDays
+  getUserWorkoutDays,
+  getActivePlanWithCycleWeek
 }; 

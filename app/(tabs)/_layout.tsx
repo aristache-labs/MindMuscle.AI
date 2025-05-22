@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TabBarBackground, CircleBackground } from '../components/NavigationBackgrounds';
 import { HomeIcon, SearchIcon, DumbbellIcon, InsightsIcon, ProfileIcon } from '../components/NavigationIcons';
 import { COLORS } from '../constants/theme';
+import { Ionicons } from '@expo/vector-icons';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const TAB_BAR_HEIGHT = 75;
 const PADDING = 16;
@@ -311,6 +312,12 @@ export default function TabsLayout() {
   const router = useRouter();
   const { session, loading } = useAuth();
   const [navigated, setNavigated] = useState(false);
+  const pathname = usePathname();
+  
+  // Check if current path should hide the tab bar
+  const shouldHideTabBar = HIDE_TAB_BAR_SCREENS.some(screen => 
+    pathname.includes(screen)
+  );
 
   // Check authentication and navigate if needed
   useEffect(() => {
@@ -340,7 +347,7 @@ export default function TabsLayout() {
           display: 'none',
         },
       }}
-      tabBar={(props) => <FloatingTabBar {...props} />}
+      tabBar={(props) => shouldHideTabBar ? null : <FloatingTabBar {...props} />}
     >
       <Tabs.Screen
         name="index"

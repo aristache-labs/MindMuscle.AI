@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Dimensions, FlatList, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Appbar, Button, Divider, IconButton, FAB } from 'react-native-paper';
+import { Appbar, Button, Divider, IconButton, FAB, Icon } from 'react-native-paper';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { useAuth } from '../store/AuthContext';
 import supabase from '../services/supabase';
@@ -83,6 +83,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [markedDates, setMarkedDates] = useState<any>({});
   const [activeDay, setActiveDay] = useState<number | null>(null);
+  const [completedWorkoutDays, setCompletedWorkoutDays] = useState<string[]>([]);
   
   // Use a simple date array for the weekly calendar view
   const [weekDays, setWeekDays] = useState<Date[]>([]);
@@ -453,7 +454,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     setMarkedDates(markedDatesObj);
   };
   
-  // Check if workout is already completed for the selected day
+  // Check if workout is already completed for the selected day and update the completed days list
   const checkWorkoutCompletion = async (workoutDayIndex = activeDay) => {
     if (!user || !plan || workoutDayIndex === null) return false;
     
@@ -476,6 +477,27 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       // Now check if there's a completed workout for this specific day
       // The workout_day in the database is stored as the same index as in the markedDates
       // This is a 0-based index (0, 1, 2) that corresponds to workout days (Day 1, Day 2, Day 3)
+      
+      // Fetch all completed workouts for this plan to update the completedWorkoutDays list
+      const { data: allCompletedWorkouts, error: allCompletedError } = await supabase
+        .from('user_workout_history')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id);
+        
+      if (!allCompletedError && allCompletedWorkouts) {
+        // Create a list of dates that have completed workouts
+        const completedDates = allCompletedWorkouts.map(workout => {
+          // Find the date in markedDates that corresponds to this workout day
+          const dateEntry = Object.entries(markedDates).find(([_, value]: [string, any]) => 
+            value.workoutDayIndex === workout.workout_day
+          );
+          return dateEntry ? dateEntry[0] : null;
+        }).filter(date => date !== null) as string[];
+        
+        setCompletedWorkoutDays(completedDates);
+        console.log('Completed workout days:', completedDates);
+      }
       
       console.log(`Checking for workout completion with day index: ${workoutDayIndex}`);
       
@@ -801,24 +823,36 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
                 ]}
                 onPress={() => handleWeekDayPress(day)}
               >
-                <Text style={[
-                  styles.weekDayText, 
-                  isSelected(day) && styles.selectedWeekDayText
-                ]}>
-                  {getDayAbbreviation(day)}
-                </Text>
-                <Text style={[
-                  styles.weekDayNumber, 
-                  isSelected(day) && styles.selectedWeekDayText
-                ]}>
-                  {format(day, 'd')}
-                </Text>
-                {/* Add a dot indicator for workout days */}
+                <View style={styles.weekDayContent}>
+                  <Text style={[
+                    styles.weekDayText, 
+                    isSelected(day) && styles.selectedWeekDayText
+                  ]}>
+                    {getDayAbbreviation(day)}
+                  </Text>
+                  <Text style={[
+                    styles.weekDayNumber, 
+                    isSelected(day) && styles.selectedWeekDayText
+                  ]}>
+                    {format(day, 'd')}
+                  </Text>
+                </View>
+                {/* Add an indicator for workout days */}
                 {markedDates[format(day, 'yyyy-MM-dd')]?.marked && (
-                  <View style={[
-                    styles.dayIndicator,
-                    isSelected(day) && styles.selectedDayIndicator
-                  ]} />
+                  completedWorkoutDays.includes(format(day, 'yyyy-MM-dd')) ? (
+                    <View style={isSelected(day) ? styles.selectedCheckIconContainer : styles.checkIconContainer}>
+                      <Icon 
+                        source="check-circle" 
+                        size={14} 
+                        color={isSelected(day) ? COLORS.text : COLORS.primary} 
+                      />
+                    </View>
+                  ) : (
+                    <View style={[
+                      styles.dayIndicator,
+                      isSelected(day) && styles.selectedDayIndicator
+                    ]} />
+                  )
                 )}
               </TouchableOpacity>
             ))}
@@ -1094,29 +1128,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   weekDay: {
-    alignItems: 'center',
-    justifyContent: 'center',
     width: 44,
     height: 68,
     borderRadius: 25,
-    paddingVertical: SPACING.xs,
     position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   selectedWeekDay: {
     backgroundColor: COLORS.primary,
     elevation: 5,
-    marginTop: 4,
+    paddingTop: 8,
+    height: 75,
+    justifyContent: 'flex-start',
+  },
+  weekDayContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   weekDayText: {
     fontSize: 16,
     fontWeight: '500',
     color: COLORS.text,
-    marginBottom: 0,
+    marginBottom: 4,
   },
   weekDayNumber: {
     fontSize: 16,
     fontWeight: '500',
     color: COLORS.text,
+    paddingBottom: 2,
   },
   selectedWeekDayText: {
     color: COLORS.text,
@@ -1127,10 +1167,23 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: COLORS.primary,
     position: 'absolute',
-    bottom: 6,
+    bottom: 2,
   },
   selectedDayIndicator: {
     backgroundColor: COLORS.text,
+    bottom: 8,
+  },
+  checkIconContainer: {
+    position: 'absolute',
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectedCheckIconContainer: {
+    position: 'absolute',
+    bottom: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   workoutContainer: {
     backgroundColor: 'rgba(30, 30, 40, 0.6)',

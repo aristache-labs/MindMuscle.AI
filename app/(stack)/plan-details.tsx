@@ -228,7 +228,7 @@ export default function PlanDetailsScreen() {
         setPlan(formattedPlan);
       } catch (err: any) {
         setError('Failed to load plan details.');
-        console.error('Error fetching plan details:', err);
+        // Error fetching plan details
       } finally {
         setIsLoading(false);
       }
@@ -245,7 +245,7 @@ export default function PlanDetailsScreen() {
 
   const handleStartPlan = async () => {
     if (!user) {
-      console.error('User not authenticated');
+      // User not authenticated
       return;
     }
     
@@ -260,7 +260,7 @@ export default function PlanDetailsScreen() {
         .single();
         
       if (profileError && profileError.code !== 'PGRST116') { // PGRST116 is 'not found' error
-        console.error('Error fetching user workout days:', profileError);
+        // Error fetching user workout days
         throw profileError;
       }
       
@@ -270,9 +270,9 @@ export default function PlanDetailsScreen() {
       // If the user hasn't set workout days yet, we'll handle this in my-plan.tsx
       // by showing a prompt to set workout preferences
       if (userWorkoutDays.length === 0) {
-        console.log('User has not set workout preferences yet');
+
       } else {
-        console.log('User preferred workout days:', userWorkoutDays);
+
       }
       
       // Check if user already has an active plan
@@ -297,7 +297,7 @@ export default function PlanDetailsScreen() {
       
       // Get today's date for the start date
       const startDate = new Date().toISOString().split('T')[0];
-      console.log('Plan start date:', startDate);
+
       
       // Insert the new plan as the active plan
       const { error: insertError } = await supabase
@@ -321,7 +321,7 @@ export default function PlanDetailsScreen() {
       });
       
     } catch (error) {
-      console.error('Error starting plan:', error);
+      // Error starting plan
     } finally {
       setIsStartingPlan(false);
     }
@@ -360,7 +360,7 @@ export default function PlanDetailsScreen() {
       const actualExerciseId = exercise.exercise_id || exercise.id;
       
       if (!actualExerciseId) {
-        console.error('No valid exercise ID found for this exercise');
+        // No valid exercise ID found for this exercise
         throw new Error('Missing exercise ID');
       }
       
@@ -373,7 +373,7 @@ export default function PlanDetailsScreen() {
           .single();
         
         if (error) {
-          console.error('Error fetching exercise details:', error);
+          // Error fetching exercise details
           throw error;
         }
         
@@ -392,11 +392,11 @@ export default function PlanDetailsScreen() {
           });
         }
       } catch (fetchError) {
-        console.error('Error fetching exercise details from Supabase:', fetchError);
+        // Error fetching exercise details from Supabase
         // Even if fetch fails, still show what we have
       }
     } catch (error) {
-      console.error('Error in handleExercisePress:', error);
+      // Error in handleExercisePress
     } finally {
       setIsLoading(false);
     }

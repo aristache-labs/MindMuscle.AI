@@ -53,9 +53,9 @@ export const saveActivePlan = async (plan: SavedPlan): Promise<void> => {
     // Optionally, also save to the server/database
     // await uploadActivePlanToServer(plan);
     
-    console.log('Plan saved successfully:', plan.id);
+
   } catch (error) {
-    console.error('Error saving active plan:', error);
+    // Error saving active plan
     throw error;
   }
 };
@@ -68,7 +68,7 @@ export const getActivePlan = async (): Promise<SavedPlan | null> => {
     
     return JSON.parse(planJson) as SavedPlan;
   } catch (error) {
-    console.error('Error fetching active plan:', error);
+    // Error fetching active plan
     return null;
   }
 };
@@ -82,7 +82,7 @@ export const updateActivePlanDay = async (dayIndex: number): Promise<void> => {
     plan.activeDay = dayIndex;
     await AsyncStorage.setItem(ACTIVE_PLAN_KEY, JSON.stringify(plan));
   } catch (error) {
-    console.error('Error updating active plan day:', error);
+    // Error updating active plan day
     throw error;
   }
 };
@@ -92,7 +92,7 @@ export const clearActivePlan = async (): Promise<void> => {
   try {
     await AsyncStorage.removeItem(ACTIVE_PLAN_KEY);
   } catch (error) {
-    console.error('Error clearing active plan:', error);
+    // Error clearing active plan
     throw error;
   }
 };
@@ -109,7 +109,7 @@ export const getPlanById = async (planId: string): Promise<any> => {
     if (error) throw error;
     return data;
   } catch (error) {
-    console.error('Error fetching plan:', error);
+    // Error fetching plan
     throw error;
   }
 };
@@ -124,9 +124,9 @@ export const updateUserWorkoutDays = async (userId: string, workoutDays: string[
       });
       
     if (error) throw error;
-    console.log('User workout days updated:', data);
+
   } catch (error) {
-    console.error('Error updating workout days:', error);
+    // Error updating workout days
     throw error;
   }
 };
@@ -149,7 +149,7 @@ export const getUserWorkoutDays = async (userId: string): Promise<string[]> => {
     // Default to weekdays if no preference set
     return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
   } catch (error) {
-    console.error('Error fetching workout days:', error);
+    // Error fetching workout days
     // Default to weekdays if error
     return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
   }
@@ -184,7 +184,7 @@ export const getActivePlanWithCycleWeek = async (userId: string, planId: string)
       .single();
       
     if (weekError) {
-      console.error('Error fetching cycle week name:', weekError);
+      // Error fetching cycle week name
       // Return default if we can't get the week name
       return {
         currentWeek: planData.current_week || 1,
@@ -201,7 +201,7 @@ export const getActivePlanWithCycleWeek = async (userId: string, planId: string)
       workoutDay: planData.current_day || 0
     };
   } catch (error) {
-    console.error('Error fetching plan cycle week:', error);
+    // Error fetching plan cycle week
     return null;
   }
 };

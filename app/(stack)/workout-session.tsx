@@ -100,12 +100,12 @@ export default function WorkoutSessionScreen() {
   const fetchLastExerciseRecords = async () => {
     if (!user) return;
     if (exercises.length === 0) {
-      console.log('No exercises available yet, skipping fetch of last exercise records');
+
       return;
     }
     
     try {
-      console.log('Fetching last exercise records...');
+
       
       // Create an object to store the last values for each exercise and set
       const lastValues: Record<string, Record<number, { weight: string, reps: string }>> = {};
@@ -113,11 +113,11 @@ export default function WorkoutSessionScreen() {
       // For each exercise, fetch the last records
       for (const exercise of exercises) {
         if (!exercise.exercise_id) {
-          console.log(`Exercise missing exercise_id, skipping`);
+
           continue;
         }
         
-        console.log(`Fetching records for exercise_id: ${exercise.exercise_id}`);
+
         
         const { data: records, error } = await supabase
           .from('user_exercise_records')
@@ -127,11 +127,11 @@ export default function WorkoutSessionScreen() {
           .order('created_at', { ascending: false });
         
         if (error) {
-          console.error('Error fetching last exercise records:', error);
+          // Error fetching last exercise records
           continue;
         }
         
-        console.log(`Found ${records?.length || 0} records for exercise ${exercise.exercise_id}`);
+
         
         if (records && records.length > 0) {
           // Group records by set_number
@@ -147,7 +147,7 @@ export default function WorkoutSessionScreen() {
                 weight: record.weight,
                 reps: record.reps
               };
-              console.log(`Set ${setNumber}: weight=${record.weight}, reps=${record.reps}`);
+
             }
           });
           
@@ -156,13 +156,13 @@ export default function WorkoutSessionScreen() {
       }
       
       if (Object.keys(lastValues).length > 0) {
-        console.log('Setting lastExerciseValues:', JSON.stringify(lastValues, null, 2));
+
         setLastExerciseValues(lastValues);
       } else {
-        console.log('No exercise records found');
+
       }
     } catch (error) {
-      console.error('Error in fetchLastExerciseRecords:', error);
+      // Error in fetchLastExerciseRecords
     }
   };
   
@@ -212,7 +212,7 @@ export default function WorkoutSessionScreen() {
   // Effect to monitor exercises state and fetch last records when exercises change
   useEffect(() => {
     if (exercises.length > 0 && user) {
-      console.log('Exercises loaded, fetching last exercise records...');
+
       fetchLastExerciseRecords();
     }
   }, [exercises, user]);
@@ -253,11 +253,7 @@ export default function WorkoutSessionScreen() {
     try {
       setIsLoading(true);
       
-      console.log('Checking workout completion for:', {
-        userId: user.id,
-        planId,
-        workoutDay
-      });
+
       
       // Get today's date in ISO format (YYYY-MM-DD)
       const today = new Date().toISOString().split('T')[0];
@@ -270,10 +266,10 @@ export default function WorkoutSessionScreen() {
         .eq('plan_id', planId)
         .eq('workout_day', workoutDay);
       
-      console.log('Workout history check result:', { data, error });
+
       
       if (error) {
-        console.error('Error checking workout completion:', error);
+        // Error checking workout completion
         throw error;
       }
       
@@ -283,7 +279,7 @@ export default function WorkoutSessionScreen() {
           new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime()
         )[0];
         
-        console.log('Found completed workout:', mostRecentWorkout);
+
         setIsWorkoutCompleted(true);
         
         // Get the count of exercises from the user_exercise_records table
@@ -294,10 +290,10 @@ export default function WorkoutSessionScreen() {
           .limit(1000);
         
         if (exerciseError) {
-          console.error('Error fetching exercise records:', exerciseError);
+          // Error fetching exercise records
         }
         
-        console.log('Exercise records:', exerciseData);
+
         
         // Set completed workout data
         setCompletedWorkoutData({
@@ -314,7 +310,7 @@ export default function WorkoutSessionScreen() {
         setIsLoading(false);
       } else {
         // Workout is not completed, fetch workout data
-        console.log('No completed workout found, starting new workout');
+
         setIsWorkoutCompleted(false);
         fetchWorkoutData();
         
@@ -333,7 +329,7 @@ export default function WorkoutSessionScreen() {
         };
       }
     } catch (error) {
-      console.error('Error in checkWorkoutCompletion:', error);
+      // Error in checkWorkoutCompletion
       setIsLoading(false);
       // If there's an error, proceed with normal workout
       setIsWorkoutCompleted(false);
@@ -456,7 +452,7 @@ export default function WorkoutSessionScreen() {
       await fetchLastExerciseRecords();
       
     } catch (error) {
-      console.error('Error fetching workout data:', error);
+      // Error fetching workout data
       Alert.alert('Error', 'Failed to load workout data');
     } finally {
       setIsLoading(false);
@@ -525,17 +521,17 @@ export default function WorkoutSessionScreen() {
         const setVolume = parseFloat((weight * reps).toFixed(1)); // Ensure precision to 1 decimal place
         
         // Log the values for debugging
-        console.log(`Set completed - Weight: ${weight}, Reps: ${reps}, Volume: ${setVolume}`);
+
         
         setTotalVolume(prev => {
           const newTotal = parseFloat((prev + setVolume).toFixed(1));
-          console.log(`Updated total volume: ${newTotal}`);
+
           return newTotal;
         });
         
         setTotalReps(prev => {
           const newTotal = prev + reps;
-          console.log(`Updated total reps: ${newTotal}`);
+
           return newTotal;
         });
         
@@ -599,7 +595,7 @@ export default function WorkoutSessionScreen() {
             
             if (allExercisesCompleted) {
               // All exercises and all sets are completed, save the workout data
-              console.log('All exercises in the workout completed, saving data to database...');
+
               
               // Calculate the latest volume and reps including the last set
               const weight = currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight);
@@ -610,8 +606,8 @@ export default function WorkoutSessionScreen() {
               const newTotalVolume = parseFloat((totalVolume + setVolume).toFixed(1));
               const newTotalReps = totalReps + reps;
               
-              console.log(`Last set - Weight: ${weight}, Reps: ${reps}, Volume: ${setVolume}`);
-              console.log(`Passing fresh totals to completeWorkout - Volume: ${newTotalVolume}, Reps: ${newTotalReps}`);
+
+
               
               // Pass the fresh values directly to completeWorkout
               setTimeout(() => {
@@ -620,14 +616,13 @@ export default function WorkoutSessionScreen() {
             } else {
               // Just move to the next exercise (which will be the last one)
               setTimeout(() => {
-                console.log('All sets for current exercise completed, moving to next exercise');
+
                 moveToNextExercise();
               }, 500);
             }
           } else {
             // Not the last exercise, just move to the next one
             setTimeout(() => {
-              console.log('All sets for current exercise completed, moving to next exercise');
               moveToNextExercise();
             }, 500);
           }
@@ -766,24 +761,23 @@ export default function WorkoutSessionScreen() {
                   
                   if (allExercisesCompleted) {
                     // All exercises are completed, save workout data
-                    console.log('All exercises completed via Log All Sets, saving workout data...');
+
                     
                     // Use the current UI state values which should be accurate after the timeout
                     const currentTotalVolume = totalVolume;
                     const currentTotalReps = totalReps;
                     
-                    console.log(`Log All Sets - Passing current totals to completeWorkout - Volume: ${currentTotalVolume}, Reps: ${currentTotalReps}`);
+
                     completeWorkout(currentTotalVolume, currentTotalReps);
                   } else {
                     // Not all exercises are completed, just move to next exercise
-                    console.log('All sets completed via Log All, moving to next exercise');
+
                     moveToNextExercise();
                   }
                 }, 500);
               } else {
                 // Not the last exercise, just move to next
                 setTimeout(() => {
-                  console.log('All sets completed via Log All, moving to next exercise');
                   moveToNextExercise();
                 }, 500);
               }
@@ -798,7 +792,7 @@ export default function WorkoutSessionScreen() {
           [{ text: 'OK' }]
         );
         // Move to next exercise since all sets are already completed
-        console.log('All sets already completed, moving to next exercise');
+
         moveToNextExercise();
       }
     }, 100); // Small delay to ensure state update completes
@@ -871,13 +865,13 @@ export default function WorkoutSessionScreen() {
 
   const moveToNextExercise = () => {
     if (currentExerciseIndex < exercises.length - 1) {
-      console.log(`Moving from exercise ${currentExerciseIndex} to ${currentExerciseIndex + 1}`);
+
       // Use a function to update state to avoid closure issues
       setCurrentExerciseIndex(prevIndex => prevIndex + 1);
       
       // No notification when moving to next exercise for better UX flow
     } else {
-      console.log('Already at the last exercise');
+
       
       // Check if all exercises have all their sets completed
       const allExercisesCompleted = exercises.every(exercise => {
@@ -887,7 +881,7 @@ export default function WorkoutSessionScreen() {
       
       if (allExercisesCompleted) {
         // All exercises and all sets are completed, automatically save data
-        console.log('All exercises completed, automatically saving workout data...');
+
         // Use setTimeout to ensure UI updates complete before saving
         setTimeout(() => {
           completeWorkout();
@@ -917,7 +911,7 @@ export default function WorkoutSessionScreen() {
 
   const completeWorkout = async (overrideVolume?: number, overrideReps?: number) => {
     if (!user || !planId || !workoutStartTime) {
-      console.error('Missing required data for workout completion', { user: !!user, planId, workoutStartTime: !!workoutStartTime });
+      // Missing required data for workout completion
       return;
     }
     
@@ -930,21 +924,13 @@ export default function WorkoutSessionScreen() {
     const finalVolume = overrideVolume !== undefined ? overrideVolume : totalVolume;
     const finalReps = overrideReps !== undefined ? overrideReps : totalReps;
     
-    console.log(`Final values for database - Volume: ${finalVolume}, Reps: ${finalReps}`);
-    console.log(`State values were - Volume: ${totalVolume}, Reps: ${totalReps}`);
+
+
     if (overrideVolume !== undefined) {
-      console.log('Using override values from last set completion');
+
     }
     
-    console.log('Starting workout completion with data:', {
-      planId,
-      workoutDay,
-      cycleWeek,
-      weekName,
-      finalVolume,
-      finalReps,
-      finalDuration
-    });
+
     
     try {
       // Show loading indicator
@@ -960,7 +946,7 @@ export default function WorkoutSessionScreen() {
       const seconds = finalDuration % 60;
       const formattedDuration = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
       
-      console.log('Inserting workout history record with formatted duration:', formattedDuration);
+
       
       // Check if this is a redone workout (started with forceStart parameter)
       const forceStartParam = params.forceStart;
@@ -988,7 +974,7 @@ export default function WorkoutSessionScreen() {
             // Use the cycle week and week name from the most recent workout for this day
             workoutCycleWeek = historyData[0].cycle_week;
             workoutWeekName = historyData[0].week_name;
-            console.log(`Found original data from database: cycle_week=${workoutCycleWeek}, week_name=${workoutWeekName}`);
+
           } else if (originalCycleWeek !== null) {
             // Fall back to the stored original cycle week if available
             workoutCycleWeek = originalCycleWeek;
@@ -1001,14 +987,14 @@ export default function WorkoutSessionScreen() {
               5: 'Deload'
             };
             workoutWeekName = weekNames[workoutCycleWeek] || 'Adaptation';
-            console.log(`Using stored original cycle week: ${workoutCycleWeek} with week name: ${workoutWeekName}`);
+
           }
         } catch (err) {
-          console.error('Error fetching original workout data:', err);
+          // Error fetching original workout data
         }
       }
       
-      console.log(`Using cycle_week ${workoutCycleWeek} for workout history (${isRedoWorkout ? 'redo workout' : 'normal workout'})`);
+
       
       // 1. Insert workout history entry with total volume and reps
       const { data: workoutData, error: workoutError } = await supabase
@@ -1030,14 +1016,14 @@ export default function WorkoutSessionScreen() {
         .single();
         
         if (workoutError) {
-        console.error('Error creating workout history:', workoutError);
+        // Error creating workout history
         throw workoutError;
       }
       
       if (!workoutData) throw new Error('Failed to create workout history record');
       
       const workoutHistoryId = workoutData.id;
-      console.log('Created workout history record:', workoutHistoryId);
+
       
       // 2. Insert exercise records
       const exerciseRecords = [];
@@ -1064,7 +1050,7 @@ export default function WorkoutSessionScreen() {
         }
       }
       
-      console.log(`Saving ${exerciseRecords.length} exercise records...`);
+
       
       if (exerciseRecords.length > 0) {
         const { error: recordsError } = await supabase
@@ -1072,11 +1058,11 @@ export default function WorkoutSessionScreen() {
           .insert(exerciseRecords);
           
         if (recordsError) {
-          console.error('Error saving exercise records:', recordsError);
+          // Error saving exercise records
           throw recordsError;
         }
         
-        console.log('Exercise records saved successfully');
+
       }
       
       // 3. Update user active plan
@@ -1089,7 +1075,7 @@ export default function WorkoutSessionScreen() {
         .single();
         
       if (planError) {
-        console.error('Error fetching active plan:', planError);
+        // Error fetching active plan
         throw planError;
       }
       
@@ -1116,18 +1102,18 @@ export default function WorkoutSessionScreen() {
             if (current_week < 5) {
               // Advance to next week
               updatedWeek = current_week + 1;
-              console.log(`Advancing to week ${updatedWeek}`);
+
             } else if (current_week === 5) {
               // We've completed the full 5-week cycle
               updatedCompleted = true;
-              console.log('Completed the full 5-week cycle');
+
             }
           }
           
           // Only update the current day if this is not a redone workout
           updatedDay = (current_day + 1) % workoutsPerWeek; // Cycle through 0, 1, 2
         } else {
-          console.log('This is a redone workout - not incrementing completed workouts count or advancing week');
+
         }
         
         // For redo workouts, we need to be careful about what we update
@@ -1144,7 +1130,7 @@ export default function WorkoutSessionScreen() {
           completed: updatedCompleted
         };
         
-        console.log(`Updating user_active_plans with: ${JSON.stringify(updateData)} (${isRedoWorkout ? 'redo workout' : 'normal workout'})`);
+
         
         // Update the active plan
         const { error: updateError } = await supabase
@@ -1156,11 +1142,11 @@ export default function WorkoutSessionScreen() {
           .eq('is_active', true);
           
         if (updateError) {
-          console.error('Error updating active plan:', updateError);
+          // Error updating active plan
           throw updateError;
         }
         
-        console.log('Active plan updated successfully');
+
       }
       
       // Set completed workout data for display
@@ -1181,7 +1167,7 @@ export default function WorkoutSessionScreen() {
       
       // We'll handle the navigation in the render function when isWorkoutCompleted is true
       // This prevents navigation issues and ensures consistent behavior
-      console.log('Workout completed, will navigate to my-plan screen');
+
       
       // Also refresh the last exercise records after completing the workout
       // This ensures the data is up-to-date for the next time this exercise is performed
@@ -1189,23 +1175,23 @@ export default function WorkoutSessionScreen() {
       
     } catch (error) {
       setIsLoading(false);
-      console.error('Error completing workout:', error);
+      // Error completing workout
       Alert.alert('Error', 'Failed to save workout data. Please try again.');
     }
   };
   
   // Function to restart the workout (for REDO WORKOUT button)
   const redoWorkout = async () => {
-    console.log('Redoing workout...');
+
     
     // Store the current last exercise values before resetting
     const currentLastValues = {...lastExerciseValues};
-    console.log('Preserving lastExerciseValues:', JSON.stringify(currentLastValues, null, 2));
+
     
     // Store the original cycle week before resetting
     // This ensures we use the correct cycle week when saving the workout history
     setOriginalCycleWeek(cycleWeek);
-    console.log(`Storing original cycle week: ${cycleWeek} for redo workout`);
+
     
     setIsWorkoutCompleted(false);
     setCompletedWorkoutData(null);
@@ -1236,7 +1222,7 @@ export default function WorkoutSessionScreen() {
     
     // Also fetch fresh data after a delay to ensure we have the latest records
     setTimeout(async () => {
-      console.log('Fetching fresh last exercise records after delay...');
+
       await fetchLastExerciseRecords();
     }, 1000); // Longer delay to ensure all state updates have completed
     

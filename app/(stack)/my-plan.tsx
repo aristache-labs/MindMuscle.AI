@@ -111,11 +111,11 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       
       // If user has no workout days set, we should prompt them to set preferences
       if (workoutDays.length === 0) {
-        console.log('User has no workout days set, should prompt to set preferences');
+        // User has no workout days set, should prompt to set preferences
         // We'll show a prompt in the UI to set workout preferences
       }
     } catch (err) {
-      console.error('Error fetching user workout days:', err);
+      // Error fetching user workout days
       // Don't set default days anymore - we'll prompt the user to set their preferences
       setUserWorkoutDays([]);
     }
@@ -279,12 +279,12 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       // CRITICAL FIX: Ensure we have user workout days before setting up the calendar
       // This prevents the calendar from showing incorrect workout days initially
       if (userWorkoutDays.length === 0) {
-        console.log('Fetching user workout days before setting up calendar...');
+
         await fetchUserWorkoutDays();
       }
       
       // Log the user's preferred workout days to verify
-      console.log('User preferred workout days:', userWorkoutDays);
+
       
       // Setup initial active day based on today's date
       const today = new Date();
@@ -293,7 +293,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       // IMPORTANT: Only setup calendar after we have user workout days
       // This ensures the calendar always shows the correct workout days
       if (userWorkoutDays.length > 0) {
-        console.log('Setting up calendar with user workout days:', userWorkoutDays);
+
         setupCalendarDates(activePlanData.start_date, workoutDays.length);
         
         // After setupCalendarDates is called, we need to wait for the state to update
@@ -302,7 +302,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
           if (markedDates[todayStr] && markedDates[todayStr].marked) {
             const workoutDayIndex = markedDates[todayStr].workoutDayIndex;
             setActiveDay(workoutDayIndex);
-            console.log(`Today is a workout day: Day ${workoutDayIndex + 1}`);
+
           } else {
             // Find the next workout day
             const nextWorkoutDate = Object.keys(markedDates)
@@ -312,21 +312,21 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
             if (nextWorkoutDate) {
               const workoutDayIndex = markedDates[nextWorkoutDate].workoutDayIndex;
               setActiveDay(workoutDayIndex);
-              console.log(`Next workout day: ${nextWorkoutDate} (Day ${workoutDayIndex + 1})`);
+
             } else {
               // Default to the first workout day
               setActiveDay(0);
-              console.log('No upcoming workout days found, defaulting to Day 1');
+
             }
           }
         }, 100); // Increased timeout to ensure state updates
       } else {
-        console.warn('No user workout days available, calendar setup delayed');
+        // No user workout days available, calendar setup delayed
         // Default to the first workout day if we can't set up the calendar yet
         setActiveDay(0);
       }
     } catch (err: any) {
-      console.error('Error fetching active plan:', err);
+      // Error fetching active plan
       setError('Failed to load your plan.');
     } finally {
       setIsLoading(false);
@@ -369,7 +369,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       }
     } else {
       // CRITICAL FIX: Completely new approach for workout day mapping
-      console.log('Setting up calendar with new workout day mapping approach');
+
       
       // Convert user workout days to day numbers (0-6, where 0 is Sunday)
       const preferredDays = userWorkoutDays
@@ -377,19 +377,19 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         .filter(day => day !== undefined);
       
       if (preferredDays.length === 0) {
-        console.warn('No valid workout days found in user preferences');
+        // No valid workout days found in user preferences
         return;
       }
       
-      console.log('User preferred workout days:', preferredDays.map(d => numberToDayMap[d]));
+
       
       // Get today's day of week (0-6, Sunday-Saturday)
       const todayDayOfWeek = today.getDay();
-      console.log('Today is:', numberToDayMap[todayDayOfWeek]);
+
       
       // Check if today is a preferred workout day
       const isTodayWorkoutDay = preferredDays.includes(todayDayOfWeek);
-      console.log('Is today a workout day?', isTodayWorkoutDay);
+
       
       // Create a reordered list of preferred days starting with today if today is a workout day
       // or starting with the next workout day if today is not a workout day
@@ -420,7 +420,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         }
       }
       
-      console.log('Ordered workout days:', orderedWorkoutDays.map(d => numberToDayMap[d]));
+
       
       // Create a direct mapping from workout_day indices to day numbers
       const workoutDayToDayNumber: Record<number, number> = {};
@@ -428,9 +428,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         workoutDayToDayNumber[index] = dayNumber;
       });
       
-      console.log('Workout day mapping:', Object.entries(workoutDayToDayNumber).map(([workoutDay, dayNumber]) => 
-        `workout_day ${workoutDay} = ${numberToDayMap[dayNumber]}`
-      ));
+
       
       // Mark workout days on the calendar for the next several weeks
       const weeksToShow = 4;
@@ -469,7 +467,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
             };
             
             // Log for debugging
-            console.log(`${format(targetDate, 'EEE MMM dd')} - Workout Day ${(workoutDay % totalDays) + 1}`);
+
             
             // If this is today, merge with today's style
             if (dateStr === todayStr) {
@@ -492,11 +490,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     if (!user || !plan || workoutDayIndex === null) return false;
     
     try {
-      console.log('Checking workout completion for:', {
-        userId: user.id,
-        planId: plan.id,
-        workoutDay: workoutDayIndex
-      });
+
       
       // First, try to directly query the database to see all records for this plan and user
       const { data: allWorkouts, error: allWorkoutsError } = await supabase
@@ -505,7 +499,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         .eq('user_id', user.id)
         .eq('plan_id', plan.id);
         
-      console.log('All workouts for this plan:', { data: allWorkouts, error: allWorkoutsError });
+
       
       // Now check if there's a completed workout for this specific day
       // The workout_day in the database is stored as the same index as in the markedDates
@@ -532,7 +526,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
           }
         });
         
-        console.log('Workout day map:', workoutDayMap);
+
         
         // Get today's date
         const today = new Date();
@@ -563,10 +557,10 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         });
         
         setCompletedWorkoutDays(completedDates);
-        console.log('Completed workout days:', completedDates);
+
       }
       
-      console.log(`Checking for workout completion with day index: ${workoutDayIndex}`);
+
       
       const { data, error } = await supabase
         .from('user_workout_history')
@@ -575,10 +569,10 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         .eq('plan_id', plan.id)
         .eq('workout_day', workoutDayIndex);
 
-      console.log('Workout history check result with precise day index:', { data, error });
+
       
       if (error) {
-        console.error('Error checking workout completion:', error);
+        // Error checking workout completion
         return false;
       }
       
@@ -588,7 +582,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
           new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime()
         )[0];
         
-        console.log('Found completed workout:', mostRecentWorkout);
+
         
         // Get the count of exercises from the user_exercise_records table
         const { data: exerciseData, error: exerciseError } = await supabase
@@ -598,10 +592,10 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
           .limit(1000);
         
         if (exerciseError) {
-          console.error('Error fetching exercise records:', exerciseError);
+          // Error fetching exercise records
         }
         
-        console.log('Exercise records:', exerciseData);
+
         
         // Get workout duration from the database
         const workoutDuration = mostRecentWorkout.workout_duration || '00:00';
@@ -611,8 +605,8 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         const currentWorkoutDay = plan.workoutDays.find(day => day.day === workoutDayIndex);
         const totalExercisesInDay = currentWorkoutDay ? currentWorkoutDay.total_exercises : 0;
         
-        console.log('Exercises count from history:', exercisesCount);
-        console.log('Total exercises in workout day:', totalExercisesInDay);
+
+
         
         // Set completed workout data - prioritize the exercises_count field if available
         setCompletedWorkoutData({
@@ -630,13 +624,13 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         return true;
       } else {
         // Workout is not completed
-        console.log('No completed workout found');
+
         setIsWorkoutCompleted(false);
         setCompletedWorkoutData(null);
         return false;
       }
     } catch (error) {
-      console.error('Error in checkWorkoutCompletion:', error);
+      // Error in checkWorkoutCompletion
       setIsWorkoutCompleted(false);
       setCompletedWorkoutData(null);
       return false;
@@ -663,7 +657,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         
         // Set the active day to the workout day index from the marked date
         setActiveDay(workoutDayIndex);
-        console.log('Selected workout day:', workoutDayIndex + 1); // +1 for display (1-based)
+        // Selected workout day: workoutDayIndex + 1 (1-based)
         
         // Check if this workout is already completed
         await checkWorkoutCompletion(workoutDayIndex);
@@ -671,7 +665,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         setActiveDay(null);
         setIsWorkoutCompleted(false);
         setCompletedWorkoutData(null);
-        console.log('No workout scheduled for this day');
+
       }
     }
     
@@ -687,7 +681,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       const isCompleted = await checkWorkoutCompletion();
       
       if (isCompleted) {
-        console.log('Workout already completed, showing completion screen');
+
         return; // Don't navigate, show completion info in the current screen
       }
       
@@ -709,7 +703,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         }
       });
     } catch (err) {
-      console.error('Error starting workout:', err);
+      // Error starting workout
       Alert.alert('Error', 'Failed to start workout');
     }
   };
@@ -738,7 +732,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         }
       });
     } catch (err) {
-      console.error('Error restarting workout:', err);
+      // Error restarting workout
       Alert.alert('Error', 'Failed to restart workout');
     }
   };
@@ -796,7 +790,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   // This ensures the calendar always shows the correct workout days
   useEffect(() => {
     if (plan && userWorkoutDays.length > 0) {
-      console.log('Refreshing calendar with user workout days:', userWorkoutDays);
+
       setupCalendarDates(plan.start_date, plan.workoutDays.length);
     }
   }, [userWorkoutDays, plan]);
@@ -817,7 +811,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     // Only refresh if we have a plan, user, and haven't refreshed yet
     if (plan && user && !hasRefreshedCalendar) {
       const refreshCalendarData = async () => {
-        console.log('Refreshing calendar data - one-time refresh');
+
         
         try {
           // First, fetch the latest completed workouts from the database
@@ -828,7 +822,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
             .eq('plan_id', plan.id);
             
           if (error) {
-            console.error('Error fetching completed workouts:', error);
+            // Error fetching completed workouts
           } else if (completedWorkouts) {
             // Update the completed workout days list
             const completedDates: string[] = [];
@@ -849,7 +843,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
             
             // Update the completed workout days state
             setCompletedWorkoutDays(completedDates);
-            console.log('Updated completed workout days:', completedDates);
+
           }
           
           // Refresh the calendar dates with the latest data
@@ -865,7 +859,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
           // Mark that we've refreshed the calendar
           setHasRefreshedCalendar(true);
         } catch (err) {
-          console.error('Error refreshing calendar data:', err);
+          // Error refreshing calendar data
         }
       };
       

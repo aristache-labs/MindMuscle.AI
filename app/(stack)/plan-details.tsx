@@ -11,6 +11,7 @@ import OptimizedImage from '../components/OptimizedImage';
 import useImagePreloader from '../hooks/useImagePreloader';
 import ExerciseDetailsModal from '../components/ExerciseDetailsModal';
 import exerciseService from '../services/exerciseService';
+import { useAuth } from '../store/AuthContext';
 
 interface Exercise {
   id: string;
@@ -50,6 +51,7 @@ export default function PlanDetailsScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
   const planId = params.planId as string;
+  const { user } = useAuth();
   
   const [plan, setPlan] = useState<Plan | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -66,6 +68,8 @@ export default function PlanDetailsScreen() {
     primary_muscles?: string[],
     secondary_muscles?: string[]
   } | null>(null);
+  
+  const [isStartingPlan, setIsStartingPlan] = useState(false);
   
   // Extract all exercise image URLs for preloading
   const exerciseImageUrls = plan?.workoutDays
@@ -239,9 +243,59 @@ export default function PlanDetailsScreen() {
     router.back();
   };
 
-  const handleStartPlan = () => {
-    // TODO: Implement starting the workout plan
-    console.log('Starting plan:', planId);
+  const handleStartPlan = async () => {
+    if (!user) {
+      console.error('User not authenticated');
+      return;
+    }
+    
+    setIsStartingPlan(true);
+    
+    try {
+      // Check if user already has an active plan
+      const { data: existingPlans, error: fetchError } = await supabase
+        .from('user_active_plans')
+        .select('id, plan_id')
+        .eq('user_id', user.id)
+        .eq('is_active', true);
+        
+      if (fetchError) throw fetchError;
+      
+      if (existingPlans && existingPlans.length > 0) {
+        // Set all existing plans to inactive
+        const { error: updateError } = await supabase
+          .from('user_active_plans')
+          .update({ is_active: false })
+          .eq('user_id', user.id)
+          .eq('is_active', true);
+          
+        if (updateError) throw updateError;
+      }
+      
+      // Insert the new plan as the active plan
+      const { error: insertError } = await supabase
+        .from('user_active_plans')
+        .insert({
+          user_id: user.id,
+          plan_id: planId,
+          is_active: true,
+          current_day: 0,
+          start_date: new Date().toISOString().split('T')[0]
+        });
+        
+      if (insertError) throw insertError;
+      
+      // Navigate back to the home screen with the My Plan tab selected
+      router.push({
+        pathname: '/(tabs)',
+        params: { selectedOption: 'My Plan' }
+      });
+      
+    } catch (error) {
+      console.error('Error starting plan:', error);
+    } finally {
+      setIsStartingPlan(false);
+    }
   };
 
   // Handle day change
@@ -480,8 +534,16 @@ export default function PlanDetailsScreen() {
           
           {/* Fixed Start Plan Button */}
           <View style={styles.fixedButtonContainer}>
-            <TouchableOpacity style={styles.startButton} onPress={handleStartPlan}>
-              <Text style={styles.startButtonText}>START THIS PLAN</Text>
+            <TouchableOpacity 
+              style={styles.startButton} 
+              onPress={handleStartPlan}
+              disabled={isStartingPlan}
+            >
+              {isStartingPlan ? (
+                <ActivityIndicator color={COLORS.text} size="small" />
+              ) : (
+                <Text style={styles.startButtonText}>START THIS PLAN</Text>
+              )}
             </TouchableOpacity>
             <View style={styles.buttonBottomFill} />
           </View>

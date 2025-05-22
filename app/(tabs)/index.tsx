@@ -16,18 +16,21 @@ import CustomScreen from '../(stack)/custom';
 
 const { width } = Dimensions.get('window');
 
-
-
 export default function HomeScreen() {
   const { user, isLoading, signOut } = useAuth();
   const [selectedOption, setSelectedOption] = useState('My Plan');
   const params = useLocalSearchParams();
   const theme = useTheme();
   
-  // Set My Plan as default option, especially when navigating back from plan details
+  // Set My Plan as default option, and handle navigation with params
   useEffect(() => {
-    setSelectedOption('My Plan');
-  }, []);
+    // Check if selectedOption is passed in params
+    if (params.selectedOption) {
+      setSelectedOption(params.selectedOption as string);
+    } else {
+      setSelectedOption('My Plan');
+    }
+  }, [params]);
   
   const fullName = React.useMemo(() => {
     if (isLoading) return '...';
@@ -172,7 +175,6 @@ const styles = StyleSheet.create({
     color: COLORS.text,
   },
   startButton: {
-
     borderRadius: 1,
     paddingVertical: 12,
   },

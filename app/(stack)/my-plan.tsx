@@ -808,6 +808,79 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     });
   }, [fetchUserWorkoutDays, fetchActivePlan]);
   
+  // Track if we've already refreshed the calendar to prevent infinite loops
+  const [hasRefreshedCalendar, setHasRefreshedCalendar] = useState(false);
+  
+  // Add an effect to refresh the calendar and completed workouts when the component mounts
+  // This is critical for updating the calendar after completing a workout
+  useEffect(() => {
+    // Only refresh if we have a plan, user, and haven't refreshed yet
+    if (plan && user && !hasRefreshedCalendar) {
+      const refreshCalendarData = async () => {
+        console.log('Refreshing calendar data - one-time refresh');
+        
+        try {
+          // First, fetch the latest completed workouts from the database
+          const { data: completedWorkouts, error } = await supabase
+            .from('user_workout_history')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('plan_id', plan.id);
+            
+          if (error) {
+            console.error('Error fetching completed workouts:', error);
+          } else if (completedWorkouts) {
+            // Update the completed workout days list
+            const completedDates: string[] = [];
+            
+            // For each completed workout, find the corresponding dates in the calendar
+            Object.entries(markedDates).forEach(([dateStr, value]: [string, any]) => {
+              if (value.workoutDayIndex !== undefined) {
+                // Check if this date's workout day index matches any completed workout
+                const isCompleted = completedWorkouts.some(
+                  workout => workout.workout_day === value.workoutDayIndex
+                );
+                
+                if (isCompleted) {
+                  completedDates.push(dateStr);
+                }
+              }
+            });
+            
+            // Update the completed workout days state
+            setCompletedWorkoutDays(completedDates);
+            console.log('Updated completed workout days:', completedDates);
+          }
+          
+          // Refresh the calendar dates with the latest data
+          if (userWorkoutDays.length > 0) {
+            setupCalendarDates(plan.start_date, plan.workoutDays.length);
+          }
+          
+          // Check workout completion for the current active day
+          if (activeDay !== null) {
+            checkWorkoutCompletion(activeDay);
+          }
+          
+          // Mark that we've refreshed the calendar
+          setHasRefreshedCalendar(true);
+        } catch (err) {
+          console.error('Error refreshing calendar data:', err);
+        }
+      };
+      
+      // Refresh immediately
+      refreshCalendarData();
+    }
+  }, [plan, user, hasRefreshedCalendar, userWorkoutDays.length, markedDates, activeDay]);
+  
+  // Reset the refresh flag when the plan or user changes
+  useEffect(() => {
+    if (plan && user) {
+      setHasRefreshedCalendar(false);
+    }
+  }, [plan?.id, user?.id]);
+  
   const renderExerciseItem = ({ item }: { item: Exercise }) => (
     <View style={styles.exerciseCard}>
       <View style={styles.exerciseLeftContent}>
@@ -949,7 +1022,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         </View>
         
         {/* Workout Content - Show different UI based on completion status */}
-        {activeDay !== null && activeDay < plan.workoutDays.length ? (
+        {activeDay !== null && activeDay < plan.workoutDays.length && markedDates[format(selectedDate, 'yyyy-MM-dd')]?.marked ? (
           isWorkoutCompleted ? (
             /* Workout Completed View */
             <View style={styles.completedWorkoutContainer}>
@@ -1123,7 +1196,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       </ScrollView>
       
       {/* Start/Redo Workout FAB */}
-      {activeDay !== null && activeDay < plan.workoutDays.length && (
+      {activeDay !== null && activeDay < plan.workoutDays.length && markedDates[format(selectedDate, 'yyyy-MM-dd')]?.marked && (
         isWorkoutCompleted ? (
           <Button
             mode="contained"

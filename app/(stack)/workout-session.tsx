@@ -66,7 +66,7 @@ export default function WorkoutSessionScreen() {
   const [totalReps, setTotalReps] = useState<number>(0); // Total reps performed
   const [recommendations, setRecommendations] = useState<Record<string, any>>({});
   const [focusedInputs, setFocusedInputs] = useState<Record<string, boolean>>({});
-  const [lastExerciseValues, setLastExerciseValues] = useState<Record<string, { weight: string, reps: string }>>({});
+  const [lastExerciseValues, setLastExerciseValues] = useState<Record<string, Record<number, { weight: string, reps: string }>>>({});
   
   // State for workout completion
   const [isWorkoutCompleted, setIsWorkoutCompleted] = useState(false);
@@ -94,6 +94,76 @@ export default function WorkoutSessionScreen() {
       ...prev,
       [id]: false
     }));
+  };
+  
+  // Function to fetch last exercise records for all exercises
+  const fetchLastExerciseRecords = async () => {
+    if (!user) return;
+    if (exercises.length === 0) {
+      console.log('No exercises available yet, skipping fetch of last exercise records');
+      return;
+    }
+    
+    try {
+      console.log('Fetching last exercise records...');
+      
+      // Create an object to store the last values for each exercise and set
+      const lastValues: Record<string, Record<number, { weight: string, reps: string }>> = {};
+      
+      // For each exercise, fetch the last records
+      for (const exercise of exercises) {
+        if (!exercise.exercise_id) {
+          console.log(`Exercise missing exercise_id, skipping`);
+          continue;
+        }
+        
+        console.log(`Fetching records for exercise_id: ${exercise.exercise_id}`);
+        
+        const { data: records, error } = await supabase
+          .from('user_exercise_records')
+          .select('*')
+          .eq('exercise_id', exercise.exercise_id)
+          .eq('completed', true)
+          .order('created_at', { ascending: false });
+        
+        if (error) {
+          console.error('Error fetching last exercise records:', error);
+          continue;
+        }
+        
+        console.log(`Found ${records?.length || 0} records for exercise ${exercise.exercise_id}`);
+        
+        if (records && records.length > 0) {
+          // Group records by set_number
+          const setRecords: Record<number, { weight: string, reps: string }> = {};
+          
+          // Process records to get the last value for each set number
+          records.forEach(record => {
+            const setNumber = record.set_number;
+            
+            // Only store the first (most recent) record for each set number
+            if (!setRecords[setNumber]) {
+              setRecords[setNumber] = {
+                weight: record.weight,
+                reps: record.reps
+              };
+              console.log(`Set ${setNumber}: weight=${record.weight}, reps=${record.reps}`);
+            }
+          });
+          
+          lastValues[exercise.exercise_id] = setRecords;
+        }
+      }
+      
+      if (Object.keys(lastValues).length > 0) {
+        console.log('Setting lastExerciseValues:', JSON.stringify(lastValues, null, 2));
+        setLastExerciseValues(lastValues);
+      } else {
+        console.log('No exercise records found');
+      }
+    } catch (error) {
+      console.error('Error in fetchLastExerciseRecords:', error);
+    }
   };
   
   // Function to auto-fill the next set with values from the previous set
@@ -130,12 +200,23 @@ export default function WorkoutSessionScreen() {
   const cycleWeek = parseInt(params.cycleWeek as string, 10) || 1;
   const weekName = params.weekName as string || 'Adaptation';
   
+  // Store the original cycle week for redo workouts
+  const [originalCycleWeek, setOriginalCycleWeek] = useState<number | null>(null);
+  
   // Timer interval reference
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Get forceStart parameter from URL
   const forceStart = params.forceStart === 'true';
   
+  // Effect to monitor exercises state and fetch last records when exercises change
+  useEffect(() => {
+    if (exercises.length > 0 && user) {
+      console.log('Exercises loaded, fetching last exercise records...');
+      fetchLastExerciseRecords();
+    }
+  }, [exercises, user]);
+
   useEffect(() => {
     // Check if workout is already completed for today, but skip if forceStart is true
     if (!forceStart) {
@@ -370,6 +451,9 @@ export default function WorkoutSessionScreen() {
       }
       
       setExerciseSets(initialSets);
+      
+      // After setting up the exercises and sets, fetch the last exercise records
+      await fetchLastExerciseRecords();
       
     } catch (error) {
       console.error('Error fetching workout data:', error);
@@ -878,6 +962,54 @@ export default function WorkoutSessionScreen() {
       
       console.log('Inserting workout history record with formatted duration:', formattedDuration);
       
+      // Check if this is a redone workout (started with forceStart parameter)
+      const forceStartParam = params.forceStart;
+      const isRedoWorkout = forceStartParam === 'true';
+      
+      // For redo workouts, we need to determine the original cycle week and week name
+      let workoutCycleWeek = cycleWeek;
+      let workoutWeekName = weekName;
+      
+      if (isRedoWorkout) {
+        // If this is a redo workout, we should use the original cycle week and week name
+        try {
+          // Query the database to find the original cycle week and week name
+          // for this workout day and plan
+          const { data: historyData } = await supabase
+            .from('user_workout_history')
+            .select('cycle_week, week_name')
+            .eq('user_id', user.id)
+            .eq('plan_id', planId)
+            .eq('workout_day', workoutDay)
+            .order('completed_at', { ascending: false })
+            .limit(1);
+            
+          if (historyData && historyData.length > 0) {
+            // Use the cycle week and week name from the most recent workout for this day
+            workoutCycleWeek = historyData[0].cycle_week;
+            workoutWeekName = historyData[0].week_name;
+            console.log(`Found original data from database: cycle_week=${workoutCycleWeek}, week_name=${workoutWeekName}`);
+          } else if (originalCycleWeek !== null) {
+            // Fall back to the stored original cycle week if available
+            workoutCycleWeek = originalCycleWeek;
+            // Map cycle week to week name
+            const weekNames: Record<number, string> = {
+              1: 'Adaptation',
+              2: 'Accumulation',
+              3: 'Intensification',
+              4: 'Peak',
+              5: 'Deload'
+            };
+            workoutWeekName = weekNames[workoutCycleWeek] || 'Adaptation';
+            console.log(`Using stored original cycle week: ${workoutCycleWeek} with week name: ${workoutWeekName}`);
+          }
+        } catch (err) {
+          console.error('Error fetching original workout data:', err);
+        }
+      }
+      
+      console.log(`Using cycle_week ${workoutCycleWeek} for workout history (${isRedoWorkout ? 'redo workout' : 'normal workout'})`);
+      
       // 1. Insert workout history entry with total volume and reps
       const { data: workoutData, error: workoutError } = await supabase
         .from('user_workout_history')
@@ -885,8 +1017,8 @@ export default function WorkoutSessionScreen() {
           user_id: user.id,
           plan_id: planId,
           workout_day: workoutDay,
-          cycle_week: cycleWeek,
-          week_name: weekName,
+          cycle_week: workoutCycleWeek,
+          week_name: workoutWeekName,
           workout_duration: formattedDuration, // Save formatted duration in hh:mm:ss format
           calories_burned: Math.round(workoutDurationMinutes * 8.5), // Match the calculation used in plan-details.tsx (8.5 calories per minute)
           total_volume: finalVolume, // Add total volume (kg)
@@ -998,17 +1130,27 @@ export default function WorkoutSessionScreen() {
           console.log('This is a redone workout - not incrementing completed workouts count or advancing week');
         }
         
+        // For redo workouts, we need to be careful about what we update
+        // We should only update the last_workout_date and not change any progression values
+        const updateData = isRedoWorkout ? {
+          // For redo workouts, only update the last workout date
+          last_workout_date: new Date().toISOString()
+        } : {
+          // For normal workouts, update all progression values
+          completed_workouts: newCompletedWorkouts,
+          current_week: updatedWeek,
+          current_day: updatedDay,
+          last_workout_date: new Date().toISOString(),
+          completed: updatedCompleted
+        };
+        
+        console.log(`Updating user_active_plans with: ${JSON.stringify(updateData)} (${isRedoWorkout ? 'redo workout' : 'normal workout'})`);
+        
         // Update the active plan
         const { error: updateError } = await supabase
           .from('user_active_plans')
-          .update({
-            completed_workouts: newCompletedWorkouts,
-            current_week: updatedWeek,
-            current_day: updatedDay,
-            last_workout_date: new Date().toISOString(),
-            completed: updatedCompleted
-            // We're already storing workout metrics in user_workout_history
-          })
+          .update(updateData)
+          // We're already storing workout metrics in user_workout_history
           .eq('user_id', user.id)
           .eq('plan_id', planId)
           .eq('is_active', true);
@@ -1037,19 +1179,13 @@ export default function WorkoutSessionScreen() {
       setIsWorkoutCompleted(true);
       setIsLoading(false);
       
-      // Check if this workout was started from the REDO WORKOUT button
-      // If so, don't try to navigate back since we're already on the my-plan screen
-      const forceStartParam = params.forceStart;
-      if (forceStartParam === 'true') {
-        // Don't navigate back, we're already on the right screen
-        // Just show the completion UI
-        console.log('Workout completed after REDO, staying on current screen');
-      } else {
-        // CRITICAL FIX: Use router.replace instead of router.push to avoid navigation stack issues
-        // This prevents the brief redirect to profile screen
-        console.log('Workout completed, replacing current screen with my-plan screen');
-        router.replace('/(stack)/my-plan');
-      }
+      // We'll handle the navigation in the render function when isWorkoutCompleted is true
+      // This prevents navigation issues and ensures consistent behavior
+      console.log('Workout completed, will navigate to my-plan screen');
+      
+      // Also refresh the last exercise records after completing the workout
+      // This ensures the data is up-to-date for the next time this exercise is performed
+      await fetchLastExerciseRecords();
       
     } catch (error) {
       setIsLoading(false);
@@ -1059,7 +1195,18 @@ export default function WorkoutSessionScreen() {
   };
   
   // Function to restart the workout (for REDO WORKOUT button)
-  const redoWorkout = () => {
+  const redoWorkout = async () => {
+    console.log('Redoing workout...');
+    
+    // Store the current last exercise values before resetting
+    const currentLastValues = {...lastExerciseValues};
+    console.log('Preserving lastExerciseValues:', JSON.stringify(currentLastValues, null, 2));
+    
+    // Store the original cycle week before resetting
+    // This ensures we use the correct cycle week when saving the workout history
+    setOriginalCycleWeek(cycleWeek);
+    console.log(`Storing original cycle week: ${cycleWeek} for redo workout`);
+    
     setIsWorkoutCompleted(false);
     setCompletedWorkoutData(null);
     setWorkoutStartTime(new Date());
@@ -1082,6 +1229,16 @@ export default function WorkoutSessionScreen() {
       });
       return resetSets;
     });
+    
+    // Immediately restore the last exercise values to ensure they're available
+    // This prevents the values from disappearing during state updates
+    setLastExerciseValues(currentLastValues);
+    
+    // Also fetch fresh data after a delay to ensure we have the latest records
+    setTimeout(async () => {
+      console.log('Fetching fresh last exercise records after delay...');
+      await fetchLastExerciseRecords();
+    }, 1000); // Longer delay to ensure all state updates have completed
     
     // Start workout duration timer
     const workoutTimerInterval = setInterval(() => {
@@ -1110,7 +1267,9 @@ export default function WorkoutSessionScreen() {
   if (isWorkoutCompleted && completedWorkoutData) {
     // Use setTimeout to ensure the navigation happens after state updates
     setTimeout(() => {
-      router.back();
+      // Navigate directly to the tabs layout with My Plan selected
+      // This ensures we have the proper navigation structure with bottom tabs
+      router.replace('/(tabs)/?selectedOption=My Plan');
     }, 100);
     
     // Show a loading indicator while navigating
@@ -1237,7 +1396,11 @@ export default function WorkoutSessionScreen() {
                                 />
                                 <Text style={styles.activeSetValueUnit}>kg</Text>
                               </View>
-                              <Text style={styles.activeSetSubValue}>(Last 15)</Text>
+                              <Text style={styles.activeSetSubValue}>
+                                {lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.weight 
+                                  ? `(Last ${lastExerciseValues[currentExercise.exercise_id][index + 1].weight})` 
+                                  : '(No previous data)'}
+                              </Text>
                             </View>
                             <View style={styles.dividerContainer}>
                               <View style={styles.horizontalDivider} />
@@ -1257,7 +1420,11 @@ export default function WorkoutSessionScreen() {
                                 />
                                 <Text style={styles.activeSetValueUnit}>reps</Text>
                               </View>
-                              <Text style={styles.activeSetSubValue}>(Last 10)</Text>
+                              <Text style={styles.activeSetSubValue}>
+                                {lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps 
+                                  ? `(Last ${lastExerciseValues[currentExercise.exercise_id][index + 1].reps})` 
+                                  : '(No previous data)'}
+                              </Text>
                             </View>
                           </View>
                           {/* Bottom Row for Label */}

@@ -1,16 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Image, Dimensions } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, FlatList, Pressable, Dimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { IconButton, Button, Divider, TextInput as PaperTextInput } from 'react-native-paper';
-import { TextInput as RNTextInput } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
+import { IconButton, Button, Divider } from 'react-native-paper';
+import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import supabase from '../services/supabase';
 import { useAuth } from '../store/AuthContext';
 import OptimizedImage from '../components/OptimizedImage';
-import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -53,7 +52,6 @@ export default function WorkoutSessionScreen() {
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  // We don't need a scrollViewRef since we're not using ScrollView directly
   
   const [isLoading, setIsLoading] = useState(true);
   const [exercises, setExercises] = useState<ExerciseData[]>([]);
@@ -69,6 +67,19 @@ export default function WorkoutSessionScreen() {
   const [recommendations, setRecommendations] = useState<Record<string, any>>({});
   const [focusedInputs, setFocusedInputs] = useState<Record<string, boolean>>({});
   const [lastExerciseValues, setLastExerciseValues] = useState<Record<string, { weight: string, reps: string }>>({});
+  
+  // State for workout completion
+  const [isWorkoutCompleted, setIsWorkoutCompleted] = useState(false);
+  const [completedWorkoutData, setCompletedWorkoutData] = useState<{
+    completedExercises: number;
+    duration: number;
+    caloriesBurned: number;
+    totalVolume: number;
+    totalReps: number;
+    completedAt: string;
+    weekName: string;
+    cycleWeek: number;
+  } | null>(null);
   
   // Functions to handle input focus and blur
   const handleInputFocus = (id: string) => {
@@ -122,26 +133,146 @@ export default function WorkoutSessionScreen() {
   // Timer interval reference
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Get forceStart parameter from URL
+  const forceStart = params.forceStart === 'true';
+  
   useEffect(() => {
-    fetchWorkoutData();
-    
-    // Start workout timer
-    setWorkoutStartTime(new Date());
-    setWorkoutTimerActive(true);
-    
-    // Start workout duration timer
-    const workoutTimerInterval = setInterval(() => {
-      setWorkoutDuration(prev => prev + 1);
-    }, 1000);
+    // Check if workout is already completed for today, but skip if forceStart is true
+    if (!forceStart) {
+      checkWorkoutCompletion();
+    } else {
+      // If forceStart is true, always fetch workout data and start the timer
+      fetchWorkoutData();
+      setWorkoutStartTime(new Date());
+      setWorkoutTimerActive(true);
+      
+      // Start workout duration timer
+      const workoutTimerInterval = setInterval(() => {
+        setWorkoutDuration(prev => prev + 1);
+      }, 1000);
+      
+      // Add cleanup for the timer
+      return () => {
+        clearInterval(workoutTimerInterval);
+      };
+    }
     
     // Cleanup
     return () => {
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
       }
-      clearInterval(workoutTimerInterval);
     };
-  }, [planId, workoutDay]);
+  }, [planId, workoutDay, forceStart]);
+  
+  // Check if workout is already completed for today
+  const checkWorkoutCompletion = async () => {
+    if (!user || !planId) return;
+    
+    try {
+      setIsLoading(true);
+      
+      console.log('Checking workout completion for:', {
+        userId: user.id,
+        planId,
+        workoutDay
+      });
+      
+      // Get today's date in ISO format (YYYY-MM-DD)
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Check if there's a completed workout for today
+      const { data, error } = await supabase
+        .from('user_workout_history')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('plan_id', planId)
+        .eq('workout_day', workoutDay);
+      
+      console.log('Workout history check result:', { data, error });
+      
+      if (error) {
+        console.error('Error checking workout completion:', error);
+        throw error;
+      }
+      
+      if (data && data.length > 0) {
+        // Workout is already completed, get the most recent one
+        const mostRecentWorkout = data.sort((a, b) => 
+          new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime()
+        )[0];
+        
+        console.log('Found completed workout:', mostRecentWorkout);
+        setIsWorkoutCompleted(true);
+        
+        // Get the count of exercises from the user_exercise_records table
+        const { data: exerciseData, error: exerciseError } = await supabase
+          .from('user_exercise_records')
+          .select('exercise_id')
+          .eq('workout_history_id', mostRecentWorkout.id)
+          .limit(1000);
+        
+        if (exerciseError) {
+          console.error('Error fetching exercise records:', exerciseError);
+        }
+        
+        console.log('Exercise records:', exerciseData);
+        
+        // Set completed workout data
+        setCompletedWorkoutData({
+          completedExercises: exerciseData ? new Set(exerciseData.map(item => item.exercise_id)).size : 0,
+          duration: mostRecentWorkout.duration_minutes || 0,
+          caloriesBurned: mostRecentWorkout.calories_burned || 0,
+          totalVolume: mostRecentWorkout.total_volume || 0,
+          totalReps: mostRecentWorkout.total_reps || 0,
+          completedAt: mostRecentWorkout.completed_at,
+          weekName: mostRecentWorkout.week_name,
+          cycleWeek: mostRecentWorkout.cycle_week
+        });
+        
+        setIsLoading(false);
+      } else {
+        // Workout is not completed, fetch workout data
+        console.log('No completed workout found, starting new workout');
+        setIsWorkoutCompleted(false);
+        fetchWorkoutData();
+        
+        // Start workout timer
+        setWorkoutStartTime(new Date());
+        setWorkoutTimerActive(true);
+        
+        // Start workout duration timer
+        const workoutTimerInterval = setInterval(() => {
+          setWorkoutDuration(prev => prev + 1);
+        }, 1000);
+        
+        // Add cleanup for the timer
+        return () => {
+          clearInterval(workoutTimerInterval);
+        };
+      }
+    } catch (error) {
+      console.error('Error in checkWorkoutCompletion:', error);
+      setIsLoading(false);
+      // If there's an error, proceed with normal workout
+      setIsWorkoutCompleted(false);
+      fetchWorkoutData();
+      
+      // Start workout timer
+      setWorkoutStartTime(new Date());
+      setWorkoutTimerActive(true);
+      
+      // Start workout duration timer
+      const workoutTimerInterval = setInterval(() => {
+        setWorkoutDuration(prev => prev + 1);
+      }, 1000);
+      
+      // Add cleanup for the timer
+      return () => {
+        clearInterval(workoutTimerInterval);
+      };
+    }
+  };
 
   const fetchWorkoutData = async () => {
     if (!planId || isNaN(workoutDay) || !user) {
@@ -348,20 +479,52 @@ export default function WorkoutSessionScreen() {
         isCompleted: newCompletedState
       };
       
-      // Store the updated sets to check if all sets are completed
-      const allSetsCompleted = updatedSets.every(set => set.isCompleted);
+      // Create a new exerciseSets object with the updated sets
+      const newExerciseSets = { ...prev, [exerciseId]: updatedSets };
       
-      // If all sets are completed and we're marking a set as completed (not unmarking),
-      // schedule moving to the next exercise
-      if (allSetsCompleted && newCompletedState) {
-        // Use setTimeout to ensure state updates are processed
-        setTimeout(() => {
-          console.log('All sets completed, moving to next exercise');
-          moveToNextExercise();
-        }, 500);
+      // Check if this was the last set of the last exercise to be completed
+      if (newCompletedState) {
+        // Check if all sets for the current exercise are completed
+        const allCurrentExerciseSetsCompleted = updatedSets.every(set => set.isCompleted);
+        
+        if (allCurrentExerciseSetsCompleted) {
+          // If we're on the last exercise and all its sets are completed, check if all exercises are completed
+          if (currentExerciseIndex === exercises.length - 1) {
+            // Check if all exercises have all their sets completed
+            const allExercisesCompleted = exercises.every(exercise => {
+              // For the current exercise, use the updated sets
+              if (exercise.id === exerciseId) {
+                return updatedSets.every(set => set.isCompleted);
+              }
+              // For other exercises, use the existing sets from prev
+              const sets = prev[exercise.id] || [];
+              return sets.length > 0 && sets.every(set => set.isCompleted);
+            });
+            
+            if (allExercisesCompleted) {
+              // All exercises and all sets are completed, save the workout data
+              console.log('All exercises in the workout completed, saving data to database...');
+              setTimeout(() => {
+                completeWorkout();
+              }, 500);
+            } else {
+              // Just move to the next exercise (which will be the last one)
+              setTimeout(() => {
+                console.log('All sets for current exercise completed, moving to next exercise');
+                moveToNextExercise();
+              }, 500);
+            }
+          } else {
+            // Not the last exercise, just move to the next one
+            setTimeout(() => {
+              console.log('All sets for current exercise completed, moving to next exercise');
+              moveToNextExercise();
+            }, 500);
+          }
+        }
       }
       
-      return { ...prev, [exerciseId]: updatedSets };
+      return newExerciseSets;
     });
     
     // Start rest timer if set was marked as completed
@@ -478,11 +641,36 @@ export default function WorkoutSessionScreen() {
                 startRestTimer(60);
               }
               
-              // Move to next exercise after a delay
-              setTimeout(() => {
-                console.log('All sets completed via Log All, moving to next exercise');
-                moveToNextExercise();
-              }, 500);
+              // Check if this was the last exercise
+              if (currentExerciseIndex === exercises.length - 1) {
+                // Check if all exercises have all their sets completed after this update
+                setTimeout(() => {
+                  const allExercisesCompleted = exercises.every(ex => {
+                    // For the current exercise, we know all sets are now completed
+                    if (ex.id === exerciseId) return true;
+                    
+                    // For other exercises, check their sets
+                    const exSets = exerciseSets[ex.id] || [];
+                    return exSets.length > 0 && exSets.every(s => s.isCompleted);
+                  });
+                  
+                  if (allExercisesCompleted) {
+                    // All exercises are completed, save workout data
+                    console.log('All exercises completed via Log All Sets, saving workout data...');
+                    completeWorkout();
+                  } else {
+                    // Not all exercises are completed, just move to next exercise
+                    console.log('All sets completed via Log All, moving to next exercise');
+                    moveToNextExercise();
+                  }
+                }, 500);
+              } else {
+                // Not the last exercise, just move to next
+                setTimeout(() => {
+                  console.log('All sets completed via Log All, moving to next exercise');
+                  moveToNextExercise();
+                }, 500);
+              }
             }
           }
         });
@@ -571,20 +759,37 @@ export default function WorkoutSessionScreen() {
       // Use a function to update state to avoid closure issues
       setCurrentExerciseIndex(prevIndex => prevIndex + 1);
       
-      // Show a brief toast or notification to indicate movement to next exercise
-      Alert.alert(
-        'Next Exercise',
-        'Moving to the next exercise',
-        [{ text: 'OK' }],
-        { cancelable: true }
-      );
+      // No notification when moving to next exercise for better UX flow
     } else {
       console.log('Already at the last exercise');
-      Alert.alert(
-        'Workout Complete',
-        'You have completed all exercises in this workout!',
-        [{ text: 'OK' }]
-      );
+      
+      // Check if all exercises have all their sets completed
+      const allExercisesCompleted = exercises.every(exercise => {
+        const sets = exerciseSets[exercise.id] || [];
+        return sets.length > 0 && sets.every(set => set.isCompleted);
+      });
+      
+      if (allExercisesCompleted) {
+        // All exercises and all sets are completed, automatically save data
+        console.log('All exercises completed, automatically saving workout data...');
+        // Use setTimeout to ensure UI updates complete before saving
+        setTimeout(() => {
+          completeWorkout();
+        }, 500);
+      } else {
+        // Not all sets are completed, show regular completion alert
+        Alert.alert(
+          'Workout Complete',
+          'You have reached the end of your workout!',
+          [{ 
+            text: 'Complete Workout', 
+            onPress: () => {
+              // Allow the user to manually complete the workout even if not all sets are done
+              completeWorkout();
+            }
+          }]
+        );
+      }
     }
   };
 
@@ -595,7 +800,10 @@ export default function WorkoutSessionScreen() {
   };
 
   const completeWorkout = async () => {
-    if (!user || !planId || !workoutStartTime) return;
+    if (!user || !planId || !workoutStartTime) {
+      console.error('Missing required data for workout completion', { user: !!user, planId, workoutStartTime: !!workoutStartTime });
+      return;
+    }
     
     // Stop the workout timer
     setWorkoutTimerActive(false);
@@ -605,15 +813,33 @@ export default function WorkoutSessionScreen() {
     const finalVolume = totalVolume;
     const finalReps = totalReps;
     
+    console.log('Starting workout completion with data:', {
+      planId,
+      workoutDay,
+      cycleWeek,
+      weekName,
+      finalVolume,
+      finalReps,
+      finalDuration
+    });
+    
     try {
       // Show loading indicator
       setIsLoading(true);
       
       // Calculate workout duration
       const workoutEndTime = new Date();
-      const workoutDuration = Math.round((workoutEndTime.getTime() - workoutStartTime.getTime()) / 60000);
+      const workoutDurationMinutes = Math.round((workoutEndTime.getTime() - workoutStartTime.getTime()) / 60000);
       
-      // 1. Insert workout history entry
+      // Format workout duration in hh:mm:ss format
+      const hours = Math.floor(finalDuration / 3600);
+      const minutes = Math.floor((finalDuration % 3600) / 60);
+      const seconds = finalDuration % 60;
+      const formattedDuration = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+      
+      console.log('Inserting workout history record with formatted duration:', formattedDuration);
+      
+      // 1. Insert workout history entry with total volume and reps
       const { data: workoutData, error: workoutError } = await supabase
         .from('user_workout_history')
         .insert({
@@ -622,17 +848,24 @@ export default function WorkoutSessionScreen() {
           workout_day: workoutDay,
           cycle_week: cycleWeek,
           week_name: weekName,
-          duration_minutes: workoutDuration,
-          calories_burned: Math.round(workoutDuration * 8.5) // Rough estimate
+          workout_duration: formattedDuration, // Save formatted duration in hh:mm:ss format
+          calories_burned: Math.round(workoutDurationMinutes * 8.5), // Rough estimate
+          total_volume: finalVolume, // Add total volume (kg)
+          total_reps: finalReps, // Add total reps
+          completed_at: new Date().toISOString() // Add completion timestamp
         })
         .select('id')
         .single();
         
-      if (workoutError) throw workoutError;
+        if (workoutError) {
+        console.error('Error creating workout history:', workoutError);
+        throw workoutError;
+      }
       
       if (!workoutData) throw new Error('Failed to create workout history record');
       
       const workoutHistoryId = workoutData.id;
+      console.log('Created workout history record:', workoutHistoryId);
       
       // 2. Insert exercise records
       const exerciseRecords = [];
@@ -643,8 +876,8 @@ export default function WorkoutSessionScreen() {
         for (const set of sets) {
           if (set.isCompleted) { // Only save completed sets
             // Transform '-' to '0' when saving to database
-            const weight = set.weight === '-' ? '0' : set.weight;
-            const reps = set.reps === '-' ? '0' : set.reps;
+            const weight = set.weight === '-' || set.weight === '' ? '0' : set.weight;
+            const reps = set.reps === '-' || set.reps === '' ? '0' : set.reps;
             
             exerciseRecords.push({
               workout_history_id: workoutHistoryId,
@@ -659,12 +892,19 @@ export default function WorkoutSessionScreen() {
         }
       }
       
+      console.log(`Saving ${exerciseRecords.length} exercise records...`);
+      
       if (exerciseRecords.length > 0) {
         const { error: recordsError } = await supabase
           .from('user_exercise_records')
           .insert(exerciseRecords);
           
-        if (recordsError) throw recordsError;
+        if (recordsError) {
+          console.error('Error saving exercise records:', recordsError);
+          throw recordsError;
+        }
+        
+        console.log('Exercise records saved successfully');
       }
       
       // 3. Update user active plan
@@ -676,7 +916,10 @@ export default function WorkoutSessionScreen() {
         .eq('is_active', true)
         .single();
         
-      if (planError) throw planError;
+      if (planError) {
+        console.error('Error fetching active plan:', planError);
+        throw planError;
+      }
       
       if (planData) {
         const { completed_workouts, current_week, current_day } = planData;
@@ -694,9 +937,11 @@ export default function WorkoutSessionScreen() {
           if (current_week < 5) {
             // Advance to next week
             updatedWeek = current_week + 1;
+            console.log(`Advancing to week ${updatedWeek}`);
           } else if (current_week === 5) {
             // We've completed the full 5-week cycle
             updatedCompleted = true;
+            console.log('Completed the full 5-week cycle');
           }
         }
         
@@ -709,25 +954,77 @@ export default function WorkoutSessionScreen() {
             current_day: (current_day + 1) % workoutsPerWeek, // Cycle through 0, 1, 2
             last_workout_date: new Date().toISOString(),
             completed: updatedCompleted
+            // We're already storing workout metrics in user_workout_history
           })
           .eq('user_id', user.id)
           .eq('plan_id', planId)
           .eq('is_active', true);
           
-        if (updateError) throw updateError;
+        if (updateError) {
+          console.error('Error updating active plan:', updateError);
+          throw updateError;
+        }
+        
+        console.log('Active plan updated successfully');
       }
       
-      // Success - navigate back to home
-      Alert.alert(
-        'Workout Complete!',
-        'Your workout has been saved successfully.',
-        [{ text: 'OK', onPress: () => router.push('/') }]
-      );
+      // Set completed workout data for display
+      setCompletedWorkoutData({
+        completedExercises: exercises.length,
+        duration: workoutDurationMinutes,
+        caloriesBurned: Math.round(workoutDurationMinutes * 8.5),
+        totalVolume: finalVolume,
+        totalReps: finalReps,
+        completedAt: new Date().toISOString(),
+        weekName: weekName,
+        cycleWeek: cycleWeek
+      });
+      
+      // Set workout as completed
+      setIsWorkoutCompleted(true);
+      setIsLoading(false);
       
     } catch (error) {
+      setIsLoading(false);
       console.error('Error completing workout:', error);
-      Alert.alert('Error', 'Failed to save workout data');
+      Alert.alert('Error', 'Failed to save workout data. Please try again.');
     }
+  };
+  
+  // Function to restart the workout (for REDO WORKOUT button)
+  const redoWorkout = () => {
+    setIsWorkoutCompleted(false);
+    setCompletedWorkoutData(null);
+    setWorkoutStartTime(new Date());
+    setWorkoutTimerActive(true);
+    setWorkoutDuration(0);
+    setTotalVolume(0);
+    setTotalReps(0);
+    setCurrentExerciseIndex(0);
+    
+    // Reset all sets to not completed
+    setExerciseSets(prev => {
+      const resetSets = { ...prev };
+      Object.keys(resetSets).forEach(exerciseId => {
+        resetSets[exerciseId] = resetSets[exerciseId].map(set => ({
+          ...set,
+          isCompleted: false,
+          weight: '',
+          reps: ''
+        }));
+      });
+      return resetSets;
+    });
+    
+    // Start workout duration timer
+    const workoutTimerInterval = setInterval(() => {
+      setWorkoutDuration(prev => prev + 1);
+    }, 1000);
+    
+    // Add cleanup for the timer
+    return () => {
+      clearInterval(workoutTimerInterval);
+    };
   };
 
   const currentExercise = exercises[currentExerciseIndex];
@@ -738,6 +1035,22 @@ export default function WorkoutSessionScreen() {
     return (
       <View style={[styles.container, styles.loadingContainer]}>
         <ActivityIndicator size="large" color={COLORS.primary} />
+      </View>
+    );
+  }
+  
+  // If workout is completed, navigate back to the plan screen
+  if (isWorkoutCompleted && completedWorkoutData) {
+    // Use setTimeout to ensure the navigation happens after state updates
+    setTimeout(() => {
+      router.back();
+    }, 100);
+    
+    // Show a loading indicator while navigating
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={styles.loadingText}>Workout completed! Returning to plan...</Text>
       </View>
     );
   }
@@ -843,7 +1156,7 @@ export default function WorkoutSessionScreen() {
                           <View style={styles.topContentRow}>
                             <View style={styles.weightCell}>
                               <View style={styles.inputContainer}>
-                                <RNTextInput
+                                <TextInput
                                   style={styles.inputField}
                                   value={set.weight}
                                   onChangeText={(value) => handleWeightChange(currentExercise.id, index, value)}
@@ -864,7 +1177,7 @@ export default function WorkoutSessionScreen() {
                             </View>
                             <View style={styles.repsCell}>
                               <View style={styles.inputContainer}>
-                                <RNTextInput
+                                <TextInput
                                   style={styles.inputField}
                                   value={set.reps}
                                   onChangeText={(value) => handleRepsChange(currentExercise.id, index, value)}
@@ -904,7 +1217,7 @@ export default function WorkoutSessionScreen() {
                     <View style={styles.inactiveSetCardContent}>
                       <View style={styles.inactiveWeightColumn}>
                         <View style={styles.inactiveInputContainer}>
-                          <RNTextInput
+                          <TextInput
                             style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
                             value={set.weight}
                             onChangeText={(value) => handleWeightChange(currentExercise.id, index, value)}
@@ -924,7 +1237,7 @@ export default function WorkoutSessionScreen() {
                       
                       <View style={styles.inactiveRepsColumn}>
                         <View style={styles.inactiveInputContainer}>
-                          <RNTextInput
+                          <TextInput
                             style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
                             value={set.reps}
                             onChangeText={(value) => handleRepsChange(currentExercise.id, index, value)}
@@ -1013,6 +1326,117 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
+  loadingText: {
+    color: COLORS.text,
+    marginTop: 16,
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  completionHeaderContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    backgroundColor: COLORS.surface,
+  },
+  backButtonContainer: {
+    padding: SPACING.xs,
+  },
+  headerTitle: {
+    color: COLORS.text,
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginLeft: SPACING.sm,
+    // This is used in both the original and completed workout screens
+  },
+  calendarContainer: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    alignItems: 'center',
+  },
+  weekText: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  completedBanner: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+  },
+  completedText: {
+    color: COLORS.primary,
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  shareButtonContainer: {
+    padding: SPACING.xs,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.lg,
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: SPACING.sm,
+  },
+  statValue: {
+    color: COLORS.primary,
+    fontSize: 32,
+    fontWeight: 'bold',
+  },
+  statLabel: {
+    color: COLORS.text,
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: SPACING.xs,
+  },
+  summaryContainer: {
+    padding: SPACING.md,
+    marginHorizontal: SPACING.md,
+    marginVertical: SPACING.lg,
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.md,
+  },
+  summaryTitle: {
+    color: COLORS.text,
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: SPACING.md,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: SPACING.xs,
+  },
+  summaryLabel: {
+    color: COLORS.text,
+    fontSize: 16,
+  },
+  summaryValue: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  redoButton: {
+    backgroundColor: COLORS.primary,
+    marginHorizontal: SPACING.md,
+    marginVertical: SPACING.lg,
+    paddingVertical: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
+    alignItems: 'center',
+  },
+  redoButtonText: {
+    color: COLORS.background,
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
   loadingContainer: {
     justifyContent: 'center',
     alignItems: 'center',
@@ -1037,11 +1461,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingLeft: SPACING.xl,
-  },
-  headerTitle: {
-    color: COLORS.text,
-    fontSize: 16,
-    fontWeight: 'bold',
   },
   divider: {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',

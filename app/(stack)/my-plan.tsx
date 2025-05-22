@@ -86,6 +86,19 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   
   // Use a simple date array for the weekly calendar view
   const [weekDays, setWeekDays] = useState<Date[]>([]);
+  
+  // Workout completion state
+  const [isWorkoutCompleted, setIsWorkoutCompleted] = useState(false);
+  const [completedWorkoutData, setCompletedWorkoutData] = useState<{
+    completedExercises: number;
+    duration: string; // Changed from number to string for hh:mm:ss format
+    caloriesBurned: number;
+    totalVolume: number;
+    totalReps: number;
+    completedAt: string;
+    weekName: string;
+    cycleWeek: number;
+  } | null>(null);
 
   // Fetch user's preferred workout days
   const fetchUserWorkoutDays = useCallback(async () => {
@@ -440,33 +453,147 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     setMarkedDates(markedDatesObj);
   };
   
-  // Handle date selection on calendar
-  const handleDateSelect = (day: any) => {
-    const selectedDate = new Date(day.dateString);
-    setSelectedDate(selectedDate);
+  // Check if workout is already completed for the selected day
+  const checkWorkoutCompletion = async (workoutDayIndex = activeDay) => {
+    if (!user || !plan || workoutDayIndex === null) return false;
     
-    // Find which workout day this corresponds to
-    const dateStr = format(selectedDate, 'yyyy-MM-dd');
-    const dateInfo = markedDates[dateStr];
-    
-    if (dateInfo && dateInfo.marked && plan) {
-      if (typeof dateInfo.workoutDayIndex === 'number') {
-        // Get the workout day directly from the marked date info
-        setActiveDay(dateInfo.workoutDayIndex);
-        console.log(`Selected workout day: Day ${dateInfo.workoutDayIndex + 1}`);
-      } else {
-        // No workout day found for this date
-        setActiveDay(null);
+    try {
+      console.log('Checking workout completion for:', {
+        userId: user.id,
+        planId: plan.id,
+        workoutDay: workoutDayIndex
+      });
+      
+      // First, try to directly query the database to see all records for this plan and user
+      const { data: allWorkouts, error: allWorkoutsError } = await supabase
+        .from('user_workout_history')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id);
+        
+      console.log('All workouts for this plan:', { data: allWorkouts, error: allWorkoutsError });
+      
+      // Now check if there's a completed workout for this specific day
+      // The workout_day in the database is stored as the same index as in the markedDates
+      // This is a 0-based index (0, 1, 2) that corresponds to workout days (Day 1, Day 2, Day 3)
+      
+      console.log(`Checking for workout completion with day index: ${workoutDayIndex}`);
+      
+      const { data, error } = await supabase
+        .from('user_workout_history')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id)
+        .eq('workout_day', workoutDayIndex);
+
+      console.log('Workout history check result with precise day index:', { data, error });
+      
+      if (error) {
+        console.error('Error checking workout completion:', error);
+        return false;
       }
-    } else {
-      setActiveDay(null);
+      
+      if (data && data.length > 0) {
+        // Workout is already completed, get the most recent one
+        const mostRecentWorkout = data.sort((a, b) => 
+          new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime()
+        )[0];
+        
+        console.log('Found completed workout:', mostRecentWorkout);
+        
+        // Get the count of exercises from the user_exercise_records table
+        const { data: exerciseData, error: exerciseError } = await supabase
+          .from('user_exercise_records')
+          .select('exercise_id')
+          .eq('workout_history_id', mostRecentWorkout.id)
+          .limit(1000);
+        
+        if (exerciseError) {
+          console.error('Error fetching exercise records:', exerciseError);
+        }
+        
+        console.log('Exercise records:', exerciseData);
+        
+        // Get workout duration from the database
+        const workoutDuration = mostRecentWorkout.workout_duration || '00:00';
+        
+        // Set completed workout data
+        setCompletedWorkoutData({
+          completedExercises: exerciseData ? new Set(exerciseData.map(item => item.exercise_id)).size : 0,
+          duration: workoutDuration,
+          caloriesBurned: mostRecentWorkout.calories_burned || 0,
+          totalVolume: mostRecentWorkout.total_volume || 0,
+          totalReps: mostRecentWorkout.total_reps || 0,
+          completedAt: mostRecentWorkout.completed_at,
+          weekName: mostRecentWorkout.week_name,
+          cycleWeek: mostRecentWorkout.cycle_week
+        });
+        
+        setIsWorkoutCompleted(true);
+        return true;
+      } else {
+        // Workout is not completed
+        console.log('No completed workout found');
+        setIsWorkoutCompleted(false);
+        setCompletedWorkoutData(null);
+        return false;
+      }
+    } catch (error) {
+      console.error('Error in checkWorkoutCompletion:', error);
+      setIsWorkoutCompleted(false);
+      setCompletedWorkoutData(null);
+      return false;
     }
+  };
+  
+  // Handle date selection on calendar
+  const handleDateSelect = async (day: any) => {
+    const selectedDay = new Date(day.timestamp);
+    setSelectedDate(selectedDay);
+    
+    // Set loading state to prevent UI flicker
+    setIsLoading(true);
+    
+    // Find the workout day that corresponds to this date
+    if (plan) {
+      // Get the marked date info for this date
+      const dateStr = format(selectedDay, 'yyyy-MM-dd');
+      const markedDateInfo = markedDates[dateStr];
+      
+      if (markedDateInfo && markedDateInfo.marked) {
+        // This is a workout day - get the workout day index from the marked date
+        const workoutDayIndex = markedDateInfo.workoutDayIndex;
+        
+        // Set the active day to the workout day index from the marked date
+        setActiveDay(workoutDayIndex);
+        console.log('Selected workout day:', workoutDayIndex + 1); // +1 for display (1-based)
+        
+        // Check if this workout is already completed
+        await checkWorkoutCompletion(workoutDayIndex);
+      } else {
+        setActiveDay(null);
+        setIsWorkoutCompleted(false);
+        setCompletedWorkoutData(null);
+        console.log('No workout scheduled for this day');
+      }
+    }
+    
+    // Remove loading state after completion check is done
+    setIsLoading(false);
   };
   
   const handleStartWorkout = async () => {
     if (!plan || activeDay === null || !user) return;
     
     try {
+      // Check if workout is already completed
+      const isCompleted = await checkWorkoutCompletion();
+      
+      if (isCompleted) {
+        console.log('Workout already completed, showing completion screen');
+        return; // Don't navigate, show completion info in the current screen
+      }
+      
       // Get plan data with cycle week information
       const cycleData = await workoutPlanService.getActivePlanWithCycleWeek(user.id, plan.id);
       
@@ -490,28 +617,50 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     }
   };
   
-  // Setup weekly calendar days
+  // Function to restart a completed workout
+  const handleRedoWorkout = async () => {
+    if (!plan || activeDay === null || !user) return;
+    
+    try {
+      // Get plan data with cycle week information
+      const cycleData = await workoutPlanService.getActivePlanWithCycleWeek(user.id, plan.id);
+      
+      if (!cycleData) {
+        throw new Error('Failed to get plan cycle data');
+      }
+      
+      // Navigate to workout session with a flag to force start
+      router.push({
+        pathname: '/(stack)/workout-session',
+        params: { 
+          planId: plan.id,
+          workoutDay: activeDay,
+          cycleWeek: cycleData.currentWeek,
+          weekName: cycleData.weekName,
+          forceStart: 'true' // Add this flag to force start even if completed
+        }
+      });
+    } catch (err) {
+      console.error('Error restarting workout:', err);
+      Alert.alert('Error', 'Failed to restart workout');
+    }
+  };
+  
+  // Setup weekly calendar days with current day as first
   const setupWeeklyCalendar = useCallback(() => {
     const today = new Date();
-    // Get the start of the current week (Monday)
-    const startOfCurrentWeek = startOfWeek(today, { weekStartsOn: 1 });
     
-    // Create array of 7 days starting from Monday
+    // Create array of 7 days starting from today
     const days = [];
     for (let i = 0; i < 7; i++) {
-      days.push(addDays(startOfCurrentWeek, i));
+      days.push(addDays(today, i));
     }
     setWeekDays(days);
-    
-    // Set the active day based on the current day of the week
-    const currentDayOfWeek = getDay(today);
-    // Convert Sunday (0) to position 6, otherwise subtract 1 to get 0-indexed position
-    const adjustedDayIndex = currentDayOfWeek === 0 ? 6 : currentDayOfWeek - 1;
     setSelectedDate(today);
     
     // If we have a plan, find which workout day corresponds to today
     if (plan) {
-      handleDateSelect({ dateString: format(today, 'yyyy-MM-dd') });
+      handleDateSelect({ timestamp: today.getTime() });
     }
   }, [plan]);
   
@@ -534,9 +683,9 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   };
   
   // Function to handle date selection from weekly calendar
-  const handleWeekDayPress = (date: Date) => {
+  const handleWeekDayPress = async (date: Date) => {
     setSelectedDate(date);
-    handleDateSelect({ dateString: format(date, 'yyyy-MM-dd') });
+    await handleDateSelect({ timestamp: date.getTime() });
   };
   
   // Setup weekly calendar on initial load and when plan changes
@@ -676,78 +825,153 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
           </View>
         </View>
         
-        {/* Today's Workout Header */}
+        {/* Workout Content - Show different UI based on completion status */}
         {activeDay !== null && activeDay < plan.workoutDays.length ? (
-          <>
-            <View style={styles.todaysWorkoutHeader}>
-              <Text style={styles.todaysWorkoutTitle}>
-                {isToday(selectedDate) 
-                  ? "TODAY'S WORKOUT" 
-                  : `${format(selectedDate, 'EEEE').toUpperCase()} WORKOUT`}
-              </Text>
-              <Text style={styles.workoutName}>{plan.subtitle || "Unknown"}</Text>
-            </View>
-            
-            {/* Workout Stats and Exercises Container */}
-            <View style={styles.workoutContainer}>
+          isWorkoutCompleted ? (
+            /* Workout Completed View */
+            <View style={styles.completedWorkoutContainer}>
+              {/* Workout Week/Cycle Info - Centered */}
+              <View style={styles.completedWorkoutHeader}>
+                <Text style={styles.completedWorkoutTitle}>
+                  Week {completedWorkoutData?.cycleWeek || 1}/5 - {completedWorkoutData?.weekName || 'Adaptation'}
+                </Text>
+              </View>
+              
+              {/* Modern Completed Banner */}
+              <View style={styles.completionBanner}>
+                <Text style={styles.completionBannerText}>WORKOUT COMPLETED</Text>
+              </View>
+              
               {/* Workout Stats */}
-              <View style={styles.statsRow}>
-                <View style={styles.statItem}>
-                  <IconButton icon="flash" size={16} iconColor={COLORS.primary} style={styles.statIcon} />
-                  <Text style={styles.statLabel}>{plan.workoutDays[activeDay].total_exercises} Exercises</Text>
+              <View style={styles.completionStatsRow}>
+                <View style={[styles.completionStatItem, styles.leftStatItem]}>
+                  <Text style={styles.completionStatValue}>{plan.workoutDays[activeDay].total_exercises}</Text>
+                  <Text style={styles.completionStatLabel}>EXERCISES DONE</Text>
                 </View>
-                <View style={styles.statItem}>
-                  <IconButton icon="clock-outline" size={16} iconColor={COLORS.primary} style={styles.statIcon} />
-                  <Text style={styles.statLabel}>{plan.workoutDays[activeDay].estimated_duration} Min</Text>
+                
+                {/* Vertical Divider */}
+                <View style={styles.statDivider} />
+                
+                <View style={[styles.completionStatItem, styles.centerStatItem]}>
+                  <Text style={[styles.completionStatValue, styles.timeValue]} numberOfLines={1} ellipsizeMode="clip">
+                    {completedWorkoutData?.duration ? completedWorkoutData.duration.split(':').slice(0, 2).join(':') : '00:00'}
+                  </Text>
+                  <Text style={styles.completionStatLabel}>WORKOUT TIME</Text>
                 </View>
-                <View style={styles.statItem}>
-                  <IconButton icon="fire" size={16} iconColor={COLORS.primary} style={styles.statIcon} />
-                  <Text style={styles.statLabel}>{plan.workoutDays[activeDay].total_calories} Cal</Text>
+                
+                {/* Vertical Divider */}
+                <View style={styles.statDivider} />
+                
+                <View style={[styles.completionStatItem, styles.rightStatItem]}>
+                  <Text style={styles.completionStatValue}>{completedWorkoutData?.caloriesBurned || 0}</Text>
+                  <Text style={styles.completionStatLabel}>CALORIES BURNED</Text>
                 </View>
               </View>
               
-              {/* Exercise List */}
-              <View style={styles.exercisesContainer}>
-                <FlatList
-                  data={plan.workoutDays[activeDay].exercises}
-                  keyExtractor={(item) => item.id}
-                  renderItem={({ item, index }) => (
-                    <View style={[
-                      styles.exerciseCard,
-                      index === plan.workoutDays[activeDay].exercises.length - 1 && { borderBottomWidth: 0 }
-                    ]}>
-                      <View style={styles.exerciseLeftContent}>
-                        <OptimizedImage
-                          source={item.image_url ? { uri: item.image_url } : require('../../assets/exercises/placeholder.jpg')}
-                          style={styles.exerciseImage}
-                          fallback={require('../../assets/exercises/placeholder.jpg')}
-                          resizeMode="cover"
-                          cachePolicy="immutable"
-                          showLoader={false}
-                        />
-                        <View style={styles.exerciseDetails}>
-                          <Text style={styles.exerciseName}>{item.name}</Text>
-                          <Text style={styles.exerciseSets}>{item.sets} sets × {item.reps_range} reps</Text>
-                        </View>
-                      </View>
-                      {/* Muscle group tag */}
-                      {item.primary_muscles && item.primary_muscles.length > 0 && (
-                        <View style={[
-                          styles.muscleTag, 
-                          { backgroundColor: getMuscleTagColor(item.primary_muscles[0]) }
-                        ]}>
-                          <Text style={styles.muscleTagText}>
-                            {getMuscleTagName(item.primary_muscles[0])}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  )}
-                  scrollEnabled={false}
-                />
+              {/* Muscle Groups Worked Section */}
+              <View style={styles.muscleGroupsSection}>
+                <Text style={styles.muscleGroupsTitle}>MUSCLE GROUPS WORKED IN THIS WORKOUT</Text>
+                
+                <View style={styles.muscleGroupsLegend}>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendDot, { backgroundColor: COLORS.primary }]} />
+                    <Text style={styles.legendText}>Primary</Text>
+                  </View>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendDot, { backgroundColor: '#CCCCCC' }]} />
+                    <Text style={styles.legendText}>Secondary</Text>
+                  </View>
+                </View>
+                
+                {/* This would be replaced with your actual muscle visualization component */}
+                <View style={styles.muscleVisualizationPlaceholder}>
+                  <Text style={styles.placeholderText}>Muscle visualization would go here</Text>
+                </View>
               </View>
+              
+              {/* Redo Workout Button */}
+              <Button
+                mode="contained"
+                style={styles.redoButton}
+                labelStyle={styles.redoButtonText}
+                onPress={handleRedoWorkout}
+              >
+                REDO WORKOUT
+              </Button>
             </View>
-          </>
+          ) : (
+            /* Regular Workout View */
+            <>
+              <View style={styles.todaysWorkoutHeader}>
+                <Text style={styles.todaysWorkoutTitle}>
+                  {isToday(selectedDate) 
+                    ? "TODAY'S WORKOUT" 
+                    : `${format(selectedDate, 'EEEE').toUpperCase()} WORKOUT`}
+                </Text>
+                <Text style={styles.workoutName}>{plan.subtitle || "Unknown"}</Text>
+              </View>
+              
+              {/* Workout Stats and Exercises Container */}
+              <View style={styles.workoutContainer}>
+                {/* Workout Stats */}
+                <View style={styles.statsRow}>
+                  <View style={styles.statItem}>
+                    <IconButton icon="flash" size={16} iconColor={COLORS.primary} style={styles.statIcon} />
+                    <Text style={styles.statLabel}>{plan.workoutDays[activeDay].total_exercises} Exercises</Text>
+                  </View>
+                  <View style={styles.statItem}>
+                    <IconButton icon="clock-outline" size={16} iconColor={COLORS.primary} style={styles.statIcon} />
+                    <Text style={styles.statLabel}>{plan.workoutDays[activeDay].estimated_duration} Min</Text>
+                  </View>
+                  <View style={styles.statItem}>
+                    <IconButton icon="fire" size={16} iconColor={COLORS.primary} style={styles.statIcon} />
+                    <Text style={styles.statLabel}>{plan.workoutDays[activeDay].total_calories} Cal</Text>
+                  </View>
+                </View>
+                
+                {/* Exercise List */}
+                <View style={styles.exercisesContainer}>
+                  <FlatList
+                    data={plan.workoutDays[activeDay].exercises}
+                    keyExtractor={(item) => item.id}
+                    renderItem={({ item, index }) => (
+                      <View style={[
+                        styles.exerciseCard,
+                        index === plan.workoutDays[activeDay].exercises.length - 1 && { borderBottomWidth: 0 }
+                      ]}>
+                        <View style={styles.exerciseLeftContent}>
+                          <OptimizedImage
+                            source={item.image_url ? { uri: item.image_url } : require('../../assets/exercises/placeholder.jpg')}
+                            style={styles.exerciseImage}
+                            fallback={require('../../assets/exercises/placeholder.jpg')}
+                            resizeMode="cover"
+                            cachePolicy="immutable"
+                            showLoader={false}
+                          />
+                          <View style={styles.exerciseDetails}>
+                            <Text style={styles.exerciseName}>{item.name}</Text>
+                            <Text style={styles.exerciseSets}>{item.sets} sets × {item.reps_range} reps</Text>
+                          </View>
+                        </View>
+                        {/* Muscle group tag */}
+                        {item.primary_muscles && item.primary_muscles.length > 0 && (
+                          <View style={[
+                            styles.muscleTag, 
+                            { backgroundColor: getMuscleTagColor(item.primary_muscles[0]) }
+                          ]}>
+                            <Text style={styles.muscleTagText}>
+                              {getMuscleTagName(item.primary_muscles[0])}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+                    scrollEnabled={false}
+                  />
+                </View>
+              </View>
+            </>
+          )
         ) : (
           <View style={styles.noWorkoutContainer}>
             <Text style={styles.noWorkoutText}>
@@ -757,15 +981,27 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         )}
       </ScrollView>
       
-      {/* Start Workout FAB */}
+      {/* Start/Redo Workout FAB */}
       {activeDay !== null && activeDay < plan.workoutDays.length && (
-        <FAB
-          style={styles.fab}
-          icon="play"
-          label="START WORKOUT"
-          onPress={handleStartWorkout}
-          color={COLORS.background}
-        />
+        isWorkoutCompleted ? (
+          <Button
+            mode="contained"
+            style={styles.redoButton}
+            labelStyle={styles.redoButtonText}
+            onPress={handleRedoWorkout}
+            icon="refresh"
+          >
+            REDO WORKOUT
+          </Button>
+        ) : (
+          <FAB
+            style={styles.fab}
+            icon="play"
+            label="START WORKOUT"
+            onPress={handleStartWorkout}
+            color={COLORS.background}
+          />
+        )
       )}
     </View>
   );
@@ -863,21 +1099,23 @@ const styles = StyleSheet.create({
     width: 44,
     height: 68,
     borderRadius: 25,
-    paddingVertical: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    position: 'relative',
   },
   selectedWeekDay: {
     backgroundColor: COLORS.primary,
     elevation: 5,
+    marginTop: 4,
   },
   weekDayText: {
-    fontSize: 12,
+    fontSize: 16,
     fontWeight: '500',
     color: COLORS.text,
-    marginBottom: 4,
+    marginBottom: 0,
   },
   weekDayNumber: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: '500',
     color: COLORS.text,
   },
   selectedWeekDayText: {
@@ -888,7 +1126,8 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: COLORS.primary,
-    marginTop: 4,
+    position: 'absolute',
+    bottom: 6,
   },
   selectedDayIndicator: {
     backgroundColor: COLORS.text,
@@ -1004,6 +1243,56 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     width: 200,
   },
+  completedBanner: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+  },
+  completedText: {
+    color: COLORS.primary,
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.lg,
+  },
+  statValue: {
+    color: COLORS.primary,
+    fontSize: 32,
+    fontWeight: 'bold',
+  },
+  summaryContainer: {
+    padding: SPACING.md,
+    marginHorizontal: SPACING.md,
+    marginVertical: SPACING.lg,
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.md,
+  },
+  summaryTitle: {
+    color: COLORS.text,
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: SPACING.md,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: SPACING.xs,
+  },
+  summaryLabel: {
+    color: COLORS.text,
+    fontSize: 16,
+  },
+  summaryValue: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
   noWorkoutContainer: {
     padding: SPACING.md,
     backgroundColor: COLORS.surface,
@@ -1018,5 +1307,141 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COLORS.secondary,
     textAlign: 'center',
+  },
+  // Workout completion styles
+  completedWorkoutContainer: {
+    backgroundColor: COLORS.background,
+    borderRadius: BORDER_RADIUS.md,
+    marginHorizontal: SPACING.md,
+    marginBottom: SPACING.md,
+    overflow: 'hidden',
+  },
+  completedWorkoutHeader: {
+    flexDirection: 'row',
+    justifyContent: 'center', // Center the title
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+
+  },
+  completedWorkoutTitle: {
+    color: COLORS.primary,
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  completionBanner: {
+    paddingVertical: SPACING.sm, // Reduced vertical padding
+    alignItems: 'center',
+    marginBottom: SPACING.sm, // Reduced bottom margin
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  completionBannerText: {
+    color: COLORS.text,
+    fontSize: 24,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    letterSpacing: 1,
+  },
+  completionStatsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 0, // Remove horizontal padding to allow items to move to edges
+    paddingTop: SPACING.sm, // Reduced top padding
+    paddingBottom: SPACING.xs, // Reduced bottom padding
+    marginBottom: SPACING.xs, // Reduced bottom margin
+  },
+  statDivider: {
+    width: 1,
+    height: '80%',
+    alignSelf: 'center',
+    marginHorizontal: SPACING.md,
+    backgroundColor: COLORS.primary,
+    opacity: 0.3,
+    borderRadius: 1,
+  },
+  completionStatItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  // Position the stat items
+  leftStatItem: {
+    paddingLeft: SPACING.md, // Add padding on the left edge
+  },
+  centerStatItem: {
+    // Center item stays as is
+  },
+  rightStatItem: {
+    paddingRight: SPACING.md, // Add padding on the right edge
+  },
+  completionStatValue: {
+    color: COLORS.primary,
+    fontSize: 36, // Larger font size for stat values
+    fontWeight: '800',
+
+  },
+  timeValue: {
+    minWidth: 100, // Ensure enough width for the time
+    textAlign: 'center',
+  },
+  completionStatLabel: {
+    color: COLORS.text,
+    fontSize: 14,
+    textAlign: 'center',
+    opacity: 0.8, // Slightly dimmed for contrast with the values
+  },
+  muscleGroupsSection: {
+    padding: SPACING.md,
+
+  },
+  muscleGroupsTitle: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: SPACING.md,
+  },
+  muscleGroupsLegend: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: SPACING.md,
+  },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: SPACING.xs,
+  },
+  legendText: {
+    color: COLORS.text,
+    fontSize: 14,
+  },
+  muscleVisualizationPlaceholder: {
+    height: 250,
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: SPACING.sm, // Reduced top margin
+    marginBottom: SPACING.xs, // Reduced bottom margin
+  },
+  placeholderText: {
+    color: COLORS.text,
+    opacity: 0.5,
+  },
+  redoButton: {
+    width: '50%',
+    alignSelf: 'center',
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  redoButtonText: {
+    color: COLORS.background,
+    fontWeight: 'bold',
   },
 }); 

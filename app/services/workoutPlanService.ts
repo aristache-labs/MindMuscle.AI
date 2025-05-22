@@ -114,10 +114,53 @@ export const getPlanById = async (planId: string): Promise<any> => {
   }
 };
 
+// Update user workout days
+export const updateUserWorkoutDays = async (userId: string, workoutDays: string[]): Promise<void> => {
+  try {
+    const { data, error } = await supabase
+      .rpc('update_user_workout_days', {
+        p_user_id: userId,
+        p_workout_days: workoutDays
+      });
+      
+    if (error) throw error;
+    console.log('User workout days updated:', data);
+  } catch (error) {
+    console.error('Error updating workout days:', error);
+    throw error;
+  }
+};
+
+// Get user workout days
+export const getUserWorkoutDays = async (userId: string): Promise<string[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('user_profile_details')
+      .select('workout_days')
+      .eq('user_id', userId)
+      .single();
+      
+    if (error) throw error;
+    
+    if (data && Array.isArray(data.workout_days)) {
+      return data.workout_days;
+    }
+    
+    // Default to weekdays if no preference set
+    return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  } catch (error) {
+    console.error('Error fetching workout days:', error);
+    // Default to weekdays if error
+    return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  }
+};
+
 export default {
   saveActivePlan,
   getActivePlan,
   updateActivePlanDay,
   clearActivePlan,
-  getPlanById
+  getPlanById,
+  updateUserWorkoutDays,
+  getUserWorkoutDays
 }; 

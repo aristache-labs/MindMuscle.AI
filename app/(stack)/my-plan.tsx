@@ -6,8 +6,9 @@ import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { useAuth } from '../store/AuthContext';
 import supabase from '../services/supabase';
 import OptimizedImage from '../components/OptimizedImage';
-import { format, addDays, isSameDay, startOfWeek, getDay } from 'date-fns';
+import { format, addDays, isSameDay, startOfWeek, getDay, addWeeks, parseISO } from 'date-fns';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import workoutPlanService from '../services/workoutPlanService';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -46,6 +47,28 @@ interface MyPlanScreenProps {
   embedded?: boolean;
 }
 
+// Map day strings to numeric values (0-based to match JavaScript Date.getDay)
+const dayToNumberMap: { [key: string]: number } = {
+  'Sunday': 0,
+  'Monday': 1,
+  'Tuesday': 2,
+  'Wednesday': 3,
+  'Thursday': 4,
+  'Friday': 5,
+  'Saturday': 6
+};
+
+// Map numeric values back to day strings
+const numberToDayMap: { [key: number]: string } = {
+  0: 'Sunday',
+  1: 'Monday',
+  2: 'Tuesday',
+  3: 'Wednesday',
+  4: 'Thursday',
+  5: 'Friday',
+  6: 'Saturday'
+};
+
 export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   const router = useRouter();
   const { user } = useAuth();
@@ -54,6 +77,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [userWorkoutDays, setUserWorkoutDays] = useState<string[]>([]);
   
   // Calendar state
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -62,6 +86,20 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   
   // Use a simple date array for the weekly calendar view
   const [weekDays, setWeekDays] = useState<Date[]>([]);
+
+  // Fetch user's preferred workout days
+  const fetchUserWorkoutDays = useCallback(async () => {
+    if (!user) return;
+    
+    try {
+      const workoutDays = await workoutPlanService.getUserWorkoutDays(user.id);
+      setUserWorkoutDays(workoutDays);
+    } catch (err) {
+      console.error('Error fetching user workout days:', err);
+      // Default to all weekdays if there's an error
+      setUserWorkoutDays(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']);
+    }
+  }, [user]);
   
   // Fetch the user's active plan
   const fetchActivePlan = useCallback(async () => {
@@ -218,12 +256,42 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       
       setPlan(formattedPlan);
       
-      // Setup initial active day
-      const currentDay = activePlanData.current_day % workoutDays.length;
-      setActiveDay(currentDay);
+      // Wait for user workout days to be fetched
+      if (userWorkoutDays.length === 0) {
+        await fetchUserWorkoutDays();
+      }
+      
+      // Setup initial active day based on today's date
+      const today = new Date();
+      const todayStr = format(today, 'yyyy-MM-dd');
       
       // Setup calendar marked dates
       setupCalendarDates(activePlanData.start_date, workoutDays.length);
+      
+      // After setupCalendarDates is called, markedDates will be set
+      // We need to wait for the state to update, so we'll use setTimeout
+      setTimeout(() => {
+        // Check if today is a workout day
+        if (markedDates[todayStr] && markedDates[todayStr].marked) {
+          const workoutDayIndex = markedDates[todayStr].workoutDayIndex;
+          setActiveDay(workoutDayIndex);
+          console.log(`Today is a workout day: Day ${workoutDayIndex + 1}`);
+        } else {
+          // Find the next workout day
+          const nextWorkoutDate = Object.keys(markedDates)
+            .filter(date => markedDates[date].marked && new Date(date) >= today)
+            .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0];
+            
+          if (nextWorkoutDate) {
+            const workoutDayIndex = markedDates[nextWorkoutDate].workoutDayIndex;
+            setActiveDay(workoutDayIndex);
+            console.log(`Next workout day is ${nextWorkoutDate}: Day ${workoutDayIndex + 1}`);
+          } else {
+            // Default to the first workout day
+            setActiveDay(0);
+          }
+        }
+      }, 100);
       
     } catch (err: any) {
       console.error('Error fetching active plan:', err);
@@ -231,9 +299,9 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [user]);
+  }, [user, userWorkoutDays.length, fetchUserWorkoutDays]);
   
-  // Setup calendar marked dates based on workout frequency
+  // Setup calendar marked dates based on workout frequency and user preferences
   const setupCalendarDates = (startDate: string, totalDays: number) => {
     const start = new Date(startDate);
     const markedDatesObj: any = {};
@@ -245,22 +313,127 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       selectedColor: COLORS.primary,
     };
     
-    // Mark workout days
-    for (let i = 0; i < totalDays; i++) {
-      const date = format(addDays(start, i), 'yyyy-MM-dd');
-      markedDatesObj[date] = {
-        ...markedDatesObj[date],
-        marked: true,
-        dotColor: COLORS.primary
-      };
-      
-      // If this is today, merge with today's style
-      if (date === today) {
+    // If user has no workout day preferences or the array is empty, default to consecutive days
+    if (!userWorkoutDays || userWorkoutDays.length === 0) {
+      // Original logic for consecutive days
+      for (let i = 0; i < totalDays; i++) {
+        const date = format(addDays(start, i), 'yyyy-MM-dd');
         markedDatesObj[date] = {
           ...markedDatesObj[date],
-          selected: true,
-          selectedColor: COLORS.primary,
+          marked: true,
+          dotColor: COLORS.primary,
+          workoutDayIndex: i % totalDays
         };
+        
+        // If this is today, merge with today's style
+        if (date === today) {
+          markedDatesObj[date] = {
+            ...markedDatesObj[date],
+            selected: true,
+            selectedColor: COLORS.primary,
+          };
+        }
+      }
+    } else {
+      // Convert user workout days to day numbers (0-6, where 0 is Sunday)
+      const preferredDays = userWorkoutDays
+        .map(day => dayToNumberMap[day])
+        .filter(day => day !== undefined)
+        .sort((a, b) => a - b);
+        
+      if (preferredDays.length === 0) {
+        console.warn('No valid workout days found in user preferences');
+        return;
+      }
+      
+      // Get the number of workout days in the plan
+      const numWorkoutDaysInPlan = totalDays;
+      
+      // Find the first workout day after the start date
+      const startDayOfWeek = start.getDay(); // 0-6 (Sunday-Saturday)
+      
+      // Find which of the preferred days comes first after the start date
+      let firstWorkoutDayIndex = 0;
+      let minDaysToAdd = 7; // Max days in a week
+      
+      for (let i = 0; i < preferredDays.length; i++) {
+        const preferredDay = preferredDays[i];
+        let daysToAdd = preferredDay - startDayOfWeek;
+        if (daysToAdd < 0) daysToAdd += 7; // Wrap around to next week
+        
+        // If this day is the start day or after, and closer than our current minimum
+        if (daysToAdd < minDaysToAdd) {
+          minDaysToAdd = daysToAdd;
+          firstWorkoutDayIndex = i;
+        }
+      }
+      
+      // Reorder the preferred days so the first one after start date is first
+      const reorderedPreferredDays = [
+        ...preferredDays.slice(firstWorkoutDayIndex),
+        ...preferredDays.slice(0, firstWorkoutDayIndex)
+      ];
+      
+      console.log('Start date:', format(start, 'EEE MMM dd yyyy'));
+      console.log('Preferred days:', preferredDays.map(d => numberToDayMap[d]));
+      console.log('Reordered days:', reorderedPreferredDays.map(d => numberToDayMap[d]));
+      
+      let calendarDayCounter = 0;
+      let currentWeek = 0;
+      let workoutDayCounter = 0;
+      
+      // Continue marking days until we've marked all workout days from the plan
+      while (workoutDayCounter < numWorkoutDaysInPlan && currentWeek < 10) { // Limit to 10 weeks as a safety
+        for (const dayNumber of reorderedPreferredDays) {
+          if (workoutDayCounter >= numWorkoutDaysInPlan) break;
+          
+          // Get the actual date for this workout
+          let targetDate = new Date(start);
+          
+          // Move to the correct week
+          targetDate = addWeeks(targetDate, currentWeek);
+          
+          // Calculate days to add to reach the target day of the week
+          const startDayOfWeek = targetDate.getDay();
+          
+          // Calculate how many days to add to reach our target day
+          let daysToAdd = dayNumber - startDayOfWeek;
+          if (daysToAdd < 0) daysToAdd += 7; // Wrap around to next week
+          
+          // Add the days
+          targetDate = addDays(targetDate, daysToAdd);
+          
+          // Only mark dates that are on or after the start date
+          if (targetDate >= start) {
+            const dateStr = format(targetDate, 'yyyy-MM-dd');
+            
+            markedDatesObj[dateStr] = {
+              ...markedDatesObj[dateStr],
+              marked: true,
+              dotColor: COLORS.primary,
+              // Use the workoutDayCounter which counts 0, 1, 2 (for Days 1, 2, 3)
+              workoutDayIndex: workoutDayCounter % numWorkoutDaysInPlan
+            };
+            
+            // Log for debugging
+            console.log(`${format(targetDate, 'EEE MMM dd')} - Workout Day ${(workoutDayCounter % numWorkoutDaysInPlan) + 1}`);
+            
+            // If this is today, merge with today's style
+            if (dateStr === today) {
+              markedDatesObj[dateStr] = {
+                ...markedDatesObj[dateStr],
+                selected: true,
+                selectedColor: COLORS.primary,
+              };
+            }
+            
+            workoutDayCounter++;
+          }
+          
+          calendarDayCounter++;
+        }
+        
+        currentWeek++;
       }
     }
     
@@ -273,15 +446,20 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     setSelectedDate(selectedDate);
     
     // Find which workout day this corresponds to
-    if (plan && plan.start_date) {
-      const startDate = new Date(plan.start_date);
-      const diffDays = Math.floor((selectedDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-      
-      if (diffDays >= 0 && diffDays < plan.workoutDays.length) {
-        setActiveDay(diffDays);
+    const dateStr = format(selectedDate, 'yyyy-MM-dd');
+    const dateInfo = markedDates[dateStr];
+    
+    if (dateInfo && dateInfo.marked && plan) {
+      if (typeof dateInfo.workoutDayIndex === 'number') {
+        // Get the workout day directly from the marked date info
+        setActiveDay(dateInfo.workoutDayIndex);
+        console.log(`Selected workout day: Day ${dateInfo.workoutDayIndex + 1}`);
       } else {
+        // No workout day found for this date
         setActiveDay(null);
       }
+    } else {
+      setActiveDay(null);
     }
   };
   
@@ -346,10 +524,12 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     }
   }, [plan, setupWeeklyCalendar]);
   
-  // Call fetchActivePlan on component mount
+  // First fetch user workout days, then fetch active plan
   useEffect(() => {
-    fetchActivePlan();
-  }, [fetchActivePlan]);
+    fetchUserWorkoutDays().then(() => {
+      fetchActivePlan();
+    });
+  }, [fetchUserWorkoutDays, fetchActivePlan]);
   
   const renderExerciseItem = ({ item }: { item: Exercise }) => (
     <View style={styles.exerciseCard}>
@@ -478,7 +658,11 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         {activeDay !== null && activeDay < plan.workoutDays.length ? (
           <>
             <View style={styles.todaysWorkoutHeader}>
-              <Text style={styles.todaysWorkoutTitle}>TODAY'S WORKOUT</Text>
+              <Text style={styles.todaysWorkoutTitle}>
+                {isToday(selectedDate) 
+                  ? "TODAY'S WORKOUT" 
+                  : `${format(selectedDate, 'EEEE').toUpperCase()} WORKOUT`}
+              </Text>
               <Text style={styles.workoutName}>{plan.subtitle || "Unknown"}</Text>
             </View>
             

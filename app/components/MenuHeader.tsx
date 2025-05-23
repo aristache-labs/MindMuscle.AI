@@ -7,10 +7,10 @@ import { router, usePathname } from 'expo-router';
 import { GeneralHeader } from './GeneralHeader';
 
 const options = [
-  { label: 'My Plan', icon: 'calendar-today', route: '/(stack)/my-plan' },
-  { label: 'Single Workout', icon: 'dumbbell', route: '/(stack)/single-workout' },
-  { label: 'AI Coaching', icon: 'robot', route: '/(stack)/ai-coaching' },
-  { label: 'Custom', icon: 'tune', route: '/(stack)/custom' }
+  { label: 'My Plan', icon: 'calendar-today', route: '/(tabs)', isTab: true },
+  { label: 'Single Workout', icon: 'dumbbell', route: '/(stack)/single-workout', isTab: false },
+  { label: 'AI Coaching', icon: 'robot', route: '/(stack)/ai-coaching', isTab: false },
+  { label: 'Custom', icon: 'tune', route: '/(stack)/custom', isTab: false }
 ];
 
 interface MenuHeaderProps {
@@ -32,12 +32,25 @@ export function MenuHeader({ currentOption, onOptionSelect }: MenuHeaderProps) {
   const handleOptionSelect = (option: typeof options[0]) => {
     setMenuVisible(false);
     
-    if (onOptionSelect) {
-      // If callback provided, use it to handle selection
-      onOptionSelect(option.label);
-    } else if (option.route !== pathname) {
-      // Otherwise navigate to the route if it's different from current
-      router.push(option.route);
+    // Always navigate to the selected route regardless of current state
+    // This ensures navigation works correctly from any screen
+    if (option.label !== currentOption) {
+      // Handle tab navigation differently
+      if (option.isTab) {
+        // For My Plan, navigate to the tabs index with a parameter
+        router.replace({
+          pathname: option.route,
+          params: { selectedOption: option.label }
+        });
+      } else {
+        // For other options, navigate directly to their stack routes
+        router.replace(option.route);
+      }
+      
+      // Also call the callback if provided (for UI state updates)
+      if (onOptionSelect) {
+        onOptionSelect(option.label);
+      }
     }
   };
 
@@ -88,7 +101,6 @@ export function MenuHeader({ currentOption, onOptionSelect }: MenuHeaderProps) {
                 option.label === currentOption && styles.menuItemTitleActive
               ]}
               leadingIcon={option.icon}
-              disabled={option.label === currentOption}
             />
             {index < options.length - 1 && <Divider style={styles.menuDivider} />}
           </React.Fragment>

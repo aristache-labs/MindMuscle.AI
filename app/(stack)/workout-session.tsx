@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, FlatList, Pressable, Dimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -6,8 +6,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { IconButton, Button, Divider } from 'react-native-paper';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import supabase from '../services/supabase';
+import workoutPlanService from '../services/workoutPlanService';
 import { useAuth } from '../store/AuthContext';
 import OptimizedImage from '../components/OptimizedImage';
+import ExerciseMaxWeightGraph from '../components/ExerciseMaxWeightGraph';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 
@@ -47,6 +49,12 @@ interface ExerciseDataItem {
   exercises?: any; // Use any type to avoid TypeScript errors
 }
 
+// Add interface for max weight data
+interface MaxWeightDataPoint {
+  date: string;
+  value: number;
+}
+
 export default function WorkoutSessionScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -68,11 +76,15 @@ export default function WorkoutSessionScreen() {
   const [focusedInputs, setFocusedInputs] = useState<Record<string, boolean>>({});
   const [lastExerciseValues, setLastExerciseValues] = useState<Record<string, Record<number, { weight: string, reps: string }>>>({});
   
+  // State for max weight graph data
+  const [maxWeightData, setMaxWeightData] = useState<Record<string, MaxWeightDataPoint[]>>({});
+  const [absoluteMaxWeightData, setAbsoluteMaxWeightData] = useState<Record<string, { weight: number, reps: number, date: string }>>({});
+  
   // State for workout completion
   const [isWorkoutCompleted, setIsWorkoutCompleted] = useState(false);
   const [completedWorkoutData, setCompletedWorkoutData] = useState<{
     completedExercises: number;
-    duration: number;
+    duration: string;
     caloriesBurned: number;
     totalVolume: number;
     totalReps: number;
@@ -97,74 +109,63 @@ export default function WorkoutSessionScreen() {
   };
   
   // Function to fetch last exercise records for all exercises
-  const fetchLastExerciseRecords = async () => {
+  const fetchLastExerciseRecords = useCallback(async () => {
     if (!user) return;
     if (exercises.length === 0) {
-
       return;
     }
     
     try {
-
-      
-      // Create an object to store the last values for each exercise and set
-      const lastValues: Record<string, Record<number, { weight: string, reps: string }>> = {};
-      
-      // For each exercise, fetch the last records
-      for (const exercise of exercises) {
-        if (!exercise.exercise_id) {
-
-          continue;
-        }
-        
-
-        
-        const { data: records, error } = await supabase
-          .from('user_exercise_records')
-          .select('*')
-          .eq('exercise_id', exercise.exercise_id)
-          .eq('completed', true)
-          .order('created_at', { ascending: false });
-        
-        if (error) {
-          // Error fetching last exercise records
-          continue;
-        }
-        
-
-        
-        if (records && records.length > 0) {
-          // Group records by set_number
-          const setRecords: Record<number, { weight: string, reps: string }> = {};
-          
-          // Process records to get the last value for each set number
-          records.forEach(record => {
-            const setNumber = record.set_number;
-            
-            // Only store the first (most recent) record for each set number
-            if (!setRecords[setNumber]) {
-              setRecords[setNumber] = {
-                weight: record.weight,
-                reps: record.reps
-              };
-
-            }
-          });
-          
-          lastValues[exercise.exercise_id] = setRecords;
-        }
-      }
+      // Use the service function to fetch last exercise records
+      const lastValues = await workoutPlanService.fetchLastExerciseRecords(user.id, exercises);
       
       if (Object.keys(lastValues).length > 0) {
-
         setLastExerciseValues(lastValues);
-      } else {
-
       }
     } catch (error) {
       // Error in fetchLastExerciseRecords
     }
-  };
+  }, [user?.id, exercises]);
+  
+  // Function to fetch max weight data for current exercise
+  const fetchMaxWeightData = useCallback(async () => {
+    if (!user || exercises.length === 0 || currentExerciseIndex < 0) return;
+    
+    try {
+      const currentExercise = exercises[currentExerciseIndex];
+      
+      if (currentExercise?.exercise_id) {
+        // Fetch trending data
+        const trendingData = await workoutPlanService.fetchExerciseMaxWeightData(
+          user.id, 
+          currentExercise.exercise_id, 
+          6 // Get last 6 data points
+        );
+        
+        // Fetch absolute max weight
+        const absoluteMaxData = await workoutPlanService.fetchExerciseAbsoluteMaxWeight(
+          user.id,
+          currentExercise.exercise_id
+        );
+        
+        if (trendingData.length > 0) {
+          setMaxWeightData(prev => ({
+            ...prev,
+            [currentExercise.exercise_id]: trendingData
+          }));
+        }
+        
+        if (absoluteMaxData) {
+          setAbsoluteMaxWeightData(prev => ({
+            ...prev,
+            [currentExercise.exercise_id]: absoluteMaxData
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching max weight data:', error);
+    }
+  }, [user?.id, exercises, currentExerciseIndex]);
   
   // Function to auto-fill the next set with values from the previous set
   const autoFillNextSet = (exerciseId: string, currentSetIndex: number) => {
@@ -212,10 +213,16 @@ export default function WorkoutSessionScreen() {
   // Effect to monitor exercises state and fetch last records when exercises change
   useEffect(() => {
     if (exercises.length > 0 && user) {
-
       fetchLastExerciseRecords();
     }
-  }, [exercises, user]);
+  }, [exercises, user, fetchLastExerciseRecords]);
+  
+  // Effect to fetch max weight data when current exercise changes
+  useEffect(() => {
+    if (exercises.length > 0 && user && currentExerciseIndex >= 0) {
+      fetchMaxWeightData();
+    }
+  }, [currentExerciseIndex, exercises, user, fetchMaxWeightData]);
 
   useEffect(() => {
     // Check if workout is already completed for today, but skip if forceStart is true
@@ -253,64 +260,20 @@ export default function WorkoutSessionScreen() {
     try {
       setIsLoading(true);
       
-
+      // Use the service function to check workout completion
+      const { isCompleted, completedWorkoutData } = await workoutPlanService.checkWorkoutCompletion(
+        user.id,
+        planId,
+        workoutDay
+      );
       
-      // Get today's date in ISO format (YYYY-MM-DD)
-      const today = new Date().toISOString().split('T')[0];
-      
-      // Check if there's a completed workout for today
-      const { data, error } = await supabase
-        .from('user_workout_history')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('plan_id', planId)
-        .eq('workout_day', workoutDay);
-      
-
-      
-      if (error) {
-        // Error checking workout completion
-        throw error;
-      }
-      
-      if (data && data.length > 0) {
-        // Workout is already completed, get the most recent one
-        const mostRecentWorkout = data.sort((a, b) => 
-          new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime()
-        )[0];
-        
-
+      if (isCompleted && completedWorkoutData) {
+        // Workout is already completed
         setIsWorkoutCompleted(true);
-        
-        // Get the count of exercises from the user_exercise_records table
-        const { data: exerciseData, error: exerciseError } = await supabase
-          .from('user_exercise_records')
-          .select('exercise_id')
-          .eq('workout_history_id', mostRecentWorkout.id)
-          .limit(1000);
-        
-        if (exerciseError) {
-          // Error fetching exercise records
-        }
-        
-
-        
-        // Set completed workout data
-        setCompletedWorkoutData({
-          completedExercises: exerciseData ? new Set(exerciseData.map(item => item.exercise_id)).size : 0,
-          duration: mostRecentWorkout.duration_minutes || 0,
-          caloriesBurned: mostRecentWorkout.calories_burned || 0,
-          totalVolume: mostRecentWorkout.total_volume || 0,
-          totalReps: mostRecentWorkout.total_reps || 0,
-          completedAt: mostRecentWorkout.completed_at,
-          weekName: mostRecentWorkout.week_name,
-          cycleWeek: mostRecentWorkout.cycle_week
-        });
-        
+        setCompletedWorkoutData(completedWorkoutData);
         setIsLoading(false);
       } else {
         // Workout is not completed, fetch workout data
-
         setIsWorkoutCompleted(false);
         fetchWorkoutData();
         
@@ -354,106 +317,36 @@ export default function WorkoutSessionScreen() {
   const fetchWorkoutData = async () => {
     if (!planId || isNaN(workoutDay) || !user) {
       Alert.alert('Error', 'Invalid workout parameters');
-      router.back();
       return;
     }
-
+    
     try {
       setIsLoading(true);
       
-      // Fetch exercises for this workout
-      const { data: exercisesData, error: exercisesError } = await supabase
-        .from('workout_plan_exercises')
-        .select(`
-          id,
-          sets,
-          reps_range,
-          exercise_id,
-          workout_day,
-          exercise_name,
-          rest_time,
-          "order",
-          exercises:exercise_id (
-            id,
-            name,
-            image_url,
-            primary_muscles
-          )
-        `)
-        .eq('plan_id', planId)
-        .eq('workout_day', workoutDay)
-        .order('order', { ascending: true });
-        
-      if (exercisesError) throw exercisesError;
+      // Use the service function to fetch workout data
+      const { exercises: formattedExercises, exerciseSets: initialSets, recommendations } = 
+        await workoutPlanService.fetchWorkoutData(planId, workoutDay, user.id, cycleWeek);
       
-      if (!exercisesData || exercisesData.length === 0) {
-        Alert.alert('Error', 'No exercises found for this workout');
-        router.back();
-        return;
-      }
-      
-      // Format exercise data with proper typing
-      const formattedExercises: ExerciseData[] = (exercisesData as unknown as ExerciseDataItem[]).map(item => ({
-        id: item.id,
-        exercise_id: item.exercise_id,
-        name: item.exercise_name || (item.exercises ? item.exercises.name : undefined) || 'Unknown Exercise',
-        sets: item.sets || 3,
-        reps_range: item.reps_range || '8-12',
-        image_url: item.exercises ? item.exercises.image_url : undefined,
-        primary_muscles: item.exercises ? item.exercises.primary_muscles : undefined,
-        restTime: item.rest_time,
-        order: item.order,
-        workout_day: item.workout_day
-      }));
-      
+      // Set exercises state
       setExercises(formattedExercises);
       
-      // Initialize exercise sets
-      const initialSets: Record<string, ExerciseSet[]> = {};
-      
-      for (const exercise of formattedExercises) {
-        const exerciseSets: ExerciseSet[] = [];
-        
-        for (let i = 1; i <= exercise.sets; i++) {
-          exerciseSets.push({
-            id: `${exercise.id}-set-${i}`,
-            setNumber: i,
-            weight: '',
-            reps: '',
-            isCompleted: false
-          });
-        }
-        
-        initialSets[exercise.id] = exerciseSets;
-        
-        // Fetch recommendations for this exercise
-        if (user?.id && exercise.exercise_id) {
-          const { data: recommendationData } = await supabase.rpc(
-            'get_exercise_recommendations',
-            {
-              p_user_id: user.id,
-              p_exercise_id: exercise.exercise_id,
-              p_cycle_week: cycleWeek
-            }
-          );
-          
-          if (recommendationData && recommendationData.length > 0) {
-            setRecommendations(prev => ({
-              ...prev,
-              [exercise.id]: recommendationData[0]
-            }));
-          }
-        }
-      }
-      
+      // Set exercise sets state
       setExerciseSets(initialSets);
       
-      // After setting up the exercises and sets, fetch the last exercise records
+      // Set recommendations state
+      setRecommendations(recommendations);
+      
+      // Fetch last exercise records to show previous values
       await fetchLastExerciseRecords();
       
+      // Fetch max weight data for current exercise
+      await fetchMaxWeightData();
+      
+      setIsLoading(false);
     } catch (error) {
       // Error fetching workout data
-      Alert.alert('Error', 'Failed to load workout data');
+      setIsLoading(false);
+      Alert.alert('Error', 'Failed to load workout data. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -520,18 +413,13 @@ export default function WorkoutSessionScreen() {
         const reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
         const setVolume = parseFloat((weight * reps).toFixed(1)); // Ensure precision to 1 decimal place
         
-        // Log the values for debugging
-
-        
         setTotalVolume(prev => {
           const newTotal = parseFloat((prev + setVolume).toFixed(1));
-
           return newTotal;
         });
         
         setTotalReps(prev => {
           const newTotal = prev + reps;
-
           return newTotal;
         });
         
@@ -595,7 +483,6 @@ export default function WorkoutSessionScreen() {
             
             if (allExercisesCompleted) {
               // All exercises and all sets are completed, save the workout data
-
               
               // Calculate the latest volume and reps including the last set
               const weight = currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight);
@@ -606,9 +493,6 @@ export default function WorkoutSessionScreen() {
               const newTotalVolume = parseFloat((totalVolume + setVolume).toFixed(1));
               const newTotalReps = totalReps + reps;
               
-
-
-              
               // Pass the fresh values directly to completeWorkout
               setTimeout(() => {
                 completeWorkout(newTotalVolume, newTotalReps);
@@ -616,7 +500,6 @@ export default function WorkoutSessionScreen() {
             } else {
               // Just move to the next exercise (which will be the last one)
               setTimeout(() => {
-
                 moveToNextExercise();
               }, 500);
             }
@@ -761,17 +644,14 @@ export default function WorkoutSessionScreen() {
                   
                   if (allExercisesCompleted) {
                     // All exercises are completed, save workout data
-
                     
                     // Use the current UI state values which should be accurate after the timeout
                     const currentTotalVolume = totalVolume;
                     const currentTotalReps = totalReps;
                     
-
                     completeWorkout(currentTotalVolume, currentTotalReps);
                   } else {
                     // Not all exercises are completed, just move to next exercise
-
                     moveToNextExercise();
                   }
                 }, 500);
@@ -792,7 +672,6 @@ export default function WorkoutSessionScreen() {
           [{ text: 'OK' }]
         );
         // Move to next exercise since all sets are already completed
-
         moveToNextExercise();
       }
     }, 100); // Small delay to ensure state update completes
@@ -865,14 +744,11 @@ export default function WorkoutSessionScreen() {
 
   const moveToNextExercise = () => {
     if (currentExerciseIndex < exercises.length - 1) {
-
       // Use a function to update state to avoid closure issues
       setCurrentExerciseIndex(prevIndex => prevIndex + 1);
       
       // No notification when moving to next exercise for better UX flow
     } else {
-
-      
       // Check if all exercises have all their sets completed
       const allExercisesCompleted = exercises.every(exercise => {
         const sets = exerciseSets[exercise.id] || [];
@@ -881,7 +757,6 @@ export default function WorkoutSessionScreen() {
       
       if (allExercisesCompleted) {
         // All exercises and all sets are completed, automatically save data
-
         // Use setTimeout to ensure UI updates complete before saving
         setTimeout(() => {
           completeWorkout();
@@ -910,10 +785,7 @@ export default function WorkoutSessionScreen() {
   };
 
   const completeWorkout = async (overrideVolume?: number, overrideReps?: number) => {
-    if (!user || !planId || !workoutStartTime) {
-      // Missing required data for workout completion
-      return;
-    }
+    if (!user || !planId) return;
     
     // Stop the workout timer
     setWorkoutTimerActive(false);
@@ -924,255 +796,58 @@ export default function WorkoutSessionScreen() {
     const finalVolume = overrideVolume !== undefined ? overrideVolume : totalVolume;
     const finalReps = overrideReps !== undefined ? overrideReps : totalReps;
     
-
-
-    if (overrideVolume !== undefined) {
-
-    }
-    
-
-    
     try {
       // Show loading indicator
       setIsLoading(true);
-      
-      // Calculate workout duration
-      const workoutEndTime = new Date();
-      const workoutDurationMinutes = Math.round((workoutEndTime.getTime() - workoutStartTime.getTime()) / 60000);
-      
-      // Format workout duration in hh:mm:ss format
-      const hours = Math.floor(finalDuration / 3600);
-      const minutes = Math.floor((finalDuration % 3600) / 60);
-      const seconds = finalDuration % 60;
-      const formattedDuration = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-      
-
       
       // Check if this is a redone workout (started with forceStart parameter)
       const forceStartParam = params.forceStart;
       const isRedoWorkout = forceStartParam === 'true';
       
-      // For redo workouts, we need to determine the original cycle week and week name
-      let workoutCycleWeek = cycleWeek;
-      let workoutWeekName = weekName;
+      // Use the service function to complete the workout
+      const success = await workoutPlanService.completeWorkout(
+        user.id,
+        planId,
+        workoutDay,
+        cycleWeek,
+        weekName,
+        exercises,
+        exerciseSets,
+        finalDuration,
+        finalVolume,
+        finalReps,
+        isRedoWorkout,
+        originalCycleWeek
+      );
       
-      if (isRedoWorkout) {
-        // If this is a redo workout, we should use the original cycle week and week name
-        try {
-          // Query the database to find the original cycle week and week name
-          // for this workout day and plan
-          const { data: historyData } = await supabase
-            .from('user_workout_history')
-            .select('cycle_week, week_name')
-            .eq('user_id', user.id)
-            .eq('plan_id', planId)
-            .eq('workout_day', workoutDay)
-            .order('completed_at', { ascending: false })
-            .limit(1);
-            
-          if (historyData && historyData.length > 0) {
-            // Use the cycle week and week name from the most recent workout for this day
-            workoutCycleWeek = historyData[0].cycle_week;
-            workoutWeekName = historyData[0].week_name;
-
-          } else if (originalCycleWeek !== null) {
-            // Fall back to the stored original cycle week if available
-            workoutCycleWeek = originalCycleWeek;
-            // Map cycle week to week name
-            const weekNames: Record<number, string> = {
-              1: 'Adaptation',
-              2: 'Accumulation',
-              3: 'Intensification',
-              4: 'Peak',
-              5: 'Deload'
-            };
-            workoutWeekName = weekNames[workoutCycleWeek] || 'Adaptation';
-
-          }
-        } catch (err) {
-          // Error fetching original workout data
-        }
+      if (success) {
+        // Calculate workout duration in minutes for display
+        const workoutDurationMinutes = Math.round(finalDuration / 60);
+        
+        // Set completed workout data for display
+        setCompletedWorkoutData({
+          completedExercises: exercises.length,
+          duration: formatTime(finalDuration),
+          caloriesBurned: Math.round(workoutDurationMinutes * 8.5),
+          totalVolume: finalVolume,
+          totalReps: finalReps,
+          completedAt: new Date().toISOString(),
+          weekName: weekName,
+          cycleWeek: cycleWeek
+        });
+        
+        // Set workout as completed
+        setIsWorkoutCompleted(true);
+        
+        // Also refresh the last exercise records after completing the workout
+        // This ensures the data is up-to-date for the next time this exercise is performed
+        await fetchLastExerciseRecords();
+      } else {
+        // Error completing workout
+        Alert.alert('Error', 'Failed to save workout data. Please try again.');
       }
       
-
-      
-      // 1. Insert workout history entry with total volume and reps
-      const { data: workoutData, error: workoutError } = await supabase
-        .from('user_workout_history')
-        .insert({
-          user_id: user.id,
-          plan_id: planId,
-          workout_day: workoutDay,
-          cycle_week: workoutCycleWeek,
-          week_name: workoutWeekName,
-          workout_duration: formattedDuration, // Save formatted duration in hh:mm:ss format
-          calories_burned: Math.round(workoutDurationMinutes * 8.5), // Match the calculation used in plan-details.tsx (8.5 calories per minute)
-          total_volume: finalVolume, // Add total volume (kg)
-          total_reps: finalReps, // Add total reps
-          completed_at: new Date().toISOString(), // Add completion timestamp
-          exercises_count: exercises.length // Store the actual number of exercises
-        })
-        .select('id')
-        .single();
-        
-        if (workoutError) {
-        // Error creating workout history
-        throw workoutError;
-      }
-      
-      if (!workoutData) throw new Error('Failed to create workout history record');
-      
-      const workoutHistoryId = workoutData.id;
-
-      
-      // 2. Insert exercise records
-      const exerciseRecords = [];
-      
-      for (const exercise of exercises) {
-        const sets = exerciseSets[exercise.id] || [];
-        
-        for (const set of sets) {
-          if (set.isCompleted) { // Only save completed sets
-            // Transform '-' to '0' when saving to database
-            const weight = set.weight === '-' || set.weight === '' ? '0' : set.weight;
-            const reps = set.reps === '-' || set.reps === '' ? '0' : set.reps;
-            
-            exerciseRecords.push({
-              workout_history_id: workoutHistoryId,
-              exercise_id: exercise.exercise_id,
-              workout_plan_exercise_id: exercise.id,
-              set_number: set.setNumber,
-              weight: weight ? parseFloat(weight) : 0,
-              reps: reps ? parseInt(reps, 10) : 0,
-              completed: set.isCompleted
-            });
-          }
-        }
-      }
-      
-
-      
-      if (exerciseRecords.length > 0) {
-        const { error: recordsError } = await supabase
-          .from('user_exercise_records')
-          .insert(exerciseRecords);
-          
-        if (recordsError) {
-          // Error saving exercise records
-          throw recordsError;
-        }
-        
-
-      }
-      
-      // 3. Update user active plan
-      const { data: planData, error: planError } = await supabase
-        .from('user_active_plans')
-        .select('completed_workouts, current_week, current_day')
-        .eq('user_id', user.id)
-        .eq('plan_id', planId)
-        .eq('is_active', true)
-        .single();
-        
-      if (planError) {
-        // Error fetching active plan
-        throw planError;
-      }
-      
-      if (planData) {
-        const { completed_workouts, current_week, current_day } = planData;
-        let updatedWeek = current_week;
-        let updatedCompleted = false;
-        let updatedDay = current_day;
-        
-        // Check if this is a redone workout (started with forceStart parameter)
-        const forceStartParam = params.forceStart;
-        const isRedoWorkout = forceStartParam === 'true';
-        
-        // Only increment completed workouts count if this is NOT a redone workout
-        let newCompletedWorkouts = completed_workouts || 0;
-        if (!isRedoWorkout) {
-          newCompletedWorkouts += 1;
-          
-          // Check if we should advance to the next week
-          const workoutsPerWeek = 3; // 3 workouts per week based on requirements
-          
-          if (newCompletedWorkouts % workoutsPerWeek === 0) {
-            // We've completed a full week
-            if (current_week < 5) {
-              // Advance to next week
-              updatedWeek = current_week + 1;
-
-            } else if (current_week === 5) {
-              // We've completed the full 5-week cycle
-              updatedCompleted = true;
-
-            }
-          }
-          
-          // Only update the current day if this is not a redone workout
-          updatedDay = (current_day + 1) % workoutsPerWeek; // Cycle through 0, 1, 2
-        } else {
-
-        }
-        
-        // For redo workouts, we need to be careful about what we update
-        // We should only update the last_workout_date and not change any progression values
-        const updateData = isRedoWorkout ? {
-          // For redo workouts, only update the last workout date
-          last_workout_date: new Date().toISOString()
-        } : {
-          // For normal workouts, update all progression values
-          completed_workouts: newCompletedWorkouts,
-          current_week: updatedWeek,
-          current_day: updatedDay,
-          last_workout_date: new Date().toISOString(),
-          completed: updatedCompleted
-        };
-        
-
-        
-        // Update the active plan
-        const { error: updateError } = await supabase
-          .from('user_active_plans')
-          .update(updateData)
-          // We're already storing workout metrics in user_workout_history
-          .eq('user_id', user.id)
-          .eq('plan_id', planId)
-          .eq('is_active', true);
-          
-        if (updateError) {
-          // Error updating active plan
-          throw updateError;
-        }
-        
-
-      }
-      
-      // Set completed workout data for display
-      setCompletedWorkoutData({
-        completedExercises: exercises.length,
-        duration: workoutDurationMinutes,
-        caloriesBurned: Math.round(workoutDurationMinutes * 8.5),
-        totalVolume: finalVolume,
-        totalReps: finalReps,
-        completedAt: new Date().toISOString(),
-        weekName: weekName,
-        cycleWeek: cycleWeek
-      });
-      
-      // Set workout as completed
-      setIsWorkoutCompleted(true);
       setIsLoading(false);
-      
-      // We'll handle the navigation in the render function when isWorkoutCompleted is true
-      // This prevents navigation issues and ensures consistent behavior
-
-      
-      // Also refresh the last exercise records after completing the workout
-      // This ensures the data is up-to-date for the next time this exercise is performed
-      await fetchLastExerciseRecords();
-      
     } catch (error) {
       setIsLoading(false);
       // Error completing workout
@@ -1182,17 +857,13 @@ export default function WorkoutSessionScreen() {
   
   // Function to restart the workout (for REDO WORKOUT button)
   const redoWorkout = async () => {
-
-    
     // Store the current last exercise values before resetting
     const currentLastValues = {...lastExerciseValues};
 
-    
     // Store the original cycle week before resetting
     // This ensures we use the correct cycle week when saving the workout history
     setOriginalCycleWeek(cycleWeek);
 
-    
     setIsWorkoutCompleted(false);
     setCompletedWorkoutData(null);
     setWorkoutStartTime(new Date());
@@ -1222,7 +893,6 @@ export default function WorkoutSessionScreen() {
     
     // Also fetch fresh data after a delay to ensure we have the latest records
     setTimeout(async () => {
-
       await fetchLastExerciseRecords();
     }, 1000); // Longer delay to ensure all state updates have completed
     
@@ -1340,6 +1010,17 @@ export default function WorkoutSessionScreen() {
           </View>
         </View>
         
+        {/* Max Weight Progress Graph - separate container with small spacing */}
+        {currentExercise && (
+          <View style={styles.maxWeightGraphContainer}>
+            <ExerciseMaxWeightGraph
+              data={maxWeightData[currentExercise.exercise_id] || []}
+              exerciseName={currentExercise.name}
+              absoluteMaxWeight={absoluteMaxWeightData[currentExercise.exercise_id] || null}
+            />
+          </View>
+        )}
+        
         {/* Exercise Sets */}
         <View style={styles.setsContainer}>
           {currentSets.map((set, index) => {
@@ -1382,11 +1063,11 @@ export default function WorkoutSessionScreen() {
                                 />
                                 <Text style={styles.activeSetValueUnit}>kg</Text>
                               </View>
-                              <Text style={styles.activeSetSubValue}>
-                                {lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.weight 
-                                  ? `(Last ${lastExerciseValues[currentExercise.exercise_id][index + 1].weight})` 
-                                  : '(No previous data)'}
-                              </Text>
+                              {lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.weight && (
+                                <Text style={styles.activeSetSubValue}>
+                                  {`(Last ${lastExerciseValues[currentExercise.exercise_id][index + 1].weight})`}
+                                </Text>
+                              )}
                             </View>
                             <View style={styles.dividerContainer}>
                               <View style={styles.horizontalDivider} />
@@ -1406,11 +1087,11 @@ export default function WorkoutSessionScreen() {
                                 />
                                 <Text style={styles.activeSetValueUnit}>reps</Text>
                               </View>
-                              <Text style={styles.activeSetSubValue}>
-                                {lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps 
-                                  ? `(Last ${lastExerciseValues[currentExercise.exercise_id][index + 1].reps})` 
-                                  : '(No previous data)'}
-                              </Text>
+                              {lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps && (
+                                <Text style={styles.activeSetSubValue}>
+                                  {`(Last ${lastExerciseValues[currentExercise.exercise_id][index + 1].reps})`}
+                                </Text>
+                              )}
                             </View>
                           </View>
                           {/* Bottom Row for Label */}
@@ -2071,5 +1752,9 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  maxWeightGraphContainer: {
+    marginTop: SPACING.md,
+    marginBottom: SPACING.md,
   },
 });

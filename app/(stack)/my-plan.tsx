@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Dimensions, FlatList, Alert } from 'react-native';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Dimensions, FlatList, Alert, Animated } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Appbar, Button, Divider, IconButton, FAB, Icon } from 'react-native-paper';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
@@ -47,28 +47,6 @@ interface MyPlanScreenProps {
   embedded?: boolean;
 }
 
-// Map day strings to numeric values (0-based to match JavaScript Date.getDay)
-const dayToNumberMap: { [key: string]: number } = {
-  'Sunday': 0,
-  'Monday': 1,
-  'Tuesday': 2,
-  'Wednesday': 3,
-  'Thursday': 4,
-  'Friday': 5,
-  'Saturday': 6
-};
-
-// Map numeric values back to day strings
-const numberToDayMap: { [key: number]: string } = {
-  0: 'Sunday',
-  1: 'Monday',
-  2: 'Tuesday',
-  3: 'Wednesday',
-  4: 'Thursday',
-  5: 'Friday',
-  6: 'Saturday'
-};
-
 export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   const router = useRouter();
   const { user } = useAuth();
@@ -77,7 +55,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [userWorkoutDays, setUserWorkoutDays] = useState<string[]>([]);
+  const [userWorkoutDays, setUserWorkoutDays] = useState<number[]>([]);
   
   // Calendar state
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -100,6 +78,12 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     weekName: string;
     cycleWeek: number;
   } | null>(null);
+
+  // Helper function to find the workout day object by day number
+  const getWorkoutDayByNumber = (dayNumber: number | null): WorkoutDay | null => {
+    if (!plan || dayNumber === null) return null;
+    return plan.workoutDays.find(workoutDay => workoutDay.day === dayNumber) || null;
+  };
 
   // Fetch user's preferred workout days
   const fetchUserWorkoutDays = useCallback(async () => {
@@ -129,358 +113,73 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     setError(null);
     
     try {
-      // Get the user's active plan
-      const { data: activePlanData, error: activePlanError } = await supabase
-        .from('user_active_plans')
-        .select(`
-          *,
-          workout_plans(
-            id, 
-            title, 
-            difficulty_level, 
-            workout_subcategories!workout_plans_subcategory_id_fkey(
-              subtitle,
-              title
-            )
-          )
-        `)
-        .eq('user_id', user.id)
-        .eq('is_active', true)
-        .single();
+      // Get the current workout days to pass to the service
+      const currentWorkoutDays = [...userWorkoutDays];
       
-      if (activePlanError) {
-        if (activePlanError.code === 'PGRST116') {
-          // No active plan found
-          setPlan(null);
-          setIsLoading(false);
-          return;
-        }
-        throw activePlanError;
-      }
+      // Use the service function to fetch the active plan
+      const { plan: formattedPlan, markedDates: calendarDates } = await workoutPlanService.fetchActivePlan(
+        user.id,
+        currentWorkoutDays
+      );
       
-      if (!activePlanData) {
+      if (!formattedPlan) {
         setPlan(null);
         setIsLoading(false);
         return;
       }
       
-      // Fetch the exercises for this plan
-      const { data: exercisesData, error: exercisesError } = await supabase
-        .from('workout_plan_exercises')
-        .select(`
-          id,
-          sets,
-          reps_range,
-          exercise_id,
-          workout_day,
-          exercise_name,
-          exercises:exercise_id (
-            id,
-            name,
-            image_url,
-            primary_muscles
-          )
-        `)
-        .eq('plan_id', activePlanData.plan_id)
-        .order('workout_day', { ascending: true })
-        .order('order', { ascending: true });
-        
-      if (exercisesError) throw exercisesError;
-      
-      // Group exercises by workout day
-      const exercisesByDay: { [key: number]: Exercise[] } = {};
-      exercisesData.forEach((item: any) => {
-        const day = item.workout_day || 0;
-        if (!exercisesByDay[day]) {
-          exercisesByDay[day] = [];
-        }
-        
-        exercisesByDay[day].push({
-          id: item.id,
-          name: item.exercise_name || item.exercises?.name,
-          sets: item.sets,
-          reps_range: item.reps_range,
-          image_url: item.exercises?.image_url,
-          primary_muscles: item.exercises?.primary_muscles,
-          workout_day: day,
-          exercise_id: item.exercises?.id
-        });
-      });
-      
-      // Convert to array of workout days with per-day statistics
-      const workoutDays = Object.keys(exercisesByDay).map(dayKey => {
-        const dayNum = parseInt(dayKey, 10);
-        const dayExercises = exercisesByDay[dayNum];
-        
-        // Calculate per-day statistics based on actual exercise data
-        const exerciseCount = dayExercises.length;
-        
-        // Calculate estimated duration based on sets, reps, and rest time
-        let totalDuration = 0;
-        dayExercises.forEach(exercise => {
-          const sets = exercise.sets || 3;
-          const repRange = exercise.reps_range || '8-12';
-          
-          // Parse rep range to get average reps (e.g., "8-12" -> 10)
-          let avgReps = 10; // Default
-          if (repRange.includes('-')) {
-            const [min, max] = repRange.split('-').map(num => parseInt(num, 10));
-            if (!isNaN(min) && !isNaN(max)) {
-              avgReps = Math.floor((min + max) / 2);
-            }
-          } else if (!isNaN(parseInt(repRange, 10))) {
-            avgReps = parseInt(repRange, 10);
-          }
-          
-          // Estimate time per rep at ~2-3 seconds
-          const timePerSet = avgReps * 2.5; // seconds
-          
-          // Rest time between sets (typically 60-90 seconds)
-          const restTime = 75; // seconds
-          
-          // Total time for this exercise (all sets + rest between sets)
-          const exerciseTime = (sets * timePerSet) + (restTime * (sets - 1));
-          
-          // Add to total duration (convert to minutes)
-          totalDuration += exerciseTime / 60;
-        });
-        
-        // Round up to nearest minute
-        const estimatedDuration = Math.ceil(totalDuration);
-        
-        // Calculate calories based on duration with a more realistic formula
-        // Moderate exercise burns approximately 7-10 calories per minute depending on intensity
-        const calorieRate = 8.5; // calories per minute for moderate-high intensity workout
-        const estimatedCalories = Math.round(estimatedDuration * calorieRate);
-        
-        return {
-          day: dayNum,
-          exercises: dayExercises,
-          total_exercises: exerciseCount,
-          estimated_duration: estimatedDuration,
-          total_calories: estimatedCalories
-        };
-      }).sort((a, b) => a.day - b.day);
-      
-      // Format the data
-      const formattedPlan: Plan = {
-        id: activePlanData.workout_plans.id,
-        title: activePlanData.workout_plans.title,
-        difficulty_level: activePlanData.workout_plans.difficulty_level,
-        subtitle: activePlanData.workout_plans.workout_subcategories?.subtitle || "Total Body Circuit",
-        category_name: activePlanData.workout_plans.workout_subcategories?.title,
-        workoutDays: workoutDays,
-        current_day: activePlanData.current_day,
-        start_date: activePlanData.start_date
-      };
-      
       setPlan(formattedPlan);
-      
-      // CRITICAL FIX: Ensure we have user workout days before setting up the calendar
-      // This prevents the calendar from showing incorrect workout days initially
-      if (userWorkoutDays.length === 0) {
-
-        await fetchUserWorkoutDays();
-      }
-      
-      // Log the user's preferred workout days to verify
-
       
       // Setup initial active day based on today's date
       const today = new Date();
       const todayStr = format(today, 'yyyy-MM-dd');
       
       // IMPORTANT: Only setup calendar after we have user workout days
-      // This ensures the calendar always shows the correct workout days
-      if (userWorkoutDays.length > 0) {
-
-        setupCalendarDates(activePlanData.start_date, workoutDays.length);
+      if (currentWorkoutDays.length > 0 && calendarDates) {
+        // Set the marked dates from the service function
+        setMarkedDates(calendarDates);
         
-        // After setupCalendarDates is called, we need to wait for the state to update
-        setTimeout(() => {
-          // Check if today is a workout day
-          if (markedDates[todayStr] && markedDates[todayStr].marked) {
-            const workoutDayIndex = markedDates[todayStr].workoutDayIndex;
+        // Check if today is a workout day
+        if (calendarDates[todayStr] && calendarDates[todayStr].marked) {
+          const workoutDayIndex = calendarDates[todayStr].workoutDayIndex;
+          setActiveDay(workoutDayIndex);
+        } else {
+          // Find the next workout day
+          const nextWorkoutDate = Object.keys(calendarDates)
+            .filter(date => calendarDates[date].marked && new Date(date) >= today)
+            .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0];
+            
+          if (nextWorkoutDate) {
+            const workoutDayIndex = calendarDates[nextWorkoutDate].workoutDayIndex;
             setActiveDay(workoutDayIndex);
-
           } else {
-            // Find the next workout day
-            const nextWorkoutDate = Object.keys(markedDates)
-              .filter(date => markedDates[date].marked && new Date(date) >= today)
-              .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0];
-              
-            if (nextWorkoutDate) {
-              const workoutDayIndex = markedDates[nextWorkoutDate].workoutDayIndex;
-              setActiveDay(workoutDayIndex);
-
-            } else {
-              // Default to the first workout day
-              setActiveDay(0);
-
-            }
+            // Default to the first workout day (now using 1-indexed values)
+            setActiveDay(1);
           }
-        }, 100); // Increased timeout to ensure state updates
+        }
       } else {
         // No user workout days available, calendar setup delayed
-        // Default to the first workout day if we can't set up the calendar yet
-        setActiveDay(0);
+        // Default to the first workout day if we can't set up the calendar yet (now using 1-indexed values)
+        setActiveDay(1);
       }
     } catch (err: any) {
       // Error fetching active plan
       setError('Failed to load your plan.');
+      console.error('Error fetching active plan:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [user, userWorkoutDays.length, fetchUserWorkoutDays]);
+  }, [user, userWorkoutDays]);
   
   // Setup calendar marked dates based on workout frequency and user preferences
   const setupCalendarDates = (startDate: string, totalDays: number) => {
-    const start = new Date(startDate);
-    const markedDatesObj: any = {};
-    
-    // Mark today's date
-    const today = new Date();
-    const todayStr = format(today, 'yyyy-MM-dd');
-    markedDatesObj[todayStr] = {
-      selected: true,
-      selectedColor: COLORS.primary,
-    };
-    
-    // If user has no workout day preferences or the array is empty, default to consecutive days
-    if (!userWorkoutDays || userWorkoutDays.length === 0) {
-      // Original logic for consecutive days
-      for (let i = 0; i < totalDays; i++) {
-        const date = format(addDays(start, i), 'yyyy-MM-dd');
-        markedDatesObj[date] = {
-          ...markedDatesObj[date],
-          marked: true,
-          dotColor: COLORS.primary,
-          workoutDayIndex: i % totalDays
-        };
-        
-        // If this is today, merge with today's style
-        if (date === todayStr) {
-          markedDatesObj[date] = {
-            ...markedDatesObj[date],
-            selected: true,
-            selectedColor: COLORS.primary,
-          };
-        }
-      }
-    } else {
-      // CRITICAL FIX: Completely new approach for workout day mapping
-
-      
-      // Convert user workout days to day numbers (0-6, where 0 is Sunday)
-      const preferredDays = userWorkoutDays
-        .map(day => dayToNumberMap[day])
-        .filter(day => day !== undefined);
-      
-      if (preferredDays.length === 0) {
-        // No valid workout days found in user preferences
-        return;
-      }
-      
-
-      
-      // Get today's day of week (0-6, Sunday-Saturday)
-      const todayDayOfWeek = today.getDay();
-
-      
-      // Check if today is a preferred workout day
-      const isTodayWorkoutDay = preferredDays.includes(todayDayOfWeek);
-
-      
-      // Create a reordered list of preferred days starting with today if today is a workout day
-      // or starting with the next workout day if today is not a workout day
-      let orderedWorkoutDays: number[] = [];
-      
-      if (isTodayWorkoutDay) {
-        // Start with today's workout day
-        const todayIndex = preferredDays.indexOf(todayDayOfWeek);
-        
-        // Reorder the workout days to start with today
-        orderedWorkoutDays = [
-          ...preferredDays.slice(todayIndex),
-          ...preferredDays.slice(0, todayIndex)
-        ];
-      } else {
-        // Find the next workout day after today
-        const nextWorkoutDayIndex = preferredDays.findIndex(day => day > todayDayOfWeek);
-        
-        if (nextWorkoutDayIndex !== -1) {
-          // Reorder starting with the next workout day
-          orderedWorkoutDays = [
-            ...preferredDays.slice(nextWorkoutDayIndex),
-            ...preferredDays.slice(0, nextWorkoutDayIndex)
-          ];
-        } else {
-          // If no workout day is after today, start with the first workout day next week
-          orderedWorkoutDays = [...preferredDays];
-        }
-      }
-      
-
-      
-      // Create a direct mapping from workout_day indices to day numbers
-      const workoutDayToDayNumber: Record<number, number> = {};
-      orderedWorkoutDays.forEach((dayNumber, index) => {
-        workoutDayToDayNumber[index] = dayNumber;
-      });
-      
-
-      
-      // Mark workout days on the calendar for the next several weeks
-      const weeksToShow = 4;
-      
-      for (let weekOffset = 0; weekOffset < weeksToShow; weekOffset++) {
-        // For each workout day in the plan
-        for (let workoutDay = 0; workoutDay < totalDays; workoutDay++) {
-          // Get the day of week for this workout day
-          const dayOfWeek = workoutDayToDayNumber[workoutDay % orderedWorkoutDays.length];
-          
-          // Calculate the date for this workout day
-          let targetDate = new Date(today);
-          
-          // Calculate days to add to reach this day of week
-          let daysToAdd = dayOfWeek - todayDayOfWeek;
-          
-          // If the day is earlier in the week than today, move to next week
-          if (daysToAdd < 0) daysToAdd += 7;
-          
-          // Add weeks offset
-          daysToAdd += weekOffset * 7;
-          
-          // Calculate the final date
-          targetDate = addDays(targetDate, daysToAdd);
-          
-          // Only include dates on or after the start date
-          if (targetDate >= start) {
-            const dateStr = format(targetDate, 'yyyy-MM-dd');
-            
-            markedDatesObj[dateStr] = {
-              ...markedDatesObj[dateStr],
-              marked: true,
-              dotColor: COLORS.primary,
-              // This is the critical mapping - use the workout day directly
-              workoutDayIndex: workoutDay % totalDays
-            };
-            
-            // Log for debugging
-
-            
-            // If this is today, merge with today's style
-            if (dateStr === todayStr) {
-              markedDatesObj[dateStr] = {
-                ...markedDatesObj[dateStr],
-                selected: true,
-                selectedColor: COLORS.primary,
-              };
-            }
-          }
-        }
-      }
-    }
+    // Use the service function to set up calendar dates
+    const markedDatesObj = workoutPlanService.setupCalendarDates(
+      startDate,
+      totalDays,
+      userWorkoutDays,
+      { primary: COLORS.primary }
+    );
     
     setMarkedDates(markedDatesObj);
   };
@@ -490,141 +189,26 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     if (!user || !plan || workoutDayIndex === null) return false;
     
     try {
-
+      // Use the service function to check workout completion
+      const { isCompleted, completedWorkoutData, completedDates } = await workoutPlanService.checkWorkoutCompletionForPlan(
+        user.id,
+        plan.id,
+        workoutDayIndex,
+        markedDates
+      );
       
-      // First, try to directly query the database to see all records for this plan and user
-      const { data: allWorkouts, error: allWorkoutsError } = await supabase
-        .from('user_workout_history')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('plan_id', plan.id);
-        
-
-      
-      // Now check if there's a completed workout for this specific day
-      // The workout_day in the database is stored as the same index as in the markedDates
-      // This is a 0-based index (0, 1, 2) that corresponds to workout days (Day 1, Day 2, Day 3)
-      
-      // Fetch all completed workouts for this plan to update the completedWorkoutDays list
-      const { data: allCompletedWorkouts, error: allCompletedError } = await supabase
-        .from('user_workout_history')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('plan_id', plan.id);
-        
-      if (!allCompletedError && allCompletedWorkouts) {
-        // Map of workout day indices to their corresponding dates in the calendar
-        const workoutDayMap: Record<number, string[]> = {};
-        
-        // Build a map of workout day indices to their dates
-        Object.entries(markedDates).forEach(([dateStr, value]: [string, any]) => {
-          if (value.workoutDayIndex !== undefined) {
-            if (!workoutDayMap[value.workoutDayIndex]) {
-              workoutDayMap[value.workoutDayIndex] = [];
-            }
-            workoutDayMap[value.workoutDayIndex].push(dateStr);
-          }
-        });
-        
-
-        
-        // Get today's date
-        const today = new Date();
-        const todayStr = format(today, 'yyyy-MM-dd');
-        
-        // Create a list of dates that have completed workouts
-        const completedDates: string[] = [];
-        
-        allCompletedWorkouts.forEach(workout => {
-          const workoutDay = workout.workout_day;
-          const dates = workoutDayMap[workoutDay] || [];
-          
-          // If today is one of the dates for this workout day, prioritize it
-          if (dates.includes(todayStr)) {
-            completedDates.push(todayStr);
-          } 
-          // Otherwise use the closest date to today
-          else if (dates.length > 0) {
-            // Sort dates by proximity to today
-            const sortedDates = [...dates].sort((a, b) => {
-              const diffA = Math.abs(new Date(a).getTime() - today.getTime());
-              const diffB = Math.abs(new Date(b).getTime() - today.getTime());
-              return diffA - diffB;
-            });
-            
-            completedDates.push(sortedDates[0]);
-          }
-        });
-        
+      // Update state with the results
+      if (completedDates) {
         setCompletedWorkoutDays(completedDates);
-
       }
       
-
-      
-      const { data, error } = await supabase
-        .from('user_workout_history')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('plan_id', plan.id)
-        .eq('workout_day', workoutDayIndex);
-
-
-      
-      if (error) {
-        // Error checking workout completion
-        return false;
-      }
-      
-      if (data && data.length > 0) {
-        // Workout is already completed, get the most recent one
-        const mostRecentWorkout = data.sort((a, b) => 
-          new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime()
-        )[0];
-        
-
-        
-        // Get the count of exercises from the user_exercise_records table
-        const { data: exerciseData, error: exerciseError } = await supabase
-          .from('user_exercise_records')
-          .select('exercise_id')
-          .eq('workout_history_id', mostRecentWorkout.id)
-          .limit(1000);
-        
-        if (exerciseError) {
-          // Error fetching exercise records
-        }
-        
-
-        
-        // Get workout duration from the database
-        const workoutDuration = mostRecentWorkout.workout_duration || '00:00';
-        
-        // Get the count of exercises from the workout history record or fall back to the plan data
-        const exercisesCount = mostRecentWorkout.exercises_count;
-        const currentWorkoutDay = plan.workoutDays.find(day => day.day === workoutDayIndex);
-        const totalExercisesInDay = currentWorkoutDay ? currentWorkoutDay.total_exercises : 0;
-        
-
-
-        
-        // Set completed workout data - prioritize the exercises_count field if available
-        setCompletedWorkoutData({
-          completedExercises: exercisesCount || totalExercisesInDay || (exerciseData ? new Set(exerciseData.map(item => item.exercise_id)).size : 0),
-          duration: workoutDuration,
-          caloriesBurned: mostRecentWorkout.calories_burned || 0,
-          totalVolume: mostRecentWorkout.total_volume || 0,
-          totalReps: mostRecentWorkout.total_reps || 0,
-          completedAt: mostRecentWorkout.completed_at,
-          weekName: mostRecentWorkout.week_name,
-          cycleWeek: mostRecentWorkout.cycle_week
-        });
-        
+      if (isCompleted && completedWorkoutData) {
+        // Workout is already completed
+        setCompletedWorkoutData(completedWorkoutData);
         setIsWorkoutCompleted(true);
         return true;
       } else {
         // Workout is not completed
-
         setIsWorkoutCompleted(false);
         setCompletedWorkoutData(null);
         return false;
@@ -653,19 +237,39 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       
       if (markedDateInfo && markedDateInfo.marked) {
         // This is a workout day - get the workout day index from the marked date
+        // workoutDayIndex is already 1-indexed (1, 2, 3) as set in setupCalendarDates
         const workoutDayIndex = markedDateInfo.workoutDayIndex;
+        
         
         // Set the active day to the workout day index from the marked date
         setActiveDay(workoutDayIndex);
-        // Selected workout day: workoutDayIndex + 1 (1-based)
         
-        // Check if this workout is already completed
-        await checkWorkoutCompletion(workoutDayIndex);
+        // Check if this workout is already completed and update completedWorkoutDays
+        if (user) {
+          const { isCompleted, completedWorkoutData, completedDates } = await workoutPlanService.checkWorkoutCompletionForPlan(
+            user.id,
+            plan.id,
+            workoutDayIndex,
+            markedDates
+          );
+          
+          // Update the completed workout days state to maintain check icons
+          if (completedDates && completedDates.length > 0) {
+            setCompletedWorkoutDays(completedDates);
+          }
+          
+          // Update workout completion state
+          setIsWorkoutCompleted(isCompleted);
+          if (isCompleted && completedWorkoutData) {
+            setCompletedWorkoutData(completedWorkoutData);
+          } else {
+            setCompletedWorkoutData(null);
+          }
+        }
       } else {
         setActiveDay(null);
         setIsWorkoutCompleted(false);
         setCompletedWorkoutData(null);
-
       }
     }
     
@@ -681,7 +285,6 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       const isCompleted = await checkWorkoutCompletion();
       
       if (isCompleted) {
-
         return; // Don't navigate, show completion info in the current screen
       }
       
@@ -691,13 +294,12 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       if (!cycleData) {
         throw new Error('Failed to get plan cycle data');
       }
-      
       // Navigate to workout session
       router.push({
         pathname: '/(stack)/workout-session',
         params: { 
           planId: plan.id,
-          workoutDay: activeDay,
+          workoutDay: activeDay, // This is now 1-indexed (1, 2, 3)
           cycleWeek: cycleData.currentWeek,
           weekName: cycleData.weekName
         }
@@ -750,6 +352,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     setSelectedDate(today);
     
     // If we have a plan, find which workout day corresponds to today
+    // This will set the activeDay using the new 1-indexed values (1, 2, 3)
     if (plan) {
       handleDateSelect({ timestamp: today.getTime() });
     }
@@ -757,6 +360,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   
   // Function to get day abbreviation
   const getDayAbbreviation = (date: Date) => {
+    // getDay returns 0-6 (0=Sunday), but our mapping is now 1-7 (1=Sunday)
     const dayOfWeek = getDay(date);
     const days = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
     return days[dayOfWeek];
@@ -797,10 +401,23 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   
   // First fetch user workout days, then fetch active plan
   useEffect(() => {
-    fetchUserWorkoutDays().then(() => {
-      fetchActivePlan();
-    });
-  }, [fetchUserWorkoutDays, fetchActivePlan]);
+    // Only run this effect once when the component mounts
+    const initialize = async () => {
+      await fetchUserWorkoutDays();
+      await fetchActivePlan();
+    };
+    
+    initialize();
+    // Remove fetchActivePlan from dependencies to prevent infinite loop
+  }, [fetchUserWorkoutDays]);
+  
+  // Effect to refresh calendar when userWorkoutDays changes
+  useEffect(() => {
+    if (plan && userWorkoutDays.length > 0) {
+      // Re-setup calendar dates with the updated workout days
+      setupCalendarDates(plan.start_date, plan.workoutDays.length);
+    }
+  }, [userWorkoutDays, plan]);
   
   // Track if we've already refreshed the calendar to prevent infinite loops
   const [hasRefreshedCalendar, setHasRefreshedCalendar] = useState(false);
@@ -811,62 +428,88 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     // Only refresh if we have a plan, user, and haven't refreshed yet
     if (plan && user && !hasRefreshedCalendar) {
       const refreshCalendarData = async () => {
-
-        
         try {
-          // First, fetch the latest completed workouts from the database
-          const { data: completedWorkouts, error } = await supabase
-            .from('user_workout_history')
-            .select('*')
-            .eq('user_id', user.id)
-            .eq('plan_id', plan.id);
-            
-          if (error) {
-            // Error fetching completed workouts
-          } else if (completedWorkouts) {
-            // Update the completed workout days list
-            const completedDates: string[] = [];
-            
-            // For each completed workout, find the corresponding dates in the calendar
-            Object.entries(markedDates).forEach(([dateStr, value]: [string, any]) => {
-              if (value.workoutDayIndex !== undefined) {
-                // Check if this date's workout day index matches any completed workout
-                const isCompleted = completedWorkouts.some(
-                  workout => workout.workout_day === value.workoutDayIndex
-                );
-                
-                if (isCompleted) {
-                  completedDates.push(dateStr);
-                }
-              }
-            });
+          if (!user || !plan) {
+            setHasRefreshedCalendar(true);
+            return;
+          }
+          
+          // First, refresh the calendar dates with the latest user workout days
+          let newMarkedDates;
+          if (plan.start_date) {
+            newMarkedDates = workoutPlanService.setupCalendarDates(
+              plan.start_date, 
+              plan.workoutDays.length, 
+              userWorkoutDays
+            );
+            setMarkedDates(newMarkedDates);
+          }
+          
+          // Now check for completed workouts and update the calendar
+          if (activeDay !== null) {
+            const { isCompleted, completedWorkoutData, completedDates } = await workoutPlanService.checkWorkoutCompletionForPlan(
+              user.id,
+              plan.id,
+              activeDay,
+              newMarkedDates || markedDates
+            );
             
             // Update the completed workout days state
-            setCompletedWorkoutDays(completedDates);
-
-          }
-          
-          // Refresh the calendar dates with the latest data
-          if (userWorkoutDays.length > 0) {
-            setupCalendarDates(plan.start_date, plan.workoutDays.length);
-          }
-          
-          // Check workout completion for the current active day
-          if (activeDay !== null) {
-            checkWorkoutCompletion(activeDay);
+            if (completedDates && completedDates.length > 0) {
+              setCompletedWorkoutDays(completedDates);
+            }
+            
+            // Update workout completion state
+            setIsWorkoutCompleted(isCompleted);
+            if (isCompleted && completedWorkoutData) {
+              setCompletedWorkoutData(completedWorkoutData);
+            } else {
+              setCompletedWorkoutData(null);
+            }
+          } else {
+            // If no active day is selected, just get all completed workouts
+            const { data: completedWorkouts, error } = await supabase
+              .from('user_workout_history')
+              .select('*')
+              .eq('user_id', user.id)
+              .eq('plan_id', plan.id);
+              
+            if (!error && completedWorkouts && completedWorkouts.length > 0) {
+              // Create a set of completed workout days
+              const completedWorkoutDays = new Set<number>();
+              completedWorkouts.forEach((workout: any) => {
+                completedWorkoutDays.add(workout.workout_day);
+              });
+              
+              // Find all dates in the calendar that correspond to completed workout days
+              const completedDates: string[] = [];
+              Object.entries(newMarkedDates || markedDates).forEach(([dateStr, value]: [string, any]) => {
+                if (value && value.workoutDayIndex !== undefined && completedWorkoutDays.has(value.workoutDayIndex)) {
+                  completedDates.push(dateStr);
+                }
+              });
+              
+              // Update the completed workout days state
+              setCompletedWorkoutDays(completedDates);
+            }
           }
           
           // Mark that we've refreshed the calendar
           setHasRefreshedCalendar(true);
         } catch (err) {
           // Error refreshing calendar data
+          console.error('Error refreshing calendar data:', err);
+          // Even if there's an error, mark as refreshed to prevent infinite loops
+          setHasRefreshedCalendar(true);
         }
       };
       
       // Refresh immediately
       refreshCalendarData();
     }
-  }, [plan, user, hasRefreshedCalendar, userWorkoutDays.length, markedDates, activeDay]);
+  // Remove markedDates from dependencies to prevent infinite loop
+  // since setupCalendarDates updates markedDates, which would trigger this effect again
+  }, [plan, user, hasRefreshedCalendar, userWorkoutDays.length, activeDay]);
   
   // Reset the refresh flag when the plan or user changes
   useEffect(() => {
@@ -894,17 +537,91 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     </View>
   );
 
-  // Function to navigate to settings to set workout preferences
-  const navigateToWorkoutSettings = () => {
-    router.push('/(stack)/settings');
+  // Helper function to format duration as H:mm (hours without leading zero)
+  const formatDurationAsHMM = (duration: string): string => {
+    if (!duration) return '0:00';
+    
+    const parts = duration.split(':');
+    if (parts.length < 2) return '0:00';
+    
+    const hours = parseInt(parts[0], 10);
+    const minutes = parts[1];
+    
+    return `${hours}:${minutes}`;
   };
-  
+
+  // Animated Rest Day Component
+  const RestDayComponent = () => {
+    // Array of rest day messages
+    const restDayVariations = [
+      {
+        icon: 'walk',
+        title: 'ACTIVE RECOVERY',
+        message: 'Perfect day for light movement! Consider a gentle bike ride, leisurely walk, or some dynamic stretching to keep your body active while recovering.',
+        color: '#4CAF50'
+      },
+      {
+        icon: 'meditation',
+        title: 'REST & RESTORE',
+        message: 'Your muscles are rebuilding stronger today. Take time for peaceful meditation, gentle yoga, or mindful breathing to support your recovery process.',
+        color: '#9C27B0'
+      },
+      {
+        icon: 'sleep',
+        title: 'RECOVERY DAY',
+        message: 'Rest is when the magic happens! Allow your body to repair and adapt. Focus on quality sleep and gentle stretching to optimize recovery.',
+        color: '#2196F3'
+      },
+      {
+        icon: 'spa',
+        title: 'WELLNESS FOCUS',
+        message: 'Treat yourself to some self-care today! Consider a relaxing bath, foam rolling session, or gentle massage to help your muscles recover.',
+        color: '#FF9800'
+      },
+      {
+        icon: 'nature',
+        title: 'MINDFUL MOVEMENT',
+        message: 'Connect with nature and move mindfully. A peaceful outdoor walk, light gardening, or gentle stretching in fresh air can boost recovery.',
+        color: '#4CAF50'
+      }
+    ];
+    
+    // Randomly select a rest day variation
+    const [currentVariation] = useState(() => 
+      restDayVariations[Math.floor(Math.random() * restDayVariations.length)]
+    );
+    
+    return (
+      <View style={styles.restDayContainer}>
+        <Text style={styles.restDayTitle}>{currentVariation.title}</Text>
+        
+        <View style={styles.restDayIconContainer}>
+          <Icon source={currentVariation.icon} size={60} color={currentVariation.color} />
+        </View>
+        
+        <Text style={styles.restDayMessage}>
+          {currentVariation.message}
+        </Text>
+        
+        <View style={styles.restDayTips}>
+          <Text style={styles.restDayTipsTitle}>Recovery Activities:</Text>
+          <Text style={styles.restDayTip}>• 10-20 minute gentle walk or nature stroll</Text>
+          <Text style={styles.restDayTip}>• Light stretching, yoga, or mobility work</Text>
+          <Text style={styles.restDayTip}>• Foam rolling or self-massage therapy</Text>
+          <Text style={styles.restDayTip}>• Meditation, breathing exercises, or mindfulness</Text>
+          <Text style={styles.restDayTip}>• Relaxing bath or spa-like self-care</Text>
+          <Text style={styles.restDayTip}>• Quality sleep and proper hydration</Text>
+        </View>
+      </View>
+    );
+  };
+
   if (isLoading) {
     return (
       <View style={[styles.container, styles.loadingContainer]}>
         {!embedded && (
           <Appbar.Header>
-            <Appbar.BackAction onPress={() => router.back()} />
+            <Appbar.BackAction onPress={() => router.push('/(tabs)')} />
             <Appbar.Content title="My Plan" />
           </Appbar.Header>
         )}
@@ -918,7 +635,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       <View style={styles.container}>
         {!embedded && (
           <Appbar.Header>
-            <Appbar.BackAction onPress={() => router.back()} />
+            <Appbar.BackAction onPress={() => router.push('/(tabs)')} />
             <Appbar.Content title="My Plan" />
           </Appbar.Header>
         )}
@@ -943,7 +660,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     <View style={[styles.container, { paddingTop: embedded ? 0 : insets.top }]}>
       {!embedded && (
         <Appbar.Header>
-          <Appbar.BackAction onPress={() => router.back()} />
+          <Appbar.BackAction onPress={() => router.push('/(tabs)')} />
           <Appbar.Content title="My Plan" />
           <IconButton
             icon="crown"
@@ -1016,7 +733,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         </View>
         
         {/* Workout Content - Show different UI based on completion status */}
-        {activeDay !== null && activeDay < plan.workoutDays.length && markedDates[format(selectedDate, 'yyyy-MM-dd')]?.marked ? (
+        {activeDay !== null && getWorkoutDayByNumber(activeDay) && markedDates[format(selectedDate, 'yyyy-MM-dd')]?.marked ? (
           isWorkoutCompleted ? (
             /* Workout Completed View */
             <View style={styles.completedWorkoutContainer}>
@@ -1035,7 +752,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
               {/* Workout Stats */}
               <View style={styles.completionStatsRow}>
                 <View style={[styles.completionStatItem, styles.leftStatItem]}>
-                  <Text style={styles.completionStatValue}>{plan.workoutDays[activeDay].total_exercises}</Text>
+                  <Text style={styles.completionStatValue}>{getWorkoutDayByNumber(activeDay)?.total_exercises || 0}</Text>
                   <Text style={styles.completionStatLabel}>EXERCISES DONE</Text>
                 </View>
                 
@@ -1044,7 +761,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
                 
                 <View style={[styles.completionStatItem, styles.centerStatItem]}>
                   <Text style={[styles.completionStatValue, styles.timeValue]} numberOfLines={1}>
-                    {completedWorkoutData?.duration ? completedWorkoutData.duration.split(':').slice(0, 2).join(':') : '00:00'}
+                    {formatDurationAsHMM(completedWorkoutData?.duration || '0:00:00')}
                   </Text>
                   <Text style={styles.completionStatLabel}>WORKOUT TIME</Text>
                 </View>
@@ -1107,45 +824,27 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
                 <View style={styles.statsRow}>
                   <View style={styles.statItem}>
                     <IconButton icon="flash" size={16} iconColor={COLORS.primary} style={styles.statIcon} />
-                    <Text style={styles.statLabel}>{plan.workoutDays[activeDay].total_exercises} Exercises</Text>
+                    <Text style={styles.statLabel}>{getWorkoutDayByNumber(activeDay)?.total_exercises || 0} Exercises</Text>
                   </View>
                   <View style={styles.statItem}>
                     <IconButton icon="clock-outline" size={16} iconColor={COLORS.primary} style={styles.statIcon} />
-                    <Text style={styles.statLabel}>{plan.workoutDays[activeDay].estimated_duration} Min</Text>
+                    <Text style={styles.statLabel}>{getWorkoutDayByNumber(activeDay)?.estimated_duration || 0} Min</Text>
                   </View>
                   <View style={styles.statItem}>
                     <IconButton icon="fire" size={16} iconColor={COLORS.primary} style={styles.statIcon} />
-                    <Text style={styles.statLabel}>{plan.workoutDays[activeDay].total_calories} Cal</Text>
+                    <Text style={styles.statLabel}>{getWorkoutDayByNumber(activeDay)?.total_calories || 0} Cal</Text>
                   </View>
                 </View>
-                
-                {/* Prompt to set workout preferences if user hasn't done so yet */}
-                {userWorkoutDays.length === 0 && plan && (
-                  <View style={styles.preferencesPromptContainer}>
-                    <Text style={styles.promptTitle}>Set Your Workout Days</Text>
-                    <Text style={styles.promptText}>
-                      Please set your preferred workout days to properly schedule your workouts.
-                    </Text>
-                    <Button 
-                      mode="contained" 
-                      onPress={navigateToWorkoutSettings}
-                      style={styles.promptButton}
-                      labelStyle={styles.promptButtonText}
-                    >
-                      Set Workout Days
-                    </Button>
-                  </View>
-                )}
                 
                 {/* Exercise List */}
                 <View style={styles.exercisesContainer}>
                   <FlatList
-                    data={plan.workoutDays[activeDay].exercises}
+                    data={getWorkoutDayByNumber(activeDay)?.exercises || []}
                     keyExtractor={(item) => item.id}
                     renderItem={({ item, index }) => (
                       <View style={[
                         styles.exerciseCard,
-                        index === plan.workoutDays[activeDay].exercises.length - 1 && { borderBottomWidth: 0 }
+                        index === (getWorkoutDayByNumber(activeDay)?.exercises?.length || 0) - 1 && { borderBottomWidth: 0 }
                       ]}>
                         <View style={styles.exerciseLeftContent}>
                           <OptimizedImage
@@ -1181,16 +880,12 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
             </>
           )
         ) : (
-          <View style={styles.noWorkoutContainer}>
-            <Text style={styles.noWorkoutText}>
-              No workout scheduled for this day.
-            </Text>
-          </View>
+          <RestDayComponent />
         )}
       </ScrollView>
       
       {/* Start/Redo Workout FAB */}
-      {activeDay !== null && activeDay < plan.workoutDays.length && markedDates[format(selectedDate, 'yyyy-MM-dd')]?.marked && (
+      {activeDay !== null && getWorkoutDayByNumber(activeDay) && markedDates[format(selectedDate, 'yyyy-MM-dd')]?.marked && (
         isWorkoutCompleted ? (
           <Button
             mode="contained"
@@ -1702,5 +1397,43 @@ const styles = StyleSheet.create({
   redoButtonText: {
     color: COLORS.background,
     fontWeight: 'bold',
+  },
+  restDayContainer: {
+    padding: SPACING.md,
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.md,
+    marginHorizontal: SPACING.md,
+    marginBottom: SPACING.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  restDayTitle: {
+    color: COLORS.primary,
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: SPACING.md,
+  },
+  restDayIconContainer: {
+    marginBottom: SPACING.md,
+  },
+  restDayMessage: {
+    color: COLORS.text,
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: SPACING.md,
+  },
+  restDayTips: {
+    alignItems: 'center',
+  },
+  restDayTipsTitle: {
+    color: COLORS.primary,
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: SPACING.md,
+  },
+  restDayTip: {
+    color: COLORS.text,
+    fontSize: 14,
+    marginBottom: SPACING.xs,
   },
 }); 

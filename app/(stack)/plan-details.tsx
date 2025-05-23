@@ -11,6 +11,7 @@ import OptimizedImage from '../components/OptimizedImage';
 import useImagePreloader from '../hooks/useImagePreloader';
 import ExerciseDetailsModal from '../components/ExerciseDetailsModal';
 import exerciseService from '../services/exerciseService';
+import workoutPlanService from '../services/workoutPlanService';
 import { useAuth } from '../store/AuthContext';
 
 interface Exercise {
@@ -56,6 +57,7 @@ export default function PlanDetailsScreen() {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Using 0 for currentDayIndex since array indices start at 0, even though workout_day values are now 1-indexed
   const [currentDayIndex, setCurrentDayIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   
@@ -90,142 +92,9 @@ export default function PlanDetailsScreen() {
       setError(null);
       
       try {
-        // Fetch the plan data
-        const { data: planData, error: planError } = await supabase
-          .from('workout_plans')
-          .select('*, workout_subcategories!workout_plans_subcategory_id_fkey(title, category_identifier, subtitle)')
-          .eq('id', planId)
-          .single();
-          
-        if (planError) throw planError;
-        
-        // Fetch the category name
-        let categoryName = '';
-        if (planData?.workout_subcategories?.category_identifier) {
-          const { data: categoryData, error: categoryError } = await supabase
-            .from('workout_categories')
-            .select('name')
-            .eq('identifier', planData.workout_subcategories.category_identifier)
-            .single();
-            
-          if (!categoryError && categoryData) {
-            categoryName = categoryData.name;
-          }
-        }
-        
-        // Fetch the exercises for this plan
-        const { data: exercisesData, error: exercisesError } = await supabase
-          .from('workout_plan_exercises')
-          .select(`
-            id,
-            sets,
-            reps_range,
-            exercise_id,
-            workout_day,
-            exercise_name,
-            exercises:exercise_id (
-              id,
-              name,
-              image_url,
-              primary_muscles
-            )
-          `)
-          .eq('plan_id', planId)
-          .order('workout_day', { ascending: true })
-          .order('order', { ascending: true });
-          
-        if (exercisesError) throw exercisesError;
-        
-        // Process exercise data
-        
-        // Group exercises by workout day
-        const exercisesByDay: { [key: number]: Exercise[] } = {};
-        exercisesData.forEach((item: any) => {
-          const day = item.workout_day || 0;
-          if (!exercisesByDay[day]) {
-            exercisesByDay[day] = [];
-          }
-          
-          exercisesByDay[day].push({
-            id: item.id,
-            name: item.exercise_name || item.exercises?.name,
-            sets: item.sets,
-            reps_range: item.reps_range,
-            image_url: item.exercises?.image_url,
-            primary_muscles: item.exercises?.primary_muscles,
-            workout_day: day,
-            exercise_id: item.exercises?.id
-          });
-        });
-        
-        // Convert to array of workout days with per-day statistics
-        const workoutDays = Object.keys(exercisesByDay).map(dayKey => {
-          const dayNum = parseInt(dayKey, 10);
-          const dayExercises = exercisesByDay[dayNum];
-          
-          // Calculate per-day statistics based on actual exercise data
-          const exerciseCount = dayExercises.length;
-          
-          // Calculate estimated duration based on sets, reps, and rest time
-          let totalDuration = 0;
-          dayExercises.forEach(exercise => {
-            const sets = exercise.sets || 3;
-            const repRange = exercise.reps_range || '8-12';
-            
-            // Parse rep range to get average reps (e.g., "8-12" -> 10)
-            let avgReps = 10; // Default
-            if (repRange.includes('-')) {
-              const [min, max] = repRange.split('-').map(num => parseInt(num, 10));
-              if (!isNaN(min) && !isNaN(max)) {
-                avgReps = Math.floor((min + max) / 2);
-              }
-            } else if (!isNaN(parseInt(repRange, 10))) {
-              avgReps = parseInt(repRange, 10);
-            }
-            
-            // Estimate time per rep at ~2-3 seconds
-            const timePerSet = avgReps * 2.5; // seconds
-            
-            // Rest time between sets (typically 60-90 seconds)
-            const restTime = 75; // seconds
-            
-            // Total time for this exercise (all sets + rest between sets)
-            const exerciseTime = (sets * timePerSet) + (restTime * (sets - 1));
-            
-            // Add to total duration (convert to minutes)
-            totalDuration += exerciseTime / 60;
-          });
-          
-          // Round up to nearest minute
-          const estimatedDuration = Math.ceil(totalDuration);
-          
-          // Calculate calories based on duration with a more realistic formula
-          // Moderate exercise burns approximately 7-10 calories per minute depending on intensity
-          const calorieRate = 8.5; // calories per minute for moderate-high intensity workout
-          const estimatedCalories = Math.round(estimatedDuration * calorieRate);
-          
-          return {
-            day: dayNum,
-            exercises: dayExercises,
-            total_exercises: exerciseCount,
-            estimated_duration: estimatedDuration,
-            total_calories: estimatedCalories
-          };
-        }).sort((a, b) => a.day - b.day);
-        
-        // Format the data
-        const formattedPlan: Plan = {
-          id: planData.id,
-          title: planData.title,
-          difficulty_level: planData.difficulty_level,
-          estimated_duration: planData.estimated_duration,
-          workoutDays: workoutDays,
-          category_name: categoryName || 'Workout Plan',
-          subtitle: planData.workout_subcategories?.subtitle,
-          workout_frequency: planData.workout_frequency || workoutDays.length
-        };
-        
-        setPlan(formattedPlan);
+        // Use the service function to fetch plan details
+        const formattedPlan = await workoutPlanService.fetchPlanDetails(planId);
+        setPlan(formattedPlan as Plan);
       } catch (err: any) {
         setError('Failed to load plan details.');
         // Error fetching plan details
@@ -252,74 +121,16 @@ export default function PlanDetailsScreen() {
     setIsStartingPlan(true);
     
     try {
-      // Fetch user's preferred workout days first
-      const { data: userProfileData, error: profileError } = await supabase
-        .from('user_profile_details')
-        .select('workout_days')
-        .eq('user_id', user.id)
-        .single();
-        
-      if (profileError && profileError.code !== 'PGRST116') { // PGRST116 is 'not found' error
-        // Error fetching user workout days
-        throw profileError;
-      }
+      // Use the service function to start the plan
+      const success = await workoutPlanService.startPlan(user.id, planId);
       
-      // Get the user's preferred workout days if they exist
-      let userWorkoutDays = userProfileData?.workout_days || [];
-      
-      // If the user hasn't set workout days yet, we'll handle this in my-plan.tsx
-      // by showing a prompt to set workout preferences
-      if (userWorkoutDays.length === 0) {
-
-      } else {
-
-      }
-      
-      // Check if user already has an active plan
-      const { data: existingPlans, error: fetchError } = await supabase
-        .from('user_active_plans')
-        .select('id, plan_id')
-        .eq('user_id', user.id)
-        .eq('is_active', true);
-        
-      if (fetchError) throw fetchError;
-      
-      if (existingPlans && existingPlans.length > 0) {
-        // Set all existing plans to inactive
-        const { error: updateError } = await supabase
-          .from('user_active_plans')
-          .update({ is_active: false })
-          .eq('user_id', user.id)
-          .eq('is_active', true);
-          
-        if (updateError) throw updateError;
-      }
-      
-      // Get today's date for the start date
-      const startDate = new Date().toISOString().split('T')[0];
-
-      
-      // Insert the new plan as the active plan
-      const { error: insertError } = await supabase
-        .from('user_active_plans')
-        .insert({
-          user_id: user.id,
-          plan_id: planId,
-          is_active: true,
-          current_day: 0, // Always start with day 0
-          start_date: startDate,
-          // Store user's workout days preference to ensure consistency
-          workout_days_preference: userWorkoutDays
+      if (success) {
+        // Navigate back to the home screen with the My Plan tab selected
+        router.push({
+          pathname: '/(tabs)',
+          params: { selectedOption: 'My Plan' }
         });
-        
-      if (insertError) throw insertError;
-      
-      // Navigate back to the home screen with the My Plan tab selected
-      router.push({
-        pathname: '/(tabs)',
-        params: { selectedOption: 'My Plan' }
-      });
-      
+      }
     } catch (error) {
       // Error starting plan
     } finally {
@@ -364,35 +175,16 @@ export default function PlanDetailsScreen() {
         throw new Error('Missing exercise ID');
       }
       
-      // Fetch complete exercise data from the exercises table
+      // Use the service function to fetch exercise details
       try {
-        const { data: exerciseData, error } = await supabase
-          .from('exercises')
-          .select('id, name, image_url, primary_muscles, secondary_muscles')
-          .eq('id', actualExerciseId)
-          .single();
+        const exerciseDetails = await workoutPlanService.fetchExerciseDetails(actualExerciseId);
         
-        if (error) {
-          // Error fetching exercise details
-          throw error;
-        }
-        
-        if (exerciseData) {
+        if (exerciseDetails) {
           // Update the modal with complete data
-          setSelectedExercise({
-            id: exerciseData.id,
-            name: exerciseData.name,
-            image_url: exerciseData.image_url,
-            primary_muscles: Array.isArray(exerciseData.primary_muscles) 
-              ? exerciseData.primary_muscles 
-              : [],
-            secondary_muscles: Array.isArray(exerciseData.secondary_muscles)
-              ? exerciseData.secondary_muscles
-              : []
-          });
+          setSelectedExercise(exerciseDetails);
         }
       } catch (fetchError) {
-        // Error fetching exercise details from Supabase
+        // Error fetching exercise details
         // Even if fetch fails, still show what we have
       }
     } catch (error) {

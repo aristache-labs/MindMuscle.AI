@@ -30,7 +30,6 @@ export default function StackLayout() {
         name="exercises-list"
         options={{
           headerShown: false,
-          animation: 'slide_from_right',
           gestureEnabled: true,
           fullScreenGestureEnabled: true,
         }}
@@ -39,7 +38,6 @@ export default function StackLayout() {
         name="my-plan"
         options={{
           headerShown: false,
-          animation: 'slide_from_right',
           gestureEnabled: false,
           fullScreenGestureEnabled: false,
         }}
@@ -49,7 +47,6 @@ export default function StackLayout() {
         name="ai-coaching"
         options={{
           headerShown: false,
-          animation: 'slide_from_right',
           gestureEnabled: false,
           fullScreenGestureEnabled: false,
         }}
@@ -58,7 +55,6 @@ export default function StackLayout() {
         name="single-workout"
         options={{
           headerShown: false,
-          animation: 'slide_from_right',
           gestureEnabled: false,
           fullScreenGestureEnabled: false,
         }}
@@ -67,7 +63,6 @@ export default function StackLayout() {
         name="custom"
         options={{
           headerShown: false,
-          animation: 'slide_from_right',
           gestureEnabled: false,
           fullScreenGestureEnabled: false,
         }}
@@ -96,7 +91,6 @@ export default function StackLayout() {
         name="workout-session"
         options={{
           headerShown: false,
-          animation: 'slide_from_right',
           gestureEnabled: true,
           fullScreenGestureEnabled: true,
         }}

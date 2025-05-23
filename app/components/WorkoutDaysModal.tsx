@@ -22,10 +22,31 @@ interface Props {
   onClose: () => void;
 }
 
+// Standardized day mapping: 1=Sunday, 2=Monday, 3=Tuesday, 4=Wednesday, 5=Thursday, 6=Friday, 7=Saturday
+const DAY_MAPPING = {
+  'Sunday': 1,
+  'Monday': 2,
+  'Tuesday': 3,
+  'Wednesday': 4,
+  'Thursday': 5,
+  'Friday': 6,
+  'Saturday': 7
+} as const;
+
+const REVERSE_DAY_MAPPING = {
+  1: 'Sunday',
+  2: 'Monday',
+  3: 'Tuesday',
+  4: 'Wednesday',
+  5: 'Thursday',
+  6: 'Friday',
+  7: 'Saturday'
+} as const;
+
 export default function WorkoutDaysModal({ visible, onClose }: Props) {
   const { user } = useAuth();
-  const [workoutDays, setWorkoutDays] = useState<string[]>([]);
-  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const [workoutDays, setWorkoutDays] = useState<number[]>([]);
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const [isSaving, setIsSaving] = useState(false);
   const modalAnim = useRef(new Animated.Value(Dimensions.get('window').height)).current;
   
@@ -90,6 +111,14 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
     });
   };
 
+  // Convert legacy string array to numeric array
+  const convertLegacyWorkoutDays = (legacyDays: string[]): number[] => {
+    return legacyDays
+      .map(day => DAY_MAPPING[day as keyof typeof DAY_MAPPING])
+      .filter(dayNum => dayNum !== undefined)
+      .sort((a, b) => a - b);
+  };
+
   // Load saved workout days from Supabase and AsyncStorage
   const loadWorkoutDays = async () => {
     try {
@@ -102,19 +131,52 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
           .single();
 
         if (!error && data?.workout_days) {
-          const savedDays = Array.isArray(data.workout_days) ? data.workout_days : [];
+          let savedDays: number[] = [];
+          
+          // Handle both legacy string format and new numeric format
+          if (Array.isArray(data.workout_days)) {
+            if (data.workout_days.length > 0) {
+              if (typeof data.workout_days[0] === 'string') {
+                // Legacy format - convert to numeric
+                savedDays = convertLegacyWorkoutDays(data.workout_days);
+                console.log('Converting legacy workout days:', data.workout_days, 'to:', savedDays);
+                
+                // Update database with new format
+                if (savedDays.length > 0) {
+                  await saveWorkoutDays(savedDays, false); // Don't trigger loading again
+                }
+              } else {
+                // New numeric format
+                savedDays = data.workout_days.sort((a: number, b: number) => a - b);
+              }
+            }
+          }
+          
           setWorkoutDays(savedDays);
           
           // Update AsyncStorage to keep in sync
-          await AsyncStorage.setItem('workout-days', JSON.stringify(savedDays));
+          await AsyncStorage.setItem('workout-days-numeric', JSON.stringify(savedDays));
           return;
         }
       }
 
       // Fallback to AsyncStorage if Supabase fails or user is not logged in
-      const savedDays = await AsyncStorage.getItem('workout-days');
+      // Try new numeric format first
+      let savedDays = await AsyncStorage.getItem('workout-days-numeric');
       if (savedDays) {
         setWorkoutDays(JSON.parse(savedDays));
+        return;
+      }
+      
+      // Fallback to legacy string format
+      const legacySavedDays = await AsyncStorage.getItem('workout-days');
+      if (legacySavedDays) {
+        const legacyDays = JSON.parse(legacySavedDays);
+        const numericDays = convertLegacyWorkoutDays(legacyDays);
+        setWorkoutDays(numericDays);
+        
+        // Save in new format
+        await AsyncStorage.setItem('workout-days-numeric', JSON.stringify(numericDays));
       }
     } catch (error) {
       console.error('Failed to load workout days:', error);
@@ -122,25 +184,38 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
   };
 
   // Save workout days to both Supabase and AsyncStorage
-  const saveWorkoutDays = async (daysToSave: string[]) => {
+  const saveWorkoutDays = async (daysToSave: number[], updateState: boolean = true) => {
     try {
       setIsSaving(true);
       
-      // Save to AsyncStorage for offline access
-      await AsyncStorage.setItem('workout-days', JSON.stringify(daysToSave));
+      // Save to AsyncStorage for offline access (new numeric format)
+      await AsyncStorage.setItem('workout-days-numeric', JSON.stringify(daysToSave));
       
       if (user?.id) {
-        // Use the dedicated database function to update workout days
-        const { data, error } = await supabase
-          .rpc('update_user_workout_days', {
-            p_user_id: user.id,
-            p_workout_days: daysToSave
-          });
+        // Update the database with numeric values
+        const { error } = await supabase
+          .from('user_profile_details')
+          .update({ workout_days: daysToSave })
+          .eq('user_id', user.id);
           
         if (error) {
           console.error('Error updating workout days:', error);
+          
+          // If update fails, try insert (in case profile doesn't exist)
+          const { error: insertError } = await supabase
+            .from('user_profile_details')
+            .insert({
+              user_id: user.id,
+              workout_days: daysToSave
+            });
+            
+          if (insertError) {
+            console.error('Error inserting workout days:', insertError);
+          } else {
+            console.log('Workout days inserted successfully:', daysToSave);
+          }
         } else {
-          console.log('Workout days updated successfully:', data);
+          console.log('Workout days updated successfully:', daysToSave);
         }
       }
     } catch (error) {
@@ -152,12 +227,21 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
 
   // Toggle a workout day and save immediately
   const toggleWorkoutDay = async (day: string) => {
-    const updatedDays = workoutDays.includes(day)
-      ? workoutDays.filter(d => d !== day)
-      : [...workoutDays, day];
+    const dayNumber = DAY_MAPPING[day as keyof typeof DAY_MAPPING];
+    if (!dayNumber) return;
+    
+    const updatedDays = workoutDays.includes(dayNumber)
+      ? workoutDays.filter(d => d !== dayNumber)
+      : [...workoutDays, dayNumber].sort((a, b) => a - b);
     
     setWorkoutDays(updatedDays);
     await saveWorkoutDays(updatedDays);
+  };
+
+  // Check if a day is selected
+  const isDaySelected = (day: string): boolean => {
+    const dayNumber = DAY_MAPPING[day as keyof typeof DAY_MAPPING];
+    return dayNumber ? workoutDays.includes(dayNumber) : false;
   };
 
   if (!visible) return null;
@@ -224,7 +308,7 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
                           <View key={day} style={styles.dayRow}>
                             <Text style={styles.dayText}>{day}</Text>
                             <Switch
-                              value={workoutDays.includes(day)}
+                              value={isDaySelected(day)}
                               onValueChange={() => toggleWorkoutDay(day)}
                               disabled={isSaving}
                               color={COLORS.primary}
@@ -232,6 +316,18 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
                           </View>
                         ))}
                       </View>
+                      
+                      {/* Debug info - remove in production */}
+                      {__DEV__ && (
+                        <View style={styles.debugContainer}>
+                          <Text style={styles.debugText}>
+                            Selected days (numeric): {JSON.stringify(workoutDays)}
+                          </Text>
+                          <Text style={styles.debugText}>
+                            Selected days (names): {workoutDays.map(num => REVERSE_DAY_MAPPING[num as keyof typeof REVERSE_DAY_MAPPING]).join(', ')}
+                          </Text>
+                        </View>
+                      )}
                     </View>
                   </View>
 
@@ -463,5 +559,19 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 14,
     lineHeight: 20,
-  }
+  },
+  debugContainer: {
+    marginTop: 16,
+    padding: 12,
+    backgroundColor: 'rgba(108, 71, 255, 0.1)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(108, 71, 255, 0.3)',
+  },
+  debugText: {
+    color: COLORS.text,
+    fontSize: 12,
+    fontFamily: 'monospace',
+    marginBottom: 4,
+  },
 }); 

@@ -3,6 +3,8 @@ import supabase from './supabase';
 
 // Key for the active plan in AsyncStorage
 const ACTIVE_PLAN_KEY = 'mindmuscle_active_plan';
+// Key for the paused workout in AsyncStorage
+const PAUSED_WORKOUT_KEY = 'mindmuscle_paused_workout';
 
 // Interface for exercise data in workout session
 export interface ExerciseData {
@@ -1582,6 +1584,172 @@ export const fetchExerciseAbsoluteMaxWeight = async (
   }
 };
 
+// Save the paused workout state
+export const savePausedWorkout = async (
+  userId: string,
+  planId: string,
+  workoutDay: number,
+  cycleWeek: number,
+  weekName: string,
+  exercises: ExerciseData[],
+  exerciseSets: Record<string, ExerciseSet[]>,
+  workoutDuration: number,
+  totalVolume: number,
+  totalReps: number,
+  currentExerciseIndex: number,
+  originalCycleWeek: number | null = null
+): Promise<boolean> => {
+  try {
+    // Create a paused workout object with all necessary data
+    const pausedWorkout = {
+      userId,
+      planId,
+      workoutDay,
+      cycleWeek,
+      weekName,
+      exercises,
+      exerciseSets,
+      workoutDuration,
+      totalVolume,
+      totalReps,
+      currentExerciseIndex,
+      originalCycleWeek,
+      pausedAt: new Date().toISOString()
+    };
+    
+    // Save to AsyncStorage
+    await AsyncStorage.setItem(PAUSED_WORKOUT_KEY, JSON.stringify(pausedWorkout));
+    
+    // Save to Supabase for cross-device sync
+    if (userId) {
+      const { error } = await supabase
+        .from('user_paused_workouts')
+        .upsert({
+          user_id: userId,
+          plan_id: planId,
+          workout_day: workoutDay,
+          cycle_week: cycleWeek,
+          week_name: weekName,
+          exercises: exercises,
+          exercise_sets: exerciseSets,
+          workout_duration: workoutDuration,
+          total_volume: totalVolume,
+          total_reps: totalReps,
+          current_exercise_index: currentExerciseIndex,
+          original_cycle_week: originalCycleWeek,
+          paused_at: new Date().toISOString()
+        }, { onConflict: 'user_id, plan_id, workout_day' });
+        
+      if (error) {
+        console.error('Error saving paused workout to Supabase:', error);
+        // Continue anyway since we saved locally
+      }
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error saving paused workout:', error);
+    return false;
+  }
+};
+
+// Check if there's a paused workout to resume
+export const getPausedWorkout = async (
+  userId?: string, 
+  planId?: string, 
+  workoutDay?: number
+): Promise<any | null> => {
+  try {
+    // First try to get from AsyncStorage (works offline)
+    const pausedWorkoutJson = await AsyncStorage.getItem(PAUSED_WORKOUT_KEY);
+    let pausedWorkout = pausedWorkoutJson ? JSON.parse(pausedWorkoutJson) : null;
+    
+    // If we have a specific workout to check for
+    if (pausedWorkout && planId && workoutDay) {
+      // Check if the paused workout matches the requested plan and day
+      if (pausedWorkout.planId !== planId || pausedWorkout.workoutDay !== workoutDay) {
+        pausedWorkout = null;
+      }
+    }
+    
+    // If we have a user ID but no local paused workout, try to get from Supabase
+    if (!pausedWorkout && userId) {
+      let query = supabase
+        .from('user_paused_workouts')
+        .select('*')
+        .eq('user_id', userId);
+        
+      // Add plan and day filters if provided
+      if (planId) query = query.eq('plan_id', planId);
+      if (workoutDay !== undefined) query = query.eq('workout_day', workoutDay);
+      
+      // Order by most recent
+      query = query.order('paused_at', { ascending: false }).limit(1);
+      
+      const { data, error } = await query;
+      
+      if (!error && data && data.length > 0) {
+        // Convert from database format to application format
+        pausedWorkout = {
+          userId: data[0].user_id,
+          planId: data[0].plan_id,
+          workoutDay: data[0].workout_day,
+          cycleWeek: data[0].cycle_week,
+          weekName: data[0].week_name,
+          exercises: data[0].exercises,
+          exerciseSets: data[0].exercise_sets,
+          workoutDuration: data[0].workout_duration,
+          totalVolume: data[0].total_volume,
+          totalReps: data[0].total_reps,
+          currentExerciseIndex: data[0].current_exercise_index,
+          originalCycleWeek: data[0].original_cycle_week,
+          pausedAt: data[0].paused_at
+        };
+        
+        // Save to AsyncStorage for offline access
+        await AsyncStorage.setItem(PAUSED_WORKOUT_KEY, JSON.stringify(pausedWorkout));
+      }
+    }
+    
+    return pausedWorkout;
+  } catch (error) {
+    console.error('Error getting paused workout:', error);
+    return null;
+  }
+};
+
+// Clear the paused workout
+export const clearPausedWorkout = async (
+  userId?: string, 
+  planId?: string, 
+  workoutDay?: number
+): Promise<boolean> => {
+  try {
+    // Clear from AsyncStorage
+    await AsyncStorage.removeItem(PAUSED_WORKOUT_KEY);
+    
+    // If we have a user ID, clear from Supabase too
+    if (userId && planId && workoutDay !== undefined) {
+      const { error } = await supabase
+        .from('user_paused_workouts')
+        .delete()
+        .eq('user_id', userId)
+        .eq('plan_id', planId)
+        .eq('workout_day', workoutDay);
+      
+      if (error) {
+        console.error('Error clearing paused workout from Supabase:', error);
+        // Continue anyway since we cleared locally
+      }
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error clearing paused workout:', error);
+    return false;
+  }
+};
+
 // Export all functions as a default object
 const workoutPlanService = {
   saveActivePlan,
@@ -1603,7 +1771,10 @@ const workoutPlanService = {
   startPlan,
   fetchExerciseDetails,
   fetchExerciseMaxWeightData,
-  fetchExerciseAbsoluteMaxWeight
+  fetchExerciseAbsoluteMaxWeight,
+  savePausedWorkout,
+  getPausedWorkout,
+  clearPausedWorkout
 };
 
 export default workoutPlanService;

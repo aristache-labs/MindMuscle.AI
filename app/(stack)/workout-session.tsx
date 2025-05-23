@@ -260,13 +260,50 @@ export default function WorkoutSessionScreen() {
     };
   }, [planId, workoutDay, forceStart]);
   
-  // Check if workout is already completed for today
-  const checkWorkoutCompletion = async () => {
-    if (!user || !planId) return;
+  // Function to fetch workout data
+  const fetchWorkoutData = async () => {
+    if (!planId || isNaN(workoutDay) || !user) {
+      Alert.alert('Error', 'Invalid workout parameters');
+      return;
+    }
     
     try {
       setIsLoading(true);
       
+      // Use the service function to fetch workout data
+      const { exercises: formattedExercises, exerciseSets: initialSets, recommendations } = 
+        await workoutPlanService.fetchWorkoutData(planId, workoutDay, user.id, cycleWeek);
+      
+      // Set exercises state
+      setExercises(formattedExercises);
+      
+      // Set exercise sets state
+      setExerciseSets(initialSets);
+      
+      // Set recommendations state
+      setRecommendations(recommendations);
+      
+      // Fetch last exercise records to show previous values
+      await fetchLastExerciseRecords();
+      
+      // Fetch max weight data for current exercise
+      await fetchMaxWeightData();
+      
+      setIsLoading(false);
+    } catch (error) {
+      // Error fetching workout data
+      setIsLoading(false);
+      Alert.alert('Error', 'Failed to load workout data. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  // This function only checks if workout is completed without paused workout logic
+  const checkWorkoutCompletionOnly = async () => {
+    if (!user || !planId) return;
+    
+    try {
       // Use the service function to check workout completion
       const { isCompleted, completedWorkoutData } = await workoutPlanService.checkWorkoutCompletion(
         user.id,
@@ -320,42 +357,116 @@ export default function WorkoutSessionScreen() {
       };
     }
   };
-
-  const fetchWorkoutData = async () => {
-    if (!planId || isNaN(workoutDay) || !user) {
-      Alert.alert('Error', 'Invalid workout parameters');
-      return;
+  
+  // Function to resume a paused workout
+  const resumePausedWorkout = (pausedWorkout: any) => {
+    try {
+      // Set all the workout state from the paused workout
+      setExercises(pausedWorkout.exercises);
+      setExerciseSets(pausedWorkout.exerciseSets);
+      setCurrentExerciseIndex(pausedWorkout.currentExerciseIndex);
+      setWorkoutDuration(pausedWorkout.workoutDuration);
+      setTotalVolume(pausedWorkout.totalVolume);
+      setTotalReps(pausedWorkout.totalReps);
+      
+      if (pausedWorkout.originalCycleWeek !== null) {
+        setOriginalCycleWeek(pausedWorkout.originalCycleWeek);
+      }
+      
+      // Fetch additional data
+      fetchLastExerciseRecords();
+      fetchMaxWeightData();
+      
+      // Start the workout timer
+      setWorkoutStartTime(new Date());
+      setWorkoutTimerActive(true);
+      
+      // Start workout duration timer
+      const workoutTimerInterval = setInterval(() => {
+        setWorkoutDuration(prev => prev + 1);
+      }, 1000);
+      
+      // Remove the warmup popup if we're resuming
+      setWarmupCompleted(true);
+      setShowWarmup(false);
+      
+      setIsLoading(false);
+      
+      // Clear the paused workout since we're resuming it now
+      workoutPlanService.clearPausedWorkout(user?.id, planId, workoutDay);
+      
+      // Add cleanup for the timer
+      return () => {
+        clearInterval(workoutTimerInterval);
+      };
+    } catch (error) {
+      // If resuming fails, just start a new workout
+      setIsLoading(false);
+      fetchWorkoutData();
+      
+      // Start workout timer
+      setWorkoutStartTime(new Date());
+      setWorkoutTimerActive(true);
+      
+      // Start workout duration timer
+      const workoutTimerInterval = setInterval(() => {
+        setWorkoutDuration(prev => prev + 1);
+      }, 1000);
+      
+      // Add cleanup for the timer
+      return () => {
+        clearInterval(workoutTimerInterval);
+      };
     }
+  };
+  
+  // Check if workout is already completed for today
+  const checkWorkoutCompletion = async () => {
+    if (!user || !planId) return;
     
     try {
       setIsLoading(true);
       
-      // Use the service function to fetch workout data
-      const { exercises: formattedExercises, exerciseSets: initialSets, recommendations } = 
-        await workoutPlanService.fetchWorkoutData(planId, workoutDay, user.id, cycleWeek);
+      // First check if there's a paused workout to resume
+      const pausedWorkout = await workoutPlanService.getPausedWorkout(
+        user.id,
+        planId,
+        workoutDay
+      );
       
-      // Set exercises state
-      setExercises(formattedExercises);
-      
-      // Set exercise sets state
-      setExerciseSets(initialSets);
-      
-      // Set recommendations state
-      setRecommendations(recommendations);
-      
-      // Fetch last exercise records to show previous values
-      await fetchLastExerciseRecords();
-      
-      // Fetch max weight data for current exercise
-      await fetchMaxWeightData();
-      
-      setIsLoading(false);
+      if (pausedWorkout) {
+        // Ask user if they want to resume the paused workout
+        Alert.alert(
+          'Resume Workout',
+          'You have a paused workout. Would you like to resume where you left off?',
+          [
+            {
+              text: 'Start New',
+              onPress: () => {
+                // Clear the paused workout and start fresh
+                workoutPlanService.clearPausedWorkout(user.id, planId, workoutDay);
+                // Continue with normal workout flow
+                checkWorkoutCompletionOnly();
+              }
+            },
+            {
+              text: 'Resume',
+              onPress: () => {
+                // Resume the paused workout
+                resumePausedWorkout(pausedWorkout);
+              }
+            }
+          ],
+          { cancelable: false }
+        );
+      } else {
+        // No paused workout, continue with normal flow
+        checkWorkoutCompletionOnly();
+      }
     } catch (error) {
-      // Error fetching workout data
       setIsLoading(false);
-      Alert.alert('Error', 'Failed to load workout data. Please try again.');
-    } finally {
-      setIsLoading(false);
+      // If there's an error, proceed with normal workout
+      checkWorkoutCompletionOnly();
     }
   };
 
@@ -368,11 +479,56 @@ export default function WorkoutSessionScreen() {
     router.back();
   };
 
-  const handlePauseWorkout = () => {
+  const handlePauseWorkout = async () => {
     setShowExitModal(false);
-    // Here you could add code to pause workout, save state, etc.
-    Alert.alert('Workout Paused', 'Your workout has been paused. You can resume it later.');
-    router.back();
+    
+    try {
+      setIsLoading(true);
+      
+      // Save the current workout state
+      const success = await workoutPlanService.savePausedWorkout(
+        user?.id || '',
+        planId,
+        workoutDay,
+        cycleWeek,
+        weekName,
+        exercises,
+        exerciseSets,
+        workoutDuration,
+        totalVolume,
+        totalReps,
+        currentExerciseIndex,
+        originalCycleWeek
+      );
+      
+      if (success) {
+        Alert.alert(
+          'Workout Paused', 
+          'Your workout has been saved. You can resume it later from the workout plan screen.',
+          [{ text: 'OK' }]
+        );
+        
+        // Stop the workout timer
+        setWorkoutTimerActive(false);
+        
+        // Navigate back
+        router.back();
+      } else {
+        Alert.alert(
+          'Error',
+          'Failed to pause your workout. Please try again.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error) {
+      Alert.alert(
+        'Error',
+        'Failed to pause your workout. Please try again.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleReturnToWorkout = () => {

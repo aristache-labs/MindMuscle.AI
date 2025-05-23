@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Dimensions, FlatList, Alert, Animated } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Dimensions, FlatList, Alert, Animated, Modal } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Appbar, Button, Divider, IconButton, FAB, Icon } from 'react-native-paper';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
@@ -9,6 +9,7 @@ import OptimizedImage from '../components/OptimizedImage';
 import { format, addDays, isSameDay, startOfWeek, getDay, addWeeks, parseISO } from 'date-fns';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import workoutPlanService from '../services/workoutPlanService';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -78,6 +79,22 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     weekName: string;
     cycleWeek: number;
   } | null>(null);
+
+  // Add state for paused workout
+  const [pausedWorkout, setPausedWorkout] = useState<any>(null);
+  const [hasPausedWorkout, setHasPausedWorkout] = useState(false);
+  
+  // Add state for the custom paused workout modal
+  const [showPausedWorkoutModal, setShowPausedWorkoutModal] = useState(false);
+  const [pausedWorkoutInfo, setPausedWorkoutInfo] = useState<{ 
+    pausedDay: number | null,
+    currentDay: number | null,
+    mode: 'start' | 'redo'
+  }>({
+    pausedDay: null,
+    currentDay: null,
+    mode: 'start'
+  });
 
   // Helper function to find the workout day object by day number
   const getWorkoutDayByNumber = (dayNumber: number | null): WorkoutDay | null => {
@@ -264,12 +281,18 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
             setCompletedWorkoutData(completedWorkoutData);
           } else {
             setCompletedWorkoutData(null);
+            
+            // If not completed, check for paused workout
+            await checkForPausedWorkout();
           }
         }
       } else {
+        // Not a workout day - reset everything
         setActiveDay(null);
         setIsWorkoutCompleted(false);
         setCompletedWorkoutData(null);
+        setHasPausedWorkout(false);
+        setPausedWorkout(null);
       }
     }
     
@@ -281,14 +304,29 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     if (!plan || activeDay === null || !user) return;
     
     try {
-      // Check if workout is already completed
+      // First check if workout is already completed
       const isCompleted = await checkWorkoutCompletion();
       
       if (isCompleted) {
         return; // Don't navigate, show completion info in the current screen
       }
       
-      // Get plan data with cycle week information
+      // Check for any paused workouts in the plan
+      const { hasPaused, pausedWorkoutDay } = await checkForAnyPausedWorkout();
+      
+      // If there's a paused workout, show our custom modal instead of Alert
+      if (hasPaused && pausedWorkoutDay !== null) {
+        // Set the modal info and show it with 'start' mode
+        setPausedWorkoutInfo({
+          pausedDay: pausedWorkoutDay,
+          currentDay: activeDay,
+          mode: 'start'
+        });
+        setShowPausedWorkoutModal(true);
+        return;
+      }
+      
+      // No paused workout, proceed with starting a new workout
       const cycleData = await workoutPlanService.getActivePlanWithCycleWeek(user.id, plan.id);
       
       if (!cycleData) {
@@ -307,35 +345,6 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     } catch (err) {
       // Error starting workout
       Alert.alert('Error', 'Failed to start workout');
-    }
-  };
-  
-  // Function to restart a completed workout
-  const handleRedoWorkout = async () => {
-    if (!plan || activeDay === null || !user) return;
-    
-    try {
-      // Get plan data with cycle week information
-      const cycleData = await workoutPlanService.getActivePlanWithCycleWeek(user.id, plan.id);
-      
-      if (!cycleData) {
-        throw new Error('Failed to get plan cycle data');
-      }
-      
-      // Navigate to workout session with a flag to force start
-      router.push({
-        pathname: '/(stack)/workout-session',
-        params: { 
-          planId: plan.id,
-          workoutDay: activeDay,
-          cycleWeek: cycleData.currentWeek,
-          weekName: cycleData.weekName,
-          forceStart: 'true' // Add this flag to force start even if completed
-        }
-      });
-    } catch (err) {
-      // Error restarting workout
-      Alert.alert('Error', 'Failed to restart workout');
     }
   };
   
@@ -379,8 +388,20 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   
   // Function to handle date selection from weekly calendar
   const handleWeekDayPress = async (date: Date) => {
+    // Skip processing if the user taps on the already selected date
+    if (isSelected(date)) {
+      return;
+    }
+    
     setSelectedDate(date);
     await handleDateSelect({ timestamp: date.getTime() });
+    
+    // Force refresh paused workout state after date selection
+    setTimeout(() => {
+      if (activeDay !== null && !isWorkoutCompleted) {
+        checkForPausedWorkout();
+      }
+    }, 300); // Small delay to ensure state updates have completed
   };
   
   // Setup weekly calendar on initial load and when plan changes
@@ -422,6 +443,103 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   // Track if we've already refreshed the calendar to prevent infinite loops
   const [hasRefreshedCalendar, setHasRefreshedCalendar] = useState(false);
   
+  // Reset the refresh flag when the plan or user changes
+  useEffect(() => {
+    if (plan && user) {
+      setHasRefreshedCalendar(false);
+    }
+  }, [plan?.id, user?.id]);
+  
+  // Function to check for paused workouts for any day in the current plan
+  const checkForAnyPausedWorkout = useCallback(async () => {
+    if (!user || !plan) return { hasPaused: false, pausedWorkoutDay: null };
+    
+    try {
+      // Query Supabase directly for any paused workouts for this plan
+      const { data, error } = await supabase
+        .from('user_paused_workouts')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id)
+        .order('paused_at', { ascending: false });
+      
+      if (error) {
+        console.error('Error checking for any paused workouts:', error);
+        return { hasPaused: false, pausedWorkoutDay: null };
+      }
+      
+      if (data && data.length > 0) {
+        // Found a paused workout for this plan
+        return { 
+          hasPaused: true, 
+          pausedWorkoutDay: data[0].workout_day, 
+          pausedWorkoutData: data[0] 
+        };
+      }
+      
+      return { hasPaused: false, pausedWorkoutDay: null };
+    } catch (error) {
+      console.error('Error in checkForAnyPausedWorkout:', error);
+      return { hasPaused: false, pausedWorkoutDay: null };
+    }
+  }, [user?.id, plan?.id]);
+
+  // Add a function to check for paused workouts
+  const checkForPausedWorkout = useCallback(async () => {
+    if (!user || !plan || activeDay === null) return false;
+    
+    try {
+      // Query Supabase directly for any paused workouts for this plan and day
+      const { data, error } = await supabase
+        .from('user_paused_workouts')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id)
+        .eq('workout_day', activeDay) // Only check for the current active day
+        .limit(1);
+      
+      if (error) {
+        console.error('Error checking for paused workout:', error);
+        setPausedWorkout(null);
+        setHasPausedWorkout(false);
+        return false;
+      }
+      
+      if (data && data.length > 0) {
+        // Format the data for the current component's state
+        const formattedPausedWorkout = {
+          userId: data[0].user_id,
+          planId: data[0].plan_id,
+          workoutDay: data[0].workout_day,
+          cycleWeek: data[0].cycle_week,
+          weekName: data[0].week_name,
+          exercises: data[0].exercises,
+          exerciseSets: data[0].exercise_sets,
+          workoutDuration: data[0].workout_duration,
+          totalVolume: data[0].total_volume,
+          totalReps: data[0].total_reps,
+          currentExerciseIndex: data[0].current_exercise_index,
+          originalCycleWeek: data[0].original_cycle_week,
+          pausedAt: data[0].paused_at
+        };
+        
+        setPausedWorkout(formattedPausedWorkout);
+        setHasPausedWorkout(true);
+        return true;
+      } else {
+        // No paused workout for this specific day
+        setPausedWorkout(null);
+        setHasPausedWorkout(false);
+        return false;
+      }
+    } catch (error) {
+      console.error('Error checking for paused workout:', error);
+      setPausedWorkout(null);
+      setHasPausedWorkout(false);
+      return false;
+    }
+  }, [user?.id, plan?.id, activeDay]);
+
   // Add an effect to refresh the calendar and completed workouts when the component mounts
   // This is critical for updating the calendar after completing a workout
   useEffect(() => {
@@ -465,6 +583,9 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
               setCompletedWorkoutData(completedWorkoutData);
             } else {
               setCompletedWorkoutData(null);
+              
+              // If workout is not completed, check for a paused workout
+              await checkForPausedWorkout();
             }
           } else {
             // If no active day is selected, just get all completed workouts
@@ -509,15 +630,15 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     }
   // Remove markedDates from dependencies to prevent infinite loop
   // since setupCalendarDates updates markedDates, which would trigger this effect again
-  }, [plan, user, hasRefreshedCalendar, userWorkoutDays.length, activeDay]);
-  
-  // Reset the refresh flag when the plan or user changes
+  }, [plan, user, hasRefreshedCalendar, userWorkoutDays.length, activeDay, checkForPausedWorkout]);
+
+  // Add an effect to always refresh the paused workout state when activeDay changes
   useEffect(() => {
-    if (plan && user) {
-      setHasRefreshedCalendar(false);
+    if (user && plan && activeDay !== null && !isWorkoutCompleted) {
+      checkForPausedWorkout();
     }
-  }, [plan?.id, user?.id]);
-  
+  }, [activeDay, isWorkoutCompleted, checkForPausedWorkout]);
+
   const renderExerciseItem = ({ item }: { item: Exercise }) => (
     <View style={styles.exerciseCard}>
       <View style={styles.exerciseLeftContent}>
@@ -586,10 +707,22 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       }
     ];
     
-    // Randomly select a rest day variation
-    const [currentVariation] = useState(() => 
-      restDayVariations[Math.floor(Math.random() * restDayVariations.length)]
-    );
+    // Generate a consistent random index based on the selected date
+    // Convert the date to a string in format 'YYYY-MM-DD' to use as a seed
+    const dateString = format(selectedDate, 'yyyy-MM-dd');
+    
+    // Use the dateString to create a deterministic index
+    // Sum the character codes of all characters in the dateString
+    let dateSum = 0;
+    for (let i = 0; i < dateString.length; i++) {
+      dateSum += dateString.charCodeAt(i);
+    }
+    
+    // Use modulo to get an index within the array bounds
+    const determinedIndex = dateSum % restDayVariations.length;
+    
+    // Get the rest day variation for this specific date
+    const currentVariation = restDayVariations[determinedIndex];
     
     return (
       <View style={styles.restDayContainer}>
@@ -616,6 +749,295 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     );
   };
 
+  // Add function to handle resuming paused workout
+  const handleResumeWorkout = async () => {
+    if (!user || !plan || !hasPausedWorkout || !pausedWorkout || activeDay === null) {
+      Alert.alert('Error', 'No paused workout found for this day');
+      return;
+    }
+    
+    try {
+      // Get plan data with cycle week information to ensure we have current cycle week
+      const cycleData = await workoutPlanService.getActivePlanWithCycleWeek(user.id, plan.id);
+      
+      if (!cycleData) {
+        throw new Error('Failed to get plan cycle data');
+      }
+      
+      // Navigate to workout session with the paused workout flag and explicit day
+      router.push({
+        pathname: '/(stack)/workout-session',
+        params: { 
+          planId: plan.id,
+          workoutDay: pausedWorkout.workoutDay || activeDay, // Use the day from the paused workout data
+          cycleWeek: cycleData.currentWeek,
+          weekName: cycleData.weekName,
+          forceResume: 'true' // Add a flag to force resume
+        }
+      });
+    } catch (err) {
+      // Error resuming workout
+      Alert.alert('Error', 'Failed to resume workout');
+    }
+  };
+
+  // Pulsing Icon Container Component
+  const PulsingIconContainer = () => {
+    const pulseAnimation = useRef(new Animated.Value(1)).current;
+
+    useEffect(() => {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnimation, {
+            toValue: 1.1,
+            duration: 1500,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnimation, {
+            toValue: 1,
+            duration: 1500,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    }, []);
+
+    return (
+      <Animated.View
+        style={[
+          styles.noPlanIconContainer,
+          {
+            transform: [{ scale: pulseAnimation }],
+          },
+        ]}
+      >
+        <Icon source="weight-lifter" size={90} color={COLORS.primary} />
+      </Animated.View>
+    );
+  };
+
+  // Modal component for paused workout alert
+  const PausedWorkoutModal = () => {
+    // Only render if needed
+    if (!showPausedWorkoutModal || !pausedWorkoutInfo.pausedDay) return null;
+    
+    return (
+      <Modal
+        visible={showPausedWorkoutModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowPausedWorkoutModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.pausedModalContainer}>
+            <LinearGradient
+              colors={['#121418', '#0A0C10']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.modalGradient}
+            >
+              <View style={styles.pausedModalContent}>
+                <Text style={styles.pausedModalTitle}>Workout In Progress</Text>
+                
+                <View style={styles.pausedModalIcon}>
+                  <Icon source="pause-circle" size={50} color="#FF9800" />
+                </View>
+                
+                <Text style={styles.pausedModalMessage}>
+                  You have a paused workout for day {pausedWorkoutInfo.pausedDay}. Would you like to resume it or {pausedWorkoutInfo.mode === 'start' ? 'start today\'s' : 'redo this'} workout?
+                </Text>
+                
+                <View style={styles.pausedModalActions}>
+                  {/* Resume button */}
+                  <TouchableOpacity 
+                    style={styles.pausedModalResumeButton}
+                    onPress={async () => {
+                      setShowPausedWorkoutModal(false);
+                      // Direct resume for the paused workout
+                      if (pausedWorkoutInfo.pausedDay && user && plan) {
+                        try {
+                          // Get the paused workout data directly
+                          const { data, error } = await supabase
+                            .from('user_paused_workouts')
+                            .select('*')
+                            .eq('user_id', user.id)
+                            .eq('plan_id', plan.id)
+                            .eq('workout_day', pausedWorkoutInfo.pausedDay)
+                            .limit(1);
+                            
+                          if (error || !data || data.length === 0) {
+                            Alert.alert('Error', 'Could not find the paused workout');
+                            return;
+                          }
+                          
+                          // Set up the pausedWorkout state with the retrieved data
+                          const pausedWorkoutData = data[0];
+                          const formattedPausedWorkout = {
+                            userId: pausedWorkoutData.user_id,
+                            planId: pausedWorkoutData.plan_id,
+                            workoutDay: pausedWorkoutData.workout_day,
+                            cycleWeek: pausedWorkoutData.cycle_week,
+                            weekName: pausedWorkoutData.week_name,
+                            exercises: pausedWorkoutData.exercises,
+                            exerciseSets: pausedWorkoutData.exercise_sets,
+                            workoutDuration: pausedWorkoutData.workout_duration,
+                            totalVolume: pausedWorkoutData.total_volume,
+                            totalReps: pausedWorkoutData.total_reps,
+                            currentExerciseIndex: pausedWorkoutData.current_exercise_index,
+                            originalCycleWeek: pausedWorkoutData.original_cycle_week,
+                            pausedAt: pausedWorkoutData.paused_at
+                          };
+                          
+                          // Temporarily update the state to enable resuming
+                          setPausedWorkout(formattedPausedWorkout);
+                          setHasPausedWorkout(true);
+                          
+                          // Get plan data with cycle week information
+                          const cycleData = await workoutPlanService.getActivePlanWithCycleWeek(user.id, plan.id);
+                          
+                          if (!cycleData) {
+                            throw new Error('Failed to get plan cycle data');
+                          }
+                          
+                          // Navigate directly to resume the workout
+                          router.push({
+                            pathname: '/(stack)/workout-session',
+                            params: { 
+                              planId: plan.id,
+                              workoutDay: pausedWorkoutData.workout_day,
+                              cycleWeek: cycleData.currentWeek,
+                              weekName: cycleData.weekName,
+                              forceResume: 'true'
+                            }
+                          });
+                        } catch (err) {
+                          Alert.alert('Error', 'Failed to resume workout');
+                        }
+                      }
+                    }}
+                  >
+                    <View style={styles.buttonContent}>
+                      <Icon source="play-circle" size={24} color="#000000" />
+                      <Text style={styles.pausedModalButtonText}>Resume Workout</Text>
+                    </View>
+                  </TouchableOpacity>
+                  
+                  {/* Start New/Redo button */}
+                  <TouchableOpacity 
+                    style={styles.pausedModalStartButton}
+                    onPress={async () => {
+                      setShowPausedWorkoutModal(false);
+                      
+                      // Start loading state
+                      setIsLoading(true);
+                      
+                      try {
+                        if (pausedWorkoutInfo.pausedDay && user && plan) {
+                          // Clear the existing paused workout first
+                          await workoutPlanService.clearPausedWorkout(user.id, plan.id, pausedWorkoutInfo.pausedDay);
+                          
+                          // Reset paused workout state
+                          setHasPausedWorkout(false);
+                          setPausedWorkout(null);
+                        }
+                        
+                        // Continue with starting the current day workout
+                        if (activeDay !== null && user && plan) {
+                          // Get plan data with cycle week information
+                          const cycleData = await workoutPlanService.getActivePlanWithCycleWeek(user.id, plan.id);
+                          
+                          if (!cycleData) {
+                            throw new Error('Failed to get plan cycle data');
+                          }
+                          
+                          // Navigate to workout session for the current day
+                          router.push({
+                            pathname: '/(stack)/workout-session',
+                            params: { 
+                              planId: plan.id,
+                              workoutDay: activeDay,
+                              cycleWeek: cycleData.currentWeek,
+                              weekName: cycleData.weekName,
+                              // Add forceStart flag for redo mode
+                              ...(pausedWorkoutInfo.mode === 'redo' ? { forceStart: 'true' } : {})
+                            }
+                          });
+                        }
+                      } catch (err) {
+                        Alert.alert('Error', 'Failed to start workout');
+                      } finally {
+                        setIsLoading(false);
+                      }
+                    }}
+                  >
+                    <View style={styles.buttonContent}>
+                      <Icon source="dumbbell" size={24} color="#000000" />
+                      <Text style={styles.pausedModalButtonText}>
+                        {pausedWorkoutInfo.mode === 'start' ? 'Start This Workout' : 'Redo This Workout'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                  
+                  {/* Cancel button */}
+                  <TouchableOpacity 
+                    style={styles.pausedModalCancelButton}
+                    onPress={() => setShowPausedWorkoutModal(false)}
+                  >
+                    <Text style={styles.pausedModalCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </LinearGradient>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
+  // Add the Function to restart a completed workout
+  const handleRedoWorkout = async () => {
+    if (!plan || activeDay === null || !user) return;
+    
+    try {
+      // Check for any paused workouts in the plan
+      const { hasPaused, pausedWorkoutDay } = await checkForAnyPausedWorkout();
+      
+      // If there's a paused workout, show our custom modal instead of Alert
+      if (hasPaused && pausedWorkoutDay !== null) {
+        // Set the modal info and show it with 'redo' mode
+        setPausedWorkoutInfo({
+          pausedDay: pausedWorkoutDay,
+          currentDay: activeDay,
+          mode: 'redo'
+        });
+        setShowPausedWorkoutModal(true);
+        return;
+      }
+
+      // No paused workout, proceed with restarting the workout
+      const cycleData = await workoutPlanService.getActivePlanWithCycleWeek(user.id, plan.id);
+      
+      if (!cycleData) {
+        throw new Error('Failed to get plan cycle data');
+      }
+      
+      // Navigate to workout session with a flag to force start
+      router.push({
+        pathname: '/(stack)/workout-session',
+        params: { 
+          planId: plan.id,
+          workoutDay: activeDay,
+          cycleWeek: cycleData.currentWeek,
+          weekName: cycleData.weekName,
+          forceStart: 'true' // Add this flag to force start even if completed
+        }
+      });
+    } catch (err) {
+      // Error restarting workout
+      Alert.alert('Error', 'Failed to restart workout');
+    }
+  };
+
   if (isLoading) {
     return (
       <View style={[styles.container, styles.loadingContainer]}>
@@ -640,17 +1062,43 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
           </Appbar.Header>
         )}
         <View style={styles.noPlanContainer}>
-          <Text style={styles.noPlanTitle}>No Active Plan</Text>
-          <Text style={styles.noPlanText}>
-            You currently don't have an active workout plan. Visit the Plans section to choose a plan.
-          </Text>
-          <Button 
-            mode="contained" 
-            style={styles.browseButton}
-            onPress={() => router.push('/discover')}
-          >
-            BROWSE PLANS
-          </Button>
+          <View style={styles.noPlanCardWrapper}>
+            <LinearGradient
+              colors={['rgba(31, 31, 48, 0.9)', 'rgba(18, 20, 24, 0.95)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.noPlanCard}
+            >
+              <PulsingIconContainer />
+              
+              <Text style={styles.noPlanTitle}>Ready to Begin?</Text>
+              
+              <View style={styles.noPlanDivider} />
+              
+              <Text style={styles.noPlanText}>
+                Your fitness journey awaits! Choose a workout plan tailored to your goals and transform your body.
+              </Text>
+              
+              <View style={styles.noPlanInfoBox}>
+                <View style={styles.infoIconContainer}>
+                  <Icon source="information-outline" size={24} color={COLORS.text} />
+                </View>
+                <Text style={styles.noPlanInfoText}>
+                  Browse our expertly designed workout plans in the <Text style={styles.highlightText}>Discover</Text> section to get started.
+                </Text>
+              </View>
+              
+              <Button 
+                mode="contained" 
+                style={styles.browseButton}
+                labelStyle={styles.browseButtonText}
+                icon="compass"
+                onPress={() => router.push('/discover')}
+              >
+                FIND YOUR PLAN
+              </Button>
+            </LinearGradient>
+          </View>
         </View>
       </View>
     );
@@ -676,8 +1124,8 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         contentContainerStyle={[
           styles.scrollContent,
           { 
-            paddingBottom: insets.bottom + 150, // Increased from 100 to 150 for more space
-            paddingTop: embedded ? SPACING.xxl * 2.5 : SPACING.xl // Increased padding in both modes
+            paddingBottom: insets.bottom + 150,
+            paddingTop: embedded ? SPACING.xxl * 2.5 : SPACING.xl
           }
         ]}
       >
@@ -884,7 +1332,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         )}
       </ScrollView>
       
-      {/* Start/Redo Workout FAB */}
+      {/* Start/Resume/Redo Workout FAB - Update to show resume button when workout is paused */}
       {activeDay !== null && getWorkoutDayByNumber(activeDay) && markedDates[format(selectedDate, 'yyyy-MM-dd')]?.marked && (
         isWorkoutCompleted ? (
           <Button
@@ -896,6 +1344,14 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
           >
             REDO WORKOUT
           </Button>
+        ) : hasPausedWorkout && pausedWorkout && pausedWorkout.workoutDay === activeDay ? (
+          <FAB
+            style={[styles.fab, { backgroundColor: '#FF9800' }]} // Orange color for resume button
+            icon="play-pause"
+            label="RESUME WORKOUT"
+            onPress={handleResumeWorkout}
+            color={COLORS.background}
+          />
         ) : (
           <FAB
             style={styles.fab}
@@ -906,6 +1362,9 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
           />
         )
       )}
+      
+      {/* Add the PausedWorkoutModal component here */}
+      <PausedWorkoutModal />
     </View>
   );
 }
@@ -964,50 +1423,110 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: SPACING.lg,
   },
-  // Styles for workout preferences prompt
-  preferencesPromptContainer: {
+  noPlanCardWrapper: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noPlanCard: {
     backgroundColor: COLORS.surface,
     borderRadius: BORDER_RADIUS.md,
     padding: SPACING.md,
     margin: SPACING.md,
     marginBottom: SPACING.lg,
     alignItems: 'center',
+    width: '98%',
+    maxWidth: 450,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  promptTitle: {
-    color: COLORS.primary,
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: SPACING.sm,
-  },
-  promptText: {
-    color: COLORS.text,
-    fontSize: 14,
-    textAlign: 'center',
+  noPlanIconContainer: {
     marginBottom: SPACING.md,
-  },
-  promptButton: {
-    backgroundColor: COLORS.primary,
-    borderRadius: BORDER_RADIUS.sm,
-    marginTop: SPACING.sm,
-  },
-  promptButtonText: {
-    color: COLORS.text,
-    fontWeight: 'bold',
+    marginTop: SPACING.lg,
+    backgroundColor: 'rgba(123, 105, 238, 0.15)',
+    padding: SPACING.xl,
+    borderRadius: 80,
+    width: 160,
+    height: 160,
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'center',
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 10,
   },
   noPlanTitle: {
-    fontSize: 22,
+    fontSize: 28,
     fontWeight: 'bold',
     color: COLORS.text,
     marginBottom: SPACING.md,
+    letterSpacing: 0.5,
   },
   noPlanText: {
     fontSize: 16,
     color: COLORS.secondary,
     textAlign: 'center',
     marginBottom: SPACING.lg,
+    lineHeight: 22,
+  },
+  noPlanDivider: {
+    height: 2,
+    backgroundColor: COLORS.primary,
+    width: '30%',
+    marginBottom: SPACING.lg,
+    borderRadius: 2,
+  },
+  noPlanInfoBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: SPACING.lg,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    padding: SPACING.md,
+    borderRadius: BORDER_RADIUS.sm,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.primary,
+    width: '100%',
+  },
+  infoIconContainer: {
+    marginRight: SPACING.md,
+  },
+  noPlanInfoText: {
+    color: COLORS.text,
+    fontSize: 15,
+    flex: 1,
+    lineHeight: 22,
+  },
+  highlightText: {
+    fontWeight: 'bold',
+    color: COLORS.primary,
   },
   browseButton: {
     marginTop: SPACING.md,
+    paddingVertical: 8,
+    width: '100%',
+    borderRadius: BORDER_RADIUS.sm,
+    backgroundColor: COLORS.primary,
+    elevation: 8,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  browseButtonText: {
+    color: COLORS.background,
+    fontWeight: 'bold',
+    fontSize: 16,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
   },
   scrollView: {
     flex: 1,
@@ -1435,5 +1954,97 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 14,
     marginBottom: SPACING.xs,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+  },
+  pausedModalContainer: {
+    width: '90%',
+    maxWidth: 350,
+    overflow: 'hidden',
+    borderRadius: BORDER_RADIUS.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  modalGradient: {
+    borderRadius: BORDER_RADIUS.md,
+  },
+  pausedModalContent: {
+    padding: SPACING.lg,
+    alignItems: 'center',
+  },
+  pausedModalTitle: {
+    color: COLORS.text,
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: SPACING.md,
+    textAlign: 'center',
+  },
+  pausedModalIcon: {
+    alignItems: 'center',
+    marginVertical: SPACING.md,
+    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+    padding: SPACING.md,
+    borderRadius: 50,
+  },
+  pausedModalMessage: {
+    color: COLORS.text,
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: SPACING.xl,
+    lineHeight: 22,
+  },
+  pausedModalActions: {
+    width: '100%',
+    alignItems: 'stretch',
+    gap: SPACING.md,
+  },
+  pausedModalResumeButton: {
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+    borderRadius: BORDER_RADIUS.md,
+    backgroundColor: '#FF9800',
+    alignItems: 'center',
+    elevation: 2,
+  },
+  pausedModalStartButton: {
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+    borderRadius: BORDER_RADIUS.md,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    elevation: 2,
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.xs,
+  },
+  pausedModalCancelButton: {
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+    borderRadius: BORDER_RADIUS.md,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    alignItems: 'center',
+    marginTop: SPACING.xs,
+  },
+  pausedModalCancelText: {
+    color: COLORS.text,
+    fontWeight: '500',
+    fontSize: 14,
+  },
+  pausedModalButtonText: {
+    color: '#000000',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 }); 

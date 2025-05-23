@@ -234,7 +234,64 @@ export default function WorkoutSessionScreen() {
   useEffect(() => {
     // Check if workout is already completed for today, but skip if forceStart is true
     if (!forceStart) {
-      checkWorkoutCompletion();
+      // Get forceResume parameter from URL
+      const forceResume = params.forceResume === 'true';
+      
+      if (forceResume) {
+        // If forceResume is true, directly try to load and resume the paused workout
+        const resumePausedWorkoutDirectly = async () => {
+          try {
+            setIsLoading(true);
+            
+            // Try to get the paused workout
+            const pausedWorkout = await workoutPlanService.getPausedWorkout(
+              user?.id || '',
+              planId,
+              workoutDay
+            );
+            
+            if (pausedWorkout) {
+              // Directly resume the paused workout
+              resumePausedWorkout(pausedWorkout);
+            } else {
+              // No paused workout found, fetch workout data normally
+              fetchWorkoutData();
+              setWorkoutStartTime(new Date());
+              setWorkoutTimerActive(true);
+              
+              // Start workout duration timer
+              const workoutTimerInterval = setInterval(() => {
+                setWorkoutDuration(prev => prev + 1);
+              }, 1000);
+              
+              // Add cleanup for the timer
+              return () => {
+                clearInterval(workoutTimerInterval);
+              };
+            }
+          } catch (error) {
+            // If there's an error, fetch workout data normally
+            fetchWorkoutData();
+            setWorkoutStartTime(new Date());
+            setWorkoutTimerActive(true);
+            
+            // Start workout duration timer
+            const workoutTimerInterval = setInterval(() => {
+              setWorkoutDuration(prev => prev + 1);
+            }, 1000);
+            
+            // Add cleanup for the timer
+            return () => {
+              clearInterval(workoutTimerInterval);
+            };
+          }
+        };
+        
+        resumePausedWorkoutDirectly();
+      } else {
+        // Normal flow - check if workout is completed or paused
+        checkWorkoutCompletion();
+      }
     } else {
       // If forceStart is true, always fetch workout data and start the timer
       fetchWorkoutData();
@@ -435,30 +492,9 @@ export default function WorkoutSessionScreen() {
       );
       
       if (pausedWorkout) {
-        // Ask user if they want to resume the paused workout
-        Alert.alert(
-          'Resume Workout',
-          'You have a paused workout. Would you like to resume where you left off?',
-          [
-            {
-              text: 'Start New',
-              onPress: () => {
-                // Clear the paused workout and start fresh
-                workoutPlanService.clearPausedWorkout(user.id, planId, workoutDay);
-                // Continue with normal workout flow
-                checkWorkoutCompletionOnly();
-              }
-            },
-            {
-              text: 'Resume',
-              onPress: () => {
-                // Resume the paused workout
-                resumePausedWorkout(pausedWorkout);
-              }
-            }
-          ],
-          { cancelable: false }
-        );
+        // No longer show the alert dialog - directly resume the paused workout
+        // since the user explicitly chose to resume by clicking the Resume button
+        resumePausedWorkout(pausedWorkout);
       } else {
         // No paused workout, continue with normal flow
         checkWorkoutCompletionOnly();
@@ -505,14 +541,17 @@ export default function WorkoutSessionScreen() {
         Alert.alert(
           'Workout Paused', 
           'Your workout has been saved. You can resume it later from the workout plan screen.',
-          [{ text: 'OK' }]
+          [{ 
+            text: 'OK',
+            onPress: () => {
+              // Stop the workout timer
+              setWorkoutTimerActive(false);
+              
+              // Navigate back to home screen
+              router.replace('/');
+            }
+          }]
         );
-        
-        // Stop the workout timer
-        setWorkoutTimerActive(false);
-        
-        // Navigate back
-        router.back();
       } else {
         Alert.alert(
           'Error',
@@ -1102,9 +1141,8 @@ export default function WorkoutSessionScreen() {
   if (isWorkoutCompleted && completedWorkoutData) {
     // Use setTimeout to ensure the navigation happens after state updates
     setTimeout(() => {
-      // Navigate directly to the tabs layout with My Plan selected
-      // This ensures we have the proper navigation structure with bottom tabs
-      router.replace('/(tabs)/?selectedOption=My Plan');
+      // Navigate back to home screen
+      router.replace('/');
     }, 100);
     
     // Show a loading indicator while navigating

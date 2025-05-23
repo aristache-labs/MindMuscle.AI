@@ -1665,7 +1665,7 @@ export const getPausedWorkout = async (
     let pausedWorkout = pausedWorkoutJson ? JSON.parse(pausedWorkoutJson) : null;
     
     // If we have a specific workout to check for
-    if (pausedWorkout && planId && workoutDay) {
+    if (pausedWorkout && planId && workoutDay !== undefined) {
       // Check if the paused workout matches the requested plan and day
       if (pausedWorkout.planId !== planId || pausedWorkout.workoutDay !== workoutDay) {
         pausedWorkout = null;

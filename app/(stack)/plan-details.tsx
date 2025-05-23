@@ -27,7 +27,7 @@ interface Exercise {
 }
 
 interface WorkoutDay {
-  day: number;
+  day: number;  // Now 1-indexed (day 1 = 1, day 2 = 2, etc.)
   exercises: Exercise[];
   total_exercises: number;
   estimated_duration: number;
@@ -57,7 +57,7 @@ export default function PlanDetailsScreen() {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Using 0 for currentDayIndex since array indices start at 0, even though workout_day values are now 1-indexed
+  // Using 0 for currentDayIndex since this is the array index (0-based), not the workout day value
   const [currentDayIndex, setCurrentDayIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   
@@ -205,7 +205,7 @@ export default function PlanDetailsScreen() {
       <View style={{ width: screenWidth }}>
         <ScrollView contentContainerStyle={styles.dayContentContainer}>
           <Text style={styles.dayTitle}>
-            DAY {item.day + 1}
+            DAY {item.day}
           </Text>
           
           {item.exercises.map((exercise) => (
@@ -319,7 +319,7 @@ export default function PlanDetailsScreen() {
                           currentDayIndex === index && styles.activeDayPillText
                         ]}
                       >
-                        {day.day + 1}
+                        {day.day}
                       </Text>
                     </TouchableOpacity>
                   ))}

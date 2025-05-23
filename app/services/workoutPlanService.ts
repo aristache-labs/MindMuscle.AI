@@ -958,8 +958,6 @@ export const fetchActivePlan = async (userId: string, userWorkoutDays: number[])
 
 // Setup calendar marked dates based on workout frequency and user preferences
 export const setupCalendarDates = (startDate: string, totalDays: number, userWorkoutDays: number[], colors: any = { primary: '#007BFF' }) => {
-  console.log(`Setting up calendar dates with totalDays: ${totalDays}, userWorkoutDays: ${JSON.stringify(userWorkoutDays)}`);
-  
   try {
     if (!userWorkoutDays || userWorkoutDays.length === 0) {
       console.error('No valid workout days provided');
@@ -1080,9 +1078,6 @@ export const setupCalendarDates = (startDate: string, totalDays: number, userWor
           week: week, // Store week for reference
           userDayNumber: userDayNumber // Store the numeric day for reference
         };
-        
-        // Add debug logging
-        console.log(`Week ${week}, Workout Day ${workoutDay} mapped to ${dateStr} (${dayNames[userDayNumber]})`);
       }
     }
     

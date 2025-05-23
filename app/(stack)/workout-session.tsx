@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, FlatList, Pressable, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, FlatList, Pressable, Dimensions, Modal } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -92,6 +92,10 @@ export default function WorkoutSessionScreen() {
     weekName: string;
     cycleWeek: number;
   } | null>(null);
+  
+  // Add warmup state
+  const [showWarmup, setShowWarmup] = useState(true);
+  const [warmupCompleted, setWarmupCompleted] = useState(false);
   
   // Functions to handle input focus and blur
   const handleInputFocus = (id: string) => {
@@ -907,6 +911,13 @@ export default function WorkoutSessionScreen() {
     };
   };
 
+  // Function to handle warmup completion
+  const handleWarmupComplete = () => {
+    setWarmupCompleted(true);
+    setShowWarmup(false);
+    // The first set will automatically become active due to the logic in the render method
+  };
+
   const currentExercise = exercises[currentExerciseIndex];
   const currentSets = currentExercise ? exerciseSets[currentExercise.id] || [] : [];
   const currentRecommendation = currentExercise ? recommendations[currentExercise.id] : null;
@@ -1028,6 +1039,12 @@ export default function WorkoutSessionScreen() {
             let activeSetIndex = currentSets.findIndex(s => !s.isCompleted);
             // If all sets are completed, no set should be active
             if (activeSetIndex === -1) activeSetIndex = currentSets.length;
+            
+            // If warmup is showing and not completed, no set should be active
+            if (showWarmup && !warmupCompleted) {
+              activeSetIndex = -1; // No set is active when warmup is showing
+            }
+            
             const isActive = index === activeSetIndex;
             const isCompleted = set.isCompleted;
             return (
@@ -1043,11 +1060,11 @@ export default function WorkoutSessionScreen() {
                   {isActive && !isCompleted ? (
                     <View style={styles.activeSetCardContainer}>
                       <View style={styles.tableLayout}>
-                        {/* Left Column: Contains Top Row (Weight/Reps) and Bottom Row (Label) */}
+                        {/* Left Column: Weight and Reps stacked vertically */}
                         <View style={styles.leftColumn}>
-                          {/* Top Row for Weight and Reps */}
-                          <View style={styles.topContentRow}>
-                            <View style={styles.weightCell}>
+                          {/* Weight and Reps Cell - both inputs in same cell */}
+                          <View style={styles.weightRepsCell}>
+                            <View style={styles.inputRow}>
                               <View style={styles.inputContainer}>
                                 <TextInput
                                   style={styles.inputField}
@@ -1063,16 +1080,9 @@ export default function WorkoutSessionScreen() {
                                 />
                                 <Text style={styles.activeSetValueUnit}>kg</Text>
                               </View>
-                              {lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.weight && (
-                                <Text style={styles.activeSetSubValue}>
-                                  {`(Last ${lastExerciseValues[currentExercise.exercise_id][index + 1].weight})`}
-                                </Text>
-                              )}
-                            </View>
-                            <View style={styles.dividerContainer}>
-                              <View style={styles.horizontalDivider} />
-                            </View>
-                            <View style={styles.repsCell}>
+                              
+                              <View style={styles.inputDivider} />
+                              
                               <View style={styles.inputContainer}>
                                 <TextInput
                                   style={styles.inputField}
@@ -1087,23 +1097,46 @@ export default function WorkoutSessionScreen() {
                                 />
                                 <Text style={styles.activeSetValueUnit}>reps</Text>
                               </View>
-                              {lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps && (
-                                <Text style={styles.activeSetSubValue}>
-                                  {`(Last ${lastExerciseValues[currentExercise.exercise_id][index + 1].reps})`}
-                                </Text>
-                              )}
                             </View>
+                            
+                            {/* Last values row - split under each input */}
+                            {(lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.weight || 
+                              lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps) && (
+                              <View style={styles.lastValuesRow}>
+                                <View style={styles.lastValueContainer}>
+                                  {lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.weight && (
+                                    <Text style={styles.activeSetSubValue}>
+                                      ( Last {lastExerciseValues[currentExercise.exercise_id][index + 1]?.weight} )
+                                    </Text>
+                                  )}
+                                </View>
+                                
+                                <View style={styles.lastValueSpacer} />
+                                
+                                <View style={styles.lastValueContainer}>
+                                  {lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps && (
+                                    <Text style={styles.activeSetSubValue}>
+                                      ( Last {lastExerciseValues[currentExercise.exercise_id][index + 1]?.reps} )
+                                    </Text>
+                                  )}
+                                </View>
+                              </View>
+                            )}
                           </View>
-                          {/* Bottom Row for Label */}
-                          <View style={styles.bottomLabelRow}>
+
+                          {/* Horizontal Divider */}
+                          <View style={styles.horizontalDivider} />
+
+                          {/* Label Cell */}
+                          <View style={styles.labelCell}>
                             <Text style={styles.activeSetLabel}>Weight of bar + plates</Text>
                           </View>
                         </View>
 
-                        {/* Main Vertical Divider between left column and Did It button */}
+                        {/* Vertical Divider */}
                         <View style={styles.mainVerticalDivider} />
 
-                        {/* Right Column: Did It Button */}
+                        {/* Button Cell - spans full height */}
                         <View style={styles.didItButtonCell}>
                           <TouchableOpacity 
                             style={{flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center'}}
@@ -1116,65 +1149,70 @@ export default function WorkoutSessionScreen() {
                     </View>
                   ) : (
                     <View style={styles.inactiveSetCardContent}>
-                      <View style={styles.inactiveWeightColumn}>
-                        <View style={styles.inactiveInputContainer}>
-                          <TextInput
-                            style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
-                            value={set.weight}
-                            onChangeText={(value) => handleWeightChange(currentExercise.id, index, value)}
-                            keyboardType="decimal-pad"
-                            placeholder={focusedInputs[`${currentExercise.id}-${index}-weight`] ? '' : '-'}
-                            placeholderTextColor="rgba(255,255,255,0.5)"
-                            selectTextOnFocus={true}
-                            onFocus={() => handleInputFocus(`${currentExercise.id}-${index}-weight`)}
-                            onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-weight`)}
-                            editable={!isCompleted}
-                          />
-                          <Text style={styles.suggestedUnit}>kg</Text>
+                      {/* Left Cell: Weight and Reps inputs */}
+                      <View style={styles.inactiveLeftCell}>
+                        <View style={styles.inactiveInputRow}>
+                          <View style={styles.inputContainer}>
+                            <TextInput
+                              style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
+                              value={set.weight}
+                              onChangeText={(value) => handleWeightChange(currentExercise.id, index, value)}
+                              keyboardType="decimal-pad"
+                              placeholder={focusedInputs[`${currentExercise.id}-${index}-weight`] ? '' : '-'}
+                              placeholderTextColor="rgba(255,255,255,0.5)"
+                              selectTextOnFocus={true}
+                              onFocus={() => handleInputFocus(`${currentExercise.id}-${index}-weight`)}
+                              onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-weight`)}
+                              editable={!isCompleted}
+                            />
+                            <Text style={styles.suggestedUnit}>kg</Text>
+                          </View>
+                          
+                          <View style={styles.inactiveInputDivider} />
+                          
+                          <View style={styles.inputContainer}>
+                            <TextInput
+                              style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
+                              value={set.reps}
+                              onChangeText={(value) => handleRepsChange(currentExercise.id, index, value)}
+                              keyboardType="numeric"
+                              placeholder={focusedInputs[`${currentExercise.id}-${index}-reps`] ? '' : (currentExercise.reps_range || '-')}
+                              placeholderTextColor="rgba(255,255,255,0.5)"
+                              selectTextOnFocus={true}
+                              onFocus={() => handleInputFocus(`${currentExercise.id}-${index}-reps`)}
+                              onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-reps`)}
+                              editable={!isCompleted}
+                            />
+                            <Text style={styles.suggestedUnit}>reps</Text>
+                          </View>
                         </View>
                       </View>
                       
-                      <View style={styles.inactiveDivider} />
+                      {/* Vertical Divider */}
+                      <View style={styles.inactiveVerticalDivider} />
                       
-                      <View style={styles.inactiveRepsColumn}>
-                        <View style={styles.inactiveInputContainer}>
-                          <TextInput
-                            style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
-                            value={set.reps}
-                            onChangeText={(value) => handleRepsChange(currentExercise.id, index, value)}
-                            keyboardType="numeric"
-                            placeholder={focusedInputs[`${currentExercise.id}-${index}-reps`] ? '' : (currentExercise.reps_range || '-')}
-                            placeholderTextColor="rgba(255,255,255,0.5)"
-                            selectTextOnFocus={true}
-                            onFocus={() => handleInputFocus(`${currentExercise.id}-${index}-reps`)}
-                            onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-reps`)}
-                            editable={!isCompleted}
+                      {/* Right Cell: Button */}
+                      <View style={styles.inactiveButtonCell}>
+                        <TouchableOpacity
+                          style={[styles.playButtonSet, isCompleted && styles.redoButtonSet]}
+                          onPress={() => {
+                            if (isCompleted) {
+                              // If completed, redo the set
+                              handleRedoSet(currentExercise.id, index);
+                            } else if (isActive) {
+                              // If active but not completed, mark as complete
+                              handleSetComplete(currentExercise.id, index);
+                            }
+                          }}
+                          disabled={!isCompleted && !isActive}
+                        >
+                          <Ionicons 
+                            name={isCompleted ? "reload" : "play"} 
+                            size={20} 
+                            color={COLORS.text} 
                           />
-                          <Text style={styles.suggestedUnit}>reps</Text>
-                        </View>
+                        </TouchableOpacity>
                       </View>
-                      
-                      <View style={styles.inactiveDivider} />
-                      
-                      <TouchableOpacity
-                        style={[styles.playButtonSet, isCompleted && styles.redoButtonSet]}
-                        onPress={() => {
-                          if (isCompleted) {
-                            // If completed, redo the set
-                            handleRedoSet(currentExercise.id, index);
-                          } else if (isActive) {
-                            // If active but not completed, mark as complete
-                            handleSetComplete(currentExercise.id, index);
-                          }
-                        }}
-                        disabled={!isCompleted && !isActive}
-                      >
-                        <Ionicons 
-                          name={isCompleted ? "reload" : "play"} 
-                          size={20} 
-                          color={COLORS.text} 
-                        />
-                      </TouchableOpacity>
                     </View>
                   )}
                 </View>
@@ -1218,6 +1256,85 @@ export default function WorkoutSessionScreen() {
           </TouchableOpacity>
         </View>
       </View>
+      
+      {/* Warmup Modal */}
+      <Modal
+        visible={showWarmup && !warmupCompleted}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => {}}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <LinearGradient
+              colors={[COLORS.gradientStart, COLORS.gradientEnd]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.modalGradient}
+            >
+              <View style={styles.modalContent}>
+                {/* Header with Icon */}
+                <View style={styles.modalHeader}>
+                  <View style={styles.warmupIconContainer}>
+                    <Ionicons name="flame" size={32} color={COLORS.text} />
+                  </View>
+                  <View style={styles.headerTextContainer}>
+                    <Text style={styles.modalTitle}>Exercise Warmup</Text>
+                    <Text style={styles.modalSubtitle}>Prepare your muscles for {currentExercise?.name || 'the workout'}</Text>
+                  </View>
+                </View>
+                
+                {/* Instructions */}
+                <View style={styles.warmupInstructionsContainer}>
+                  <Text style={styles.instructionsTitle}>Warmup Protocol:</Text>
+                  
+                  <View style={styles.instructionsList}>
+                    <View style={styles.instructionItem}>
+                      <View style={styles.instructionNumber}>
+                        <Text style={styles.instructionNumberText}>1</Text>
+                      </View>
+                      <View style={styles.instructionContent}>
+                        <Text style={styles.instructionText}>5 reps with light weight</Text>
+                        <Text style={styles.instructionSubtext}>Focus on form and range of motion</Text>
+                      </View>
+                    </View>
+                    
+                    <View style={styles.instructionItem}>
+                      <View style={styles.instructionNumber}>
+                        <Text style={styles.instructionNumberText}>2</Text>
+                      </View>
+                      <View style={styles.instructionContent}>
+                        <Text style={styles.instructionText}>3 reps with medium weight</Text>
+                        <Text style={styles.instructionSubtext}>Gradually increase intensity</Text>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+                
+                {/* Action Buttons */}
+                <View style={styles.modalActions}>
+                  <TouchableOpacity 
+                    style={styles.skipButton}
+                    onPress={handleWarmupComplete}
+                  >
+                    <Text style={styles.skipButtonText}>Skip</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={styles.modalButton}
+                    onPress={handleWarmupComplete}
+                  >
+                    <View style={styles.buttonContent}>
+                      <Ionicons name="checkmark" size={20} color={COLORS.primary} style={styles.buttonIcon} />
+                      <Text style={styles.modalButtonText}>Complete</Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </LinearGradient>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1248,7 +1365,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginLeft: SPACING.sm,
-    // This is used in both the original and completed workout screens
   },
   calendarContainer: {
     paddingHorizontal: SPACING.md,
@@ -1400,9 +1516,11 @@ const styles = StyleSheet.create({
   exerciseCard: {
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.sm,
-    backgroundColor: 'rgba(30, 30, 40, 0.6)',
     borderRadius: BORDER_RADIUS.sm,
-    margin: SPACING.md,
+    marginTop: SPACING.md,
+    marginLeft: SPACING.md,
+    marginRight: SPACING.md,
+    marginBottom: 0,
   },
   exerciseRow: {
     flexDirection: 'row',
@@ -1445,35 +1563,13 @@ const styles = StyleSheet.create({
     top: 0,
     margin: 0,
   },
-  sectionLabel: {
-    color: COLORS.secondary,
-    fontSize: 14,
-    marginBottom: SPACING.xs,
-  },
-
-  sampleOverlay: {
-    position: 'absolute',
-    width: '100%',
-    height: '100%',
-    opacity: 0.3,
-  },
-  sampleText: {
-    position: 'absolute',
-    color: '#FFD700',
-    fontWeight: 'bold',
-    fontSize: 18,
-    textAlign: 'center',
-    width: '100%',
-    transform: [{ rotate: '-10deg' }],
-    top: 5,
-  },
   setsContainer: {
     paddingHorizontal: SPACING.md,
-    marginTop: SPACING.md,
+    marginTop: SPACING.xs,
   },
   setCard: {
     borderRadius: BORDER_RADIUS.md,
-    marginBottom: SPACING.sm,
+    marginBottom: SPACING.md,
     overflow: 'hidden',
     minHeight: 70,
   },
@@ -1492,68 +1588,48 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'space-between',
   },
-  setNumber: {
-    fontWeight: 'bold',
-    fontSize: 18,
-    marginRight: SPACING.md,
-    color: COLORS.text,
-  },
-  weightInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.onSurface,
-    borderRadius: BORDER_RADIUS.sm,
-    marginRight: SPACING.md,
-    paddingHorizontal: SPACING.xs,
-    flex: 1,
-  },
   activeSetCardContainer: {
     width: '100%',
     borderRadius: BORDER_RADIUS.md,
     overflow: 'hidden',
-    backgroundColor: COLORS.primary, // Ensure card background is set
+    backgroundColor: COLORS.primary,
   },
   tableLayout: {
     flexDirection: 'row',
-    // Height will be determined by content, ensure leftColumn and didItButtonCell align
+    alignItems: 'stretch',
+    minHeight: 160,
   },
   leftColumn: {
-    flex: 1, // Takes up space not used by the button and its divider
+    flex: 1,
     flexDirection: 'column',
   },
-  topContentRow: {
-    flexDirection: 'row',
-    height: 75, // Example height, adjust as needed for content
-    alignItems: 'stretch', // Ensure cells and divider stretch vertically
-  },
-  weightCell: {
+  weightRepsCell: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: SPACING.sm,
   },
-  dividerContainer: {
-    height: '100%',
-    justifyContent: 'center',
+  inputRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  inputDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    marginHorizontal: SPACING.xl,
+  },
+  labelCell: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    padding: SPACING.sm,
   },
   horizontalDivider: {
-    width: 0.5,
-    height: '70%',
+    height: 0.5,
     backgroundColor: 'rgba(255,255,255,0.3)',
-  },
-  repsCell: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: SPACING.sm,
-  },
-  bottomLabelRow: {
-    height: 25, // Example height, adjust as needed for content
-    paddingVertical: 1,
-    paddingHorizontal: SPACING.md,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
+    marginHorizontal: SPACING.md,
   },
   mainVerticalDivider: {
     width: 0.5,
@@ -1564,15 +1640,14 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary, 
     justifyContent: 'center',
     alignItems: 'center',
-    // Height will stretch to match leftColumn due to tableLayout's alignItems: 'stretch' (default for row)
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     minWidth: 80,
-    minHeight: 44, // Increase minimum height for better touch area
-    columnGap: 0, // Remove gap between input and unit label
+    minHeight: 44,
+    columnGap: 0,
   },
   inputField: {
     color: COLORS.text,
@@ -1580,23 +1655,11 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
     backgroundColor: 'transparent',
-    padding: 8, // Add padding for better touch area
-    paddingRight: 0, // Reduced right padding to bring value closer to unit
+    padding: 8,
+    paddingRight: 0,
     height: 44,
     minHeight: 44,
-    minWidth: 60, // Ensure minimum width for better touch area
-  },
-  inputContainerStyle: {
-    borderBottomWidth: 0,
-  },
-
-  inactiveInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 70,
-    minHeight: 44, // Increase minimum height for better touch area
-    columnGap: 0, // Remove gap between input and unit label
+    minWidth: 60,
   },
   inactiveInputField: {
     color: COLORS.text,
@@ -1604,24 +1667,20 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
     backgroundColor: 'transparent',
-    padding: 8, // Add padding for better touch area
-    paddingRight: 0, // Reduced right padding to bring value closer to unit
+    padding: 8,
+    paddingRight: 0,
     height: 40,
     minHeight: 40,
-    minWidth: 50, // Ensure minimum width for better touch area
+    minWidth: 60,
   },
   completedInputField: {
     opacity: 0.5,
   },
-  inactiveInputContainerStyle: {
-    borderBottomWidth: 0,
-  },
-
   activeSetValueUnit: {
     fontSize: 16,
     fontWeight: 'bold',
     marginTop: 10,
-    marginLeft: 4, // Reduced from 5 to 2
+    marginLeft: 4,
     color: 'rgba(255, 255, 255, 0.52)',
   },
   activeSetSubValue: {
@@ -1633,9 +1692,11 @@ const styles = StyleSheet.create({
   },
   activeSetLabel: {
     color: COLORS.text,
-    fontSize: 12,
-    textAlign: 'center',
+    fontSize: 14,
+    textAlign: 'left',
+    fontWeight: '500',
     marginTop: 0,
+    marginLeft: SPACING.sm,
   },
   didItTextSet: {
     color: COLORS.text,
@@ -1644,72 +1705,48 @@ const styles = StyleSheet.create({
   },
   inactiveSetCardContent: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'stretch',
     width: '100%',
     height: 80,
-    paddingLeft: SPACING.md,
-    paddingRight: SPACING.xs,
+    paddingLeft: 0,
+    paddingRight: 0,
   },
-  inactiveWeightColumn: {
-    width: '40%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: SPACING.md,
-  },
-  inactiveRepsColumn: {
-    width: '40%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: SPACING.md,
-  },
-  inactiveDivider: {
-    height: '50%',
-    width: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    alignSelf: 'center',
-  },
-  suggestedColumnContainer: {
+  inactiveLeftCell: {
     flex: 1,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'flex-start',
+    padding: SPACING.lg,
+  },
+  inactiveInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  inactiveInputDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    marginHorizontal: SPACING.xxl,
+  },
+  inactiveVerticalDivider: {
+    width: 0.5,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+  },
+  inactiveButtonCell: {
+    width: 80,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   suggestedUnit: {
     fontSize: 14,
     fontWeight: 'normal',
     marginTop: 10,
     color: 'rgba(255,255,255,0.5)',
-    marginLeft: 4, // Reduced from 5 to 2
+    marginLeft: 4,
   },
-  playButtonSet: {
-    backgroundColor: COLORS.primary,
-    borderRadius: 18,
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: SPACING.md,
-  },
-  redoButtonSet: {
-    backgroundColor: COLORS.secondary,
-  },
-  logAllButton: {
-    backgroundColor: COLORS.surface,
-    marginHorizontal: SPACING.md,
-    marginTop: SPACING.md,
-    marginBottom: SPACING.xs,
-    borderRadius: BORDER_RADIUS.md,
-  },
-  logAllButtonText: {
-    color: COLORS.text,
-    fontWeight: 'bold',
-  },
-  customizeLink: {
-    alignItems: 'center',
-    marginVertical: SPACING.md,
-  },
-  customizeLinkText: {
-    color: COLORS.primary,
-    fontSize: 14,
+  maxWeightGraphContainer: {
+    marginTop: 0,
+    marginBottom: 0,
   },
   navigationFooter: {
     position: 'absolute',
@@ -1753,8 +1790,192 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  maxWeightGraphContainer: {
+  playButtonSet: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 18,
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: SPACING.md,
+  },
+  redoButtonSet: {
+    backgroundColor: COLORS.secondary,
+  },
+  logAllButton: {
+    backgroundColor: COLORS.surface,
+    marginHorizontal: SPACING.md,
     marginTop: SPACING.md,
+    marginBottom: SPACING.xs,
+    borderRadius: BORDER_RADIUS.md,
+  },
+  logAllButtonText: {
+    color: COLORS.text,
+    fontWeight: 'bold',
+  },
+  customizeLink: {
+    alignItems: 'center',
+    marginVertical: SPACING.md,
+  },
+  customizeLinkText: {
+    color: COLORS.primary,
+    fontSize: 14,
+  },
+  lastValuesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  lastValueContainer: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  lastValueSpacer: {
+    width: SPACING.xs,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+  },
+  modalContainer: {
+    backgroundColor: 'transparent',
+    borderRadius: BORDER_RADIUS.lg,
+    width: '90%',
+    maxWidth: 400,
+    overflow: 'hidden',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+  },
+  modalGradient: {
+    padding: SPACING.xl,
+    borderRadius: BORDER_RADIUS.lg,
+  },
+  modalContent: {
+    alignItems: 'center',
+  },
+  modalHeader: {
+    alignItems: 'center',
+    marginBottom: SPACING.lg,
+    width: '100%',
+  },
+  warmupIconContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 30,
+    padding: SPACING.md,
     marginBottom: SPACING.md,
+  },
+  headerTextContainer: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  modalTitle: {
+    color: COLORS.text,
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: SPACING.xs,
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    color: COLORS.text,
+    fontSize: 16,
+    textAlign: 'center',
+    opacity: 0.9,
+  },
+  warmupInstructionsContainer: {
+    width: '100%',
+    marginBottom: SPACING.xl,
+  },
+  instructionsTitle: {
+    color: COLORS.text,
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: SPACING.md,
+    textAlign: 'center',
+  },
+  instructionsList: {
+    width: '100%',
+  },
+  instructionItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: SPACING.md,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
+  },
+  instructionNumber: {
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 15,
+    width: 30,
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.md,
+  },
+  instructionNumberText: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  instructionContent: {
+    flex: 1,
+  },
+  instructionText: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: SPACING.xs,
+  },
+  instructionSubtext: {
+    color: COLORS.text,
+    fontSize: 14,
+    opacity: 0.8,
+    lineHeight: 18,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    gap: SPACING.md,
+  },
+  skipButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+    borderRadius: BORDER_RADIUS.md,
+    flex: 1,
+    alignItems: 'center',
+  },
+  skipButtonText: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+    borderRadius: BORDER_RADIUS.md,
+    flex: 1,
+    alignItems: 'center',
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  buttonIcon: {
+    marginRight: SPACING.xs,
+  },
+  modalButtonText: {
+    color: COLORS.background,
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

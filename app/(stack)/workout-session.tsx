@@ -1235,12 +1235,72 @@ export default function WorkoutSessionScreen() {
         <TouchableOpacity style={styles.customizeLink}>
           <Text style={styles.customizeLinkText}>Customize Exercise</Text>
         </TouchableOpacity>
-      </ScrollView>
-      
-      {/* Next Exercise Navigation */}
-      <View style={styles.navigationFooter}>
-        <View style={styles.navigationContent}>
-          <Text style={styles.nextExerciseText}>Next Exercise</Text>
+        
+        {/* Next Exercise Preview - moved inside ScrollView */}
+        <View style={styles.nextExerciseSection}>
+          <Text style={styles.nextExerciseLabel}>Next Exercise</Text>
+          
+          {currentExerciseIndex < exercises.length - 1 && (
+            <TouchableOpacity 
+              style={styles.nextExerciseCard}
+              onPress={moveToNextExercise}
+            >
+              <View style={styles.nextExerciseImageContainer}>
+                {exercises[currentExerciseIndex + 1]?.image_url ? (
+                  <OptimizedImage
+                    source={{ uri: exercises[currentExerciseIndex + 1].image_url }}
+                    style={styles.nextExerciseImage}
+                    fallback={require('../../assets/exercises/placeholder.jpg')}
+                    resizeMode="cover"
+                    cachePolicy="immutable"
+                  />
+                ) : (
+                  <View style={styles.nextExercisePlaceholder}>
+                    <Ionicons name="barbell-outline" size={24} color={COLORS.text} />
+                  </View>
+                )}
+              </View>
+              
+              <View style={styles.nextExerciseInfo}>
+                <Text style={styles.nextExerciseName}>
+                  {exercises[currentExerciseIndex + 1]?.name || 'Next Exercise'}
+                </Text>
+                <Text style={styles.nextExerciseDetails}>
+                  {exercises[currentExerciseIndex + 1]?.sets || 4} sets x {exercises[currentExerciseIndex + 1]?.reps_range || '8-10'} reps
+                  {exercises[currentExerciseIndex + 1] && exercises[currentExerciseIndex + 1].exercise_id && 
+                    lastExerciseValues[exercises[currentExerciseIndex + 1].exercise_id]?.[1]?.weight && 
+                    ` x ${lastExerciseValues[exercises[currentExerciseIndex + 1].exercise_id][1].weight} kg`}
+                </Text>
+              </View>
+              
+              {/* Display primary muscle as text tag */}
+              {(() => {
+                const nextExercise = exercises[currentExerciseIndex + 1];
+                if (nextExercise?.primary_muscles && nextExercise.primary_muscles.length > 0) {
+                  return (
+                    <View style={styles.nextExerciseMuscleTag}>
+                      <Text style={styles.nextExerciseMuscleText}>
+                        {nextExercise.primary_muscles[0]}
+                      </Text>
+                    </View>
+                  );
+                }
+                return null;
+              })()}
+            </TouchableOpacity>
+          )}
+          
+          {currentExerciseIndex === exercises.length - 1 && (
+            <TouchableOpacity 
+              style={[styles.nextExerciseCard, styles.completeWorkoutCard]}
+              onPress={() => completeWorkout()}
+            >
+              <Text style={styles.completeWorkoutText}>Complete Workout</Text>
+              <Ionicons name="checkmark-circle" size={24} color={COLORS.text} />
+            </TouchableOpacity>
+          )}
+          
+          {/* Progress Bar */}
           <View style={styles.progressBarContainer}>
             <View style={styles.progressBar}>
               <View 
@@ -1248,14 +1308,8 @@ export default function WorkoutSessionScreen() {
               />
             </View>
           </View>
-          <TouchableOpacity 
-            style={styles.playButton}
-            onPress={moveToNextExercise}
-          >
-            <Ionicons name="play" size={20} color={COLORS.text} />
-          </TouchableOpacity>
         </View>
-      </View>
+      </ScrollView>
       
       {/* Warmup Modal */}
       <Modal
@@ -1511,7 +1565,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollViewContent: {
-    paddingBottom: 100,
+    paddingBottom: 24,
   },
   exerciseCard: {
     paddingHorizontal: SPACING.md,
@@ -1748,29 +1802,84 @@ const styles = StyleSheet.create({
     marginTop: 0,
     marginBottom: 0,
   },
-  navigationFooter: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: COLORS.surface,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.1)',
-    paddingVertical: SPACING.sm,
+  nextExerciseSection: {
+    backgroundColor: COLORS.background,
+    marginTop: SPACING.md,
+    paddingHorizontal: SPACING.md,
+    paddingBottom: SPACING.xl,
   },
-  navigationContent: {
+  nextExerciseLabel: {
+    color: COLORS.primary,
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: SPACING.xs,
+    marginLeft: SPACING.xs,
+  },
+  nextExerciseCard: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.xs,
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.md,
   },
-  nextExerciseText: {
+  nextExerciseImageContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginRight: SPACING.md,
+  },
+  nextExerciseImage: {
+    width: '100%',
+    height: '100%',
+  },
+  nextExercisePlaceholder: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  nextExerciseInfo: {
+    flex: 1,
+  },
+  nextExerciseName: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  nextExerciseDetails: {
     color: COLORS.text,
     fontSize: 14,
+    opacity: 0.8,
+  },
+  nextExerciseMuscleTag: {
+    backgroundColor: '#FFD700',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginLeft: 'auto',
+    alignSelf: 'center',
+  },
+  nextExerciseMuscleText: {
+    color: COLORS.background,
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  completeWorkoutCard: {
+    justifyContent: 'center',
+    paddingVertical: SPACING.md,
+  },
+  completeWorkoutText: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginRight: SPACING.md,
   },
   progressBarContainer: {
-    flex: 1,
-    paddingHorizontal: SPACING.md,
+    marginTop: 0,
   },
   progressBar: {
     height: 4,
@@ -1781,58 +1890,6 @@ const styles = StyleSheet.create({
   progressBarFill: {
     height: '100%',
     backgroundColor: COLORS.primary,
-  },
-  playButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: COLORS.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  playButtonSet: {
-    backgroundColor: COLORS.primary,
-    borderRadius: 18,
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: SPACING.md,
-  },
-  redoButtonSet: {
-    backgroundColor: COLORS.secondary,
-  },
-  logAllButton: {
-    backgroundColor: COLORS.surface,
-    marginHorizontal: SPACING.md,
-    marginTop: SPACING.md,
-    marginBottom: SPACING.xs,
-    borderRadius: BORDER_RADIUS.md,
-  },
-  logAllButtonText: {
-    color: COLORS.text,
-    fontWeight: 'bold',
-  },
-  customizeLink: {
-    alignItems: 'center',
-    marginVertical: SPACING.md,
-  },
-  customizeLinkText: {
-    color: COLORS.primary,
-    fontSize: 14,
-  },
-  lastValuesRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 4,
-  },
-  lastValueContainer: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  lastValueSpacer: {
-    width: SPACING.xs,
   },
   modalOverlay: {
     flex: 1,
@@ -1977,5 +2034,49 @@ const styles = StyleSheet.create({
     color: COLORS.background,
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  playButtonSet: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 18,
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: SPACING.md,
+  },
+  redoButtonSet: {
+    backgroundColor: COLORS.secondary,
+  },
+  logAllButton: {
+    backgroundColor: COLORS.surface,
+    marginHorizontal: SPACING.md,
+    marginVertical: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
+    paddingVertical: SPACING.sm,
+  },
+  logAllButtonText: {
+    color: COLORS.text,
+    fontWeight: 'bold',
+  },
+  customizeLink: {
+    alignItems: 'center',
+    marginVertical: SPACING.md,
+  },
+  customizeLinkText: {
+    color: COLORS.primary,
+    fontSize: 14,
+  },
+  lastValuesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  lastValueContainer: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  lastValueSpacer: {
+    width: SPACING.xs,
   },
 });

@@ -97,6 +97,9 @@ export default function WorkoutSessionScreen() {
   const [showWarmup, setShowWarmup] = useState(true);
   const [warmupCompleted, setWarmupCompleted] = useState(false);
   
+  // State for exit modal
+  const [showExitModal, setShowExitModal] = useState(false);
+  
   // Functions to handle input focus and blur
   const handleInputFocus = (id: string) => {
     setFocusedInputs(prev => ({
@@ -357,14 +360,23 @@ export default function WorkoutSessionScreen() {
   };
 
   const handleBackPress = () => {
-    Alert.alert(
-      'Exit Workout',
-      'Are you sure you want to exit? Your progress will not be saved.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Exit', style: 'destructive', onPress: () => router.back() }
-      ]
-    );
+    setShowExitModal(true);
+  };
+
+  const handleExitWorkout = () => {
+    setShowExitModal(false);
+    router.back();
+  };
+
+  const handlePauseWorkout = () => {
+    setShowExitModal(false);
+    // Here you could add code to pause workout, save state, etc.
+    Alert.alert('Workout Paused', 'Your workout has been paused. You can resume it later.');
+    router.back();
+  };
+
+  const handleReturnToWorkout = () => {
+    setShowExitModal(false);
   };
 
   const startRestTimer = (seconds: number) => {
@@ -1321,7 +1333,7 @@ export default function WorkoutSessionScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <LinearGradient
-              colors={[COLORS.gradientStart, COLORS.gradientEnd]}
+              colors={['#121418', '#0A0C10']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={styles.modalGradient}
@@ -1381,6 +1393,77 @@ export default function WorkoutSessionScreen() {
                     <View style={styles.buttonContent}>
                       <Ionicons name="checkmark" size={20} color={COLORS.primary} style={styles.buttonIcon} />
                       <Text style={styles.modalButtonText}>Complete</Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </LinearGradient>
+          </View>
+        </View>
+      </Modal>
+      
+      {/* Exit Workout Modal */}
+      <Modal
+        visible={showExitModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowExitModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContainer, styles.exitModalContainer]}>
+            <LinearGradient
+              colors={['#121418', '#0A0C10']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.modalGradient}
+            >
+              <View style={styles.modalContent}>
+                {/* Header with just title */}
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Exit Workout?</Text>
+                </View>
+                
+                {/* Action Buttons */}
+                <View style={styles.exitModalActions}>
+                  {/* End Workout Button */}
+                  <TouchableOpacity 
+                    style={styles.exitModalButton}
+                    onPress={handleExitWorkout}
+                  >
+                    <View style={styles.exitButtonContent}>
+                      <Ionicons name="close-circle" size={24} color="#FF5252" style={styles.exitButtonIcon} />
+                      <View style={styles.exitButtonTextContainer}>
+                        <Text style={styles.exitButtonTitle}>End Workout</Text>
+                        <Text style={styles.exitButtonSubtitle}>Discard progress</Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                  
+                  {/* Pause Workout Button */}
+                  <TouchableOpacity 
+                    style={styles.exitModalButton}
+                    onPress={handlePauseWorkout}
+                  >
+                    <View style={styles.exitButtonContent}>
+                      <Ionicons name="pause-circle" size={24} color="#FFC107" style={styles.exitButtonIcon} />
+                      <View style={styles.exitButtonTextContainer}>
+                        <Text style={styles.exitButtonTitle}>Pause Workout</Text>
+                        <Text style={styles.exitButtonSubtitle}>Save progress for later</Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                  
+                  {/* Return Button */}
+                  <TouchableOpacity 
+                    style={[styles.exitModalButton, styles.returnButton]}
+                    onPress={handleReturnToWorkout}
+                  >
+                    <View style={styles.exitButtonContent}>
+                      <Ionicons name="arrow-back-circle" size={24} color={COLORS.primary} style={styles.exitButtonIcon} />
+                      <View style={styles.exitButtonTextContainer}>
+                        <Text style={styles.exitButtonTitle}>Return to Workout</Text>
+                        <Text style={styles.exitButtonSubtitle}>Continue current session</Text>
+                      </View>
                     </View>
                   </TouchableOpacity>
                 </View>
@@ -1895,7 +1978,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
   },
   modalContainer: {
     backgroundColor: 'transparent',
@@ -1908,6 +1991,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.3,
     shadowRadius: 20,
+    borderWidth: 0.2,
+    borderColor: COLORS.primary,
   },
   modalGradient: {
     padding: SPACING.xl,
@@ -2003,7 +2088,7 @@ const styles = StyleSheet.create({
     gap: SPACING.md,
   },
   skipButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(30, 35, 45, 0.8)',
     paddingVertical: SPACING.md,
     paddingHorizontal: SPACING.lg,
     borderRadius: BORDER_RADIUS.md,
@@ -2014,9 +2099,10 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 16,
     fontWeight: '600',
+    textAlign: 'center',
   },
   modalButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    backgroundColor: 'rgba(30, 35, 45, 0.8)',
     paddingVertical: SPACING.md,
     paddingHorizontal: SPACING.lg,
     borderRadius: BORDER_RADIUS.md,
@@ -2026,14 +2112,18 @@ const styles = StyleSheet.create({
   buttonContent: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
   },
   buttonIcon: {
     marginRight: SPACING.xs,
+    marginLeft: SPACING.xs,
   },
   modalButtonText: {
-    color: COLORS.background,
+    color: COLORS.text,
     fontSize: 16,
     fontWeight: 'bold',
+    textAlign: 'center',
   },
   playButtonSet: {
     backgroundColor: COLORS.primary,
@@ -2078,5 +2168,60 @@ const styles = StyleSheet.create({
   },
   lastValueSpacer: {
     width: SPACING.xs,
+  },
+  exitModalContainer: {
+    width: '90%',
+    maxWidth: 400,
+    borderWidth: 0.2,
+    borderColor: COLORS.primary,
+  },
+  exitIconContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 30,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  exitModalActions: {
+    width: '100%',
+    gap: SPACING.md,
+    alignItems: 'center',
+  },
+  exitModalButton: {
+    backgroundColor: 'rgba(30, 35, 45, 0.8)',
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.sm,
+    borderRadius: BORDER_RADIUS.md,
+    marginBottom: SPACING.md,
+    width: '90%',
+    alignSelf: 'center',
+  },
+  exitButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    justifyContent: 'center',
+  },
+  exitButtonIcon: {
+    marginRight: SPACING.md,
+    marginLeft: SPACING.xs,
+  },
+  exitButtonTextContainer: {
+    alignItems: 'center',
+    width: '60%',
+  },
+  exitButtonTitle: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  exitButtonSubtitle: {
+    color: COLORS.text,
+    fontSize: 14,
+    opacity: 0.7,
+    textAlign: 'center',
+  },
+  returnButton: {
+    // Background color is already in exitModalButton
   },
 });

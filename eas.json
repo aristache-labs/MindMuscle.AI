@@ -10,17 +10,35 @@
       "ios": {
         "buildConfiguration": "Debug"
       },
-      "prebuildCommand": "npx expo prebuild"
+      "prebuildCommand": "npx expo prebuild",
+      "env": {
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
     },
     "preview": {
-      "distribution": "internal",
-      "prebuildCommand": "npx expo prebuild"
+      "developmentClient": false,      // ← embed JS, no Metro
+      "distribution": "internal",      // ← internal/TestFlight only
+      "ios": {
+        "buildConfiguration": "Release"// ← use Xcode "Release" scheme
+      },
+      "android": {
+        "buildType": "apk"             // ← produce an .apk for sideload
+      },
+      "prebuildCommand": "npx expo prebuild",
+      "env": {
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
     },
     "production": {
-      "prebuildCommand": "npx expo prebuild"
+      "developmentClient": false,
+      "distribution": "store",
+      "prebuildCommand": "npx expo prebuild",
+      "env": {
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
     }
   },
   "submit": {
     "production": {}
   }
-} 
+}

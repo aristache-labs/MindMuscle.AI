@@ -239,3 +239,28 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Supabase team
 - OpenAI team
 - All contributors to this project 
+
+## Sentry Setup
+
+To properly configure Sentry for error monitoring:
+
+1. Set up your Sentry account and create a project at [sentry.io](https://sentry.io)
+2. Get your Sentry DSN and add it to your environment variables:
+   ```
+   SENTRY_DSN=your_sentry_dsn
+   ```
+3. For CI/CD builds, you have two options:
+   - Option 1: Authenticate with Sentry CLI:
+     ```
+     npx @sentry/cli login
+     ```
+   - Option 2: Disable auto-upload during builds by setting:
+     ```
+     SENTRY_DISABLE_AUTO_UPLOAD=true
+     ```
+     This is currently configured in eas.json for all build profiles.
+
+4. For manual source map uploads, use:
+   ```
+   npx @sentry/cli releases files <release_name> upload-sourcemaps <path_to_sourcemaps>
+   ``` 

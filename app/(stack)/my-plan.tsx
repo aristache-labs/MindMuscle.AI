@@ -69,6 +69,9 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   const [activeDay, setActiveDay] = useState<number | null>(null);
   const [completedWorkoutDays, setCompletedWorkoutDays] = useState<string[]>([]);
   
+  // Add state to track paused workout days
+  const [pausedWorkoutDays, setPausedWorkoutDays] = useState<string[]>([]);
+  
   // Use a simple date array for the weekly calendar view
   const [weekDays, setWeekDays] = useState<Date[]>([]);
   
@@ -105,6 +108,73 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   const getWorkoutDayByNumber = (dayNumber: number | null): WorkoutDay | null => {
     if (!plan || dayNumber === null) return null;
     return plan.workoutDays.find(workoutDay => workoutDay.day === dayNumber) || null;
+  };
+
+  // Helper function to check if a specific date has a paused workout
+  const checkIfDateHasPausedWorkout = async (date: Date): Promise<boolean> => {
+    if (!user || !plan) return false;
+    
+    const dateStr = format(date, 'yyyy-MM-dd');
+    const markedDateInfo = markedDates[dateStr];
+    
+    if (!markedDateInfo || !markedDateInfo.marked) return false;
+    
+    const workoutDayIndex = markedDateInfo.workoutDayIndex;
+    
+    try {
+      const { data, error } = await supabase
+        .from('user_paused_workouts')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id)
+        .eq('workout_day', workoutDayIndex)
+        .limit(1);
+      
+      return !error && data && data.length > 0;
+    } catch (error) {
+      console.error('Error checking for paused workout on date:', error);
+      return false;
+    }
+  };
+
+  // Helper function to update paused workout days for the calendar
+  const updatePausedWorkoutDays = async () => {
+    if (!user || !plan || !markedDates) return;
+    
+    try {
+      // Get all paused workouts for this plan
+      const { data, error } = await supabase
+        .from('user_paused_workouts')
+        .select('workout_day')
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id);
+      
+      if (error) {
+        console.error('Error fetching paused workouts:', error);
+        return;
+      }
+      
+      if (!data || data.length === 0) {
+        setPausedWorkoutDays([]);
+        return;
+      }
+      
+      // Convert workout days to date strings
+      const pausedDates: string[] = [];
+      Object.entries(markedDates).forEach(([dateStr, value]: [string, any]) => {
+        if (value && value.workoutDayIndex !== undefined) {
+          const isPaused = data.some(pausedWorkout => pausedWorkout.workout_day === value.workoutDayIndex);
+          if (isPaused) {
+            pausedDates.push(dateStr);
+          }
+        }
+      });
+      
+      setPausedWorkoutDays(pausedDates);
+    } catch (error) {
+      console.error('Error updating paused workout days:', error);
+      setPausedWorkoutDays([]);
+    }
   };
 
   // Fetch user's preferred workout days
@@ -283,6 +353,9 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
           if (completedDates && completedDates.length > 0) {
             setCompletedWorkoutDays(completedDates);
           }
+          
+          // Update paused workout days for calendar indicators
+          await updatePausedWorkoutDays();
           
           // Update workout completion state
           setIsWorkoutCompleted(isCompleted);
@@ -590,6 +663,9 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
               setCompletedWorkoutDays(completedDates);
             }
             
+            // Update paused workout days for calendar indicators
+            await updatePausedWorkoutDays();
+            
             // Update workout completion state
             setIsWorkoutCompleted(isCompleted);
             if (isCompleted && completedWorkoutData) {
@@ -652,6 +728,13 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       setPausedWorkout(null);
     }
   }, [activeDay, isWorkoutCompleted, user, plan]);
+
+  // Update paused workout days when calendar data changes
+  useEffect(() => {
+    if (plan && user && markedDates && Object.keys(markedDates).length > 0) {
+      updatePausedWorkoutDays();
+    }
+  }, [plan?.id, user?.id, markedDates]);
 
   // Add a new component for the progress line
   const WorkoutProgressLine = ({ pausedWorkout }: { pausedWorkout: any }) => {
@@ -806,7 +889,9 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
           {exerciseState === 'completed' && (
             <View style={styles.exerciseOverlay}>
               <View style={styles.completedIconContainer}>
-                <Icon source="check" size={24} color="#fff" />
+                <View style={{ opacity: 0.85 }}>
+                  <Icon source="check" size={24} color="#fff" />
+                </View>
               </View>
             </View>
           )}
@@ -815,7 +900,9 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
           {exerciseState === 'ongoing' && (
             <View style={styles.exerciseOverlay}>
               <View style={styles.ongoingIconContainer}>
-                <Icon source="pause" size={22} color="#FFFFFF" />
+                <View style={{ opacity: 0.85 }}>
+                  <Icon source="pause" size={22} color="#FFFFFF" />
+                </View>
               </View>
             </View>
           )}
@@ -1332,6 +1419,14 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
                       source="check-circle" 
                       size={14} 
                       color={isSelected(day) ? COLORS.text : COLORS.primary} 
+                    />
+                  </View>
+                ) : pausedWorkoutDays.includes(format(day, 'yyyy-MM-dd')) ? (
+                  <View style={isSelected(day) ? styles.selectedPauseIconContainer : styles.pauseIconContainer}>
+                    <Icon 
+                      source="pause-circle" 
+                      size={14} 
+                      color={isSelected(day) ? COLORS.text : '#FF9800'} 
                     />
                   </View>
                 ) : (
@@ -2437,13 +2532,13 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(123, 105, 238, 0.32)', // Changed to primary color with opacity
+    backgroundColor: 'rgba(0, 0, 0, 0.4)', // Darker overlay with opacity
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: BORDER_RADIUS.sm,
   },
   completedIconContainer: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: 'rgba(76, 175, 80, 0.9)', // Green with opacity
     borderRadius: 30,
     padding: SPACING.md,
     width: 60,
@@ -2452,14 +2547,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     shadowColor: '#4CAF50',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
+    shadowOpacity: 0.3, // Reduced shadow opacity
     shadowRadius: 8,
-    elevation: 8,
-    borderWidth: 3,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    elevation: 6, // Reduced elevation
+    borderWidth: 0.5, // Reduced border width
+    borderColor: 'rgba(255, 255, 255, 0.6)', // More transparent border
+    opacity: 0.95, // Overall opacity for the container
   },
   ongoingIconContainer: {
-    backgroundColor: '#FF9800',
+    backgroundColor: 'rgba(255, 152, 0, 0.9)', // Orange with opacity
     borderRadius: 30,
     padding: SPACING.md,
     width: 60,
@@ -2468,11 +2564,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     shadowColor: '#FF9800',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
+    shadowOpacity: 0.3, // Reduced shadow opacity
     shadowRadius: 8,
-    elevation: 8,
-    borderWidth: 3,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    elevation: 6, // Reduced elevation
+    borderWidth: 0.5, // Reduced border width
+    borderColor: 'rgba(255, 255, 255, 0.6)', // More transparent border
+    opacity: 0.95, // Overall opacity for the container
   },
   exerciseTextGreyed: {
     color: 'rgba(255, 255, 255, 0.5)',
@@ -2482,5 +2579,17 @@ const styles = StyleSheet.create({
   },
   muscleTagTextGreyed: {
     color: 'rgba(255, 255, 255, 0.5)',
+  },
+  selectedPauseIconContainer: {
+    position: 'absolute',
+    bottom: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pauseIconContainer: {
+    position: 'absolute',
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 }); 

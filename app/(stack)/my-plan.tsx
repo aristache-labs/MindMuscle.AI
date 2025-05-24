@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Dimensions, FlatList, Alert, Animated, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Dimensions, FlatList, Alert, Animated, Modal, StatusBar } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Appbar, Button, Divider, IconButton, FAB, Icon } from 'react-native-paper';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
@@ -12,6 +12,10 @@ import workoutPlanService from '../services/workoutPlanService';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const { width: screenWidth } = Dimensions.get('window');
+// Define constants for layout
+const HEADER_HEIGHT = 56; // Standard header height
+const CALENDAR_PADDING = 120; // Large padding for calendar top
+const CALENDAR_MARGIN = 0; // No margin between header and calendar
 
 interface Exercise {
   id: string;
@@ -52,6 +56,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   const router = useRouter();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
+  const statusBarHeight = StatusBar.currentHeight || 0;
   
   const [isLoading, setIsLoading] = useState(true);
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -418,18 +423,18 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     const days = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
     return days[dayOfWeek];
   };
-  
+
   // Function to check if a date is today
   const isToday = (date: Date) => {
     const today = new Date();
     return isSameDay(date, today);
   };
-  
+
   // Function to check if date is selected
   const isSelected = (date: Date) => {
     return isSameDay(date, selectedDate);
   };
-  
+
   // Function to handle date selection from weekly calendar
   const handleWeekDayPress = async (date: Date) => {
     // Skip processing if the user taps on the already selected date
@@ -452,7 +457,6 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   // This ensures the calendar always shows the correct workout days
   useEffect(() => {
     if (plan && userWorkoutDays.length > 0) {
-
       setupCalendarDates(plan.start_date, plan.workoutDays.length);
     }
   }, [userWorkoutDays, plan]);
@@ -649,24 +653,181 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     }
   }, [activeDay, isWorkoutCompleted, user, plan]);
 
-  const renderExerciseItem = ({ item }: { item: Exercise }) => (
-    <View style={styles.exerciseCard}>
-      <View style={styles.exerciseLeftContent}>
-        <OptimizedImage
-          source={item.image_url ? { uri: item.image_url } : require('../../assets/exercises/placeholder.jpg')}
-          style={styles.exerciseImage}
-          fallback={require('../../assets/exercises/placeholder.jpg')}
-          resizeMode="cover"
-          cachePolicy="immutable"
-          showLoader={false}
-        />
-        <View style={styles.exerciseDetails}>
-          <Text style={styles.exerciseName}>{item.name}</Text>
-          <Text style={styles.exerciseSets}>{item.sets} sets x {item.reps_range} reps</Text>
+  // Add a new component for the progress line
+  const WorkoutProgressLine = ({ pausedWorkout }: { pausedWorkout: any }) => {
+    if (!pausedWorkout || !pausedWorkout.exercises) return null;
+    
+    const totalExercises = pausedWorkout.exercises.length;
+    const currentIndex = pausedWorkout.currentExerciseIndex;
+    const progressPercentage = ((currentIndex) / totalExercises) * 100;
+    
+    return (
+      <View style={styles.progressLineContainer}>
+        <View style={styles.progressLineTrack}>
+          <View 
+            style={[
+              styles.progressLineFill, 
+              { width: `${Math.max(0, Math.min(100, progressPercentage))}%` }
+            ]} 
+          />
         </View>
+        <Text style={styles.progressLineText}>
+          {currentIndex} of {totalExercises} exercises completed
+        </Text>
       </View>
-    </View>
-  );
+    );
+  };
+
+  // Update the renderExerciseStatus function to match the UI example
+  const renderExerciseStatus = (exercise: Exercise, pausedWorkout: any) => {
+    if (!pausedWorkout || !pausedWorkout.exercises || !pausedWorkout.exerciseSets) return null;
+    
+    // Find the matching exercise in the paused workout
+    const pausedExerciseIndex = pausedWorkout.exercises.findIndex(
+      (e: any) => e.id === exercise.id || e.exercise_id === exercise.exercise_id
+    );
+    
+    // If exercise not found in paused workout, return null
+    if (pausedExerciseIndex === -1) return null;
+    
+    // Check if this is the current exercise in progress
+    const isCurrentExercise = pausedExerciseIndex === pausedWorkout.currentExerciseIndex;
+    
+    // Check if this exercise is completed (all sets are completed)
+    const exerciseSets = pausedWorkout.exerciseSets[pausedWorkout.exercises[pausedExerciseIndex].id] || [];
+    const isCompleted = exerciseSets.length > 0 && exerciseSets.every((set: any) => set.isCompleted);
+    
+    // Check if this exercise is upcoming (after current exercise)
+    const isUpcoming = pausedExerciseIndex > pausedWorkout.currentExerciseIndex;
+    
+    if (isCompleted) {
+      // Completed exercise - faded overlay with green checkmark
+      return (
+        <View style={styles.exerciseCompletedOverlay}>
+          <View style={styles.checkmarkCircle}>
+            <Icon source="check" size={20} color="#FFFFFF" />
+          </View>
+        </View>
+      );
+    } else if (isCurrentExercise) {
+      // Current exercise - orange overlay with play icon
+      return (
+        <View style={styles.exerciseInProgressOverlay}>
+          <View style={styles.currentExerciseIndicator}>
+            <Icon source="play" size={18} color="#FFFFFF" />
+          </View>
+        </View>
+      );
+    } else if (isUpcoming) {
+      // Upcoming exercise - no overlay (normal appearance)
+      return null;
+    }
+    
+    return null;
+  };
+
+  // Update the renderExerciseItem function inside the component
+  const renderExerciseItem = ({ item, index }: { item: Exercise; index: number }) => {
+    // Get the total number of exercises for this workout day
+    const totalExercises = getWorkoutDayByNumber(activeDay)?.exercises?.length || 0;
+    const isLastExercise = index === totalExercises - 1;
+    
+    // Determine the exercise state if there's a paused workout
+    let exerciseState = 'normal'; // 'completed', 'ongoing', 'normal'
+    
+    if (hasPausedWorkout && pausedWorkout && pausedWorkout.exercises) {
+      const pausedExerciseIndex = pausedWorkout.exercises.findIndex(
+        (e: any) => e.id === item.id || e.exercise_id === item.exercise_id
+      );
+      
+      if (pausedExerciseIndex !== -1) {
+        const isCurrentExercise = pausedExerciseIndex === pausedWorkout.currentExerciseIndex;
+        const exerciseSets = pausedWorkout.exerciseSets[pausedWorkout.exercises[pausedExerciseIndex].id] || [];
+        const isCompleted = exerciseSets.length > 0 && exerciseSets.every((set: any) => set.isCompleted);
+        
+        if (isCompleted) {
+          exerciseState = 'completed';
+        } else if (isCurrentExercise) {
+          exerciseState = 'ongoing';
+        }
+      }
+    }
+    
+    return (
+      <View>
+        <View style={[
+          styles.exerciseCard,
+          // Remove the special styling since we'll use overlay instead
+          { borderBottomWidth: 0, position: 'relative' }
+        ]}>
+          <View style={styles.exerciseLeftContent}>
+            <View style={styles.exerciseImageContainer}>
+              <OptimizedImage
+                source={item.image_url ? { uri: item.image_url } : require('../../assets/exercises/placeholder.jpg')}
+                style={styles.exerciseImage}
+                fallback={require('../../assets/exercises/placeholder.jpg')}
+                resizeMode="cover"
+                cachePolicy="immutable"
+                showLoader={false}
+              />
+            </View>
+            <View style={styles.exerciseDetails}>
+              <Text style={[
+                styles.exerciseName,
+                (exerciseState === 'completed' || exerciseState === 'ongoing') && styles.exerciseTextGreyed
+              ]}>
+                {item.name}
+              </Text>
+              <Text style={[
+                styles.exerciseSets,
+                (exerciseState === 'completed' || exerciseState === 'ongoing') && styles.exerciseTextGreyed
+              ]}>
+                {item.sets} sets × {item.reps_range} reps
+              </Text>
+            </View>
+          </View>
+          {/* Muscle group tag */}
+          {item.primary_muscles && item.primary_muscles.length > 0 && (
+            <View style={[
+              styles.muscleTag, 
+              { backgroundColor: getMuscleTagColor(item.primary_muscles[0]) },
+              (exerciseState === 'completed' || exerciseState === 'ongoing') && styles.muscleTagGreyed
+            ]}>
+              <Text style={[
+                styles.muscleTagText,
+                (exerciseState === 'completed' || exerciseState === 'ongoing') && styles.muscleTagTextGreyed
+              ]}>
+                {getMuscleTagName(item.primary_muscles[0])}
+              </Text>
+            </View>
+          )}
+          
+          {/* Overlay for completed exercise */}
+          {exerciseState === 'completed' && (
+            <View style={styles.exerciseOverlay}>
+              <View style={styles.completedIconContainer}>
+                <Icon source="check" size={24} color="#fff" />
+              </View>
+            </View>
+          )}
+          
+          {/* Overlay for ongoing exercise */}
+          {exerciseState === 'ongoing' && (
+            <View style={styles.exerciseOverlay}>
+              <View style={styles.ongoingIconContainer}>
+                <Icon source="pause" size={22} color="#FFFFFF" />
+              </View>
+            </View>
+          )}
+        </View>
+        
+        {/* Custom divider logic */}
+        {!isLastExercise && (
+          <View style={styles.exerciseDivider} />
+        )}
+      </View>
+    );
+  };
 
   // Helper function to format duration as H:mm (hours without leading zero)
   const formatDurationAsHMM = (duration: string): string => {
@@ -927,7 +1088,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
                     }}
                   >
                     <View style={styles.buttonContent}>
-                      <Icon source="play-circle" size={24} color="#000000" />
+                      <Icon source="play-circle" size={24} color={COLORS.text} />
                       <Text style={styles.pausedModalButtonText}>Resume Workout</Text>
                     </View>
                   </TouchableOpacity>
@@ -981,7 +1142,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
                     }}
                   >
                     <View style={styles.buttonContent}>
-                      <Icon source="dumbbell" size={24} color="#000000" />
+                      <Icon source="dumbbell" size={24} color={COLORS.text} />
                       <Text style={styles.pausedModalButtonText}>
                         {pausedWorkoutInfo.mode === 'start' ? 'Start This Workout' : 'Redo This Workout'}
                       </Text>
@@ -1116,6 +1277,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
 
   return (
     <View style={[styles.container, { paddingTop: embedded ? 0 : insets.top }]}>
+      {/* Header */}
       {!embedded && (
         <Appbar.Header>
           <Appbar.BackAction onPress={() => router.push('/(tabs)')} />
@@ -1129,67 +1291,72 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         </Appbar.Header>
       )}
       
+      {/* Fixed Weekly Calendar */}
+      <View style={[
+        styles.weeklyCalendarContainer,
+        { 
+          paddingTop: CALENDAR_PADDING,
+          paddingBottom: CALENDAR_PADDING / 10,
+          marginTop: embedded ? 0 : CALENDAR_MARGIN
+        }
+      ]}>
+        <View style={styles.weekDaysRow}>
+          {weekDays.map((day, index) => (
+            <TouchableOpacity 
+              key={index} 
+              style={[
+                styles.weekDay, 
+                isSelected(day) && styles.selectedWeekDay
+              ]}
+              onPress={() => handleWeekDayPress(day)}
+            >
+              <View style={styles.weekDayContent}>
+                <Text style={[
+                  styles.weekDayText, 
+                  isSelected(day) && styles.selectedWeekDayText
+                ]}>
+                  {getDayAbbreviation(day)}
+                </Text>
+                <Text style={[
+                  styles.weekDayNumber, 
+                  isSelected(day) && styles.selectedWeekDayText
+                ]}>
+                  {format(day, 'd')}
+                </Text>
+              </View>
+              {/* Add an indicator for workout days */}
+              {markedDates[format(day, 'yyyy-MM-dd')]?.marked && (
+                completedWorkoutDays.includes(format(day, 'yyyy-MM-dd')) ? (
+                  <View style={isSelected(day) ? styles.selectedCheckIconContainer : styles.checkIconContainer}>
+                    <Icon 
+                      source="check-circle" 
+                      size={14} 
+                      color={isSelected(day) ? COLORS.text : COLORS.primary} 
+                    />
+                  </View>
+                ) : (
+                  <View style={[
+                    styles.dayIndicator,
+                    isSelected(day) && styles.selectedDayIndicator
+                  ]} />
+                )
+              )}
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+      
+      {/* Scrollable Content */}
       <ScrollView 
         style={styles.scrollView} 
         contentContainerStyle={[
           styles.scrollContent,
           { 
             paddingBottom: insets.bottom + 150,
-            paddingTop: embedded ? SPACING.xxl * 2.5 : SPACING.xl
+            paddingTop: SPACING.xs // Minimal padding at the top of content
           }
         ]}
       >
-        {/* Weekly Calendar */}
-        <View style={[
-          styles.weeklyCalendarContainer,
-          embedded && { marginTop: SPACING.md } // Additional margin when embedded in tabs
-        ]}>
-          <View style={styles.weekDaysRow}>
-            {weekDays.map((day, index) => (
-              <TouchableOpacity 
-                key={index} 
-                style={[
-                  styles.weekDay, 
-                  isSelected(day) && styles.selectedWeekDay
-                ]}
-                onPress={() => handleWeekDayPress(day)}
-              >
-                <View style={styles.weekDayContent}>
-                  <Text style={[
-                    styles.weekDayText, 
-                    isSelected(day) && styles.selectedWeekDayText
-                  ]}>
-                    {getDayAbbreviation(day)}
-                  </Text>
-                  <Text style={[
-                    styles.weekDayNumber, 
-                    isSelected(day) && styles.selectedWeekDayText
-                  ]}>
-                    {format(day, 'd')}
-                  </Text>
-                </View>
-                {/* Add an indicator for workout days */}
-                {markedDates[format(day, 'yyyy-MM-dd')]?.marked && (
-                  completedWorkoutDays.includes(format(day, 'yyyy-MM-dd')) ? (
-                    <View style={isSelected(day) ? styles.selectedCheckIconContainer : styles.checkIconContainer}>
-                      <Icon 
-                        source="check-circle" 
-                        size={14} 
-                        color={isSelected(day) ? COLORS.text : COLORS.primary} 
-                      />
-                    </View>
-                  ) : (
-                    <View style={[
-                      styles.dayIndicator,
-                      isSelected(day) && styles.selectedDayIndicator
-                    ]} />
-                  )
-                )}
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-        
         {/* Workout Content - Show different UI based on completion status */}
         {activeDay !== null && getWorkoutDayByNumber(activeDay) && markedDates[format(selectedDate, 'yyyy-MM-dd')]?.marked ? (
           isWorkoutCompleted ? (
@@ -1278,6 +1445,11 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
               
               {/* Workout Stats and Exercises Container */}
               <View style={styles.workoutContainer}>
+                {/* Add Progress Line above workout stats if there's a paused workout */}
+                {hasPausedWorkout && pausedWorkout && (
+                  <WorkoutProgressLine pausedWorkout={pausedWorkout} />
+                )}
+                
                 {/* Workout Stats */}
                 <View style={styles.statsRow}>
                   <View style={styles.statItem}>
@@ -1299,38 +1471,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
                   <FlatList
                     data={getWorkoutDayByNumber(activeDay)?.exercises || []}
                     keyExtractor={(item) => item.id}
-                    renderItem={({ item, index }) => (
-                      <View style={[
-                        styles.exerciseCard,
-                        index === (getWorkoutDayByNumber(activeDay)?.exercises?.length || 0) - 1 && { borderBottomWidth: 0 }
-                      ]}>
-                        <View style={styles.exerciseLeftContent}>
-                          <OptimizedImage
-                            source={item.image_url ? { uri: item.image_url } : require('../../assets/exercises/placeholder.jpg')}
-                            style={styles.exerciseImage}
-                            fallback={require('../../assets/exercises/placeholder.jpg')}
-                            resizeMode="cover"
-                            cachePolicy="immutable"
-                            showLoader={false}
-                          />
-                          <View style={styles.exerciseDetails}>
-                            <Text style={styles.exerciseName}>{item.name}</Text>
-                            <Text style={styles.exerciseSets}>{item.sets} sets × {item.reps_range} reps</Text>
-                          </View>
-                        </View>
-                        {/* Muscle group tag */}
-                        {item.primary_muscles && item.primary_muscles.length > 0 && (
-                          <View style={[
-                            styles.muscleTag, 
-                            { backgroundColor: getMuscleTagColor(item.primary_muscles[0]) }
-                          ]}>
-                            <Text style={styles.muscleTagText}>
-                              {getMuscleTagName(item.primary_muscles[0])}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    )}
+                    renderItem={renderExerciseItem}
                     scrollEnabled={false}
                   />
                 </View>
@@ -1360,7 +1501,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
             icon="play-pause"
             label="RESUME WORKOUT"
             onPress={handleResumeWorkout}
-            color={COLORS.background}
+            color={COLORS.text}
           />
         ) : (
           <FAB
@@ -1368,7 +1509,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
             icon="play"
             label="START WORKOUT"
             onPress={handleStartWorkout}
-            color={COLORS.background}
+            color={COLORS.text}
           />
         )
       )}
@@ -1545,10 +1686,11 @@ const styles = StyleSheet.create({
     paddingBottom: 100, // Space for FAB
   },
   weeklyCalendarContainer: {
-    paddingVertical: SPACING.md,
+    paddingVertical: CALENDAR_PADDING,
     paddingHorizontal: SPACING.sm,
-    marginBottom: SPACING.md,
-    marginTop: SPACING.lg,
+    backgroundColor: COLORS.background,
+
+    zIndex: 1,
   },
   weekDaysRow: {
     flexDirection: 'row',
@@ -1672,17 +1814,23 @@ const styles = StyleSheet.create({
     padding: SPACING.sm,
     borderBottomWidth: 0.5,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: BORDER_RADIUS.md,
   },
   exerciseLeftContent: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
   },
+  exerciseImageContainer: {
+    position: 'relative',
+    width: 70,
+    height: 70,
+    marginRight: SPACING.md,
+  },
   exerciseImage: {
     width: 70,
     height: 70,
-    borderRadius: BORDER_RADIUS.sm,
-    marginRight: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
     backgroundColor: COLORS.surfaceLight,
     borderWidth: 0.5,
     borderColor: 'rgba(255, 255, 255, 0.1)',
@@ -1924,7 +2072,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   redoButtonText: {
-    color: COLORS.background,
+    color: COLORS.text,
     fontWeight: 'bold',
   },
   restDayContainer: {
@@ -2053,8 +2201,286 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   pausedModalButtonText: {
-    color: '#000000',
+    color: COLORS.text,
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  exerciseCompletedOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)', // More faded overlay
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: BORDER_RADIUS.sm,
+  },
+  exerciseInProgressOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 152, 0, 0.8)', // More opaque orange overlay
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: BORDER_RADIUS.sm,
+    borderWidth: 2,
+    borderColor: '#FF9800',
+  },
+  exercisePartialOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(123, 105, 238, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: BORDER_RADIUS.sm,
+  },
+  checkmarkCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  currentExerciseIndicator: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FF9800',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  partialProgressIndicator: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#FF9800',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  exerciseUpcomingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: BORDER_RADIUS.sm,
+  },
+  upcomingIndicator: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  progressLineContainer: {
+    marginBottom: SPACING.md,
+    marginTop: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    alignItems: 'center',
+  },
+  progressLineTrack: {
+    width: '100%',
+    height: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressLineFill: {
+    height: '100%',
+    backgroundColor: '#FF9800',
+    borderRadius: 4,
+    shadowColor: '#FF9800',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.5,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  progressLineText: {
+    color: COLORS.text,
+    fontSize: 13,
+    fontWeight: '500',
+    marginTop: SPACING.xs,
+    opacity: 0.9,
+  },
+  exerciseCardCompleted: {
+    backgroundColor: 'rgba(123, 105, 238, 0.15)', // Subtle purple background matching primary color
+    borderWidth: 1.5,
+    borderColor: 'rgba(123, 105, 238, 0.4)', // Purple border
+    borderRadius: BORDER_RADIUS.lg, // More rounded corners for premium look
+    opacity: 0.85, // Slightly faded to show completion
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
+    marginVertical: SPACING.xs, // Add vertical spacing
+  },
+  exerciseCardOngoing: {
+    backgroundColor: 'rgba(255, 152, 0, 0.08)', // Much more subtle orange background
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 152, 0, 0.3)', // Softer orange border
+    borderRadius: BORDER_RADIUS.lg, // More rounded corners for premium look
+    shadowColor: '#FF9800',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 2,
+    marginVertical: SPACING.xs, // Add vertical spacing
+    // Remove the transform scale as it might look jarring
+  },
+  exerciseImageCompleted: {
+    borderRadius: BORDER_RADIUS.lg, // More rounded corners
+    opacity: 0.8, // Less faded for better visibility
+  },
+  exerciseNameCompleted: {
+    color: COLORS.primary, // Use primary color instead of green
+    fontWeight: 'bold',
+    opacity: 0.9,
+  },
+  exerciseSetsCompleted: {
+    color: COLORS.primary, // Use primary color instead of green
+    opacity: 0.8,
+    fontWeight: '500',
+  },
+  muscleTagCompleted: {
+    backgroundColor: COLORS.primary, // Use primary color instead of green
+    opacity: 0.9,
+    borderRadius: 25, // More rounded for premium look
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  muscleTagTextCompleted: {
+    color: COLORS.background,
+    fontWeight: 'bold',
+  },
+  exerciseNameOngoing: {
+    color: '#FFB74D', // Softer, more muted orange
+    fontWeight: 'bold',
+    opacity: 0.95,
+  },
+  exerciseSetsOngoing: {
+    color: '#FFB74D', // Softer, more muted orange
+    fontWeight: '500',
+    opacity: 0.85,
+  },
+  exerciseStatusIconContainer: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderRadius: BORDER_RADIUS.md,
+    padding: 2,
+  },
+  checkmarkCircleSmall: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: COLORS.primary, // Use primary color instead of green
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  playCircleSmall: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#FFB74D', // Softer orange to match text
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#FFB74D',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  exerciseDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    marginVertical: SPACING.xs,
+  },
+  exerciseDividerAfterOngoing: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)', // Same color as regular dividers
+    height: 1, // Slightly thicker for ongoing exercise
+    marginVertical: SPACING.xs,
+  },
+  exerciseOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(123, 105, 238, 0.32)', // Changed to primary color with opacity
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: BORDER_RADIUS.sm,
+  },
+  completedIconContainer: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 30,
+    padding: SPACING.md,
+    width: 60,
+    height: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#4CAF50',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
+    borderWidth: 3,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  ongoingIconContainer: {
+    backgroundColor: '#FF9800',
+    borderRadius: 30,
+    padding: SPACING.md,
+    width: 60,
+    height: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#FF9800',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
+    borderWidth: 3,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  exerciseTextGreyed: {
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
+  muscleTagGreyed: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  muscleTagTextGreyed: {
+    color: 'rgba(255, 255, 255, 0.5)',
   },
 }); 

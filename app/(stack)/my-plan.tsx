@@ -6,16 +6,13 @@ import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { useAuth } from '../store/AuthContext';
 import supabase from '../services/supabase';
 import OptimizedImage from '../components/OptimizedImage';
+import MyPlanCalendar from '../components/myplanCalendar';
 import { format, addDays, isSameDay, startOfWeek, getDay, addWeeks, parseISO } from 'date-fns';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import workoutPlanService from '../services/workoutPlanService';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const { width: screenWidth } = Dimensions.get('window');
-// Define constants for layout
-const HEADER_HEIGHT = 56; // Standard header height
-const CALENDAR_PADDING = 120; // Large padding for calendar top
-const CALENDAR_MARGIN = 0; // No margin between header and calendar
 
 interface Exercise {
   id: string;
@@ -65,15 +62,11 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   
   // Calendar state
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [markedDates, setMarkedDates] = useState<any>({});
   const [activeDay, setActiveDay] = useState<number | null>(null);
   const [completedWorkoutDays, setCompletedWorkoutDays] = useState<string[]>([]);
   
   // Add state to track paused workout days
   const [pausedWorkoutDays, setPausedWorkoutDays] = useState<string[]>([]);
-  
-  // Use a simple date array for the weekly calendar view
-  const [weekDays, setWeekDays] = useState<Date[]>([]);
   
   // Workout completion state
   const [isWorkoutCompleted, setIsWorkoutCompleted] = useState(false);
@@ -110,36 +103,9 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     return plan.workoutDays.find(workoutDay => workoutDay.day === dayNumber) || null;
   };
 
-  // Helper function to check if a specific date has a paused workout
-  const checkIfDateHasPausedWorkout = async (date: Date): Promise<boolean> => {
-    if (!user || !plan) return false;
-    
-    const dateStr = format(date, 'yyyy-MM-dd');
-    const markedDateInfo = markedDates[dateStr];
-    
-    if (!markedDateInfo || !markedDateInfo.marked) return false;
-    
-    const workoutDayIndex = markedDateInfo.workoutDayIndex;
-    
-    try {
-      const { data, error } = await supabase
-        .from('user_paused_workouts')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('plan_id', plan.id)
-        .eq('workout_day', workoutDayIndex)
-        .limit(1);
-      
-      return !error && data && data.length > 0;
-    } catch (error) {
-      console.error('Error checking for paused workout on date:', error);
-      return false;
-    }
-  };
-
   // Helper function to update paused workout days for the calendar
-  const updatePausedWorkoutDays = async () => {
-    if (!user || !plan || !markedDates) return;
+  const updatePausedWorkoutDays = useCallback(async () => {
+    if (!user?.id || !plan?.id) return;
     
     try {
       // Get all paused workouts for this plan
@@ -158,28 +124,93 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         setPausedWorkoutDays([]);
         return;
       }
+    } catch (error) {
+      console.error('Error updating paused workout days:', error);
+      // setPausedWorkoutDays([]); // COMMENTED OUT: This was overriding the correct data from updateCalendarWorkoutStatus
+    }
+  }, [user?.id, plan?.id]);
+
+  // New function to properly update completed and paused workout days for calendar
+  const updateCalendarWorkoutStatus = useCallback(async () => {
+    if (!user?.id || !plan?.id || !plan?.start_date || userWorkoutDays.length === 0) {
+      setCompletedWorkoutDays([]);
+      setPausedWorkoutDays([]);
+      return;
+    }
+    
+    try {
+      // Get the marked dates (workout days mapped to calendar dates)
+      const markedDatesObj = workoutPlanService.setupCalendarDates(
+        plan.start_date,
+        plan.workoutDays.length,
+        userWorkoutDays,
+        { primary: COLORS.primary }
+      );
       
-      // Convert workout days to date strings
+      // Get all completed workouts for this plan
+      const { data: completedWorkouts, error: completedError } = await supabase
+        .from('user_workout_history')
+        .select('workout_day, completed_at')
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id);
+      
+      // Get all paused workouts for this plan
+      const { data: pausedWorkouts, error: pausedError } = await supabase
+        .from('user_paused_workouts')
+        .select('workout_day')
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id);
+      
+      if (completedError) {
+        console.error('Error fetching completed workouts:', completedError);
+      }
+      
+      if (pausedError) {
+        console.error('Error fetching paused workouts:', pausedError);
+      }
+      
+      // Debug logging
+      console.log('updateCalendarWorkoutStatus - completedWorkouts:', completedWorkouts);
+      console.log('updateCalendarWorkoutStatus - pausedWorkouts:', pausedWorkouts);
+      console.log('updateCalendarWorkoutStatus - markedDatesObj:', markedDatesObj);
+      
+      // Map workout days to calendar dates
+      const completedDates: string[] = [];
       const pausedDates: string[] = [];
-      Object.entries(markedDates).forEach(([dateStr, value]: [string, any]) => {
-        if (value && value.workoutDayIndex !== undefined) {
-          const isPaused = data.some(pausedWorkout => pausedWorkout.workout_day === value.workoutDayIndex);
-          if (isPaused) {
+      
+      // For each date in the calendar, check if it's a completed or paused workout
+      Object.entries(markedDatesObj).forEach(([dateStr, dateInfo]: [string, any]) => {
+        if (dateInfo && dateInfo.workoutDayIndex !== undefined) {
+          const workoutDayIndex = dateInfo.workoutDayIndex;
+          
+          // Check if this workout day is completed
+          if (completedWorkouts && completedWorkouts.some((w: any) => w.workout_day === workoutDayIndex)) {
+            completedDates.push(dateStr);
+          }
+          
+          // Check if this workout day is paused
+          if (pausedWorkouts && pausedWorkouts.some((w: any) => w.workout_day === workoutDayIndex)) {
             pausedDates.push(dateStr);
           }
         }
       });
       
+      console.log('updateCalendarWorkoutStatus - Final completedDates:', completedDates);
+      console.log('updateCalendarWorkoutStatus - Final pausedDates:', pausedDates);
+      
+      setCompletedWorkoutDays(completedDates);
       setPausedWorkoutDays(pausedDates);
+      
     } catch (error) {
-      console.error('Error updating paused workout days:', error);
+      console.error('Error updating calendar workout status:', error);
+      setCompletedWorkoutDays([]);
       setPausedWorkoutDays([]);
     }
-  };
+  }, [user?.id, plan?.id, plan?.start_date, userWorkoutDays.join(','), plan?.workoutDays?.length]);
 
   // Fetch user's preferred workout days
   const fetchUserWorkoutDays = useCallback(async () => {
-    if (!user) return;
+    if (!user?.id) return;
     
     try {
       const workoutDays = await workoutPlanService.getUserWorkoutDays(user.id);
@@ -195,11 +226,11 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       // Don't set default days anymore - we'll prompt the user to set their preferences
       setUserWorkoutDays([]);
     }
-  }, [user]);
+  }, [user?.id]);
   
   // Fetch the user's active plan
   const fetchActivePlan = useCallback(async () => {
-    if (!user) return;
+    if (!user?.id) return;
     
     setIsLoading(true);
     setError(null);
@@ -209,7 +240,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       const currentWorkoutDays = [...userWorkoutDays];
       
       // Use the service function to fetch the active plan
-      const { plan: formattedPlan, markedDates: calendarDates } = await workoutPlanService.fetchActivePlan(
+      const { plan: formattedPlan } = await workoutPlanService.fetchActivePlan(
         user.id,
         currentWorkoutDays
       );
@@ -222,37 +253,33 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       
       setPlan(formattedPlan);
       
-      // Setup initial active day based on today's date
+      // Setup initial active day based on today's date and whether it's a workout day
       const today = new Date();
       const todayStr = format(today, 'yyyy-MM-dd');
       
       // IMPORTANT: Only setup calendar after we have user workout days
-      if (currentWorkoutDays.length > 0 && calendarDates) {
-        // Set the marked dates from the service function
-        setMarkedDates(calendarDates);
+      if (currentWorkoutDays.length > 0) {
+        // Get the marked dates to check if today is a workout day
+        const markedDatesObj = workoutPlanService.setupCalendarDates(
+          formattedPlan.start_date,
+          formattedPlan.workoutDays.length,
+          currentWorkoutDays,
+          { primary: COLORS.primary }
+        );
         
         // Check if today is a workout day
-        if (calendarDates[todayStr] && calendarDates[todayStr].marked) {
-          const workoutDayIndex = calendarDates[todayStr].workoutDayIndex;
-          setActiveDay(workoutDayIndex);
+        const todayMarkedInfo = markedDatesObj[todayStr];
+        if (todayMarkedInfo && todayMarkedInfo.marked && todayMarkedInfo.workoutDayIndex) {
+          // Today is a workout day - set it as the active day
+          setActiveDay(todayMarkedInfo.workoutDayIndex);
         } else {
-          // Find the next workout day
-          const nextWorkoutDate = Object.keys(calendarDates)
-            .filter(date => calendarDates[date].marked && new Date(date) >= today)
-            .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0];
-            
-          if (nextWorkoutDate) {
-            const workoutDayIndex = calendarDates[nextWorkoutDate].workoutDayIndex;
-            setActiveDay(workoutDayIndex);
-          } else {
-            // Default to the first workout day (now using 1-indexed values)
-            setActiveDay(1);
-          }
+          // Today is not a workout day - don't set an active day (will show rest day)
+          setActiveDay(null);
         }
       } else {
         // No user workout days available, calendar setup delayed
-        // Default to the first workout day if we can't set up the calendar yet (now using 1-indexed values)
-        setActiveDay(1);
+        // Don't set an active day until we have proper workout days
+        setActiveDay(null);
       }
     } catch (err: any) {
       // Error fetching active plan
@@ -261,20 +288,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [user, userWorkoutDays]);
-  
-  // Setup calendar marked dates based on workout frequency and user preferences
-  const setupCalendarDates = (startDate: string, totalDays: number) => {
-    // Use the service function to set up calendar dates
-    const markedDatesObj = workoutPlanService.setupCalendarDates(
-      startDate,
-      totalDays,
-      userWorkoutDays,
-      { primary: COLORS.primary }
-    );
-    
-    setMarkedDates(markedDatesObj);
-  };
+  }, [user?.id, userWorkoutDays.join(',')]); // Use string representation for stable comparison
   
   // Check if workout is already completed for the selected day and update the completed days list
   const checkWorkoutCompletion = async (workoutDayIndex = activeDay) => {
@@ -286,7 +300,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         user.id,
         plan.id,
         workoutDayIndex,
-        markedDates
+        {} // We'll need to pass markedDates from calendar component
       );
       
       // Update state with the results
@@ -313,10 +327,9 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     }
   };
   
-  // Handle date selection on calendar
-  const handleDateSelect = async (day: any) => {
-    const selectedDay = new Date(day.timestamp);
-    setSelectedDate(selectedDay);
+  // Handle date selection from calendar component
+  const handleCalendarDateSelect = useCallback(async (date: Date, workoutDayIndex: number | null, isWorkoutDay: boolean) => {
+    setSelectedDate(date);
     
     // Set loading state to prevent UI flicker
     setIsLoading(true);
@@ -326,101 +339,90 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     setHasPausedWorkout(false);
     setPausedWorkout(null);
     
-    // Find the workout day that corresponds to this date
-    if (plan) {
-      // Get the marked date info for this date
-      const dateStr = format(selectedDay, 'yyyy-MM-dd');
-      const markedDateInfo = markedDates[dateStr];
+    if (isWorkoutDay && workoutDayIndex !== null) {
+      // This is a workout day - set the active day
+      setActiveDay(workoutDayIndex);
       
-      if (markedDateInfo && markedDateInfo.marked) {
-        // This is a workout day - get the workout day index from the marked date
-        // workoutDayIndex is already 1-indexed (1, 2, 3) as set in setupCalendarDates
-        const workoutDayIndex = markedDateInfo.workoutDayIndex;
+      // Check if this workout is already completed and update completedWorkoutDays
+      if (user?.id && plan?.id) {
+        const { isCompleted, completedWorkoutData, completedDates } = await workoutPlanService.checkWorkoutCompletionForPlan(
+          user.id,
+          plan.id,
+          workoutDayIndex,
+          {} // We'll need to pass markedDates from calendar component
+        );
         
-        // Set the active day to the workout day index from the marked date
-        setActiveDay(workoutDayIndex);
+        // Update the completed workout days state to maintain check icons
+        if (completedDates && completedDates.length > 0) {
+          setCompletedWorkoutDays(completedDates);
+        }
         
-        // Check if this workout is already completed and update completedWorkoutDays
-        if (user) {
-          const { isCompleted, completedWorkoutData, completedDates } = await workoutPlanService.checkWorkoutCompletionForPlan(
-            user.id,
-            plan.id,
-            workoutDayIndex,
-            markedDates
-          );
+        // Update paused workout days for calendar indicators
+        // await updatePausedWorkoutDays(); // COMMENTED OUT: This was overriding the correct data from updateCalendarWorkoutStatus
+        
+        // Update workout completion state
+        setIsWorkoutCompleted(isCompleted);
+        if (isCompleted && completedWorkoutData) {
+          setCompletedWorkoutData(completedWorkoutData);
+          // Clear paused workout state for completed workouts
+          setHasPausedWorkout(false);
+          setPausedWorkout(null);
+        } else {
+          setCompletedWorkoutData(null);
           
-          // Update the completed workout days state to maintain check icons
-          if (completedDates && completedDates.length > 0) {
-            setCompletedWorkoutDays(completedDates);
-          }
-          
-          // Update paused workout days for calendar indicators
-          await updatePausedWorkoutDays();
-          
-          // Update workout completion state
-          setIsWorkoutCompleted(isCompleted);
-          if (isCompleted && completedWorkoutData) {
-            setCompletedWorkoutData(completedWorkoutData);
-            // Clear paused workout state for completed workouts
-            setHasPausedWorkout(false);
-            setPausedWorkout(null);
-          } else {
-            setCompletedWorkoutData(null);
+          // If not completed, check for paused workout for this specific day
+          // Check immediately with the new workoutDayIndex
+          try {
+            const { data, error } = await supabase
+              .from('user_paused_workouts')
+              .select('*')
+              .eq('user_id', user.id)
+              .eq('plan_id', plan.id)
+              .eq('workout_day', workoutDayIndex)
+              .limit(1);
             
-            // If not completed, check for paused workout for this specific day
-            // Check immediately with the new workoutDayIndex
-            try {
-              const { data, error } = await supabase
-                .from('user_paused_workouts')
-                .select('*')
-                .eq('user_id', user.id)
-                .eq('plan_id', plan.id)
-                .eq('workout_day', workoutDayIndex)
-                .limit(1);
+            if (!error && data && data.length > 0) {
+              const formattedPausedWorkout = {
+                userId: data[0].user_id,
+                planId: data[0].plan_id,
+                workoutDay: data[0].workout_day,
+                cycleWeek: data[0].cycle_week,
+                weekName: data[0].week_name,
+                exercises: data[0].exercises,
+                exerciseSets: data[0].exercise_sets,
+                workoutDuration: data[0].workout_duration,
+                totalVolume: data[0].total_volume,
+                totalReps: data[0].total_reps,
+                currentExerciseIndex: data[0].current_exercise_index,
+                originalCycleWeek: data[0].original_cycle_week,
+                pausedAt: data[0].paused_at
+              };
               
-              if (!error && data && data.length > 0) {
-                const formattedPausedWorkout = {
-                  userId: data[0].user_id,
-                  planId: data[0].plan_id,
-                  workoutDay: data[0].workout_day,
-                  cycleWeek: data[0].cycle_week,
-                  weekName: data[0].week_name,
-                  exercises: data[0].exercises,
-                  exerciseSets: data[0].exercise_sets,
-                  workoutDuration: data[0].workout_duration,
-                  totalVolume: data[0].total_volume,
-                  totalReps: data[0].total_reps,
-                  currentExerciseIndex: data[0].current_exercise_index,
-                  originalCycleWeek: data[0].original_cycle_week,
-                  pausedAt: data[0].paused_at
-                };
-                
-                setPausedWorkout(formattedPausedWorkout);
-                setHasPausedWorkout(true);
-              } else {
-                setPausedWorkout(null);
-                setHasPausedWorkout(false);
-              }
-            } catch (error) {
-              console.error('Error checking for paused workout:', error);
+              setPausedWorkout(formattedPausedWorkout);
+              setHasPausedWorkout(true);
+            } else {
               setPausedWorkout(null);
               setHasPausedWorkout(false);
             }
+          } catch (error) {
+            console.error('Error checking for paused workout:', error);
+            setPausedWorkout(null);
+            setHasPausedWorkout(false);
           }
         }
-      } else {
-        // Not a workout day - reset everything
-        setActiveDay(null);
-        setIsWorkoutCompleted(false);
-        setCompletedWorkoutData(null);
-        setHasPausedWorkout(false);
-        setPausedWorkout(null);
       }
+    } else {
+      // Not a workout day - reset everything
+      setActiveDay(null);
+      setIsWorkoutCompleted(false);
+      setCompletedWorkoutData(null);
+      setHasPausedWorkout(false);
+      setPausedWorkout(null);
     }
     
     // Remove loading state after completion check is done
     setIsLoading(false);
-  };
+  }, [user?.id, plan?.id]);
   
   const handleStartWorkout = async () => {
     if (!plan || activeDay === null || !user) return;
@@ -470,103 +472,38 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     }
   };
   
-  // Setup weekly calendar days with current day as first
-  const setupWeeklyCalendar = useCallback(() => {
-    const today = new Date();
-    
-    // Create array of 7 days starting from today
-    const days = [];
-    for (let i = 0; i < 7; i++) {
-      days.push(addDays(today, i));
-    }
-    setWeekDays(days);
-    setSelectedDate(today);
-    
-    // If we have a plan, find which workout day corresponds to today
-    // This will set the activeDay using the new 1-indexed values (1, 2, 3)
-    if (plan) {
-      handleDateSelect({ timestamp: today.getTime() });
-    }
-  }, [plan]);
-  
-  // Function to get day abbreviation
-  const getDayAbbreviation = (date: Date) => {
-    // getDay returns 0-6 (0=Sunday), but our mapping is now 1-7 (1=Sunday)
-    const dayOfWeek = getDay(date);
-    const days = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
-    return days[dayOfWeek];
-  };
-
-  // Function to check if a date is today
-  const isToday = (date: Date) => {
-    const today = new Date();
-    return isSameDay(date, today);
-  };
-
-  // Function to check if date is selected
-  const isSelected = (date: Date) => {
-    return isSameDay(date, selectedDate);
-  };
-
-  // Function to handle date selection from weekly calendar
-  const handleWeekDayPress = async (date: Date) => {
-    // Skip processing if the user taps on the already selected date
-    if (isSelected(date)) {
-      return;
-    }
-    
-    setSelectedDate(date);
-    await handleDateSelect({ timestamp: date.getTime() });
-  };
-  
-  // Setup weekly calendar on initial load and when plan changes
-  useEffect(() => {
-    if (plan) {
-      setupWeeklyCalendar();
-    }
-  }, [plan, setupWeeklyCalendar]);
-  
-  // CRITICAL FIX: Refresh calendar when component mounts or when user returns to this screen
-  // This ensures the calendar always shows the correct workout days
-  useEffect(() => {
-    if (plan && userWorkoutDays.length > 0) {
-      setupCalendarDates(plan.start_date, plan.workoutDays.length);
-    }
-  }, [userWorkoutDays, plan]);
-  
   // First fetch user workout days, then fetch active plan
   useEffect(() => {
-    // Only run this effect once when the component mounts
+    // Only run this effect once when the component mounts or when user changes
     const initialize = async () => {
+      if (!user?.id) return;
+      
       await fetchUserWorkoutDays();
-      await fetchActivePlan();
     };
     
     initialize();
-    // Remove fetchActivePlan from dependencies to prevent infinite loop
-  }, [fetchUserWorkoutDays]);
+  }, [user?.id]); // Only depend on user ID
   
-  // Effect to refresh calendar when userWorkoutDays changes
+  // Fetch active plan when user workout days are available
   useEffect(() => {
-    if (plan && userWorkoutDays.length > 0) {
-      // Re-setup calendar dates with the updated workout days
-      setupCalendarDates(plan.start_date, plan.workoutDays.length);
+    if (user?.id && userWorkoutDays.length >= 0) { // Allow 0 length to handle empty workout days
+      fetchActivePlan();
     }
-  }, [userWorkoutDays, plan]);
+  }, [user?.id, userWorkoutDays.join(','), fetchActivePlan]);
   
   // Track if we've already refreshed the calendar to prevent infinite loops
   const [hasRefreshedCalendar, setHasRefreshedCalendar] = useState(false);
   
   // Reset the refresh flag when the plan or user changes
   useEffect(() => {
-    if (plan && user) {
+    if (plan?.id && user?.id) {
       setHasRefreshedCalendar(false);
     }
   }, [plan?.id, user?.id]);
   
   // Function to check for paused workouts for any day in the current plan
   const checkForAnyPausedWorkout = useCallback(async () => {
-    if (!user || !plan) return { hasPaused: false, pausedWorkoutDay: null };
+    if (!user?.id || !plan?.id) return { hasPaused: false, pausedWorkoutDay: null };
     
     try {
       // Query Supabase directly for any paused workouts for this plan
@@ -601,7 +538,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   // Function to check for paused workouts (used in specific contexts)
   const checkForPausedWorkout = useCallback(async (workoutDay?: number) => {
     const dayToCheck = workoutDay || activeDay;
-    if (!user || !plan || dayToCheck === null) {
+    if (!user?.id || !plan?.id || dayToCheck === null) {
       return false;
     }
     
@@ -630,23 +567,12 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   // This is critical for updating the calendar after completing a workout
   useEffect(() => {
     // Only refresh if we have a plan, user, and haven't refreshed yet
-    if (plan && user && !hasRefreshedCalendar) {
+    if (plan?.id && user?.id && !hasRefreshedCalendar) {
       const refreshCalendarData = async () => {
         try {
-          if (!user || !plan) {
+          if (!user?.id || !plan?.id) {
             setHasRefreshedCalendar(true);
             return;
-          }
-          
-          // First, refresh the calendar dates with the latest user workout days
-          let newMarkedDates;
-          if (plan.start_date) {
-            newMarkedDates = workoutPlanService.setupCalendarDates(
-              plan.start_date, 
-              plan.workoutDays.length, 
-              userWorkoutDays
-            );
-            setMarkedDates(newMarkedDates);
           }
           
           // Now check for completed workouts and update the calendar
@@ -655,7 +581,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
               user.id,
               plan.id,
               activeDay,
-              newMarkedDates || markedDates
+              {} // We'll need to pass markedDates from calendar component
             );
             
             // Update the completed workout days state
@@ -688,22 +614,14 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
                 completedWorkoutDays.add(workout.workout_day);
               });
               
-              // Find all dates in the calendar that correspond to completed workout days
-              const completedDates: string[] = [];
-              Object.entries(newMarkedDates || markedDates).forEach(([dateStr, value]: [string, any]) => {
-                if (value && value.workoutDayIndex !== undefined && completedWorkoutDays.has(value.workoutDayIndex)) {
-                  completedDates.push(dateStr);
-                }
-              });
-              
-              // Update the completed workout days state
-              setCompletedWorkoutDays(completedDates);
+              // For now, we'll set an empty array since we don't have markedDates here
+              setCompletedWorkoutDays([]);
             }
           }
           
           // CRITICAL FIX: Always update paused workout days for calendar indicators
           // This should happen regardless of activeDay state to ensure paused icons show on initial load
-          await updatePausedWorkoutDays();
+          // await updatePausedWorkoutDays(); // COMMENTED OUT: This was overriding the correct data from updateCalendarWorkoutStatus
           
           // Mark that we've refreshed the calendar
           setHasRefreshedCalendar(true);
@@ -718,24 +636,29 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       // Refresh immediately
       refreshCalendarData();
     }
-  // Remove markedDates from dependencies to prevent infinite loop
-  // since setupCalendarDates updates markedDates, which would trigger this effect again
-  }, [plan, user, hasRefreshedCalendar, userWorkoutDays.length, activeDay]);
+  }, [plan?.id, user?.id, hasRefreshedCalendar, activeDay]); // Removed userWorkoutDays.length
 
   // Clear paused workout state when workout is completed or conditions are not met
   useEffect(() => {
-    if (isWorkoutCompleted || !user || !plan || activeDay === null) {
+    if (isWorkoutCompleted || !user?.id || !plan?.id || activeDay === null) {
       setHasPausedWorkout(false);
       setPausedWorkout(null);
     }
-  }, [activeDay, isWorkoutCompleted, user, plan]);
+  }, [activeDay, isWorkoutCompleted, user?.id, plan?.id]);
 
   // Update paused workout days when calendar data changes
   useEffect(() => {
-    if (plan && user && markedDates && Object.keys(markedDates).length > 0) {
-      updatePausedWorkoutDays();
+    if (plan?.id && user?.id) {
+      // updatePausedWorkoutDays(); // COMMENTED OUT: This was overriding the correct data from updateCalendarWorkoutStatus
     }
-  }, [plan?.id, user?.id, markedDates]);
+  }, [plan?.id, user?.id]);
+
+  // Update calendar workout status when plan data is available
+  useEffect(() => {
+    if (plan?.id && user?.id && userWorkoutDays.length > 0) {
+      updateCalendarWorkoutStatus();
+    }
+  }, [plan?.id, user?.id, userWorkoutDays.join(','), updateCalendarWorkoutStatus]);
 
   // Add a new component for the progress line
   const WorkoutProgressLine = ({ pausedWorkout }: { pausedWorkout: any }) => {
@@ -760,54 +683,6 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         </Text>
       </View>
     );
-  };
-
-  // Update the renderExerciseStatus function to match the UI example
-  const renderExerciseStatus = (exercise: Exercise, pausedWorkout: any) => {
-    if (!pausedWorkout || !pausedWorkout.exercises || !pausedWorkout.exerciseSets) return null;
-    
-    // Find the matching exercise in the paused workout
-    const pausedExerciseIndex = pausedWorkout.exercises.findIndex(
-      (e: any) => e.id === exercise.id || e.exercise_id === exercise.exercise_id
-    );
-    
-    // If exercise not found in paused workout, return null
-    if (pausedExerciseIndex === -1) return null;
-    
-    // Check if this is the current exercise in progress
-    const isCurrentExercise = pausedExerciseIndex === pausedWorkout.currentExerciseIndex;
-    
-    // Check if this exercise is completed (all sets are completed)
-    const exerciseSets = pausedWorkout.exerciseSets[pausedWorkout.exercises[pausedExerciseIndex].id] || [];
-    const isCompleted = exerciseSets.length > 0 && exerciseSets.every((set: any) => set.isCompleted);
-    
-    // Check if this exercise is upcoming (after current exercise)
-    const isUpcoming = pausedExerciseIndex > pausedWorkout.currentExerciseIndex;
-    
-    if (isCompleted) {
-      // Completed exercise - faded overlay with green checkmark
-      return (
-        <View style={styles.exerciseCompletedOverlay}>
-          <View style={styles.checkmarkCircle}>
-            <Icon source="check" size={20} color="#FFFFFF" />
-          </View>
-        </View>
-      );
-    } else if (isCurrentExercise) {
-      // Current exercise - orange overlay with play icon
-      return (
-        <View style={styles.exerciseInProgressOverlay}>
-          <View style={styles.currentExerciseIndicator}>
-            <Icon source="play" size={18} color="#FFFFFF" />
-          </View>
-        </View>
-      );
-    } else if (isUpcoming) {
-      // Upcoming exercise - no overlay (normal appearance)
-      return null;
-    }
-    
-    return null;
   };
 
   // Update the renderExerciseItem function inside the component
@@ -1320,6 +1195,19 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
             <Appbar.Content title="My Plan" />
           </Appbar.Header>
         )}
+        
+        {/* Show Calendar even when no plan */}
+        <MyPlanCalendar
+          plan={null}
+          user={user}
+          userWorkoutDays={userWorkoutDays}
+          onDateSelect={handleCalendarDateSelect}
+          completedWorkoutDays={[]}
+          pausedWorkoutDays={[]}
+          embedded={embedded}
+          initialSelectedDate={selectedDate}
+        />
+        
         <View style={styles.noPlanContainer}>
           <View style={styles.noPlanCardWrapper}>
             <LinearGradient
@@ -1380,95 +1268,16 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       )}
       
       {/* Fixed Weekly Calendar */}
-      <View style={[
-        styles.weeklyCalendarContainer,
-        { 
-          paddingTop: CALENDAR_PADDING,
-          paddingBottom: CALENDAR_PADDING / 10,
-          marginTop: embedded ? 0 : CALENDAR_MARGIN
-        }
-      ]}>
-        <View style={styles.weekDaysRow}>
-          {weekDays.map((day, index) => {
-            const dayStr = format(day, 'yyyy-MM-dd');
-            const hasWorkout = markedDates[dayStr]?.marked;
-            const isCompleted = completedWorkoutDays.includes(dayStr);
-            const isPaused = pausedWorkoutDays.includes(dayStr);
-            const hasIndicator = hasWorkout || isCompleted || isPaused;
-            
-            return (
-              <TouchableOpacity 
-                key={index} 
-                style={[
-                  styles.weekDay, 
-                  isSelected(day) && (hasIndicator ? styles.selectedWeekDay : styles.selectedWeekDayCompact)
-                ]}
-                onPress={() => handleWeekDayPress(day)}
-              >
-                <View style={styles.weekDayContent}>
-                  <Text style={[
-                    styles.weekDayText, 
-                    isSelected(day) && styles.selectedWeekDayText
-                  ]}>
-                    {getDayAbbreviation(day)}
-                  </Text>
-                  <Text style={[
-                    styles.weekDayNumber, 
-                    isSelected(day) && styles.selectedWeekDayText
-                  ]}>
-                    {format(day, 'd')}
-                  </Text>
-                </View>
-                {/* Add an indicator for workout days */}
-                {hasWorkout && (
-                  isCompleted ? (
-                    <View style={isSelected(day) ? styles.selectedCheckIconContainer : styles.checkIconContainer}>
-                      {isSelected(day) ? (
-                        <Icon 
-                          source="check-circle" 
-                          size={14} 
-                          color={COLORS.text} 
-                        />
-                      ) : (
-                        <View style={styles.calendarIconBackground}>
-                          <Icon 
-                            source="check" 
-                            size={10} 
-                            color="#FFFFFF" 
-                          />
-                        </View>
-                      )}
-                    </View>
-                  ) : isPaused ? (
-                    <View style={isSelected(day) ? styles.selectedPauseIconContainer : styles.pauseIconContainer}>
-                      {isSelected(day) ? (
-                        <Icon 
-                          source="pause-circle" 
-                          size={14} 
-                          color={COLORS.text} 
-                        />
-                      ) : (
-                        <View style={styles.calendarPauseIconBackground}>
-                          <Icon 
-                            source="pause" 
-                            size={10} 
-                            color="#FFFFFF" 
-                          />
-                        </View>
-                      )}
-                    </View>
-                  ) : (
-                    <View style={[
-                      styles.dayIndicator,
-                      isSelected(day) && styles.selectedDayIndicator
-                    ]} />
-                  )
-                )}
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      </View>
+      <MyPlanCalendar
+        plan={plan}
+        user={user}
+        userWorkoutDays={userWorkoutDays}
+        onDateSelect={handleCalendarDateSelect}
+        completedWorkoutDays={completedWorkoutDays}
+        pausedWorkoutDays={pausedWorkoutDays}
+        embedded={embedded}
+        initialSelectedDate={selectedDate}
+      />
       
       {/* Scrollable Content */}
       <ScrollView 
@@ -1482,7 +1291,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         ]}
       >
         {/* Workout Content - Show different UI based on completion status */}
-        {activeDay !== null && getWorkoutDayByNumber(activeDay) && markedDates[format(selectedDate, 'yyyy-MM-dd')]?.marked ? (
+        {activeDay !== null && getWorkoutDayByNumber(activeDay) ? (
           isWorkoutCompleted ? (
             /* Workout Completed View */
             <View style={styles.completedWorkoutContainer}>
@@ -1560,7 +1369,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
             <>
               <View style={styles.todaysWorkoutHeader}>
                 <Text style={styles.todaysWorkoutTitle}>
-                  {isToday(selectedDate) 
+                  {isSameDay(selectedDate, new Date()) 
                     ? "TODAY'S WORKOUT" 
                     : `${format(selectedDate, 'EEEE').toUpperCase()} WORKOUT`}
                 </Text>
@@ -1608,7 +1417,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       </ScrollView>
       
       {/* Start/Resume/Redo Workout FAB */}
-      {activeDay !== null && getWorkoutDayByNumber(activeDay) && markedDates[format(selectedDate, 'yyyy-MM-dd')]?.marked && (
+      {activeDay !== null && getWorkoutDayByNumber(activeDay) && (
         isWorkoutCompleted ? (
           <Button
             mode="contained"
@@ -1808,83 +1617,6 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 100, // Space for FAB
-  },
-  weeklyCalendarContainer: {
-    paddingVertical: CALENDAR_PADDING,
-    paddingHorizontal: SPACING.sm,
-    backgroundColor: COLORS.background,
-
-    zIndex: 1,
-  },
-  weekDaysRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  weekDay: {
-    width: 44,
-    height: 68,
-    borderRadius: 25,
-    position: 'relative',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  selectedWeekDay: {
-    backgroundColor: COLORS.primary,
-    elevation: 5,
-    paddingTop: 8,
-    height: 75,
-    justifyContent: 'flex-start',
-  },
-  selectedWeekDayCompact: {
-    backgroundColor: COLORS.primary,
-    elevation: 5,
-    paddingTop: 0,
-    height: 68, // Same as regular weekDay height
-    justifyContent: 'center', // Center content when no indicators
-  },
-  weekDayContent: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  weekDayText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: COLORS.text,
-    marginBottom: 4,
-  },
-  weekDayNumber: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: COLORS.text,
-    paddingBottom: 2,
-  },
-  selectedWeekDayText: {
-    color: COLORS.text,
-  },
-  dayIndicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: COLORS.primary,
-    position: 'absolute',
-    bottom: 2,
-  },
-  selectedDayIndicator: {
-    backgroundColor: COLORS.text,
-    bottom: 8,
-  },
-  checkIconContainer: {
-    position: 'absolute',
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  selectedCheckIconContainer: {
-    position: 'absolute',
-    bottom: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   workoutContainer: {
     backgroundColor: 'rgba(30, 30, 40, 0.6)',
@@ -2336,94 +2068,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
-  exerciseCompletedOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)', // More faded overlay
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: BORDER_RADIUS.sm,
-  },
-  exerciseInProgressOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(255, 152, 0, 0.8)', // More opaque orange overlay
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: BORDER_RADIUS.sm,
-    borderWidth: 2,
-    borderColor: '#FF9800',
-  },
-  exercisePartialOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(123, 105, 238, 0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: BORDER_RADIUS.sm,
-  },
-  checkmarkCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: COLORS.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  currentExerciseIndicator: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#FF9800',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  partialProgressIndicator: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#FF9800',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  exerciseUpcomingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: BORDER_RADIUS.sm,
-  },
-  upcomingIndicator: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   progressLineContainer: {
     marginBottom: SPACING.md,
     marginTop: SPACING.sm,
@@ -2512,43 +2156,5 @@ const styles = StyleSheet.create({
   },
   muscleTagTextGreyed: {
     color: 'rgba(255, 255, 255, 0.5)',
-  },
-  selectedPauseIconContainer: {
-    position: 'absolute',
-    bottom: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pauseIconContainer: {
-    position: 'absolute',
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  calendarIconBackground: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: COLORS.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  calendarPauseIconBackground: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: '#FF9800',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
   },
 }); 

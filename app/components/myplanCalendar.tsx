@@ -29,6 +29,15 @@ interface MyPlanCalendarProps {
   pausedWorkoutDays: string[];
   embedded?: boolean;
   initialSelectedDate?: Date;
+  cycleProgress?: {
+    currentWeek: number;
+    weekName: string;
+    completedWorkouts: number;
+    totalWorkoutsInCycle: number;
+    progressPercentage: number;
+    weekDescription: string;
+    recommendationTemplate: string;
+  } | null;
 }
 
 export default function MyPlanCalendar({
@@ -39,7 +48,8 @@ export default function MyPlanCalendar({
   completedWorkoutDays,
   pausedWorkoutDays,
   embedded = false,
-  initialSelectedDate
+  initialSelectedDate,
+  cycleProgress
 }: MyPlanCalendarProps) {
   const [selectedDate, setSelectedDate] = useState(initialSelectedDate || new Date());
   const [markedDates, setMarkedDates] = useState<{ [key: string]: any }>({});
@@ -48,6 +58,13 @@ export default function MyPlanCalendar({
     return startOfWeek(new Date(), { weekStartsOn: 0 });
   });
   const insets = useSafeAreaInsets();
+  
+  // Use ref to track if we've already auto-selected today's date
+  const hasAutoSelectedToday = useRef(false);
+  
+  // Use actual completion data from parent component
+  const finalCompletedDays = completedWorkoutDays;
+  const finalPausedDays = pausedWorkoutDays;
   
   // Calculate proper top padding based on safe area and header height
   // Appbar.Header typically has a height of 56dp, plus we need safe area top
@@ -68,7 +85,8 @@ export default function MyPlanCalendar({
   const setupCalendarDates = useCallback((startDate: string, totalDays: number) => {
     if (userWorkoutDays.length === 0) return;
     
-    const markedDatesObj = workoutPlanService.setupCalendarDates(
+    // Use the new progressive calendar system
+    const markedDatesObj = workoutPlanService.setupCalendarDatesProgressive(
       startDate,
       totalDays,
       userWorkoutDays,
@@ -76,7 +94,7 @@ export default function MyPlanCalendar({
     );
     
     setMarkedDates(markedDatesObj);
-  }, [userWorkoutDays.join(',')]); // Convert array to string for stable comparison
+  }, [userWorkoutDays.join(',')]);
 
   // Handle date selection on calendar
   const handleDateSelect = useCallback(async (day: Date) => {
@@ -88,8 +106,12 @@ export default function MyPlanCalendar({
       const markedDateInfo = markedDates[dateStr];
       
       if (markedDateInfo && markedDateInfo.marked) {
-        // This is a workout day - get the workout day index from the marked date
+        // This is a workout day - get the workout day index and cycle info from the marked date
         const workoutDayIndex = markedDateInfo.workoutDayIndex;
+        const cycleWeek = markedDateInfo.cycleWeek;
+        const weekName = markedDateInfo.weekName;
+        
+        console.log(`Selected workout day ${workoutDayIndex} in cycle week ${cycleWeek} (${weekName})`);
         onDateSelect(day, workoutDayIndex, true);
       } else {
         // Not a workout day
@@ -213,19 +235,41 @@ export default function MyPlanCalendar({
     if (plan?.id && plan?.start_date && userWorkoutDays.length > 0) {
       setupCalendarDates(plan.start_date, plan.workoutDays.length);
     }
-  }, [plan?.id, plan?.start_date, plan?.workoutDays?.length, userWorkoutDays.join(','), setupCalendarDates]);
+  }, [plan?.id, plan?.start_date, plan?.workoutDays?.length, userWorkoutDays.join(',')]);
 
-  // Auto-select today's date when marked dates are first set up
+  // Auto-select today's date when marked dates are first set up (only once)
   useEffect(() => {
-    if (Object.keys(markedDates).length > 0 && plan?.id) {
+    if (Object.keys(markedDates).length > 0 && plan?.id && !hasAutoSelectedToday.current) {
       // Only auto-select if we haven't manually selected a different date
       const today = new Date();
       if (isSameDay(selectedDate, today)) {
         // Trigger the date selection for today to update the parent component
         handleDateSelect(today);
+        hasAutoSelectedToday.current = true;
       }
     }
-  }, [markedDates, plan?.id]); // Trigger when markedDates are populated
+  }, [markedDates, plan?.id]);
+
+  // Reset the auto-select flag when plan changes
+  useEffect(() => {
+    hasAutoSelectedToday.current = false;
+  }, [plan?.id]);
+
+  // Get cycle week info for selected date
+  const getSelectedDateCycleInfo = () => {
+    const dateStr = format(selectedDate, 'yyyy-MM-dd');
+    const markedDateInfo = markedDates[dateStr];
+    
+    if (markedDateInfo && markedDateInfo.marked) {
+      return {
+        cycleWeek: markedDateInfo.cycleWeek,
+        weekName: markedDateInfo.weekName,
+        workoutDayIndex: markedDateInfo.workoutDayIndex
+      };
+    }
+    
+    return null;
+  };
 
   return (
     <View style={[
@@ -275,11 +319,12 @@ export default function MyPlanCalendar({
         {weekDays.map((day, index) => {
           const dayStr = format(day, 'yyyy-MM-dd');
           const hasWorkout = markedDates[dayStr]?.marked;
-          const isCompleted = completedWorkoutDays.includes(dayStr);
-          const isPaused = pausedWorkoutDays.includes(dayStr);
+          const isCompleted = finalCompletedDays.includes(dayStr);
+          const isPaused = finalPausedDays.includes(dayStr);
           const isSelectedDay = isSelected(day);
           
           // Determine the icon to show (priority: completed > paused > workout indicator)
+          // Only show workout indicator if it's NOT completed or paused
           let iconType = 'none';
           if (hasWorkout) {
             if (isCompleted) {
@@ -287,18 +332,17 @@ export default function MyPlanCalendar({
             } else if (isPaused) {
               iconType = 'paused';
             } else {
+              // Only show workout indicator if not completed and not paused
               iconType = 'workout';
             }
           }
-          
-          const hasIndicator = iconType !== 'none';
           
           return (
             <TouchableOpacity 
               key={index} 
               style={[
                 styles.weekDay, 
-                isSelectedDay && (hasIndicator ? styles.selectedWeekDay : styles.selectedWeekDayCompact)
+                isSelectedDay && styles.selectedWeekDay
               ]}
               onPress={() => handleWeekDayPress(day)}
             >
@@ -315,39 +359,39 @@ export default function MyPlanCalendar({
                 ]}>
                   {format(day, 'd')}
                 </Text>
+                
+                {/* Render only ONE indicator based on workout state priority */}
+                {iconType !== 'none' && (
+                  <View style={styles.indicatorContainer}>
+                    {iconType === 'completed' && (
+                      <View style={styles.completedIconBackground}>
+                        <Icon 
+                          source="check" 
+                          size={12} 
+                          color="#FFFFFF" 
+                        />
+                      </View>
+                    )}
+                    
+                    {iconType === 'paused' && (
+                      <View style={styles.pausedIconBackground}>
+                        <Icon 
+                          source="pause" 
+                          size={12} 
+                          color="#FFFFFF" 
+                        />
+                      </View>
+                    )}
+                    
+                    {iconType === 'workout' && (
+                      <View style={[
+                        styles.workoutIndicator,
+                        isSelectedDay && styles.selectedWorkoutIndicator
+                      ]} />
+                    )}
+                  </View>
+                )}
               </View>
-              
-              {/* Render icons based on workout state */}
-              {iconType === 'completed' && (
-                <View style={isSelectedDay ? styles.selectedIconContainer : styles.iconContainer}>
-                  <View style={styles.completedIconBackground}>
-                    <Icon 
-                      source="check" 
-                      size={10} 
-                      color="#FFFFFF" 
-                    />
-                  </View>
-                </View>
-              )}
-              
-              {iconType === 'paused' && (
-                <View style={isSelectedDay ? styles.selectedIconContainer : styles.iconContainer}>
-                  <View style={styles.pausedIconBackground}>
-                    <Icon 
-                      source="pause" 
-                      size={10} 
-                      color="#FFFFFF" 
-                    />
-                  </View>
-                </View>
-              )}
-              
-              {iconType === 'workout' && (
-                <View style={[
-                  styles.workoutIndicator,
-                  isSelectedDay && styles.selectedWorkoutIndicator
-                ]} />
-              )}
             </TouchableOpacity>
           );
         })}
@@ -378,20 +422,13 @@ const styles = StyleSheet.create({
   selectedWeekDay: {
     backgroundColor: COLORS.primary,
     elevation: 5,
-    paddingTop: 8,
-    height: 75,
-    justifyContent: 'flex-start',
-  },
-  selectedWeekDayCompact: {
-    backgroundColor: COLORS.primary,
-    elevation: 5,
-    paddingTop: 0,
-    height: 68,
-    justifyContent: 'center',
   },
   weekDayContent: {
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
+    height: '100%',
+    width: '100%',
   },
   weekDayText: {
     fontSize: 16,
@@ -403,7 +440,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: COLORS.text,
-    paddingBottom: 2,
+    marginBottom: 8,
   },
   selectedWeekDayText: {
     color: COLORS.text,
@@ -455,17 +492,13 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     marginHorizontal: SPACING.xs,
   },
-  selectedIconContainer: {
+  indicatorContainer: {
     position: 'absolute',
-    bottom: 8,
+    bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  iconContainer: {
-    position: 'absolute',
-    bottom: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 20,
+    height: 20,
   },
   completedIconBackground: {
     width: 14,
@@ -498,11 +531,8 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: COLORS.primary,
-    position: 'absolute',
-    bottom: 2,
   },
   selectedWorkoutIndicator: {
     backgroundColor: COLORS.text,
-    bottom: 8,
   },
 }); 

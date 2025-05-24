@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import supabase from './supabase';
+import { format } from 'date-fns';
 
 // Key for the active plan in AsyncStorage
 const ACTIVE_PLAN_KEY = 'mindmuscle_active_plan';
@@ -74,6 +75,25 @@ export interface SavedPlan {
   workoutDays: WorkoutDay[];
   activeDay?: number;
   started_at: string;
+}
+
+// Enhanced interface for cycle week information
+export interface CycleWeekInfo {
+  weekNumber: number;
+  weekName: string;
+  description: string;
+  recommendationTemplate: string;
+  weightAdjustmentPercentage: number;
+}
+
+// Enhanced interface for exercise recommendations
+export interface ExerciseRecommendation {
+  previousWeight: number | null;
+  previousReps: number | null;
+  recommendedWeight: number | null;
+  recommendationText: string;
+  weekAdjustmentPercentage: number;
+  weekName: string;
 }
 
 // Save a plan as the active plan
@@ -1120,7 +1140,7 @@ export const checkWorkoutCompletionForPlan = async (
   }
 
   try {
-    // Fetch all completed workouts for this plan to update the completedWorkoutDays list
+    // Fetch all completed workouts for this plan with completion dates and cycle info
     const { data: allCompletedWorkouts, error: allCompletedError } = await supabase
       .from('user_workout_history')
       .select('*')
@@ -1130,35 +1150,17 @@ export const checkWorkoutCompletionForPlan = async (
     let completedDates: string[] = [];
 
     if (!allCompletedError && allCompletedWorkouts && allCompletedWorkouts.length > 0) {
-      // Map of workout day indices to their corresponding dates in the calendar
-      const workoutDayMap: Record<number, string[]> = {};
-
-      // Build a map of workout day indices to their dates
-      Object.entries(markedDates).forEach(([dateStr, value]: [string, any]) => {
-        if (value && value.workoutDayIndex !== undefined) {
-          if (!workoutDayMap[value.workoutDayIndex]) {
-            workoutDayMap[value.workoutDayIndex] = [];
-          }
-          workoutDayMap[value.workoutDayIndex].push(dateStr);
-        }
-      });
-
       // Get today's date
       const today = new Date();
-
-      // Create a set of completed workout days
-      const completedWorkoutDays = new Set<number>();
       
       // Find the most recent completed workout for this specific workout day
       let todayCompletedWorkout: any = null;
       
+      // IMPROVED LOGIC: Match completions by date and cycle week, not just workout day
       allCompletedWorkouts.forEach((workout: any) => {
         // If this workout matches the workout day we're checking
-        // Now both workout.workout_day and workoutDayIndex are 1-indexed (1, 2, 3)
         if (workout.workout_day === workoutDayIndex) {
-          completedWorkoutDays.add(workout.workout_day);
-          
-          // Find the most recent completion date for this workout day
+          // Parse the completion date
           const completedDate = new Date(workout.completed_at);
           
           // If this workout was completed today, mark it as completed
@@ -1186,10 +1188,33 @@ export const checkWorkoutCompletionForPlan = async (
         };
       }
 
-      // If we have dates for this workout day in the calendar, add them to completedDates
-      // Using 1-indexed workout days (1, 2, 3)
-      if (completedWorkoutDays.has(workoutDayIndex) && workoutDayMap[workoutDayIndex]) {
-        completedDates = [...workoutDayMap[workoutDayIndex]];
+      // IMPROVED LOGIC: Build completed dates by matching actual completion dates
+      // Get the progressive calendar schedule to map dates to workout days and cycle weeks
+      if (markedDates && Object.keys(markedDates).length > 0) {
+        Object.entries(markedDates).forEach(([dateStr, dateInfo]: [string, any]) => {
+          if (dateInfo && dateInfo.workoutDayIndex !== undefined && dateInfo.cycleWeek !== undefined) {
+            const workoutDayIndex = dateInfo.workoutDayIndex;
+            const cycleWeek = dateInfo.cycleWeek;
+            
+            // Check if this specific date has a completed workout
+            const hasCompletedWorkout = allCompletedWorkouts.some((w: any) => {
+              if (w.workout_day !== workoutDayIndex) return false;
+              
+              // Parse the completion date
+              const completionDate = new Date(w.completed_at);
+              const completionDateStr = format(completionDate, 'yyyy-MM-dd');
+              
+              // Check if the completion date matches this calendar date
+              // OR if it's the same workout day in the same cycle week
+              return completionDateStr === dateStr || 
+                     (w.workout_day === workoutDayIndex && w.cycle_week === cycleWeek);
+            });
+            
+            if (hasCompletedWorkout) {
+              completedDates.push(dateStr);
+            }
+          }
+        });
       }
     }
 
@@ -1757,6 +1782,343 @@ export const clearPausedWorkout = async (
   }
 };
 
+// Get cycle week information from database
+export const getCycleWeekInfo = async (weekNumber: number): Promise<CycleWeekInfo | null> => {
+  try {
+    const { data, error } = await supabase
+      .from('workout_cycle_weeks')
+      .select('*')
+      .eq('week_number', weekNumber)
+      .single();
+      
+    if (error) throw error;
+    
+    if (!data) return null;
+    
+    return {
+      weekNumber: data.week_number,
+      weekName: data.name,
+      description: data.description,
+      recommendationTemplate: data.recommendation_template,
+      weightAdjustmentPercentage: data.weight_adjustment_percentage
+    };
+  } catch (error) {
+    console.error('Error fetching cycle week info:', error);
+    return null;
+  }
+};
+
+// Get all cycle weeks information
+export const getAllCycleWeeks = async (): Promise<CycleWeekInfo[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('workout_cycle_weeks')
+      .select('*')
+      .order('week_number', { ascending: true });
+      
+    if (error) throw error;
+    
+    return data.map(week => ({
+      weekNumber: week.week_number,
+      weekName: week.name,
+      description: week.description,
+      recommendationTemplate: week.recommendation_template,
+      weightAdjustmentPercentage: week.weight_adjustment_percentage
+    }));
+  } catch (error) {
+    console.error('Error fetching all cycle weeks:', error);
+    return [];
+  }
+};
+
+// Enhanced function to get exercise recommendations with cycle progression
+export const getExerciseRecommendations = async (
+  userId: string,
+  exerciseId: string,
+  cycleWeek: number
+): Promise<ExerciseRecommendation | null> => {
+  try {
+    const { data, error } = await supabase.rpc(
+      'get_exercise_recommendations',
+      {
+        p_user_id: userId,
+        p_exercise_id: exerciseId,
+        p_cycle_week: cycleWeek
+      }
+    );
+    
+    if (error) throw error;
+    
+    if (!data || data.length === 0) return null;
+    
+    const recommendation = data[0];
+    
+    // Get cycle week info for additional context
+    const cycleInfo = await getCycleWeekInfo(cycleWeek);
+    
+    return {
+      previousWeight: recommendation.previous_weight,
+      previousReps: recommendation.previous_reps,
+      recommendedWeight: recommendation.recommended_weight,
+      recommendationText: recommendation.recommendation_text,
+      weekAdjustmentPercentage: cycleInfo?.weightAdjustmentPercentage || 0,
+      weekName: cycleInfo?.weekName || 'Unknown'
+    };
+  } catch (error) {
+    console.error('Error getting exercise recommendations:', error);
+    return null;
+  }
+};
+
+// Enhanced function to calculate progressive workout schedule
+export const calculateProgressiveWorkoutSchedule = (
+  startDate: string,
+  userWorkoutDays: number[],
+  planWorkoutFrequency: number = 3,
+  totalWeeks: number = 5
+): {
+  schedule: Array<{
+    date: string;
+    workoutDayIndex: number;
+    cycleWeek: number;
+    weekName: string;
+    dayOfWeek: number;
+  }>;
+  markedDates: Record<string, any>;
+} => {
+  const schedule: Array<{
+    date: string;
+    workoutDayIndex: number;
+    cycleWeek: number;
+    weekName: string;
+    dayOfWeek: number;
+  }> = [];
+  
+  const markedDates: Record<string, any> = {};
+  
+  // Week names for the 5-week cycle
+  const weekNames = ['Adaptation', 'Accumulation', 'Intensification', 'Realization', 'Recovery'];
+  
+  // Sort user workout days to ensure consistent ordering
+  const sortedUserDays = [...userWorkoutDays].sort((a, b) => a - b);
+  
+  if (sortedUserDays.length === 0) {
+    console.error('No user workout days provided');
+    return { schedule, markedDates };
+  }
+  
+  const start = new Date(startDate);
+  let currentDate = new Date(start);
+  let workoutCount = 0;
+  let currentWeek = 1;
+  
+  // Calculate total workouts needed (planWorkoutFrequency per week * totalWeeks)
+  const totalWorkouts = planWorkoutFrequency * totalWeeks;
+  
+  while (workoutCount < totalWorkouts && currentWeek <= totalWeeks) {
+    const currentDayOfWeek = currentDate.getDay() + 1; // Convert to 1-7 format
+    
+    // Check if current day is a user's preferred workout day
+    if (sortedUserDays.includes(currentDayOfWeek)) {
+      // Calculate which workout day this is (1, 2, 3, etc.)
+      const workoutDayIndex = (workoutCount % planWorkoutFrequency) + 1;
+      
+      // Calculate which cycle week we're in
+      const cycleWeek = Math.floor(workoutCount / planWorkoutFrequency) + 1;
+      
+      if (cycleWeek <= totalWeeks) {
+        const dateStr = currentDate.toISOString().split('T')[0];
+        const weekName = weekNames[cycleWeek - 1] || 'Unknown';
+        
+        // Add to schedule
+        schedule.push({
+          date: dateStr,
+          workoutDayIndex,
+          cycleWeek,
+          weekName,
+          dayOfWeek: currentDayOfWeek
+        });
+        
+        // Add to marked dates for calendar
+        markedDates[dateStr] = {
+          selected: true,
+          selectedColor: '#7B69EE',
+          marked: true,
+          dotColor: '#7B69EE',
+          workoutDayIndex,
+          cycleWeek,
+          weekName,
+          dayName: ['', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][currentDayOfWeek],
+          userDayNumber: currentDayOfWeek
+        };
+        
+        workoutCount++;
+        
+        // Update current week when we complete a week's worth of workouts
+        if (workoutCount % planWorkoutFrequency === 0) {
+          currentWeek++;
+        }
+      }
+    }
+    
+    // Move to next day
+    currentDate.setDate(currentDate.getDate() + 1);
+    
+    // Safety check to prevent infinite loop
+    if (currentDate.getTime() - start.getTime() > 365 * 24 * 60 * 60 * 1000) {
+      console.warn('Workout schedule calculation exceeded 1 year, breaking loop');
+      break;
+    }
+  }
+  
+  return { schedule, markedDates };
+};
+
+// Enhanced setup calendar dates function with progressive cycle support
+export const setupCalendarDatesProgressive = (
+  startDate: string, 
+  totalDays: number, 
+  userWorkoutDays: number[], 
+  colors: any = { primary: '#7B69EE' }
+) => {
+  try {
+    if (!userWorkoutDays || userWorkoutDays.length === 0) {
+      console.error('No valid workout days provided');
+      return {};
+    }
+    
+    // Use the enhanced progressive schedule calculation
+    const { markedDates } = calculateProgressiveWorkoutSchedule(
+      startDate,
+      userWorkoutDays,
+      totalDays, // This represents the workout frequency per week
+      5 // 5-week cycle
+    );
+    
+    // Update colors to match the provided theme
+    Object.keys(markedDates).forEach(dateStr => {
+      markedDates[dateStr].selectedColor = colors.primary;
+      markedDates[dateStr].dotColor = colors.primary;
+    });
+    
+    return markedDates;
+  } catch (error) {
+    console.error('Error setting up calendar dates:', error);
+    return {};
+  }
+};
+
+// Enhanced function to get current cycle week and progress
+export const getCurrentCycleProgress = async (
+  userId: string,
+  planId: string
+): Promise<{
+  currentWeek: number;
+  weekName: string;
+  completedWorkouts: number;
+  totalWorkoutsInCycle: number;
+  progressPercentage: number;
+  weekDescription: string;
+  recommendationTemplate: string;
+} | null> => {
+  try {
+    // Get the active plan information
+    const { data: planData, error: planError } = await supabase
+      .from('user_active_plans')
+      .select('current_week, completed_workouts, workout_plans!inner(workout_frequency)')
+      .eq('user_id', userId)
+      .eq('plan_id', planId)
+      .eq('is_active', true)
+      .single();
+      
+    if (planError) throw planError;
+    
+    if (!planData) return null;
+    
+    const currentWeek = planData.current_week || 1;
+    const completedWorkouts = planData.completed_workouts || 0;
+    const workoutFrequency = (planData.workout_plans as any)?.workout_frequency || 3;
+    
+    // Get cycle week information
+    const cycleInfo = await getCycleWeekInfo(currentWeek);
+    
+    if (!cycleInfo) {
+      return {
+        currentWeek,
+        weekName: 'Unknown',
+        completedWorkouts,
+        totalWorkoutsInCycle: workoutFrequency * 5, // 5 weeks
+        progressPercentage: (completedWorkouts / (workoutFrequency * 5)) * 100,
+        weekDescription: 'Week information not available',
+        recommendationTemplate: 'Focus on proper form and technique.'
+      };
+    }
+    
+    return {
+      currentWeek,
+      weekName: cycleInfo.weekName,
+      completedWorkouts,
+      totalWorkoutsInCycle: workoutFrequency * 5, // 5 weeks total
+      progressPercentage: (completedWorkouts / (workoutFrequency * 5)) * 100,
+      weekDescription: cycleInfo.description,
+      recommendationTemplate: cycleInfo.recommendationTemplate
+    };
+  } catch (error) {
+    console.error('Error getting current cycle progress:', error);
+    return null;
+  }
+};
+
+// Enhanced function to check if user should advance to next week
+export const checkWeekProgression = async (
+  userId: string,
+  planId: string
+): Promise<{
+  shouldAdvance: boolean;
+  newWeek: number;
+  completedWorkoutsInCurrentWeek: number;
+  requiredWorkoutsPerWeek: number;
+} | null> => {
+  try {
+    // Get the active plan information
+    const { data: planData, error: planError } = await supabase
+      .from('user_active_plans')
+      .select('current_week, completed_workouts, workout_plans!inner(workout_frequency)')
+      .eq('user_id', userId)
+      .eq('plan_id', planId)
+      .eq('is_active', true)
+      .single();
+      
+    if (planError) throw planError;
+    
+    if (!planData) return null;
+    
+    const currentWeek = planData.current_week || 1;
+    const totalCompletedWorkouts = planData.completed_workouts || 0;
+    const workoutFrequency = (planData.workout_plans as any)?.workout_frequency || 3;
+    
+    // Calculate how many workouts should be completed for the current week
+    const expectedWorkoutsForCurrentWeek = currentWeek * workoutFrequency;
+    
+    // Check if user has completed enough workouts to advance to next week
+    const shouldAdvance = totalCompletedWorkouts >= expectedWorkoutsForCurrentWeek && currentWeek < 5;
+    
+    // Calculate workouts completed in current week
+    const workoutsInPreviousWeeks = (currentWeek - 1) * workoutFrequency;
+    const completedWorkoutsInCurrentWeek = totalCompletedWorkouts - workoutsInPreviousWeeks;
+    
+    return {
+      shouldAdvance,
+      newWeek: shouldAdvance ? currentWeek + 1 : currentWeek,
+      completedWorkoutsInCurrentWeek,
+      requiredWorkoutsPerWeek: workoutFrequency
+    };
+  } catch (error) {
+    console.error('Error checking week progression:', error);
+    return null;
+  }
+};
+
 // Export all functions as a default object
 const workoutPlanService = {
   saveActivePlan,
@@ -1781,7 +2143,15 @@ const workoutPlanService = {
   fetchExerciseAbsoluteMaxWeight,
   savePausedWorkout,
   getPausedWorkout,
-  clearPausedWorkout
+  clearPausedWorkout,
+  // New progressive cycle functions
+  getCycleWeekInfo,
+  getAllCycleWeeks,
+  getExerciseRecommendations,
+  calculateProgressiveWorkoutSchedule,
+  setupCalendarDatesProgressive,
+  getCurrentCycleProgress,
+  checkWeekProgression
 };
 
 export default workoutPlanService;

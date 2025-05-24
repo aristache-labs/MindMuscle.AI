@@ -60,6 +60,9 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   const [error, setError] = useState<string | null>(null);
   const [userWorkoutDays, setUserWorkoutDays] = useState<number[]>([]);
   
+  // Add a flag to prevent effect from overriding manual date selection
+  const [isManualDateSelection, setIsManualDateSelection] = useState(false);
+  
   // Calendar state
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [activeDay, setActiveDay] = useState<number | null>(null);
@@ -97,568 +100,38 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     mode: 'start'
   });
 
-  // Helper function to find the workout day object by day number
-  const getWorkoutDayByNumber = (dayNumber: number | null): WorkoutDay | null => {
-    if (!plan || dayNumber === null) return null;
-    return plan.workoutDays.find(workoutDay => workoutDay.day === dayNumber) || null;
+  // Add state for cycle progress information
+  const [cycleProgress, setCycleProgress] = useState<{
+    currentWeek: number;
+    weekName: string;
+    completedWorkouts: number;
+    totalWorkoutsInCycle: number;
+    progressPercentage: number;
+    weekDescription: string;
+    recommendationTemplate: string;
+  } | null>(null);
+
+  // Add state to track if user is viewing a locked/future week
+  const [isViewingLockedWeek, setIsViewingLockedWeek] = useState(false);
+  const [lockedWeekInfo, setLockedWeekInfo] = useState<{
+    selectedWeek: number;
+    selectedWeekName: string;
+    currentWeek: number;
+    currentWeekName: string;
+  } | null>(null);
+
+  // Helper function to format duration as H:mm (hours without leading zero)
+  const formatDurationAsHMM = (duration: string): string => {
+    if (!duration) return '0:00';
+    
+    const parts = duration.split(':');
+    if (parts.length < 2) return '0:00';
+    
+    const hours = parseInt(parts[0], 10);
+    const minutes = parts[1];
+    
+    return `${hours}:${minutes}`;
   };
-
-  // Helper function to update paused workout days for the calendar
-  const updatePausedWorkoutDays = useCallback(async () => {
-    if (!user?.id || !plan?.id) return;
-    
-    try {
-      // Get all paused workouts for this plan
-      const { data, error } = await supabase
-        .from('user_paused_workouts')
-        .select('workout_day')
-        .eq('user_id', user.id)
-        .eq('plan_id', plan.id);
-      
-      if (error) {
-        console.error('Error fetching paused workouts:', error);
-        return;
-      }
-      
-      if (!data || data.length === 0) {
-        setPausedWorkoutDays([]);
-        return;
-      }
-    } catch (error) {
-      console.error('Error updating paused workout days:', error);
-      // setPausedWorkoutDays([]); // COMMENTED OUT: This was overriding the correct data from updateCalendarWorkoutStatus
-    }
-  }, [user?.id, plan?.id]);
-
-  // New function to properly update completed and paused workout days for calendar
-  const updateCalendarWorkoutStatus = useCallback(async () => {
-    if (!user?.id || !plan?.id || !plan?.start_date || userWorkoutDays.length === 0) {
-      setCompletedWorkoutDays([]);
-      setPausedWorkoutDays([]);
-      return;
-    }
-    
-    try {
-      // Get the marked dates (workout days mapped to calendar dates)
-      const markedDatesObj = workoutPlanService.setupCalendarDates(
-        plan.start_date,
-        plan.workoutDays.length,
-        userWorkoutDays,
-        { primary: COLORS.primary }
-      );
-      
-      // Get all completed workouts for this plan
-      const { data: completedWorkouts, error: completedError } = await supabase
-        .from('user_workout_history')
-        .select('workout_day, completed_at')
-        .eq('user_id', user.id)
-        .eq('plan_id', plan.id);
-      
-      // Get all paused workouts for this plan
-      const { data: pausedWorkouts, error: pausedError } = await supabase
-        .from('user_paused_workouts')
-        .select('workout_day')
-        .eq('user_id', user.id)
-        .eq('plan_id', plan.id);
-      
-      if (completedError) {
-        console.error('Error fetching completed workouts:', completedError);
-      }
-      
-      if (pausedError) {
-        console.error('Error fetching paused workouts:', pausedError);
-      }
-      
-      // Debug logging
-      console.log('updateCalendarWorkoutStatus - completedWorkouts:', completedWorkouts);
-      console.log('updateCalendarWorkoutStatus - pausedWorkouts:', pausedWorkouts);
-      console.log('updateCalendarWorkoutStatus - markedDatesObj:', markedDatesObj);
-      
-      // Map workout days to calendar dates
-      const completedDates: string[] = [];
-      const pausedDates: string[] = [];
-      
-      // For each date in the calendar, check if it's a completed or paused workout
-      Object.entries(markedDatesObj).forEach(([dateStr, dateInfo]: [string, any]) => {
-        if (dateInfo && dateInfo.workoutDayIndex !== undefined) {
-          const workoutDayIndex = dateInfo.workoutDayIndex;
-          
-          // Check if this workout day is completed
-          if (completedWorkouts && completedWorkouts.some((w: any) => w.workout_day === workoutDayIndex)) {
-            completedDates.push(dateStr);
-          }
-          
-          // Check if this workout day is paused
-          if (pausedWorkouts && pausedWorkouts.some((w: any) => w.workout_day === workoutDayIndex)) {
-            pausedDates.push(dateStr);
-          }
-        }
-      });
-      
-      console.log('updateCalendarWorkoutStatus - Final completedDates:', completedDates);
-      console.log('updateCalendarWorkoutStatus - Final pausedDates:', pausedDates);
-      
-      setCompletedWorkoutDays(completedDates);
-      setPausedWorkoutDays(pausedDates);
-      
-    } catch (error) {
-      console.error('Error updating calendar workout status:', error);
-      setCompletedWorkoutDays([]);
-      setPausedWorkoutDays([]);
-    }
-  }, [user?.id, plan?.id, plan?.start_date, userWorkoutDays.join(','), plan?.workoutDays?.length]);
-
-  // Fetch user's preferred workout days
-  const fetchUserWorkoutDays = useCallback(async () => {
-    if (!user?.id) return;
-    
-    try {
-      const workoutDays = await workoutPlanService.getUserWorkoutDays(user.id);
-      setUserWorkoutDays(workoutDays);
-      
-      // If user has no workout days set, we should prompt them to set preferences
-      if (workoutDays.length === 0) {
-        // User has no workout days set, should prompt to set preferences
-        // We'll show a prompt in the UI to set workout preferences
-      }
-    } catch (err) {
-      // Error fetching user workout days
-      // Don't set default days anymore - we'll prompt the user to set their preferences
-      setUserWorkoutDays([]);
-    }
-  }, [user?.id]);
-  
-  // Fetch the user's active plan
-  const fetchActivePlan = useCallback(async () => {
-    if (!user?.id) return;
-    
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      // Get the current workout days to pass to the service
-      const currentWorkoutDays = [...userWorkoutDays];
-      
-      // Use the service function to fetch the active plan
-      const { plan: formattedPlan } = await workoutPlanService.fetchActivePlan(
-        user.id,
-        currentWorkoutDays
-      );
-      
-      if (!formattedPlan) {
-        setPlan(null);
-        setIsLoading(false);
-        return;
-      }
-      
-      setPlan(formattedPlan);
-      
-      // Setup initial active day based on today's date and whether it's a workout day
-      const today = new Date();
-      const todayStr = format(today, 'yyyy-MM-dd');
-      
-      // IMPORTANT: Only setup calendar after we have user workout days
-      if (currentWorkoutDays.length > 0) {
-        // Get the marked dates to check if today is a workout day
-        const markedDatesObj = workoutPlanService.setupCalendarDates(
-          formattedPlan.start_date,
-          formattedPlan.workoutDays.length,
-          currentWorkoutDays,
-          { primary: COLORS.primary }
-        );
-        
-        // Check if today is a workout day
-        const todayMarkedInfo = markedDatesObj[todayStr];
-        if (todayMarkedInfo && todayMarkedInfo.marked && todayMarkedInfo.workoutDayIndex) {
-          // Today is a workout day - set it as the active day
-          setActiveDay(todayMarkedInfo.workoutDayIndex);
-        } else {
-          // Today is not a workout day - don't set an active day (will show rest day)
-          setActiveDay(null);
-        }
-      } else {
-        // No user workout days available, calendar setup delayed
-        // Don't set an active day until we have proper workout days
-        setActiveDay(null);
-      }
-    } catch (err: any) {
-      // Error fetching active plan
-      setError('Failed to load your plan.');
-      console.error('Error fetching active plan:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [user?.id, userWorkoutDays.join(',')]); // Use string representation for stable comparison
-  
-  // Check if workout is already completed for the selected day and update the completed days list
-  const checkWorkoutCompletion = async (workoutDayIndex = activeDay) => {
-    if (!user || !plan || workoutDayIndex === null) return false;
-    
-    try {
-      // Use the service function to check workout completion
-      const { isCompleted, completedWorkoutData, completedDates } = await workoutPlanService.checkWorkoutCompletionForPlan(
-        user.id,
-        plan.id,
-        workoutDayIndex,
-        {} // We'll need to pass markedDates from calendar component
-      );
-      
-      // Update state with the results
-      if (completedDates) {
-        setCompletedWorkoutDays(completedDates);
-      }
-      
-      if (isCompleted && completedWorkoutData) {
-        // Workout is already completed
-        setCompletedWorkoutData(completedWorkoutData);
-        setIsWorkoutCompleted(true);
-        return true;
-      } else {
-        // Workout is not completed
-        setIsWorkoutCompleted(false);
-        setCompletedWorkoutData(null);
-        return false;
-      }
-    } catch (error) {
-      // Error in checkWorkoutCompletion
-      setIsWorkoutCompleted(false);
-      setCompletedWorkoutData(null);
-      return false;
-    }
-  };
-  
-  // Handle date selection from calendar component
-  const handleCalendarDateSelect = useCallback(async (date: Date, workoutDayIndex: number | null, isWorkoutDay: boolean) => {
-    setSelectedDate(date);
-    
-    // Set loading state to prevent UI flicker
-    setIsLoading(true);
-    
-    // CRITICAL FIX: Reset paused workout state immediately when changing dates
-    // This prevents showing stale paused workout state from previous day
-    setHasPausedWorkout(false);
-    setPausedWorkout(null);
-    
-    if (isWorkoutDay && workoutDayIndex !== null) {
-      // This is a workout day - set the active day
-      setActiveDay(workoutDayIndex);
-      
-      // Check if this workout is already completed and update completedWorkoutDays
-      if (user?.id && plan?.id) {
-        const { isCompleted, completedWorkoutData, completedDates } = await workoutPlanService.checkWorkoutCompletionForPlan(
-          user.id,
-          plan.id,
-          workoutDayIndex,
-          {} // We'll need to pass markedDates from calendar component
-        );
-        
-        // Update the completed workout days state to maintain check icons
-        if (completedDates && completedDates.length > 0) {
-          setCompletedWorkoutDays(completedDates);
-        }
-        
-        // Update paused workout days for calendar indicators
-        // await updatePausedWorkoutDays(); // COMMENTED OUT: This was overriding the correct data from updateCalendarWorkoutStatus
-        
-        // Update workout completion state
-        setIsWorkoutCompleted(isCompleted);
-        if (isCompleted && completedWorkoutData) {
-          setCompletedWorkoutData(completedWorkoutData);
-          // Clear paused workout state for completed workouts
-          setHasPausedWorkout(false);
-          setPausedWorkout(null);
-        } else {
-          setCompletedWorkoutData(null);
-          
-          // If not completed, check for paused workout for this specific day
-          // Check immediately with the new workoutDayIndex
-          try {
-            const { data, error } = await supabase
-              .from('user_paused_workouts')
-              .select('*')
-              .eq('user_id', user.id)
-              .eq('plan_id', plan.id)
-              .eq('workout_day', workoutDayIndex)
-              .limit(1);
-            
-            if (!error && data && data.length > 0) {
-              const formattedPausedWorkout = {
-                userId: data[0].user_id,
-                planId: data[0].plan_id,
-                workoutDay: data[0].workout_day,
-                cycleWeek: data[0].cycle_week,
-                weekName: data[0].week_name,
-                exercises: data[0].exercises,
-                exerciseSets: data[0].exercise_sets,
-                workoutDuration: data[0].workout_duration,
-                totalVolume: data[0].total_volume,
-                totalReps: data[0].total_reps,
-                currentExerciseIndex: data[0].current_exercise_index,
-                originalCycleWeek: data[0].original_cycle_week,
-                pausedAt: data[0].paused_at
-              };
-              
-              setPausedWorkout(formattedPausedWorkout);
-              setHasPausedWorkout(true);
-            } else {
-              setPausedWorkout(null);
-              setHasPausedWorkout(false);
-            }
-          } catch (error) {
-            console.error('Error checking for paused workout:', error);
-            setPausedWorkout(null);
-            setHasPausedWorkout(false);
-          }
-        }
-      }
-    } else {
-      // Not a workout day - reset everything
-      setActiveDay(null);
-      setIsWorkoutCompleted(false);
-      setCompletedWorkoutData(null);
-      setHasPausedWorkout(false);
-      setPausedWorkout(null);
-    }
-    
-    // Remove loading state after completion check is done
-    setIsLoading(false);
-  }, [user?.id, plan?.id]);
-  
-  const handleStartWorkout = async () => {
-    if (!plan || activeDay === null || !user) return;
-    
-    try {
-      // First check if workout is already completed
-      const isCompleted = await checkWorkoutCompletion();
-      
-      if (isCompleted) {
-        return; // Don't navigate, show completion info in the current screen
-      }
-      
-      // Check for any paused workouts in the plan
-      const { hasPaused, pausedWorkoutDay } = await checkForAnyPausedWorkout();
-      
-      // If there's a paused workout, show our custom modal instead of Alert
-      if (hasPaused && pausedWorkoutDay !== null) {
-        // Set the modal info and show it with 'start' mode
-        setPausedWorkoutInfo({
-          pausedDay: pausedWorkoutDay,
-          currentDay: activeDay,
-          mode: 'start'
-        });
-        setShowPausedWorkoutModal(true);
-        return;
-      }
-      
-      // No paused workout, proceed with starting a new workout
-      const cycleData = await workoutPlanService.getActivePlanWithCycleWeek(user.id, plan.id);
-      
-      if (!cycleData) {
-        throw new Error('Failed to get plan cycle data');
-      }
-      // Navigate to workout session
-      router.push({
-        pathname: '/(stack)/workout-session',
-        params: { 
-          planId: plan.id,
-          workoutDay: activeDay, // This is now 1-indexed (1, 2, 3)
-          cycleWeek: cycleData.currentWeek,
-          weekName: cycleData.weekName
-        }
-      });
-    } catch (err) {
-      // Error starting workout
-      Alert.alert('Error', 'Failed to start workout');
-    }
-  };
-  
-  // First fetch user workout days, then fetch active plan
-  useEffect(() => {
-    // Only run this effect once when the component mounts or when user changes
-    const initialize = async () => {
-      if (!user?.id) return;
-      
-      await fetchUserWorkoutDays();
-    };
-    
-    initialize();
-  }, [user?.id]); // Only depend on user ID
-  
-  // Fetch active plan when user workout days are available
-  useEffect(() => {
-    if (user?.id && userWorkoutDays.length >= 0) { // Allow 0 length to handle empty workout days
-      fetchActivePlan();
-    }
-  }, [user?.id, userWorkoutDays.join(','), fetchActivePlan]);
-  
-  // Track if we've already refreshed the calendar to prevent infinite loops
-  const [hasRefreshedCalendar, setHasRefreshedCalendar] = useState(false);
-  
-  // Reset the refresh flag when the plan or user changes
-  useEffect(() => {
-    if (plan?.id && user?.id) {
-      setHasRefreshedCalendar(false);
-    }
-  }, [plan?.id, user?.id]);
-  
-  // Function to check for paused workouts for any day in the current plan
-  const checkForAnyPausedWorkout = useCallback(async () => {
-    if (!user?.id || !plan?.id) return { hasPaused: false, pausedWorkoutDay: null };
-    
-    try {
-      // Query Supabase directly for any paused workouts for this plan
-      const { data, error } = await supabase
-        .from('user_paused_workouts')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('plan_id', plan.id)
-        .order('paused_at', { ascending: false });
-      
-      if (error) {
-        console.error('Error checking for any paused workouts:', error);
-        return { hasPaused: false, pausedWorkoutDay: null };
-      }
-      
-      if (data && data.length > 0) {
-        // Found a paused workout for this plan
-        return { 
-          hasPaused: true, 
-          pausedWorkoutDay: data[0].workout_day, 
-          pausedWorkoutData: data[0] 
-        };
-      }
-      
-      return { hasPaused: false, pausedWorkoutDay: null };
-    } catch (error) {
-      console.error('Error in checkForAnyPausedWorkout:', error);
-      return { hasPaused: false, pausedWorkoutDay: null };
-    }
-  }, [user?.id, plan?.id]);
-
-  // Function to check for paused workouts (used in specific contexts)
-  const checkForPausedWorkout = useCallback(async (workoutDay?: number) => {
-    const dayToCheck = workoutDay || activeDay;
-    if (!user?.id || !plan?.id || dayToCheck === null) {
-      return false;
-    }
-    
-    try {
-      const { data, error } = await supabase
-        .from('user_paused_workouts')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('plan_id', plan.id)
-        .eq('workout_day', dayToCheck)
-        .limit(1);
-      
-      if (error) {
-        console.error('Error checking for paused workout:', error);
-        return false;
-      }
-      
-      return data && data.length > 0;
-    } catch (error) {
-      console.error('Error checking for paused workout:', error);
-      return false;
-    }
-  }, [user?.id, plan?.id, activeDay]);
-
-  // Add an effect to refresh the calendar and completed workouts when the component mounts
-  // This is critical for updating the calendar after completing a workout
-  useEffect(() => {
-    // Only refresh if we have a plan, user, and haven't refreshed yet
-    if (plan?.id && user?.id && !hasRefreshedCalendar) {
-      const refreshCalendarData = async () => {
-        try {
-          if (!user?.id || !plan?.id) {
-            setHasRefreshedCalendar(true);
-            return;
-          }
-          
-          // Now check for completed workouts and update the calendar
-          if (activeDay !== null) {
-            const { isCompleted, completedWorkoutData, completedDates } = await workoutPlanService.checkWorkoutCompletionForPlan(
-              user.id,
-              plan.id,
-              activeDay,
-              {} // We'll need to pass markedDates from calendar component
-            );
-            
-            // Update the completed workout days state
-            if (completedDates && completedDates.length > 0) {
-              setCompletedWorkoutDays(completedDates);
-            }
-            
-            // Update workout completion state
-            setIsWorkoutCompleted(isCompleted);
-            if (isCompleted && completedWorkoutData) {
-              setCompletedWorkoutData(completedWorkoutData);
-            } else {
-              setCompletedWorkoutData(null);
-              
-              // If workout is not completed, check for a paused workout
-              await checkForPausedWorkout();
-            }
-          } else {
-            // If no active day is selected, just get all completed workouts
-            const { data: completedWorkouts, error } = await supabase
-              .from('user_workout_history')
-              .select('*')
-              .eq('user_id', user.id)
-              .eq('plan_id', plan.id);
-              
-            if (!error && completedWorkouts && completedWorkouts.length > 0) {
-              // Create a set of completed workout days
-              const completedWorkoutDays = new Set<number>();
-              completedWorkouts.forEach((workout: any) => {
-                completedWorkoutDays.add(workout.workout_day);
-              });
-              
-              // For now, we'll set an empty array since we don't have markedDates here
-              setCompletedWorkoutDays([]);
-            }
-          }
-          
-          // CRITICAL FIX: Always update paused workout days for calendar indicators
-          // This should happen regardless of activeDay state to ensure paused icons show on initial load
-          // await updatePausedWorkoutDays(); // COMMENTED OUT: This was overriding the correct data from updateCalendarWorkoutStatus
-          
-          // Mark that we've refreshed the calendar
-          setHasRefreshedCalendar(true);
-        } catch (err) {
-          // Error refreshing calendar data
-          console.error('Error refreshing calendar data:', err);
-          // Even if there's an error, mark as refreshed to prevent infinite loops
-          setHasRefreshedCalendar(true);
-        }
-      };
-      
-      // Refresh immediately
-      refreshCalendarData();
-    }
-  }, [plan?.id, user?.id, hasRefreshedCalendar, activeDay]); // Removed userWorkoutDays.length
-
-  // Clear paused workout state when workout is completed or conditions are not met
-  useEffect(() => {
-    if (isWorkoutCompleted || !user?.id || !plan?.id || activeDay === null) {
-      setHasPausedWorkout(false);
-      setPausedWorkout(null);
-    }
-  }, [activeDay, isWorkoutCompleted, user?.id, plan?.id]);
-
-  // Update paused workout days when calendar data changes
-  useEffect(() => {
-    if (plan?.id && user?.id) {
-      // updatePausedWorkoutDays(); // COMMENTED OUT: This was overriding the correct data from updateCalendarWorkoutStatus
-    }
-  }, [plan?.id, user?.id]);
-
-  // Update calendar workout status when plan data is available
-  useEffect(() => {
-    if (plan?.id && user?.id && userWorkoutDays.length > 0) {
-      updateCalendarWorkoutStatus();
-    }
-  }, [plan?.id, user?.id, userWorkoutDays.join(','), updateCalendarWorkoutStatus]);
 
   // Add a new component for the progress line
   const WorkoutProgressLine = ({ pausedWorkout }: { pausedWorkout: any }) => {
@@ -792,19 +265,6 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     );
   };
 
-  // Helper function to format duration as H:mm (hours without leading zero)
-  const formatDurationAsHMM = (duration: string): string => {
-    if (!duration) return '0:00';
-    
-    const parts = duration.split(':');
-    if (parts.length < 2) return '0:00';
-    
-    const hours = parseInt(parts[0], 10);
-    const minutes = parts[1];
-    
-    return `${hours}:${minutes}`;
-  };
-
   // Animated Rest Day Component
   const RestDayComponent = () => {
     // Array of rest day messages
@@ -878,6 +338,64 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
           <Text style={styles.restDayTip}>• Meditation, breathing exercises, or mindfulness</Text>
           <Text style={styles.restDayTip}>• Relaxing bath or spa-like self-care</Text>
           <Text style={styles.restDayTip}>• Quality sleep and proper hydration</Text>
+        </View>
+      </View>
+    );
+  };
+
+  // Locked Week Component
+  const LockedWeekComponent = () => {
+    if (!lockedWeekInfo) return null;
+    
+    return (
+      <View style={styles.lockedWeekContainer}>
+        <View style={styles.lockedWeekHeader}>
+          <View style={styles.lockedIconContainer}>
+            <Icon source="lock" size={40} color="#FF9800" />
+          </View>
+          <Text style={styles.lockedWeekTitle}>Week {lockedWeekInfo.selectedWeek} Locked</Text>
+          <Text style={styles.lockedWeekSubtitle}>{lockedWeekInfo.selectedWeekName} Phase</Text>
+        </View>
+        
+        <View style={styles.lockedWeekContent}>
+          <Text style={styles.lockedWeekMessage}>
+            Complete Week {lockedWeekInfo.currentWeek} - {lockedWeekInfo.currentWeekName} before accessing this week's workouts.
+          </Text>
+          
+          <View style={styles.lockedWeekProgress}>
+            <Text style={styles.lockedProgressTitle}>Current Progress</Text>
+            <View style={styles.lockedProgressInfo}>
+              <View style={styles.currentWeekBadge}>
+                <Text style={styles.currentWeekBadgeText}>W{lockedWeekInfo.currentWeek}</Text>
+              </View>
+              <Text style={styles.lockedProgressText}>
+                {lockedWeekInfo.currentWeekName} Phase
+              </Text>
+            </View>
+          </View>
+          
+          <View style={styles.lockedWeekTips}>
+            <Text style={styles.lockedTipsTitle}>To unlock Week {lockedWeekInfo.selectedWeek}:</Text>
+            <Text style={styles.lockedTip}>• Complete all workouts in Week {lockedWeekInfo.currentWeek}</Text>
+            <Text style={styles.lockedTip}>• Follow the progressive training plan</Text>
+            <Text style={styles.lockedTip}>• Maintain consistency with your schedule</Text>
+          </View>
+          
+          <TouchableOpacity 
+            style={styles.backToCurrentWeekButton}
+            onPress={() => {
+              // Navigate back to current week
+              const today = new Date();
+              setSelectedDate(today);
+              setIsViewingLockedWeek(false);
+              setLockedWeekInfo(null);
+              // Reset active day based on today
+              handleCalendarDateSelect(today, null, false);
+            }}
+          >
+            <Icon source="arrow-left" size={20} color={COLORS.text} />
+            <Text style={styles.backToCurrentWeekText}>Back to Week {lockedWeekInfo.currentWeek}</Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -1172,6 +690,757 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     }
   };
 
+  // Helper function to find the workout day object by day number
+  const getWorkoutDayByNumber = (dayNumber: number | null): WorkoutDay | null => {
+    if (!plan || dayNumber === null) return null;
+    return plan.workoutDays.find(workoutDay => workoutDay.day === dayNumber) || null;
+  };
+
+  // Helper function to update paused workout days for the calendar
+  const updatePausedWorkoutDays = useCallback(async () => {
+    if (!user?.id || !plan?.id) return;
+    
+    try {
+      // Get all paused workouts for this plan
+      const { data, error } = await supabase
+        .from('user_paused_workouts')
+        .select('workout_day')
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id);
+      
+      if (error) {
+        console.error('Error fetching paused workouts:', error);
+        return;
+      }
+      
+      if (!data || data.length === 0) {
+        setPausedWorkoutDays([]);
+        return;
+      }
+    } catch (error) {
+      console.error('Error updating paused workout days:', error);
+      // setPausedWorkoutDays([]); // COMMENTED OUT: This was overriding the correct data from updateCalendarWorkoutStatus
+    }
+  }, [user?.id, plan?.id]);
+
+  // New function to properly update completed and paused workout days for calendar
+  const updateCalendarWorkoutStatus = useCallback(async () => {
+    if (!user?.id || !plan?.id || !plan?.start_date || userWorkoutDays.length === 0) {
+      setCompletedWorkoutDays([]);
+      setPausedWorkoutDays([]);
+      return;
+    }
+    
+    try {
+      // Get the marked dates (workout days mapped to calendar dates) - USE PROGRESSIVE METHOD
+      const markedDatesObj = workoutPlanService.setupCalendarDatesProgressive(
+        plan.start_date,
+        plan.workoutDays.length,
+        userWorkoutDays,
+        { primary: COLORS.primary }
+      );
+      
+      // Get all completed workouts for this plan with completion dates
+      const { data: completedWorkouts, error: completedError } = await supabase
+        .from('user_workout_history')
+        .select('workout_day, completed_at, cycle_week, week_name')
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id);
+      
+      // Get all paused workouts for this plan
+      const { data: pausedWorkouts, error: pausedError } = await supabase
+        .from('user_paused_workouts')
+        .select('workout_day')
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id);
+      
+      if (completedError) {
+        console.error('Error fetching completed workouts:', completedError);
+      }
+      
+      if (pausedError) {
+        console.error('Error fetching paused workouts:', pausedError);
+      }
+      
+      // Debug logging
+      console.log('updateCalendarWorkoutStatus - completedWorkouts:', completedWorkouts);
+      console.log('updateCalendarWorkoutStatus - pausedWorkouts:', pausedWorkouts);
+      console.log('updateCalendarWorkoutStatus - markedDatesObj:', markedDatesObj);
+      
+      // Map workout days to calendar dates
+      const completedDates: string[] = [];
+      const pausedDates: string[] = [];
+      
+      // FIXED LOGIC: Match completions by actual date, not just workout day index
+      Object.entries(markedDatesObj).forEach(([dateStr, dateInfo]: [string, any]) => {
+        if (dateInfo && dateInfo.workoutDayIndex !== undefined && dateInfo.cycleWeek !== undefined) {
+          const workoutDayIndex = dateInfo.workoutDayIndex;
+          const cycleWeek = dateInfo.cycleWeek;
+          const calendarDate = new Date(dateStr);
+          
+          // Check if this specific date has a completed workout
+          // We need to match by workout day, cycle week, and completion date proximity
+          const hasCompletedWorkout = completedWorkouts && completedWorkouts.length > 0 && completedWorkouts.some((w: any) => {
+            if (w.workout_day !== workoutDayIndex) return false;
+            
+            // Parse the completion date
+            const completionDate = new Date(w.completed_at);
+            const completionDateStr = format(completionDate, 'yyyy-MM-dd');
+            
+            // Check if the completion date matches this calendar date
+            // OR if it's the same workout day in the same cycle week
+            return completionDateStr === dateStr || 
+                   (w.workout_day === workoutDayIndex && w.cycle_week === cycleWeek);
+          });
+          
+          if (hasCompletedWorkout) {
+            completedDates.push(dateStr);
+          }
+          
+          // Check if this workout day is paused (keep existing logic for paused workouts)
+          if (pausedWorkouts && pausedWorkouts.length > 0 && pausedWorkouts.some((w: any) => w.workout_day === workoutDayIndex)) {
+            pausedDates.push(dateStr);
+          }
+        }
+      });
+      
+      console.log('updateCalendarWorkoutStatus - Final completedDates:', completedDates);
+      console.log('updateCalendarWorkoutStatus - Final pausedDates:', pausedDates);
+      
+      setCompletedWorkoutDays(completedDates);
+      setPausedWorkoutDays(pausedDates);
+      
+    } catch (error) {
+      console.error('Error updating calendar workout status:', error);
+      setCompletedWorkoutDays([]);
+      setPausedWorkoutDays([]);
+    }
+  }, [user?.id, plan?.id, plan?.start_date, userWorkoutDays.length, plan?.workoutDays?.length]);
+
+  // Fetch user's preferred workout days
+  const fetchUserWorkoutDays = useCallback(async () => {
+    if (!user?.id) return;
+    
+    try {
+      const workoutDays = await workoutPlanService.getUserWorkoutDays(user.id);
+      setUserWorkoutDays(workoutDays);
+      
+      // If user has no workout days set, we should prompt them to set preferences
+      if (workoutDays.length === 0) {
+        // User has no workout days set, should prompt to set preferences
+        // We'll show a prompt in the UI to set workout preferences
+      }
+    } catch (err) {
+      // Error fetching user workout days
+      // Don't set default days anymore - we'll prompt the user to set their preferences
+      setUserWorkoutDays([]);
+    }
+  }, [user?.id]);
+  
+  // Fetch cycle progress information
+  const fetchCycleProgress = useCallback(async () => {
+    if (!user?.id || !plan?.id) return;
+    
+    try {
+      const progress = await workoutPlanService.getCurrentCycleProgress(user.id, plan.id);
+      setCycleProgress(progress);
+    } catch (error) {
+      console.error('Error fetching cycle progress:', error);
+      setCycleProgress(null);
+    }
+  }, [user?.id, plan?.id]);
+
+  // Fetch the user's active plan
+  const fetchActivePlan = useCallback(async () => {
+    if (!user?.id) return;
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Get the current workout days to pass to the service
+      const currentWorkoutDays = [...userWorkoutDays];
+      
+      // Use the service function to fetch the active plan
+      const { plan: formattedPlan } = await workoutPlanService.fetchActivePlan(
+        user.id,
+        currentWorkoutDays
+      );
+      
+      if (!formattedPlan) {
+        setPlan(null);
+        setCycleProgress(null);
+        setIsLoading(false);
+        return;
+      }
+      
+      setPlan(formattedPlan);
+      
+      // Fetch cycle progress information
+      const progress = await workoutPlanService.getCurrentCycleProgress(user.id, formattedPlan.id);
+      setCycleProgress(progress);
+      
+      // Setup initial active day based on today's date and whether it's a workout day
+      const today = new Date();
+      const todayStr = format(today, 'yyyy-MM-dd');
+      
+      // IMPORTANT: Only setup calendar after we have user workout days
+      if (currentWorkoutDays.length > 0) {
+        // Use the progressive calendar setup
+        const markedDatesObj = workoutPlanService.setupCalendarDatesProgressive(
+          formattedPlan.start_date,
+          formattedPlan.workoutDays.length,
+          currentWorkoutDays,
+          { primary: COLORS.primary }
+        );
+        
+        // Check if today is a workout day
+        const todayMarkedInfo = markedDatesObj[todayStr];
+        if (todayMarkedInfo && todayMarkedInfo.marked && todayMarkedInfo.workoutDayIndex) {
+          // Today is a workout day - set it as the active day
+          setActiveDay(todayMarkedInfo.workoutDayIndex);
+          console.log(`Today is workout day ${todayMarkedInfo.workoutDayIndex} in cycle week ${todayMarkedInfo.cycleWeek} (${todayMarkedInfo.weekName})`);
+        } else {
+          // Today is not a workout day - don't set an active day (will show rest day)
+          setActiveDay(null);
+        }
+      } else {
+        // No user workout days available, calendar setup delayed
+        // Don't set an active day until we have proper workout days
+        setActiveDay(null);
+      }
+    } catch (err: any) {
+      // Error fetching active plan
+      setError('Failed to load your plan.');
+      console.error('Error fetching active plan:', err);
+      setCycleProgress(null);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user?.id, userWorkoutDays]);
+  
+  // Check if workout is already completed for the selected day and update the completed days list
+  const checkWorkoutCompletion = async (workoutDayIndex = activeDay) => {
+    if (!user || !plan || workoutDayIndex === null) return false;
+    
+    try {
+      const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+      
+      // Get the marked dates to understand the cycle week context
+      const markedDatesObj = workoutPlanService.setupCalendarDatesProgressive(
+        plan.start_date,
+        plan.workoutDays.length,
+        userWorkoutDays,
+        { primary: COLORS.primary }
+      );
+      
+      // Get the cycle week info for the selected date
+      const selectedDateInfo = markedDatesObj[selectedDateStr];
+      const cycleWeek = selectedDateInfo?.cycleWeek;
+      
+      // Check for completed workouts on this specific date and cycle week
+      const { data: completedWorkouts, error: completedError } = await supabase
+        .from('user_workout_history')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id)
+        .eq('workout_day', workoutDayIndex);
+      
+      if (completedError) {
+        console.error('Error fetching completed workouts:', completedError);
+        return false;
+      }
+      
+      // Check if there's a completion for this specific date/cycle week
+      if (completedWorkouts && completedWorkouts.length > 0) {
+        // Look for a completion that matches this specific date or cycle week
+        const matchingCompletion = completedWorkouts.find((w: any) => {
+          const completionDate = new Date(w.completed_at);
+          const completionDateStr = format(completionDate, 'yyyy-MM-dd');
+          
+          // Match by exact date OR by cycle week (for same workout day in same week)
+          return completionDateStr === selectedDateStr || 
+                 (w.cycle_week === cycleWeek && w.workout_day === workoutDayIndex);
+        });
+        
+        if (matchingCompletion) {
+          // Workout is completed for this specific date
+          const completedWorkoutData = {
+            completedExercises: matchingCompletion.completed_exercises || 0,
+            duration: matchingCompletion.workout_duration || '00:00:00',
+            caloriesBurned: matchingCompletion.calories_burned || 0,
+            totalVolume: matchingCompletion.total_volume || 0,
+            totalReps: matchingCompletion.total_reps || 0,
+            completedAt: matchingCompletion.completed_at,
+            weekName: matchingCompletion.week_name || '',
+            cycleWeek: matchingCompletion.cycle_week || 1
+          };
+          
+          setCompletedWorkoutData(completedWorkoutData);
+          setIsWorkoutCompleted(true);
+          return true;
+        }
+      }
+      
+      // Workout is not completed for this specific date
+      setIsWorkoutCompleted(false);
+      setCompletedWorkoutData(null);
+      return false;
+    } catch (error) {
+      console.error('Error in checkWorkoutCompletion:', error);
+      setIsWorkoutCompleted(false);
+      setCompletedWorkoutData(null);
+      return false;
+    }
+  };
+  
+  // Handle date selection from calendar component
+  const handleCalendarDateSelect = useCallback(async (date: Date, workoutDayIndex: number | null, isWorkoutDay: boolean) => {
+    setSelectedDate(date);
+    
+    // Set flag to prevent effect from overriding this manual selection
+    setIsManualDateSelection(true);
+    
+    // CRITICAL FIX: Reset paused workout state immediately when changing dates
+    // This prevents showing stale paused workout state from previous day
+    setHasPausedWorkout(false);
+    setPausedWorkout(null);
+    
+    if (isWorkoutDay && workoutDayIndex !== null) {
+      // This is a workout day - set the active day
+      setActiveDay(workoutDayIndex);
+      
+      // Check if this specific date has a completed workout
+      if (user?.id && plan?.id) {
+        try {
+          const selectedDateStr = format(date, 'yyyy-MM-dd');
+          
+          // Get the marked dates to understand the cycle week context
+          const markedDatesObj = workoutPlanService.setupCalendarDatesProgressive(
+            plan.start_date,
+            plan.workoutDays.length,
+            userWorkoutDays,
+            { primary: COLORS.primary }
+          );
+          
+          // Get the cycle week info for the selected date
+          const selectedDateInfo = markedDatesObj[selectedDateStr];
+          const selectedCycleWeek = selectedDateInfo?.cycleWeek;
+          const selectedWeekName = selectedDateInfo?.weekName;
+          
+          // Check if user is viewing a future week they haven't unlocked
+          if (cycleProgress && selectedCycleWeek && selectedCycleWeek > cycleProgress.currentWeek) {
+            // User is viewing a locked/future week
+            setIsViewingLockedWeek(true);
+            setLockedWeekInfo({
+              selectedWeek: selectedCycleWeek,
+              selectedWeekName: selectedWeekName || 'Unknown',
+              currentWeek: cycleProgress.currentWeek,
+              currentWeekName: cycleProgress.weekName
+            });
+            
+            // Reset workout states since this is a locked week
+            setIsWorkoutCompleted(false);
+            setCompletedWorkoutData(null);
+            setHasPausedWorkout(false);
+            setPausedWorkout(null);
+            
+            // Clear the flag after a short delay
+            setTimeout(() => {
+              setIsManualDateSelection(false);
+            }, 500);
+            return;
+          } else {
+            // User is viewing current or past week - reset locked week state
+            setIsViewingLockedWeek(false);
+            setLockedWeekInfo(null);
+          }
+          
+          // ... existing completion check logic ...
+          const cycleWeek = selectedDateInfo?.cycleWeek;
+          
+          // Check for completed workouts on this specific date and cycle week
+          const { data: completedWorkouts, error: completedError } = await supabase
+            .from('user_workout_history')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('plan_id', plan.id)
+            .eq('workout_day', workoutDayIndex);
+          
+          if (completedError) {
+            console.error('Error fetching completed workouts:', completedError);
+          }
+          
+          // Check if there's a completion for this specific date/cycle week
+          let isCompletedForThisDate = false;
+          let completedWorkoutData = null;
+          
+          if (completedWorkouts && completedWorkouts.length > 0) {
+            // Look for a completion that matches this specific date or cycle week
+            const matchingCompletion = completedWorkouts.find((w: any) => {
+              const completionDate = new Date(w.completed_at);
+              const completionDateStr = format(completionDate, 'yyyy-MM-dd');
+              
+              // Match by exact date OR by cycle week (for same workout day in same week)
+              return completionDateStr === selectedDateStr || 
+                     (w.cycle_week === cycleWeek && w.workout_day === workoutDayIndex);
+            });
+            
+            if (matchingCompletion) {
+              isCompletedForThisDate = true;
+              completedWorkoutData = {
+                completedExercises: matchingCompletion.completed_exercises || 0,
+                duration: matchingCompletion.workout_duration || '00:00:00',
+                caloriesBurned: matchingCompletion.calories_burned || 0,
+                totalVolume: matchingCompletion.total_volume || 0,
+                totalReps: matchingCompletion.total_reps || 0,
+                completedAt: matchingCompletion.completed_at,
+                weekName: matchingCompletion.week_name || '',
+                cycleWeek: matchingCompletion.cycle_week || 1
+              };
+            }
+          }
+          
+          // Update workout completion state based on specific date check
+          setIsWorkoutCompleted(isCompletedForThisDate);
+          if (isCompletedForThisDate && completedWorkoutData) {
+            setCompletedWorkoutData(completedWorkoutData);
+            // Clear paused workout state for completed workouts
+            setHasPausedWorkout(false);
+            setPausedWorkout(null);
+          } else {
+            setCompletedWorkoutData(null);
+            
+            // If not completed, check for paused workout for this specific day
+            try {
+              const { data, error } = await supabase
+                .from('user_paused_workouts')
+                .select('*')
+                .eq('user_id', user.id)
+                .eq('plan_id', plan.id)
+                .eq('workout_day', workoutDayIndex)
+                .limit(1);
+              
+              if (!error && data && data.length > 0) {
+                const formattedPausedWorkout = {
+                  userId: data[0].user_id,
+                  planId: data[0].plan_id,
+                  workoutDay: data[0].workout_day,
+                  cycleWeek: data[0].cycle_week,
+                  weekName: data[0].week_name,
+                  exercises: data[0].exercises,
+                  exerciseSets: data[0].exercise_sets,
+                  workoutDuration: data[0].workout_duration,
+                  totalVolume: data[0].total_volume,
+                  totalReps: data[0].total_reps,
+                  currentExerciseIndex: data[0].current_exercise_index,
+                  originalCycleWeek: data[0].original_cycle_week,
+                  pausedAt: data[0].paused_at
+                };
+                
+                setPausedWorkout(formattedPausedWorkout);
+                setHasPausedWorkout(true);
+              } else {
+                setPausedWorkout(null);
+                setHasPausedWorkout(false);
+              }
+            } catch (error) {
+              console.error('Error checking for paused workout:', error);
+              setPausedWorkout(null);
+              setHasPausedWorkout(false);
+            }
+          }
+        } catch (error) {
+          console.error('Error checking workout completion for selected date:', error);
+          setIsWorkoutCompleted(false);
+          setCompletedWorkoutData(null);
+          setHasPausedWorkout(false);
+          setPausedWorkout(null);
+        }
+      }
+    } else {
+      // Not a workout day - reset everything
+      setActiveDay(null);
+      setIsWorkoutCompleted(false);
+      setCompletedWorkoutData(null);
+      setHasPausedWorkout(false);
+      setPausedWorkout(null);
+      setIsViewingLockedWeek(false);
+      setLockedWeekInfo(null);
+    }
+    
+    // Clear the flag after a short delay to allow effects to run normally again
+    setTimeout(() => {
+      setIsManualDateSelection(false);
+    }, 500);
+  }, [user?.id, plan?.id, userWorkoutDays, plan?.start_date, plan?.workoutDays?.length, cycleProgress]);
+  
+  const handleStartWorkout = async () => {
+    if (!plan || activeDay === null || !user) return;
+    
+    try {
+      // First check if workout is already completed
+      const isCompleted = await checkWorkoutCompletion();
+      
+      if (isCompleted) {
+        return; // Don't navigate, show completion info in the current screen
+      }
+      
+      // Check for any paused workouts in the plan
+      const { hasPaused, pausedWorkoutDay } = await checkForAnyPausedWorkout();
+      
+      // If there's a paused workout, show our custom modal instead of Alert
+      if (hasPaused && pausedWorkoutDay !== null) {
+        // Set the modal info and show it with 'start' mode
+        setPausedWorkoutInfo({
+          pausedDay: pausedWorkoutDay,
+          currentDay: activeDay,
+          mode: 'start'
+        });
+        setShowPausedWorkoutModal(true);
+        return;
+      }
+      
+      // No paused workout, proceed with starting a new workout
+      const cycleData = await workoutPlanService.getActivePlanWithCycleWeek(user.id, plan.id);
+      
+      if (!cycleData) {
+        throw new Error('Failed to get plan cycle data');
+      }
+      // Navigate to workout session
+      router.push({
+        pathname: '/(stack)/workout-session',
+        params: { 
+          planId: plan.id,
+          workoutDay: activeDay, // This is now 1-indexed (1, 2, 3)
+          cycleWeek: cycleData.currentWeek,
+          weekName: cycleData.weekName
+        }
+      });
+    } catch (err) {
+      // Error starting workout
+      Alert.alert('Error', 'Failed to start workout');
+    }
+  };
+  
+  // Function to check for paused workouts for any day in the current plan
+  const checkForAnyPausedWorkout = useCallback(async () => {
+    if (!user?.id || !plan?.id) return { hasPaused: false, pausedWorkoutDay: null };
+    
+    try {
+      // Query Supabase directly for any paused workouts for this plan
+      const { data, error } = await supabase
+        .from('user_paused_workouts')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id)
+        .order('paused_at', { ascending: false });
+      
+      if (error) {
+        console.error('Error checking for any paused workouts:', error);
+        return { hasPaused: false, pausedWorkoutDay: null };
+      }
+      
+      if (data && data.length > 0) {
+        // Found a paused workout for this plan
+        return { 
+          hasPaused: true, 
+          pausedWorkoutDay: data[0].workout_day, 
+          pausedWorkoutData: data[0] 
+        };
+      }
+      
+      return { hasPaused: false, pausedWorkoutDay: null };
+    } catch (error) {
+      console.error('Error in checkForAnyPausedWorkout:', error);
+      return { hasPaused: false, pausedWorkoutDay: null };
+    }
+  }, [user?.id, plan?.id]);
+
+  // Function to check for paused workouts (used in specific contexts)
+  const checkForPausedWorkout = useCallback(async (workoutDay?: number) => {
+    const dayToCheck = workoutDay || activeDay;
+    if (!user?.id || !plan?.id || dayToCheck === null) {
+      return false;
+    }
+    
+    try {
+      const { data, error } = await supabase
+        .from('user_paused_workouts')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id)
+        .eq('workout_day', dayToCheck)
+        .limit(1);
+      
+      if (error) {
+        console.error('Error checking for paused workout:', error);
+        return false;
+      }
+      
+      return data && data.length > 0;
+    } catch (error) {
+      console.error('Error checking for paused workout:', error);
+      return false;
+    }
+  }, [user?.id, plan?.id, activeDay]);
+
+  // CONSOLIDATED INITIALIZATION EFFECT
+  useEffect(() => {
+    const initializeData = async () => {
+      if (!user?.id) return;
+      
+      // First fetch user workout days
+      await fetchUserWorkoutDays();
+    };
+    
+    initializeData();
+  }, [user?.id]); // Only depend on user ID
+  
+  // CONSOLIDATED PLAN FETCH EFFECT
+  useEffect(() => {
+    if (user?.id && userWorkoutDays.length >= 0) {
+      fetchActivePlan();
+    }
+  }, [user?.id, userWorkoutDays.length]); // Removed fetchActivePlan to prevent infinite loop
+  
+  // CONSOLIDATED CALENDAR UPDATE EFFECT
+  useEffect(() => {
+    const updateCalendarData = async () => {
+      if (!plan?.id || !user?.id || userWorkoutDays.length === 0) return;
+      
+      // Skip if user just manually selected a date to prevent overriding the date-specific check
+      if (isManualDateSelection) return;
+      
+      try {
+        // Update calendar workout status (completed and paused workouts)
+        await updateCalendarWorkoutStatus();
+        
+        // If we have an active day, check its completion status using the same date-specific logic
+        if (activeDay !== null) {
+          const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+          
+          // Get the marked dates to understand the cycle week context
+          const markedDatesObj = workoutPlanService.setupCalendarDatesProgressive(
+            plan.start_date,
+            plan.workoutDays.length,
+            userWorkoutDays,
+            { primary: COLORS.primary }
+          );
+          
+          // Get the cycle week info for the selected date
+          const selectedDateInfo = markedDatesObj[selectedDateStr];
+          const cycleWeek = selectedDateInfo?.cycleWeek;
+          
+          // Check for completed workouts on this specific date and cycle week
+          const { data: completedWorkouts, error: completedError } = await supabase
+            .from('user_workout_history')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('plan_id', plan.id)
+            .eq('workout_day', activeDay);
+          
+          if (completedError) {
+            console.error('Error fetching completed workouts in effect:', completedError);
+          }
+          
+          // Check if there's a completion for this specific date/cycle week
+          let isCompletedForThisDate = false;
+          let completedWorkoutData = null;
+          
+          if (completedWorkouts && completedWorkouts.length > 0) {
+            // Look for a completion that matches this specific date or cycle week
+            const matchingCompletion = completedWorkouts.find((w: any) => {
+              const completionDate = new Date(w.completed_at);
+              const completionDateStr = format(completionDate, 'yyyy-MM-dd');
+              
+              // Match by exact date OR by cycle week (for same workout day in same week)
+              return completionDateStr === selectedDateStr || 
+                     (w.cycle_week === cycleWeek && w.workout_day === activeDay);
+            });
+            
+            if (matchingCompletion) {
+              isCompletedForThisDate = true;
+              completedWorkoutData = {
+                completedExercises: matchingCompletion.completed_exercises || 0,
+                duration: matchingCompletion.workout_duration || '00:00:00',
+                caloriesBurned: matchingCompletion.calories_burned || 0,
+                totalVolume: matchingCompletion.total_volume || 0,
+                totalReps: matchingCompletion.total_reps || 0,
+                completedAt: matchingCompletion.completed_at,
+                weekName: matchingCompletion.week_name || '',
+                cycleWeek: matchingCompletion.cycle_week || 1
+              };
+            }
+          }
+          
+          setIsWorkoutCompleted(isCompletedForThisDate);
+          if (isCompletedForThisDate && completedWorkoutData) {
+            setCompletedWorkoutData(completedWorkoutData);
+            setHasPausedWorkout(false);
+            setPausedWorkout(null);
+          } else {
+            setCompletedWorkoutData(null);
+            // Check for paused workout for this specific day
+            const hasPaused = await checkForPausedWorkout(activeDay);
+            if (hasPaused) {
+              // Fetch the paused workout data
+              const { data } = await supabase
+                .from('user_paused_workouts')
+                .select('*')
+                .eq('user_id', user.id)
+                .eq('plan_id', plan.id)
+                .eq('workout_day', activeDay)
+                .limit(1);
+              
+              if (data && data.length > 0) {
+                const formattedPausedWorkout = {
+                  userId: data[0].user_id,
+                  planId: data[0].plan_id,
+                  workoutDay: data[0].workout_day,
+                  cycleWeek: data[0].cycle_week,
+                  weekName: data[0].week_name,
+                  exercises: data[0].exercises,
+                  exerciseSets: data[0].exercise_sets,
+                  workoutDuration: data[0].workout_duration,
+                  totalVolume: data[0].total_volume,
+                  totalReps: data[0].total_reps,
+                  currentExerciseIndex: data[0].current_exercise_index,
+                  originalCycleWeek: data[0].original_cycle_week,
+                  pausedAt: data[0].paused_at
+                };
+                
+                setPausedWorkout(formattedPausedWorkout);
+                setHasPausedWorkout(true);
+              } else {
+                setHasPausedWorkout(false);
+                setPausedWorkout(null);
+              }
+            } else {
+              setHasPausedWorkout(false);
+              setPausedWorkout(null);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error updating calendar data:', err);
+      }
+    };
+    
+    // Only run this effect when we have all required data
+    if (plan?.id && user?.id && userWorkoutDays.length > 0) {
+      updateCalendarData();
+    }
+  }, [plan?.id, user?.id, userWorkoutDays.length, activeDay, selectedDate, isManualDateSelection]); // Added isManualDateSelection to dependencies
+  
+  // Clear paused workout state when workout is completed or conditions are not met
+  useEffect(() => {
+    if (isWorkoutCompleted || !user?.id || !plan?.id || activeDay === null) {
+      setHasPausedWorkout(false);
+      setPausedWorkout(null);
+    }
+  }, [activeDay, isWorkoutCompleted, user?.id, plan?.id]);
+
   if (isLoading) {
     return (
       <View style={[styles.container, styles.loadingContainer]}>
@@ -1195,18 +1464,6 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
             <Appbar.Content title="My Plan" />
           </Appbar.Header>
         )}
-        
-        {/* Show Calendar even when no plan */}
-        <MyPlanCalendar
-          plan={null}
-          user={user}
-          userWorkoutDays={userWorkoutDays}
-          onDateSelect={handleCalendarDateSelect}
-          completedWorkoutDays={[]}
-          pausedWorkoutDays={[]}
-          embedded={embedded}
-          initialSelectedDate={selectedDate}
-        />
         
         <View style={styles.noPlanContainer}>
           <View style={styles.noPlanCardWrapper}>
@@ -1277,6 +1534,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         pausedWorkoutDays={pausedWorkoutDays}
         embedded={embedded}
         initialSelectedDate={selectedDate}
+        cycleProgress={cycleProgress}
       />
       
       {/* Scrollable Content */}
@@ -1291,7 +1549,10 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         ]}
       >
         {/* Workout Content - Show different UI based on completion status */}
-        {activeDay !== null && getWorkoutDayByNumber(activeDay) ? (
+        {isViewingLockedWeek ? (
+          /* Locked Week View */
+          <LockedWeekComponent />
+        ) : activeDay !== null && getWorkoutDayByNumber(activeDay) ? (
           isWorkoutCompleted ? (
             /* Workout Completed View */
             <View style={styles.completedWorkoutContainer}>
@@ -1374,6 +1635,62 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
                     : `${format(selectedDate, 'EEEE').toUpperCase()} WORKOUT`}
                 </Text>
                 <Text style={styles.workoutName}>{plan.subtitle || "Unknown"}</Text>
+                
+                {/* Cycle Week Information */}
+                {cycleProgress && (
+                  <View style={styles.cycleWeekContainer}>
+                    <View style={styles.cycleWeekCard}>
+                      {/* Header with Week Badge and Title */}
+                      <View style={styles.cycleCardHeader}>
+                        <View style={styles.cycleWeekBadge}>
+                          <Text style={styles.cycleWeekBadgeText}>W{cycleProgress.currentWeek}</Text>
+                          <Text style={styles.cycleWeekSubtext}>of 5</Text>
+                        </View>
+                        <View style={styles.cycleTitleSection}>
+                          <Text style={styles.cycleWeekName}>{cycleProgress.weekName}</Text>
+                          <Text style={styles.cyclePhaseLabel}>Training Phase</Text>
+                        </View>
+                      </View>
+                      
+                      {/* Description */}
+                      <Text style={styles.cycleWeekDescription}>
+                        {cycleProgress.weekDescription}
+                      </Text>
+                      
+                      {/* Progress Section */}
+                      <View style={styles.cycleProgressSection}>
+                        <View style={styles.progressHeader}>
+                          <Text style={styles.progressTitle}>Week Progress</Text>
+                          <View style={styles.progressStats}>
+                            <Text style={styles.progressNumber}>
+                              {cycleProgress.completedWorkouts}
+                            </Text>
+                            <Text style={styles.progressDivider}>/</Text>
+                            <Text style={styles.progressTotal}>
+                              {cycleProgress.totalWorkoutsInCycle}
+                            </Text>
+                            <Text style={styles.progressLabel}>workouts</Text>
+                          </View>
+                        </View>
+                        
+                        {/* Progress Bar */}
+                        <View style={styles.cycleProgressBarContainer}>
+                          <View style={styles.cycleProgressBarTrack}>
+                            <View 
+                              style={[
+                                styles.cycleProgressBarFill, 
+                                { width: `${Math.min(100, cycleProgress.progressPercentage)}%` }
+                              ]} 
+                            />
+                          </View>
+                          <Text style={styles.cycleProgressPercentage}>
+                            {Math.round(cycleProgress.progressPercentage)}%
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                )}
               </View>
               
               {/* Workout Stats and Exercises Container */}
@@ -1417,7 +1734,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       </ScrollView>
       
       {/* Start/Resume/Redo Workout FAB */}
-      {activeDay !== null && getWorkoutDayByNumber(activeDay) && (
+      {activeDay !== null && getWorkoutDayByNumber(activeDay) && !isViewingLockedWeek && (
         isWorkoutCompleted ? (
           <Button
             mode="contained"
@@ -1623,7 +1940,7 @@ const styles = StyleSheet.create({
     borderRadius: BORDER_RADIUS.md,
     marginHorizontal: SPACING.md,
     marginBottom: SPACING.md,
-    paddingTop: SPACING.md,
+    paddingTop: 0,
     paddingBottom: SPACING.xs,
     overflow: 'hidden',
     borderWidth: 0.5,
@@ -2156,5 +2473,281 @@ const styles = StyleSheet.create({
   },
   muscleTagTextGreyed: {
     color: 'rgba(255, 255, 255, 0.5)',
+  },
+  cycleWeekHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: SPACING.sm,
+    width: '100%',
+  },
+  cycleWeekBadge: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    borderRadius: BORDER_RADIUS.md,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 1 }, // Reduced shadow
+    shadowOpacity: 0.2, // Reduced shadow opacity
+    shadowRadius: 2, // Reduced shadow radius
+    elevation: 2, // Reduced elevation
+    minWidth: 45, // Slightly smaller
+    alignItems: 'center',
+  },
+  cycleWeekBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 13, // Reduced from 14
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  cycleWeekSubtext: {
+    color: '#FFFFFF',
+    fontSize: 9, // Reduced from 10
+    fontWeight: '400',
+    opacity: 0.8,
+    marginTop: -2,
+  },
+  cycleTitleSection: {
+    marginLeft: SPACING.sm, // Reduced from SPACING.md
+    marginRight: 0, // Remove right margin since we're centering
+  },
+  cycleWeekName: {
+    color: COLORS.text,
+    fontSize: 16, // Reduced from 18
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    marginBottom: 1, // Reduced from 2
+  },
+  cyclePhaseLabel: {
+    color: COLORS.text,
+    fontSize: 10, // Reduced from 11
+    fontWeight: '500',
+    opacity: 0.6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  cycleWeekDescription: {
+    color: COLORS.text,
+    fontSize: 12, // Reduced from 13
+    fontWeight: '400',
+    opacity: 0.8,
+    lineHeight: 16, // Reduced from 18
+    textAlign: 'center',
+    marginBottom: SPACING.sm, // Reduced from SPACING.md
+    paddingHorizontal: SPACING.xs,
+  },
+  cycleProgressSection: {
+    width: '100%',
+    marginTop: 0, // Reduced from SPACING.xs
+  },
+  progressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: SPACING.xs, // Reduced from SPACING.sm
+    width: '100%',
+  },
+  progressTitle: {
+    color: COLORS.text,
+    fontSize: 13, // Reduced from 14
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  progressStats: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  progressNumber: {
+    color: COLORS.primary,
+    fontSize: 15, // Reduced from 16
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  progressDivider: {
+    color: COLORS.text,
+    fontSize: 13, // Reduced from 14
+    fontWeight: '400',
+    opacity: 0.6,
+    marginHorizontal: 2,
+  },
+  progressTotal: {
+    color: COLORS.text,
+    fontSize: 15, // Reduced from 16
+    fontWeight: '500',
+    opacity: 0.8,
+  },
+  progressLabel: {
+    color: COLORS.text,
+    fontSize: 10, // Reduced from 11
+    fontWeight: '500',
+    opacity: 0.7,
+    marginLeft: SPACING.xs,
+  },
+  cycleProgressBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginTop: SPACING.xs,
+  },
+  cycleProgressBarTrack: {
+    flex: 1,
+    height: 5, // Reduced from 6
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: 2.5, // Adjusted for new height
+    overflow: 'hidden',
+  },
+  cycleProgressBarFill: {
+    height: '100%',
+    backgroundColor: COLORS.primary,
+    borderRadius: 2.5, // Adjusted for new height
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3, // Reduced shadow opacity
+    shadowRadius: 1, // Reduced shadow radius
+  },
+  cycleProgressPercentage: {
+    color: COLORS.primary,
+    fontSize: 11, // Reduced from 12
+    fontWeight: '600',
+    marginLeft: SPACING.sm,
+    minWidth: 30, // Reduced from 35
+    textAlign: 'right',
+  },
+  cycleWeekContainer: {
+    marginBottom: -20, // Removed margin for tightest spacing
+  },
+  cycleWeekCard: {
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md, // Reduced from SPACING.lg
+    marginHorizontal: SPACING.md,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 }, // Reduced shadow
+    shadowOpacity: 0.2, // Reduced shadow opacity
+    shadowRadius: 4, // Reduced shadow radius
+    elevation: 3, // Reduced elevation
+    overflow: 'hidden', // Match workoutContainer overflow
+  },
+  cycleCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center', // Changed from default to center
+    marginBottom: SPACING.sm, // Reduced from SPACING.md
+    width: '100%',
+  },
+  // Locked Week Styles
+  lockedWeekContainer: {
+    padding: SPACING.md,
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.md,
+    marginHorizontal: SPACING.md,
+    marginBottom: SPACING.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 152, 0, 0.3)',
+  },
+  lockedWeekHeader: {
+    alignItems: 'center',
+    marginBottom: SPACING.lg,
+  },
+  lockedIconContainer: {
+    backgroundColor: 'rgba(255, 152, 0, 0.15)',
+    padding: SPACING.md,
+    borderRadius: 50,
+    marginBottom: SPACING.md,
+  },
+  lockedWeekTitle: {
+    color: COLORS.text,
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: SPACING.xs,
+    textAlign: 'center',
+  },
+  lockedWeekSubtitle: {
+    color: '#FF9800',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  lockedWeekContent: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  lockedWeekMessage: {
+    color: COLORS.text,
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: SPACING.lg,
+    lineHeight: 22,
+  },
+  lockedWeekProgress: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    padding: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
+    marginBottom: SPACING.lg,
+    width: '100%',
+    alignItems: 'center',
+  },
+  lockedProgressTitle: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: SPACING.sm,
+  },
+  lockedProgressInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  currentWeekBadge: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    borderRadius: BORDER_RADIUS.md,
+    marginRight: SPACING.sm,
+  },
+  currentWeekBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  lockedProgressText: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  lockedWeekTips: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    padding: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
+    marginBottom: SPACING.lg,
+    width: '100%',
+  },
+  lockedTipsTitle: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: SPACING.sm,
+    textAlign: 'center',
+  },
+  lockedTip: {
+    color: COLORS.text,
+    fontSize: 14,
+    marginBottom: SPACING.xs,
+    lineHeight: 20,
+  },
+  backToCurrentWeekButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
+    marginTop: SPACING.sm,
+  },
+  backToCurrentWeekText: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: SPACING.xs,
   },
 }); 

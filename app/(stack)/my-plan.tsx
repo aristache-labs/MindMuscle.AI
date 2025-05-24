@@ -889,7 +889,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
           {exerciseState === 'completed' && (
             <View style={styles.exerciseOverlay}>
               <View style={styles.completedIconContainer}>
-                <View style={{ opacity: 0.85 }}>
+                <View style={{ opacity: 1 }}>
                   <Icon source="check" size={24} color="#fff" />
                 </View>
               </View>
@@ -900,7 +900,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
           {exerciseState === 'ongoing' && (
             <View style={styles.exerciseOverlay}>
               <View style={styles.ongoingIconContainer}>
-                <View style={{ opacity: 0.85 }}>
+                <View style={{ opacity: 1 }}>
                   <Icon source="pause" size={22} color="#FFFFFF" />
                 </View>
               </View>
@@ -1388,56 +1388,84 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         }
       ]}>
         <View style={styles.weekDaysRow}>
-          {weekDays.map((day, index) => (
-            <TouchableOpacity 
-              key={index} 
-              style={[
-                styles.weekDay, 
-                isSelected(day) && styles.selectedWeekDay
-              ]}
-              onPress={() => handleWeekDayPress(day)}
-            >
-              <View style={styles.weekDayContent}>
-                <Text style={[
-                  styles.weekDayText, 
-                  isSelected(day) && styles.selectedWeekDayText
-                ]}>
-                  {getDayAbbreviation(day)}
-                </Text>
-                <Text style={[
-                  styles.weekDayNumber, 
-                  isSelected(day) && styles.selectedWeekDayText
-                ]}>
-                  {format(day, 'd')}
-                </Text>
-              </View>
-              {/* Add an indicator for workout days */}
-              {markedDates[format(day, 'yyyy-MM-dd')]?.marked && (
-                completedWorkoutDays.includes(format(day, 'yyyy-MM-dd')) ? (
-                  <View style={isSelected(day) ? styles.selectedCheckIconContainer : styles.checkIconContainer}>
-                    <Icon 
-                      source="check-circle" 
-                      size={14} 
-                      color={isSelected(day) ? COLORS.text : COLORS.primary} 
-                    />
-                  </View>
-                ) : pausedWorkoutDays.includes(format(day, 'yyyy-MM-dd')) ? (
-                  <View style={isSelected(day) ? styles.selectedPauseIconContainer : styles.pauseIconContainer}>
-                    <Icon 
-                      source="pause-circle" 
-                      size={14} 
-                      color={isSelected(day) ? COLORS.text : '#FF9800'} 
-                    />
-                  </View>
-                ) : (
-                  <View style={[
-                    styles.dayIndicator,
-                    isSelected(day) && styles.selectedDayIndicator
-                  ]} />
-                )
-              )}
-            </TouchableOpacity>
-          ))}
+          {weekDays.map((day, index) => {
+            const dayStr = format(day, 'yyyy-MM-dd');
+            const hasWorkout = markedDates[dayStr]?.marked;
+            const isCompleted = completedWorkoutDays.includes(dayStr);
+            const isPaused = pausedWorkoutDays.includes(dayStr);
+            const hasIndicator = hasWorkout || isCompleted || isPaused;
+            
+            return (
+              <TouchableOpacity 
+                key={index} 
+                style={[
+                  styles.weekDay, 
+                  isSelected(day) && (hasIndicator ? styles.selectedWeekDay : styles.selectedWeekDayCompact)
+                ]}
+                onPress={() => handleWeekDayPress(day)}
+              >
+                <View style={styles.weekDayContent}>
+                  <Text style={[
+                    styles.weekDayText, 
+                    isSelected(day) && styles.selectedWeekDayText
+                  ]}>
+                    {getDayAbbreviation(day)}
+                  </Text>
+                  <Text style={[
+                    styles.weekDayNumber, 
+                    isSelected(day) && styles.selectedWeekDayText
+                  ]}>
+                    {format(day, 'd')}
+                  </Text>
+                </View>
+                {/* Add an indicator for workout days */}
+                {hasWorkout && (
+                  isCompleted ? (
+                    <View style={isSelected(day) ? styles.selectedCheckIconContainer : styles.checkIconContainer}>
+                      {isSelected(day) ? (
+                        <Icon 
+                          source="check-circle" 
+                          size={14} 
+                          color={COLORS.text} 
+                        />
+                      ) : (
+                        <View style={styles.calendarIconBackground}>
+                          <Icon 
+                            source="check" 
+                            size={10} 
+                            color="#FFFFFF" 
+                          />
+                        </View>
+                      )}
+                    </View>
+                  ) : isPaused ? (
+                    <View style={isSelected(day) ? styles.selectedPauseIconContainer : styles.pauseIconContainer}>
+                      {isSelected(day) ? (
+                        <Icon 
+                          source="pause-circle" 
+                          size={14} 
+                          color={COLORS.text} 
+                        />
+                      ) : (
+                        <View style={styles.calendarPauseIconBackground}>
+                          <Icon 
+                            source="pause" 
+                            size={10} 
+                            color="#FFFFFF" 
+                          />
+                        </View>
+                      )}
+                    </View>
+                  ) : (
+                    <View style={[
+                      styles.dayIndicator,
+                      isSelected(day) && styles.selectedDayIndicator
+                    ]} />
+                  )
+                )}
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
       
@@ -1806,6 +1834,13 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     height: 75,
     justifyContent: 'flex-start',
+  },
+  selectedWeekDayCompact: {
+    backgroundColor: COLORS.primary,
+    elevation: 5,
+    paddingTop: 0,
+    height: 68, // Same as regular weekDay height
+    justifyContent: 'center', // Center content when no indicators
   },
   weekDayContent: {
     alignItems: 'center',
@@ -2418,112 +2453,9 @@ const styles = StyleSheet.create({
     marginTop: SPACING.xs,
     opacity: 0.9,
   },
-  exerciseCardCompleted: {
-    backgroundColor: 'rgba(123, 105, 238, 0.15)', // Subtle purple background matching primary color
-    borderWidth: 1.5,
-    borderColor: 'rgba(123, 105, 238, 0.4)', // Purple border
-    borderRadius: BORDER_RADIUS.lg, // More rounded corners for premium look
-    opacity: 0.85, // Slightly faded to show completion
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 2,
-    marginVertical: SPACING.xs, // Add vertical spacing
-  },
-  exerciseCardOngoing: {
-    backgroundColor: 'rgba(255, 152, 0, 0.08)', // Much more subtle orange background
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 152, 0, 0.3)', // Softer orange border
-    borderRadius: BORDER_RADIUS.lg, // More rounded corners for premium look
-    shadowColor: '#FF9800',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 2,
-    marginVertical: SPACING.xs, // Add vertical spacing
-    // Remove the transform scale as it might look jarring
-  },
-  exerciseImageCompleted: {
-    borderRadius: BORDER_RADIUS.lg, // More rounded corners
-    opacity: 0.8, // Less faded for better visibility
-  },
-  exerciseNameCompleted: {
-    color: COLORS.primary, // Use primary color instead of green
-    fontWeight: 'bold',
-    opacity: 0.9,
-  },
-  exerciseSetsCompleted: {
-    color: COLORS.primary, // Use primary color instead of green
-    opacity: 0.8,
-    fontWeight: '500',
-  },
-  muscleTagCompleted: {
-    backgroundColor: COLORS.primary, // Use primary color instead of green
-    opacity: 0.9,
-    borderRadius: 25, // More rounded for premium look
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.3,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  muscleTagTextCompleted: {
-    color: COLORS.background,
-    fontWeight: 'bold',
-  },
-  exerciseNameOngoing: {
-    color: '#FFB74D', // Softer, more muted orange
-    fontWeight: 'bold',
-    opacity: 0.95,
-  },
-  exerciseSetsOngoing: {
-    color: '#FFB74D', // Softer, more muted orange
-    fontWeight: '500',
-    opacity: 0.85,
-  },
-  exerciseStatusIconContainer: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    borderRadius: BORDER_RADIUS.md,
-    padding: 2,
-  },
-  checkmarkCircleSmall: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: COLORS.primary, // Use primary color instead of green
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  playCircleSmall: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#FFB74D', // Softer orange to match text
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#FFB74D',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 2,
-  },
   exerciseDivider: {
     height: 1,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    marginVertical: SPACING.xs,
-  },
-  exerciseDividerAfterOngoing: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)', // Same color as regular dividers
-    height: 1, // Slightly thicker for ongoing exercise
     marginVertical: SPACING.xs,
   },
   exerciseOverlay: {
@@ -2538,7 +2470,7 @@ const styles = StyleSheet.create({
     borderRadius: BORDER_RADIUS.sm,
   },
   completedIconContainer: {
-    backgroundColor: 'rgba(76, 175, 80, 0.9)', // Green with opacity
+    backgroundColor: 'rgba(76, 175, 79, 0.6)', // Green with opacity
     borderRadius: 30,
     padding: SPACING.md,
     width: 60,
@@ -2551,11 +2483,11 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 6, // Reduced elevation
     borderWidth: 0.5, // Reduced border width
-    borderColor: 'rgba(255, 255, 255, 0.6)', // More transparent border
+    borderColor: 'rgba(255, 255, 255, 0.2)', // More transparent border
     opacity: 0.95, // Overall opacity for the container
   },
   ongoingIconContainer: {
-    backgroundColor: 'rgba(255, 152, 0, 0.9)', // Orange with opacity
+    backgroundColor: 'rgba(255, 152, 0, 0.6)', // Orange with opacity
     borderRadius: 30,
     padding: SPACING.md,
     width: 60,
@@ -2568,7 +2500,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 6, // Reduced elevation
     borderWidth: 0.5, // Reduced border width
-    borderColor: 'rgba(255, 255, 255, 0.6)', // More transparent border
+    borderColor: 'rgba(255, 255, 255, 0.2)', // More transparent border
     opacity: 0.95, // Overall opacity for the container
   },
   exerciseTextGreyed: {
@@ -2591,5 +2523,31 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  calendarIconBackground: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  calendarPauseIconBackground: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#FF9800',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
 }); 

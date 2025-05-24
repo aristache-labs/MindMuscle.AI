@@ -15,36 +15,51 @@ export default function RegisterScreen() {
   const { signUp, isLoading, error, clearError } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [validationError, setValidationError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({
+    fullName: '',
+    email: '',
+    password: '',
+    confirmPassword: ''
+  });
   
   // Add focus states for each input
   const [focusedInput, setFocusedInput] = useState('');
 
   const validateInputs = () => {
+    const errors = {
+      fullName: '',
+      email: '',
+      password: '',
+      confirmPassword: ''
+    };
+
     if (!fullName.trim()) {
-      setValidationError('Full name is required');
-      return false;
+      errors.fullName = 'Full name is required';
     }
     if (!email.trim()) {
-      setValidationError('Email is required');
-      return false;
+      errors.email = 'Email is required';
+    } else if (!/\S+@\S+\.\S+/.test(email)) {
+      errors.email = 'Please enter a valid email address';
     }
     if (!password.trim()) {
-      setValidationError('Password is required');
-      return false;
+      errors.password = 'Password is required';
+    } else if (password.length < 6) {
+      errors.password = 'Password should be at least 6 characters';
     }
-    if (password !== confirmPassword) {
-      setValidationError('Passwords do not match');
-      return false;
+    if (!confirmPassword.trim()) {
+      errors.confirmPassword = 'Please confirm your password';
+    } else if (password !== confirmPassword) {
+      errors.confirmPassword = 'Passwords do not match';
     }
-    if (!/\S+@\S+\.\S+/.test(email)) {
-      setValidationError('Please enter a valid email address');
-      return false;
-    }
-    return true;
+
+    setFieldErrors(errors);
+    return !Object.values(errors).some(error => error !== '');
   };
 
   const handleRegister = async () => {
+    // Clear any previous auth errors
+    clearError();
+    
     if (!validateInputs()) return;
 
     try {
@@ -54,11 +69,37 @@ export default function RegisterScreen() {
     }
   };
 
-  // Helper function to get error message
-  const getErrorMessage = () => {
-    if (validationError) return validationError;
-    if (error?.message) return error.message;
-    return '';
+  // Clear errors when user starts typing
+  const handleEmailChange = (text: string) => {
+    setEmail(text);
+    if (fieldErrors.email || error) {
+      setFieldErrors(prev => ({ ...prev, email: '' }));
+      clearError();
+    }
+  };
+
+  const handlePasswordChange = (text: string) => {
+    setPassword(text);
+    if (fieldErrors.password || error) {
+      setFieldErrors(prev => ({ ...prev, password: '' }));
+      clearError();
+    }
+  };
+
+  const handleConfirmPasswordChange = (text: string) => {
+    setConfirmPassword(text);
+    if (fieldErrors.confirmPassword || error) {
+      setFieldErrors(prev => ({ ...prev, confirmPassword: '' }));
+      clearError();
+    }
+  };
+
+  const handleFullNameChange = (text: string) => {
+    setFullName(text);
+    if (fieldErrors.fullName || error) {
+      setFieldErrors(prev => ({ ...prev, fullName: '' }));
+      clearError();
+    }
   };
 
   return (
@@ -83,7 +124,7 @@ export default function RegisterScreen() {
                 mode="flat"
                 placeholder="Full Name"
                 value={fullName}
-                onChangeText={setFullName}
+                onChangeText={handleFullNameChange}
                 autoCapitalize="words"
                 autoComplete="name"
                 textContentType="name"
@@ -105,23 +146,21 @@ export default function RegisterScreen() {
                 left={<TextInput.Icon icon="account" color={focusedInput === 'fullName' ? COLORS.primary : '#fff'} />}
                 onFocus={() => setFocusedInput('fullName')}
                 onBlur={() => setFocusedInput('')}
-                error={!!error || !!validationError}
                 disabled={isLoading}
               />
             </View>
-
-            {(error || validationError) && (
+            {fieldErrors.fullName ? (
               <HelperText type="error" style={styles.errorText}>
-                {getErrorMessage()}
+                {fieldErrors.fullName}
               </HelperText>
-            )}
+            ) : null}
 
             <View style={[styles.inputContainer, focusedInput === 'email' && styles.inputContainerFocused]}>
               <TextInput
                 mode="flat"
                 placeholder="Email"
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={handleEmailChange}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoComplete="email"
@@ -143,15 +182,21 @@ export default function RegisterScreen() {
                 }}
                 onFocus={() => setFocusedInput('email')}
                 onBlur={() => setFocusedInput('')}
+                disabled={isLoading}
               />
             </View>
+            {fieldErrors.email ? (
+              <HelperText type="error" style={styles.errorText}>
+                {fieldErrors.email}
+              </HelperText>
+            ) : null}
 
             <View style={[styles.inputContainer, focusedInput === 'password' && styles.inputContainerFocused]}>
               <TextInput
                 mode="flat"
                 placeholder="Password"
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={handlePasswordChange}
                 secureTextEntry={!showPassword}
                 autoComplete="new-password"
                 textContentType="newPassword"
@@ -179,15 +224,21 @@ export default function RegisterScreen() {
                 }}
                 onFocus={() => setFocusedInput('password')}
                 onBlur={() => setFocusedInput('')}
+                disabled={isLoading}
               />
             </View>
+            {fieldErrors.password ? (
+              <HelperText type="error" style={styles.errorText}>
+                {fieldErrors.password}
+              </HelperText>
+            ) : null}
 
             <View style={[styles.inputContainer, focusedInput === 'confirmPassword' && styles.inputContainerFocused]}>
               <TextInput
                 mode="flat"
                 placeholder="Confirm Password"
                 value={confirmPassword}
-                onChangeText={setConfirmPassword}
+                onChangeText={handleConfirmPasswordChange}
                 secureTextEntry={!showConfirmPassword}
                 autoComplete="new-password"
                 textContentType="newPassword"
@@ -215,8 +266,20 @@ export default function RegisterScreen() {
                 }}
                 onFocus={() => setFocusedInput('confirmPassword')}
                 onBlur={() => setFocusedInput('')}
+                disabled={isLoading}
               />
             </View>
+            {fieldErrors.confirmPassword ? (
+              <HelperText type="error" style={styles.errorText}>
+                {fieldErrors.confirmPassword}
+              </HelperText>
+            ) : null}
+
+            {error && (
+              <HelperText type="error" style={styles.errorText}>
+                {error.message}
+              </HelperText>
+            )}
 
             <View style={styles.rememberContainer}>
               <View style={styles.checkboxContainer}>
@@ -389,6 +452,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   errorText: {
-    marginBottom: SPACING.xs,
+    marginTop: -25,
+    marginBottom: 4,
+    marginLeft: 4,
   },
 }); 

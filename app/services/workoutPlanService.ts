@@ -175,9 +175,13 @@ export const getUserWorkoutDays = async (userId: string): Promise<number[]> => {
       .from('user_profile_details')
       .select('workout_days')
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
       
-    if (error) throw error;
+    if (error) {
+      console.error('Error fetching user workout days:', error);
+      // Default to Tuesday, Thursday, Sunday if error
+      return [3, 5, 1];
+    }
     
     if (data && data.workout_days) {
       // Use the database function to convert workout days to numeric format

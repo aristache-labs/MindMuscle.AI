@@ -663,9 +663,6 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
               setCompletedWorkoutDays(completedDates);
             }
             
-            // Update paused workout days for calendar indicators
-            await updatePausedWorkoutDays();
-            
             // Update workout completion state
             setIsWorkoutCompleted(isCompleted);
             if (isCompleted && completedWorkoutData) {
@@ -703,6 +700,10 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
               setCompletedWorkoutDays(completedDates);
             }
           }
+          
+          // CRITICAL FIX: Always update paused workout days for calendar indicators
+          // This should happen regardless of activeDay state to ensure paused icons show on initial load
+          await updatePausedWorkoutDays();
           
           // Mark that we've refreshed the calendar
           setHasRefreshedCalendar(true);

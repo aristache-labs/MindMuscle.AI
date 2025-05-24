@@ -50,11 +50,12 @@ class FirebaseAvatarService {
         .from('user_profile_details')
         .select('avatar_url')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
       if (profileError) {
         console.error('Error fetching user profile details:', profileError);
         // No need to throw, we'll just return null
+        return null;
       }
 
       if (profileData?.avatar_url) {
@@ -188,9 +189,9 @@ class FirebaseAvatarService {
         .from('user_profile_details')
         .select('id')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
         
-      if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 is "no rows returned" error
+      if (fetchError) {
         console.error('Error fetching user profile details:', fetchError);
       }
       

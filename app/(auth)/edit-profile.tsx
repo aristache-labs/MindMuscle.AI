@@ -287,7 +287,7 @@ export default function EditProfileScreen() {
           .from('user_profile_details')
           .select('preferred_weight_unit, preferred_height_unit, weight_kg, height_cm')
           .eq('user_id', user.id)
-          .single();
+          .maybeSingle();
 
         if (!error && data) {
           setWeightUnit(data.preferred_weight_unit || 'KG');
@@ -299,6 +299,8 @@ export default function EditProfileScreen() {
             weight: data.weight_kg?.toString() || prev.weight,
             height: data.height_cm?.toString() || prev.height
           }));
+        } else if (error) {
+          console.error('Error loading user preferences:', error);
         }
       } catch (error) {
         console.error('Error loading user data:', error);

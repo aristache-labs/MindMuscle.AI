@@ -117,11 +117,10 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     try {
       setError(null);
       setIsLoading(true);
-      // Create a new Supabase client with the appropriate session persistence
-      const newClient = createSupabaseClient(rememberMe);
-      setSupabase(newClient);
-
-      const response = await newClient.auth.signInWithPassword({
+      
+      // Always persist session for login functionality
+      // The rememberMe parameter only affects credential storage, not session persistence
+      const response = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -133,7 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
         setError(response.error);
       } else {
         logger.info('User signed in successfully', { 
-          context: { email } 
+          context: { email, rememberMe } 
         });
         setError(null);
       }
@@ -161,11 +160,9 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       setError(null);
       setIsLoading(true);
       
-      // Create a new Supabase client with the appropriate session persistence
-      const newClient = createSupabaseClient(rememberMe);
-      setSupabase(newClient);
-      
-      const response = await newClient.auth.signUp({
+      // Always persist session for login functionality
+      // The rememberMe parameter only affects credential storage, not session persistence
+      const response = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -182,7 +179,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
         setError(response.error);
       } else {
         logger.info('User signed up successfully', { 
-          context: { email } 
+          context: { email, rememberMe } 
         });
         setError(null);
       }

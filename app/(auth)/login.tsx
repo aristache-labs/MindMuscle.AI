@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, KeyboardAvoidingView, Platform, Pressable, TouchableWithoutFeedback, Keyboard, ActivityIndicator } from 'react-native';
 import { TextInput, Text, Checkbox, HelperText } from 'react-native-paper';
 import { Link, router } from 'expo-router';
@@ -21,6 +21,7 @@ export default function LoginScreen() {
   const [validationError, setValidationError] = useState('');
   const [isLoadingCredentials, setIsLoadingCredentials] = useState(true);
   
+  const passwordInputRef = useRef<any>(null);
   const { signIn, isLoading, error, clearError, session } = useAuth();
 
   // Load saved credentials on component mount
@@ -207,9 +208,13 @@ export default function LoginScreen() {
                 onChangeText={setEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
-                autoComplete="email"
-                textContentType="emailAddress"
+                autoComplete="username"
+                textContentType="username"
                 importantForAutofill="yes"
+                autoCorrect={false}
+                spellCheck={false}
+                enablesReturnKeyAutomatically={true}
+                returnKeyType="next"
                 style={styles.input}
                 placeholderTextColor={focusedInput === 'email' ? COLORS.primary : '#fff'}
                 textColor={focusedInput === 'email' ? '#fff' : '#666'}
@@ -228,11 +233,13 @@ export default function LoginScreen() {
                 onBlur={() => setFocusedInput('')}
                 error={!!error || !!validationError}
                 disabled={isLoading}
+                onSubmitEditing={() => passwordInputRef.current?.focus()}
               />
             </View>
 
             <View style={[styles.inputContainer, focusedInput === 'password' && styles.inputContainerFocused]}>
               <TextInput
+                ref={passwordInputRef}
                 mode="flat"
                 placeholder="Password"
                 value={password}
@@ -241,6 +248,12 @@ export default function LoginScreen() {
                 autoComplete="current-password"
                 textContentType="password"
                 importantForAutofill="yes"
+                autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
+                enablesReturnKeyAutomatically={true}
+                returnKeyType="done"
+                passwordRules="minlength: 8;"
                 style={styles.input}
                 placeholderTextColor={focusedInput === 'password' ? COLORS.primary : '#fff'}
                 textColor={focusedInput === 'password' ? '#fff' : '#666'}
@@ -266,6 +279,7 @@ export default function LoginScreen() {
                 onBlur={() => setFocusedInput('')}
                 error={!!error || !!validationError}
                 disabled={isLoading}
+                onSubmitEditing={handleLogin}
               />
             </View>
 
@@ -276,16 +290,26 @@ export default function LoginScreen() {
             )}
 
             <View style={styles.rememberContainer}>
-              <View style={styles.checkboxContainer}>
-                <Checkbox.Android
-                  status={rememberMe ? 'checked' : 'unchecked'}
-                  onPress={() => handleRememberMeChange(!rememberMe)}
-                  color={COLORS.primary}
-                  uncheckedColor={COLORS.primary}
-                  disabled={isLoading}
-                />
+              <Pressable 
+                style={styles.checkboxContainer}
+                onPress={() => handleRememberMeChange(!rememberMe)}
+                disabled={isLoading}
+              >
+                <View style={[
+                  styles.customCheckbox,
+                  rememberMe && styles.customCheckboxChecked,
+                  isLoading && styles.customCheckboxDisabled
+                ]}>
+                  {rememberMe && (
+                    <Ionicons 
+                      name="checkmark" 
+                      size={16} 
+                      color="#fff" 
+                    />
+                  )}
+                </View>
                 <Text style={styles.rememberText}>Remember me</Text>
-              </View>
+              </Pressable>
             </View>
 
             <Pressable
@@ -394,6 +418,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  customCheckbox: {
+    width: 20,
+    height: 20,
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    borderRadius: 4,
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  customCheckboxChecked: {
+    backgroundColor: COLORS.primary,
+  },
+  customCheckboxDisabled: {
+    opacity: 0.5,
   },
   rememberText: {
     color: COLORS.text,

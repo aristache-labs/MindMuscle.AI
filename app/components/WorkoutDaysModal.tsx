@@ -114,8 +114,17 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
   // Convert legacy string array to numeric array
   const convertLegacyWorkoutDays = (legacyDays: string[]): number[] => {
     return legacyDays
-      .map(day => DAY_MAPPING[day as keyof typeof DAY_MAPPING])
-      .filter(dayNum => dayNum !== undefined)
+      .map(day => {
+        // Handle both string numbers and day names
+        if (/^\d+$/.test(day)) {
+          // If it's a string number, convert to number
+          return parseInt(day, 10);
+        } else {
+          // If it's a day name, use the mapping
+          return DAY_MAPPING[day as keyof typeof DAY_MAPPING];
+        }
+      })
+      .filter(dayNum => dayNum !== undefined && dayNum >= 1 && dayNum <= 7)
       .sort((a, b) => a - b);
   };
 
@@ -130,11 +139,11 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
           .eq('user_id', user.id)
           .single();
 
-        if (!error && data?.workout_days) {
+        if (!error && data) {
           let savedDays: number[] = [];
           
           // Handle both legacy string format and new numeric format
-          if (Array.isArray(data.workout_days)) {
+          if (data.workout_days && Array.isArray(data.workout_days)) {
             if (data.workout_days.length > 0) {
               if (typeof data.workout_days[0] === 'string') {
                 // Legacy format - convert to numeric
@@ -150,6 +159,9 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
                 savedDays = data.workout_days.sort((a: number, b: number) => a - b);
               }
             }
+          } else if (!data.workout_days) {
+            // No workout days set yet, initialize with empty array
+            savedDays = [];
           }
           
           setWorkoutDays(savedDays);
@@ -157,6 +169,9 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
           // Update AsyncStorage to keep in sync
           await AsyncStorage.setItem('workout-days-numeric', JSON.stringify(savedDays));
           return;
+        } else if (error && error.code !== 'PGRST116') {
+          // PGRST116 is "not found" error, which is expected for new users
+          console.error('Error loading workout days from database:', error);
         }
       }
 
@@ -164,7 +179,13 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
       // Try new numeric format first
       let savedDays = await AsyncStorage.getItem('workout-days-numeric');
       if (savedDays) {
-        setWorkoutDays(JSON.parse(savedDays));
+        const parsedDays = JSON.parse(savedDays);
+        setWorkoutDays(parsedDays);
+        
+        // If user is logged in, sync to database
+        if (user?.id && parsedDays.length > 0) {
+          await saveWorkoutDays(parsedDays, false);
+        }
         return;
       }
       
@@ -177,9 +198,19 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
         
         // Save in new format
         await AsyncStorage.setItem('workout-days-numeric', JSON.stringify(numericDays));
+        
+        // If user is logged in, sync to database
+        if (user?.id && numericDays.length > 0) {
+          await saveWorkoutDays(numericDays, false);
+        }
+      } else {
+        // No saved data found, initialize with empty array
+        setWorkoutDays([]);
       }
     } catch (error) {
       console.error('Failed to load workout days:', error);
+      // Initialize with empty array on error
+      setWorkoutDays([]);
     }
   };
 
@@ -316,18 +347,6 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
                           </View>
                         ))}
                       </View>
-                      
-                      {/* Debug info - remove in production */}
-                      {__DEV__ && (
-                        <View style={styles.debugContainer}>
-                          <Text style={styles.debugText}>
-                            Selected days (numeric): {JSON.stringify(workoutDays)}
-                          </Text>
-                          <Text style={styles.debugText}>
-                            Selected days (names): {workoutDays.map(num => REVERSE_DAY_MAPPING[num as keyof typeof REVERSE_DAY_MAPPING]).join(', ')}
-                          </Text>
-                        </View>
-                      )}
                     </View>
                   </View>
 
@@ -559,19 +578,5 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 14,
     lineHeight: 20,
-  },
-  debugContainer: {
-    marginTop: 16,
-    padding: 12,
-    backgroundColor: 'rgba(108, 71, 255, 0.1)',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(108, 71, 255, 0.3)',
-  },
-  debugText: {
-    color: COLORS.text,
-    fontSize: 12,
-    fontFamily: 'monospace',
-    marginBottom: 4,
   },
 }); 

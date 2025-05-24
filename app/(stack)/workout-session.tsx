@@ -26,6 +26,7 @@ interface ExerciseData {
   restTime?: number;
   order: number;
   workout_day: number;
+  requires_weight?: boolean; // Add this field to indicate if exercise requires weight
 }
 
 interface ExerciseSet {
@@ -141,7 +142,8 @@ export default function WorkoutSessionScreen() {
     try {
       const currentExercise = exercises[currentExerciseIndex];
       
-      if (currentExercise?.exercise_id) {
+      // Only fetch max weight data for exercises that require weight
+      if (currentExercise?.exercise_id && currentExercise.requires_weight !== false) {
         // Fetch trending data
         const trendingData = await workoutPlanService.fetchExerciseMaxWeightData(
           user.id, 
@@ -618,16 +620,22 @@ export default function WorkoutSessionScreen() {
       const newCompletedState = !currentSet.isCompleted;
       const wasNotCompletedBefore = !currentSet.isCompleted;
       
+      // Get the current exercise to check if it requires weight
+      const currentExercise = exercises.find(ex => ex.id === exerciseId);
+      const requiresWeight = currentExercise?.requires_weight !== false; // Default to true if not specified
+      
       // If the set is being marked as completed, add its volume and reps to totals
       if (newCompletedState) {
-        const weight = currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight);
+        const weight = requiresWeight ? (currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight)) : 0;
         const reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
-        const setVolume = parseFloat((weight * reps).toFixed(1)); // Ensure precision to 1 decimal place
+        const setVolume = requiresWeight ? parseFloat((weight * reps).toFixed(1)) : 0; // Only calculate volume if exercise requires weight
         
-        setTotalVolume(prev => {
-          const newTotal = parseFloat((prev + setVolume).toFixed(1));
-          return newTotal;
-        });
+        if (requiresWeight) {
+          setTotalVolume(prev => {
+            const newTotal = parseFloat((prev + setVolume).toFixed(1));
+            return newTotal;
+          });
+        }
         
         setTotalReps(prev => {
           const newTotal = prev + reps;
@@ -635,33 +643,42 @@ export default function WorkoutSessionScreen() {
         });
         
         // Store the last values for this exercise if they're valid
-        if (currentSet.weight !== '-' && currentSet.weight !== '' && currentSet.reps !== '-' && currentSet.reps !== '') {
+        if (currentSet.reps !== '-' && currentSet.reps !== '') {
+          const lastValues: any = { reps: currentSet.reps };
+          if (requiresWeight && currentSet.weight !== '-' && currentSet.weight !== '') {
+            lastValues.weight = currentSet.weight;
+          }
+          
           setLastExerciseValues(prev => ({
             ...prev,
-            [exerciseId]: { weight: currentSet.weight, reps: currentSet.reps }
+            [exerciseId]: lastValues
           }));
           
           // If this set is being completed, auto-fill the next set if it exists
           if (wasNotCompletedBefore && updatedSets.length > setIndex + 1) {
             const nextSet = updatedSets[setIndex + 1];
             // Only auto-fill if the next set doesn't already have values
-            if ((nextSet.weight === '' || nextSet.weight === '-') && 
-                (nextSet.reps === '' || nextSet.reps === '-')) {
+            const shouldAutoFillWeight = requiresWeight && (nextSet.weight === '' || nextSet.weight === '-');
+            const shouldAutoFillReps = (nextSet.reps === '' || nextSet.reps === '-');
+            
+            if (shouldAutoFillWeight || shouldAutoFillReps) {
               updatedSets[setIndex + 1] = {
                 ...nextSet,
-                weight: currentSet.weight,
-                reps: currentSet.reps
+                weight: shouldAutoFillWeight ? currentSet.weight : nextSet.weight,
+                reps: shouldAutoFillReps ? currentSet.reps : nextSet.reps
               };
             }
           }
         }
       } else {
         // If the set is being unmarked, subtract its volume and reps from totals
-        const weight = currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight);
+        const weight = requiresWeight ? (currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight)) : 0;
         const reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
-        const setVolume = parseFloat((weight * reps).toFixed(1)); // Ensure precision to 1 decimal place
+        const setVolume = requiresWeight ? parseFloat((weight * reps).toFixed(1)) : 0;
         
-        setTotalVolume(prev => Math.max(0, parseFloat((prev - setVolume).toFixed(1))));
+        if (requiresWeight) {
+          setTotalVolume(prev => Math.max(0, parseFloat((prev - setVolume).toFixed(1))));
+        }
         setTotalReps(prev => Math.max(0, prev - reps));
       }
       
@@ -696,12 +713,12 @@ export default function WorkoutSessionScreen() {
               // All exercises and all sets are completed, save the workout data
               
               // Calculate the latest volume and reps including the last set
-              const weight = currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight);
+              const weight = requiresWeight ? (currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight)) : 0;
               const reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
-              const setVolume = parseFloat((weight * reps).toFixed(1));
+              const setVolume = requiresWeight ? parseFloat((weight * reps).toFixed(1)) : 0;
               
               // Calculate the new totals including this last set
-              const newTotalVolume = parseFloat((totalVolume + setVolume).toFixed(1));
+              const newTotalVolume = requiresWeight ? parseFloat((totalVolume + setVolume).toFixed(1)) : totalVolume;
               const newTotalReps = totalReps + reps;
               
               // Pass the fresh values directly to completeWorkout
@@ -741,13 +758,19 @@ export default function WorkoutSessionScreen() {
       const updatedSets = [...prev[exerciseId]];
       const currentSet = updatedSets[setIndex];
       
+      // Get the current exercise to check if it requires weight
+      const currentExercise = exercises.find(ex => ex.id === exerciseId);
+      const requiresWeight = currentExercise?.requires_weight !== false; // Default to true if not specified
+      
       // If the set was completed, subtract its volume and reps from totals
       if (currentSet.isCompleted) {
-        const weight = currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight);
+        const weight = requiresWeight ? (currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight)) : 0;
         const reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
-        const setVolume = parseFloat((weight * reps).toFixed(1)); // Ensure precision to 1 decimal place
+        const setVolume = requiresWeight ? parseFloat((weight * reps).toFixed(1)) : 0;
         
-        setTotalVolume(prev => Math.max(0, parseFloat((prev - setVolume).toFixed(1))));
+        if (requiresWeight) {
+          setTotalVolume(prev => Math.max(0, parseFloat((prev - setVolume).toFixed(1))));
+        }
         setTotalReps(prev => Math.max(0, prev - reps));
       }
       
@@ -765,6 +788,10 @@ export default function WorkoutSessionScreen() {
     const sets = exerciseSets[exerciseId];
     if (!sets || sets.length === 0) return;
     
+    // Get the current exercise to check if it requires weight
+    const currentExercise = exercises.find(ex => ex.id === exerciseId);
+    const requiresWeight = currentExercise?.requires_weight !== false; // Default to true if not specified
+    
     // First, fill in any empty values with 0
     setExerciseSets(prev => {
       const updatedSets = { ...prev };
@@ -773,8 +800,8 @@ export default function WorkoutSessionScreen() {
       // Update any incomplete sets with empty values
       setsForExercise.forEach((set, index) => {
         if (!set.isCompleted) {
-          // Fill empty weight with 0
-          if (set.weight === '' || set.weight === '-') {
+          // Fill empty weight with 0 only if exercise requires weight
+          if (requiresWeight && (set.weight === '' || set.weight === '-')) {
             setsForExercise[index] = {
               ...set,
               weight: '0'
@@ -825,11 +852,13 @@ export default function WorkoutSessionScreen() {
               
               // Update volume and reps for the last set
               const lastSet = updatedSets[setIndex];
-              const weight = lastSet.weight === '-' || lastSet.weight === '' ? 0 : parseFloat(lastSet.weight);
+              const weight = requiresWeight ? (lastSet.weight === '-' || lastSet.weight === '' ? 0 : parseFloat(lastSet.weight)) : 0;
               const reps = lastSet.reps === '-' || lastSet.reps === '' ? 0 : parseFloat(lastSet.reps);
-              const setVolume = parseFloat((weight * reps).toFixed(1));
+              const setVolume = requiresWeight ? parseFloat((weight * reps).toFixed(1)) : 0;
               
-              setTotalVolume(prev => parseFloat((prev + setVolume).toFixed(1)));
+              if (requiresWeight) {
+                setTotalVolume(prev => parseFloat((prev + setVolume).toFixed(1)));
+              }
               setTotalReps(prev => prev + reps);
               
               // Start rest timer
@@ -1228,7 +1257,7 @@ export default function WorkoutSessionScreen() {
         </View>
         
         {/* Max Weight Progress Graph - separate container with small spacing */}
-        {currentExercise && (
+        {currentExercise && currentExercise.requires_weight !== false && (
           <View style={styles.maxWeightGraphContainer}>
             <ExerciseMaxWeightGraph
               data={maxWeightData[currentExercise.exercise_id] || []}
@@ -1271,23 +1300,28 @@ export default function WorkoutSessionScreen() {
                           {/* Weight and Reps Cell - both inputs in same cell */}
                           <View style={styles.weightRepsCell}>
                             <View style={styles.inputRow}>
-                              <View style={styles.inputContainer}>
-                                <TextInput
-                                  style={styles.inputField}
-                                  value={set.weight}
-                                  onChangeText={(value) => handleWeightChange(currentExercise.id, index, value)}
-                                  keyboardType="decimal-pad"
-                                  placeholder={focusedInputs[`${currentExercise.id}-${index}-weight`] ? '' : '-'}
-                                  placeholderTextColor="rgba(255,255,255,0.5)"
-                                  selectTextOnFocus={true}
-                                  onFocus={() => handleInputFocus(`${currentExercise.id}-${index}-weight`)}
-                                  onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-weight`)}
-                                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                                />
-                                <Text style={styles.activeSetValueUnit}>kg</Text>
-                              </View>
-                              
-                              <View style={styles.inputDivider} />
+                              {/* Only show weight input if exercise requires weight */}
+                              {currentExercise?.requires_weight !== false && (
+                                <>
+                                  <View style={styles.inputContainer}>
+                                    <TextInput
+                                      style={styles.inputField}
+                                      value={set.weight}
+                                      onChangeText={(value) => handleWeightChange(currentExercise.id, index, value)}
+                                      keyboardType="decimal-pad"
+                                      placeholder={focusedInputs[`${currentExercise.id}-${index}-weight`] ? '' : '-'}
+                                      placeholderTextColor="rgba(255,255,255,0.5)"
+                                      selectTextOnFocus={true}
+                                      onFocus={() => handleInputFocus(`${currentExercise.id}-${index}-weight`)}
+                                      onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-weight`)}
+                                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                    />
+                                    <Text style={styles.activeSetValueUnit}>kg</Text>
+                                  </View>
+                                  
+                                  <View style={styles.inputDivider} />
+                                </>
+                              )}
                               
                               <View style={styles.inputContainer}>
                                 <TextInput
@@ -1309,15 +1343,20 @@ export default function WorkoutSessionScreen() {
                             {(lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.weight || 
                               lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps) && (
                               <View style={styles.lastValuesRow}>
-                                <View style={styles.lastValueContainer}>
-                                  {lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.weight && (
-                                    <Text style={styles.activeSetSubValue}>
-                                      ( Last {lastExerciseValues[currentExercise.exercise_id][index + 1]?.weight} )
-                                    </Text>
-                                  )}
-                                </View>
+                                {/* Only show weight last value if exercise requires weight */}
+                                {currentExercise?.requires_weight !== false && (
+                                  <View style={styles.lastValueContainer}>
+                                    {lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.weight && (
+                                      <Text style={styles.activeSetSubValue}>
+                                        ( Last {lastExerciseValues[currentExercise.exercise_id][index + 1]?.weight} )
+                                      </Text>
+                                    )}
+                                  </View>
+                                )}
                                 
-                                <View style={styles.lastValueSpacer} />
+                                {currentExercise?.requires_weight !== false && (
+                                  <View style={styles.lastValueSpacer} />
+                                )}
                                 
                                 <View style={styles.lastValueContainer}>
                                   {lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps && (
@@ -1335,7 +1374,11 @@ export default function WorkoutSessionScreen() {
 
                           {/* Label Cell */}
                           <View style={styles.labelCell}>
-                            <Text style={styles.activeSetLabel}>Weight of bar + plates</Text>
+                            <Text style={styles.activeSetLabel}>
+                              {currentExercise?.requires_weight !== false 
+                                ? "Weight of bar + plates" 
+                                : "Bodyweight exercise - reps only"}
+                            </Text>
                           </View>
                         </View>
 
@@ -1358,23 +1401,28 @@ export default function WorkoutSessionScreen() {
                       {/* Left Cell: Weight and Reps inputs */}
                       <View style={styles.inactiveLeftCell}>
                         <View style={styles.inactiveInputRow}>
-                          <View style={styles.inputContainer}>
-                            <TextInput
-                              style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
-                              value={set.weight}
-                              onChangeText={(value) => handleWeightChange(currentExercise.id, index, value)}
-                              keyboardType="decimal-pad"
-                              placeholder={focusedInputs[`${currentExercise.id}-${index}-weight`] ? '' : '-'}
-                              placeholderTextColor="rgba(255,255,255,0.5)"
-                              selectTextOnFocus={true}
-                              onFocus={() => handleInputFocus(`${currentExercise.id}-${index}-weight`)}
-                              onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-weight`)}
-                              editable={!isCompleted}
-                            />
-                            <Text style={styles.suggestedUnit}>kg</Text>
-                          </View>
-                          
-                          <View style={styles.inactiveInputDivider} />
+                          {/* Only show weight input if exercise requires weight */}
+                          {currentExercise?.requires_weight !== false && (
+                            <>
+                              <View style={styles.inputContainer}>
+                                <TextInput
+                                  style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
+                                  value={set.weight}
+                                  onChangeText={(value) => handleWeightChange(currentExercise.id, index, value)}
+                                  keyboardType="decimal-pad"
+                                  placeholder={focusedInputs[`${currentExercise.id}-${index}-weight`] ? '' : '-'}
+                                  placeholderTextColor="rgba(255,255,255,0.5)"
+                                  selectTextOnFocus={true}
+                                  onFocus={() => handleInputFocus(`${currentExercise.id}-${index}-weight`)}
+                                  onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-weight`)}
+                                  editable={!isCompleted}
+                                />
+                                <Text style={styles.suggestedUnit}>kg</Text>
+                              </View>
+                              
+                              <View style={styles.inactiveInputDivider} />
+                            </>
+                          )}
                           
                           <View style={styles.inputContainer}>
                             <TextInput
@@ -1473,9 +1521,11 @@ export default function WorkoutSessionScreen() {
                 </Text>
                 <Text style={styles.nextExerciseDetails}>
                   {exercises[currentExerciseIndex + 1]?.sets || 4} sets x {exercises[currentExerciseIndex + 1]?.reps_range || '8-10'} reps
-                  {exercises[currentExerciseIndex + 1] && exercises[currentExerciseIndex + 1].exercise_id && 
-                    lastExerciseValues[exercises[currentExerciseIndex + 1].exercise_id]?.[1]?.weight && 
-                    ` x ${lastExerciseValues[exercises[currentExerciseIndex + 1].exercise_id][1].weight} kg`}
+                  {exercises[currentExerciseIndex + 1] && 
+                   exercises[currentExerciseIndex + 1].exercise_id && 
+                   exercises[currentExerciseIndex + 1].requires_weight !== false &&
+                   lastExerciseValues[exercises[currentExerciseIndex + 1].exercise_id]?.[1]?.weight && 
+                   ` x ${lastExerciseValues[exercises[currentExerciseIndex + 1].exercise_id][1].weight} kg`}
                 </Text>
               </View>
               

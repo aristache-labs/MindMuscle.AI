@@ -18,6 +18,7 @@ export interface ExerciseData {
   restTime?: number;
   order: number;
   workout_day: number;
+  requires_weight?: boolean;
 }
 
 // Interface for exercise set in workout session
@@ -344,7 +345,8 @@ export const fetchWorkoutData = async (
           id,
           name,
           image_url,
-          primary_muscles
+          primary_muscles,
+          requires_weight
         )
       `)
       .eq('plan_id', planId)
@@ -393,7 +395,8 @@ export const fetchWorkoutData = async (
       primary_muscles: item.exercises ? item.exercises.primary_muscles : undefined,
       restTime: item.rest_time,
       order: item.order,
-      workout_day: item.workout_day
+      workout_day: item.workout_day,
+      requires_weight: item.exercises ? item.exercises.requires_weight : true // Default to true if not specified
     }));
     
     // Initialize exercise sets

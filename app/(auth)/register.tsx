@@ -85,6 +85,9 @@ export default function RegisterScreen() {
                 value={fullName}
                 onChangeText={setFullName}
                 autoCapitalize="words"
+                autoComplete="name"
+                textContentType="name"
+                importantForAutofill="yes"
                 style={styles.input}
                 contentStyle={{ backgroundColor: '#1f222a' }}
                 theme={{ 
@@ -121,6 +124,9 @@ export default function RegisterScreen() {
                 onChangeText={setEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                autoComplete="email"
+                textContentType="emailAddress"
+                importantForAutofill="yes"
                 style={styles.input}
                 placeholderTextColor={focusedInput === 'email' ? COLORS.primary : '#fff'}
                 textColor={focusedInput === 'email' ? '#fff' : '#666'}
@@ -147,7 +153,9 @@ export default function RegisterScreen() {
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
-                textContentType="oneTimeCode"
+                autoComplete="new-password"
+                textContentType="newPassword"
+                importantForAutofill="yes"
                 style={styles.input}
                 placeholderTextColor={focusedInput === 'password' ? COLORS.primary : '#fff'}
                 textColor={focusedInput === 'password' ? '#fff' : '#666'}
@@ -181,7 +189,9 @@ export default function RegisterScreen() {
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 secureTextEntry={!showConfirmPassword}
-                textContentType="none"
+                autoComplete="new-password"
+                textContentType="newPassword"
+                importantForAutofill="no"
                 style={styles.input}
                 placeholderTextColor={focusedInput === 'confirmPassword' ? COLORS.primary : '#fff'}
                 textColor={focusedInput === 'confirmPassword' ? '#fff' : '#666'}

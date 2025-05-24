@@ -1,9 +1,15 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, JSX } from 'react';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import secureStorage from '../utils/secureStorage';
 import { supabaseUrl, supabaseAnonKey } from '../services/supabase';
 import { AuthError, AuthSession, AuthResponse } from '@supabase/supabase-js';
 import { logger } from '../utils/logger';
+
+// Keys for secure storage (same as in login.tsx)
+const SAVED_EMAIL_KEY = 'mindmuscle_saved_email';
+const SAVED_PASSWORD_KEY = 'mindmuscle_saved_password';
+const REMEMBER_ME_KEY = 'mindmuscle_remember_me';
 
 interface AuthContextType {
   supabase: SupabaseClient;
@@ -50,20 +56,55 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
   };
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setLoading(false);
-    });
+    let isMounted = true;
+    
+    // Add timeout to prevent infinite loading
+    const initTimeout = setTimeout(() => {
+      if (isMounted) {
+        console.warn('Auth initialization timeout, setting loading to false');
+        setLoading(false);
+      }
+    }, 5000); // 5 second timeout
+
+    // Get initial session with error handling
+    const initializeAuth = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (isMounted) {
+          if (error) {
+            console.warn('Error getting initial session:', error);
+            setSession(null);
+          } else {
+            setSession(session);
+          }
+          setLoading(false);
+          clearTimeout(initTimeout);
+        }
+      } catch (err) {
+        console.error('Failed to initialize auth:', err);
+        if (isMounted) {
+          setSession(null);
+          setLoading(false);
+          clearTimeout(initTimeout);
+        }
+      }
+    };
+
+    initializeAuth();
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      logger.info('Auth state changed', { context: { event: _event } });
-      setSession(session);
-      setLoading(false);
+      if (isMounted) {
+        logger.info('Auth state changed', { context: { event: _event } });
+        setSession(session);
+        setLoading(false);
+      }
     });
 
     return () => {
+      isMounted = false;
+      clearTimeout(initTimeout);
       subscription.unsubscribe();
     };
   }, [supabase]);
@@ -171,6 +212,21 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       } else {
         logger.info('User signed out successfully');
         setError(null);
+        
+        // Clear saved credentials when user explicitly signs out
+        try {
+          await Promise.all([
+            secureStorage.deleteItemAsync(SAVED_EMAIL_KEY).catch(() => {}),
+            secureStorage.deleteItemAsync(SAVED_PASSWORD_KEY).catch(() => {}),
+            secureStorage.deleteItemAsync(REMEMBER_ME_KEY).catch(() => {})
+          ]);
+          logger.info('Saved credentials cleared on sign out');
+        } catch (credentialError) {
+          logger.warn('Failed to clear saved credentials on sign out', { 
+            context: { error: credentialError instanceof Error ? credentialError.message : String(credentialError) } 
+          });
+          // Don't fail the sign out process if we can't clear credentials
+        }
       }
 
       return response;

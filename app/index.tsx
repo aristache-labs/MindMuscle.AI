@@ -1,21 +1,21 @@
-import { useRouter, Redirect } from 'expo-router';
+import { Redirect } from 'expo-router';
 import { useAuth } from '@store/AuthContext';
-import { logger } from '@utils/logger';
+import InitialLoadingScreen from './components/InitialLoadingScreen';
 
 export default function Index() {
   const { session, loading } = useAuth();
 
-  // Don't show anything while checking authentication state
+  // Show loading screen while checking authentication state
   if (loading) {
-    return null;
+    return <InitialLoadingScreen showProgress={true} message="Loading..." />;
   }
 
-  // Log authentication status
-  if (!session) {
-    logger.info('User not authenticated in index, redirecting to login');
-    return <Redirect href="/(auth)/login" />;
-  } else {
-    logger.info('User authenticated in index, redirecting to main app');
+  // Redirect based on authentication state
+  if (session) {
+    // User is authenticated, redirect to main app
     return <Redirect href="/(tabs)" />;
+  } else {
+    // User is not authenticated, redirect to login
+    return <Redirect href="/(auth)/login" />;
   }
 } 

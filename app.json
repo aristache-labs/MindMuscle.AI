@@ -81,7 +81,8 @@
       "expo-splash-screen",
       "expo-asset",
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-secure-store"
     ],
     "scheme": "mindmuscle",
     "extra": {

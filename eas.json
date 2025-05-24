@@ -29,6 +29,17 @@
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       }
     },
+    "testflight": {
+      "developmentClient": false,      // embed JS bundle
+      "distribution": "store",         // App Store provisioning
+      "ios": {
+        "buildConfiguration": "Release"
+      },
+      "prebuildCommand": "npx expo prebuild",
+      "env": {
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
+    },
     "production": {
       "developmentClient": false,
       "distribution": "store",
@@ -39,6 +50,11 @@
     }
   },
   "submit": {
+    "preview": {
+      "ios": {
+        "appleId": "apple.adriancristache@gmail.com"
+      }
+    },
     "production": {}
   }
 }

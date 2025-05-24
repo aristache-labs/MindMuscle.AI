@@ -81,6 +81,9 @@ export default function ForgotPasswordScreen() {
                     }}
                     keyboardType="email-address"
                     autoCapitalize="none"
+                    autoComplete="email"
+                    textContentType="emailAddress"
+                    importantForAutofill="yes"
                     style={styles.input}
                     placeholderTextColor={focusedInput === 'email' ? COLORS.primary : '#fff'}
                     textColor={focusedInput === 'email' ? '#fff' : '#666'}
@@ -158,7 +161,6 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: SPACING.xxl,
-
   },
   backButton: {
     width: 50,
@@ -174,7 +176,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 10,
     textAlign: 'center',
-
   },
   description: {
     color: COLORS.text,
@@ -185,7 +186,6 @@ const styles = StyleSheet.create({
   },
   form: {
     flex: 1,
-    
   },
   inputContainer: {
     marginBottom: SPACING.lg,

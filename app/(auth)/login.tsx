@@ -3,8 +3,14 @@ import { StyleSheet, View, KeyboardAvoidingView, Platform, Pressable, TouchableW
 import { TextInput, Text, Checkbox, HelperText } from 'react-native-paper';
 import { Link, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import secureStorage from '../utils/secureStorage';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { useAuth } from '../store/AuthContext';
+
+// Keys for secure storage
+const SAVED_EMAIL_KEY = 'mindmuscle_saved_email';
+const SAVED_PASSWORD_KEY = 'mindmuscle_saved_password';
+const REMEMBER_ME_KEY = 'mindmuscle_remember_me';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -13,8 +19,14 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [focusedInput, setFocusedInput] = useState('');
   const [validationError, setValidationError] = useState('');
+  const [isLoadingCredentials, setIsLoadingCredentials] = useState(true);
   
   const { signIn, isLoading, error, clearError, session } = useAuth();
+
+  // Load saved credentials on component mount
+  useEffect(() => {
+    loadSavedCredentials();
+  }, []);
 
   // Clear any errors when inputs change
   useEffect(() => {
@@ -24,12 +36,100 @@ export default function LoginScreen() {
     setValidationError('');
   }, [email, password]);
 
-  // Redirect if already authenticated
-  useEffect(() => {
-    if (session) {
-      router.replace('/');
+  // Note: AuthGuard handles authenticated user redirects
+  // Removed redirect logic to prevent double navigation
+
+  // Function to load saved credentials from secure store
+  const loadSavedCredentials = async () => {
+    try {
+      setIsLoadingCredentials(true);
+      
+      // Add timeout to prevent hanging
+      const credentialsPromise = (async () => {
+        // Load remember me preference first
+        const savedRememberMe = await secureStorage.getItemAsync(REMEMBER_ME_KEY);
+        const shouldRemember = savedRememberMe === 'true';
+        setRememberMe(shouldRemember);
+        
+        if (shouldRemember) {
+          // Load saved credentials if remember me is enabled
+          const [savedEmail, savedPassword] = await Promise.all([
+            secureStorage.getItemAsync(SAVED_EMAIL_KEY),
+            secureStorage.getItemAsync(SAVED_PASSWORD_KEY)
+          ]);
+          
+          if (savedEmail) {
+            setEmail(savedEmail);
+          }
+          if (savedPassword) {
+            setPassword(savedPassword);
+          }
+        }
+      })();
+
+      // Race against timeout
+      await Promise.race([
+        credentialsPromise,
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Credential loading timeout')), 3000)
+        )
+      ]);
+      
+    } catch (error) {
+      console.error('Error loading saved credentials:', error);
+      // Continue without saved credentials if there's an error
+    } finally {
+      setIsLoadingCredentials(false);
     }
-  }, [session]);
+  };
+
+  // Function to save credentials securely
+  const saveCredentials = async (email: string, password: string, remember: boolean) => {
+    try {
+      // Always save the remember me preference
+      await secureStorage.setItemAsync(REMEMBER_ME_KEY, remember.toString());
+      
+      if (remember) {
+        // Save credentials if remember me is checked
+        await Promise.all([
+          secureStorage.setItemAsync(SAVED_EMAIL_KEY, email),
+          secureStorage.setItemAsync(SAVED_PASSWORD_KEY, password)
+        ]);
+      } else {
+        // Clear saved credentials if remember me is unchecked
+        await Promise.all([
+          secureStorage.deleteItemAsync(SAVED_EMAIL_KEY).catch(() => {}), // Ignore errors if keys don't exist
+          secureStorage.deleteItemAsync(SAVED_PASSWORD_KEY).catch(() => {})
+        ]);
+      }
+    } catch (error) {
+      console.error('Error saving credentials:', error);
+      // Continue with login even if saving fails
+    }
+  };
+
+  // Function to clear saved credentials
+  const clearSavedCredentials = async () => {
+    try {
+      await Promise.all([
+        secureStorage.deleteItemAsync(SAVED_EMAIL_KEY).catch(() => {}),
+        secureStorage.deleteItemAsync(SAVED_PASSWORD_KEY).catch(() => {}),
+        secureStorage.deleteItemAsync(REMEMBER_ME_KEY).catch(() => {})
+      ]);
+    } catch (error) {
+      console.error('Error clearing saved credentials:', error);
+    }
+  };
+
+  // Handle remember me checkbox change
+  const handleRememberMeChange = async (checked: boolean) => {
+    setRememberMe(checked);
+    
+    if (!checked) {
+      // If unchecking remember me, clear saved credentials immediately
+      await clearSavedCredentials();
+    }
+  };
 
   const validateInputs = () => {
     if (!email.trim()) {
@@ -51,10 +151,21 @@ export default function LoginScreen() {
     if (!validateInputs()) return;
 
     try {
-      await signIn(email, password, rememberMe);
+      // Save credentials based on remember me preference
+      await saveCredentials(email, password, rememberMe);
+      
+      // Attempt to sign in
+      const result = await signIn(email, password, rememberMe);
+      
+      // If sign in failed, don't keep incorrect credentials
+      if (result.error) {
+        await clearSavedCredentials();
+      }
     } catch (err) {
       // Error is handled by AuthContext
       console.error('Login error:', err);
+      // Clear saved credentials on login error
+      await clearSavedCredentials();
     }
   };
 
@@ -64,6 +175,16 @@ export default function LoginScreen() {
     if (error?.message) return error.message;
     return '';
   };
+
+  // Show loading indicator while loading credentials
+  if (isLoadingCredentials) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={styles.loadingText}>Loading...</Text>
+      </View>
+    );
+  }
 
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
@@ -86,6 +207,9 @@ export default function LoginScreen() {
                 onChangeText={setEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                autoComplete="email"
+                textContentType="emailAddress"
+                importantForAutofill="yes"
                 style={styles.input}
                 placeholderTextColor={focusedInput === 'email' ? COLORS.primary : '#fff'}
                 textColor={focusedInput === 'email' ? '#fff' : '#666'}
@@ -114,7 +238,9 @@ export default function LoginScreen() {
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
-                textContentType="oneTimeCode"
+                autoComplete="current-password"
+                textContentType="password"
+                importantForAutofill="yes"
                 style={styles.input}
                 placeholderTextColor={focusedInput === 'password' ? COLORS.primary : '#fff'}
                 textColor={focusedInput === 'password' ? '#fff' : '#666'}
@@ -153,7 +279,7 @@ export default function LoginScreen() {
               <View style={styles.checkboxContainer}>
                 <Checkbox.Android
                   status={rememberMe ? 'checked' : 'unchecked'}
-                  onPress={() => setRememberMe(!rememberMe)}
+                  onPress={() => handleRememberMeChange(!rememberMe)}
                   color={COLORS.primary}
                   uncheckedColor={COLORS.primary}
                   disabled={isLoading}
@@ -215,6 +341,15 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
+  },
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: COLORS.text,
+    marginTop: SPACING.md,
+    fontSize: 16,
   },
   content: {
     flex: 1,

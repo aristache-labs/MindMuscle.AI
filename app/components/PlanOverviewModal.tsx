@@ -139,52 +139,54 @@ export default function PlanOverviewModal({
     if (activePlanId && user) {
       setIsLoadingExercises(true);
       try {
-        // Fetch exercises for this active plan (fetch all exercises, filter by day later)
+        // Fetch exercises for this plan from the workout_plan_exercises table
         const { data, error } = await supabase
-          .from('user_active_plan_exercises')
+          .from('workout_plan_exercises')
           .select(`
-            *,
-            exercises(*)
+            id,
+            sets,
+            reps_range,
+            exercise_id,
+            workout_day,
+            exercise_name,
+            rest_time,
+            "order",
+            exercises:exercise_id (
+              id,
+              name,
+              image_url,
+              primary_muscles,
+              requires_weight
+            )
           `)
-          .eq('active_plan_id', activePlanId)
-          .order('order_position', { ascending: true });
+          .eq('plan_id', activePlanId)
+          .eq('workout_day', dayNumber) // Filter by the specific workout day
+          .order('order', { ascending: true });
             
         if (error) {
+          console.error('Error fetching exercises:', error);
           setExercises([]);
-        } else if (data) {
+        } else if (data && data.length > 0) {
           // Transform data to match Exercise interface
-          const allExercises = data.map((ex, index) => {
-            const exerciseDetails = ex.exercises || {};
-            
-            // Match the same workout day calculation as in my-plan.tsx
-            // Based on index % frequency
-            const workout_day = index % planWorkoutFrequency;
-            
-            return {
-              id: exerciseDetails.id || ex.id, // Use the actual exercise ID from the exercises table
-              name: ex.exercise_name || exerciseDetails.name || 'Unknown Exercise',
-              sets: ex.sets || 3,
-              reps: ex.reps_range || ex.reps || '8-12',
-              equipment: exerciseDetails.equipment || 'None',
-              muscle_group: exerciseDetails.muscle_group || 'General',
-              image: exerciseDetails.image_url,
-              order_position: ex.order_position || 0,
-              workout_day: workout_day,
-              kg: ex.weight || 0
-            };
-          });
+          const transformedExercises = data.map((item: any) => ({
+            id: item.exercise_id || item.id,
+            name: item.exercise_name || (item.exercises ? item.exercises.name : 'Unknown Exercise'),
+            sets: item.sets || 3,
+            reps: item.reps_range || '8-12',
+            image: item.exercises ? item.exercises.image_url : undefined,
+            equipment: 'Standard', // Default value
+            muscle_group: item.exercises && item.exercises.primary_muscles && item.exercises.primary_muscles.length > 0 
+              ? item.exercises.primary_muscles[0] 
+              : 'General',
+            kg: 0 // Default weight
+          }));
           
-          // Filter exercises by day
-          // Day 1 corresponds to workout_day 0, Day 2 to workout_day 1, etc.
-          const dayOffset = dayNumber - 1; // Convert 1-based day number to 0-based offset
-          const filteredExercises = allExercises.filter(ex => 
-            ex.workout_day === dayOffset && 
-            ex.name !== 'Chest Barbell, Brench' // Filter out the incorrect exercise
-          );
-          
-          setExercises(filteredExercises);
+          setExercises(transformedExercises);
+        } else {
+          setExercises([]);
         }
       } catch (err) {
+        console.error('Error in handleDayPress:', err);
         setExercises([]);
       } finally {
         setIsLoadingExercises(false);
@@ -264,48 +266,51 @@ export default function PlanOverviewModal({
                             </View>
                           ) : exercises.length > 0 ? (
                             exercises.map((exercise, index) => {
+                              const isLastExercise = index === exercises.length - 1;
                               return (
-                                <TouchableOpacity
-                                  key={`exercise-${exercise.id}-${index}`}
-                                  style={styles.exerciseItem}
-                                  onPress={() => handleExercisePress(exercise)}
-                                  activeOpacity={0.7}
-                                >
-                                  <View style={styles.exerciseRow}>
-                                    <View style={styles.exerciseImageContainer}>
-                                      <OptimizedImage
-                                        source={exercise.image ? { uri: exercise.image } : require('../../assets/exercises/placeholder.jpg')}
-                                        style={styles.exerciseImage}
-                                        fallback={require('../../assets/exercises/placeholder.jpg')}
-                                      />
-                                    </View>
-                                    <View style={styles.exerciseContent}>
-                                      <Text style={styles.exerciseName}>
-                                        {exercise.name}
-                                      </Text>
-                                      <View style={styles.exerciseDetails}>
-                                        {exercise.sets ? (
-                                          <Text style={styles.exerciseDetail}>
-                                            {`${exercise.sets} sets`}
-                                          </Text>
-                                        ) : null}
-                                        {exercise.reps ? (
-                                          <Text style={styles.exerciseDetail}>
-                                            {`${exercise.reps} reps`}
-                                          </Text>
-                                        ) : null}
-                                        {exercise.kg && exercise.kg > 0 ? (
-                                          <Text style={styles.exerciseDetail}>
-                                            {`${exercise.kg} kg`}
-                                          </Text>
-                                        ) : null}
+                                <View key={`exercise-${exercise.id}-${index}`}>
+                                  <TouchableOpacity
+                                    style={styles.exerciseItem}
+                                    onPress={() => handleExercisePress(exercise)}
+                                    activeOpacity={0.7}
+                                  >
+                                    <View style={styles.exerciseRow}>
+                                      <View style={styles.exerciseImageContainer}>
+                                        <OptimizedImage
+                                          source={exercise.image ? { uri: exercise.image } : require('../../assets/exercises/placeholder.jpg')}
+                                          style={styles.exerciseImage}
+                                          fallback={require('../../assets/exercises/placeholder.jpg')}
+                                        />
+                                      </View>
+                                      <View style={styles.exerciseContent}>
+                                        <Text style={styles.exerciseName}>
+                                          {exercise.name}
+                                        </Text>
+                                        <View style={styles.exerciseDetails}>
+                                          {exercise.sets ? (
+                                            <Text style={styles.exerciseDetail}>
+                                              {`${exercise.sets} sets`}
+                                            </Text>
+                                          ) : null}
+                                          {exercise.reps ? (
+                                            <Text style={styles.exerciseDetail}>
+                                              {`${exercise.reps} reps`}
+                                            </Text>
+                                          ) : null}
+                                          {exercise.kg && exercise.kg > 0 ? (
+                                            <Text style={styles.exerciseDetail}>
+                                              {`${exercise.kg} kg`}
+                                            </Text>
+                                          ) : null}
+                                          </View>
                                       </View>
                                     </View>
-                                  </View>
-                                  {index < exercises.length - 1 ? (
-                                    <Divider style={styles.exerciseDivider} />
-                                  ) : null}
-                                </TouchableOpacity>
+                                  </TouchableOpacity>
+                                  
+                                  {!isLastExercise && (
+                                    <View style={styles.exerciseDivider} />
+                                  )}
+                                </View>
                               );
                             })
                           ) : (
@@ -394,10 +399,13 @@ export default function PlanOverviewModal({
             visible={exerciseDetailsVisible}
             onClose={() => {
               setExerciseDetailsVisible(false);
+              setSelectedExercise(null);
             }}
             exerciseId={selectedExercise.id}
             exerciseName={selectedExercise.name}
             exerciseImage={selectedExercise.image}
+            primary_muscles={selectedExercise.muscle_group ? [selectedExercise.muscle_group] : []}
+            secondary_muscles={[]}
           />
         )}
       </Portal>
@@ -599,7 +607,7 @@ const styles = StyleSheet.create({
   activeWeekContent: {
     backgroundColor: '#24293E',
     borderWidth: 1,
-    borderColor: '#1D6AE5', // Blue border for active week as shown in screenshot
+    borderColor: COLORS.primary, // Use primary color for active week border
   },
   weekHeader: {
     flexDirection: 'row',
@@ -708,7 +716,8 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   exerciseItem: {
-    marginBottom: 12,
+    marginBottom: 0,
+    paddingVertical: SPACING.sm,
   },
   exerciseRow: {
     flexDirection: 'row',
@@ -744,9 +753,9 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   exerciseDivider: {
-    backgroundColor: 'rgba(29, 106, 229, 0.38)',
     height: 1,
-    marginVertical: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    marginVertical: SPACING.xs,
   },
   noExercisesText: {
     fontSize: 14,

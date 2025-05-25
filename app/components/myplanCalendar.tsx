@@ -111,7 +111,7 @@ export default function MyPlanCalendar({
         const cycleWeek = markedDateInfo.cycleWeek;
         const weekName = markedDateInfo.weekName;
         
-        console.log(`Selected workout day ${workoutDayIndex} in cycle week ${cycleWeek} (${weekName})`);
+
         onDateSelect(day, workoutDayIndex, true);
       } else {
         // Not a workout day
@@ -155,7 +155,12 @@ export default function MyPlanCalendar({
   };
 
   const goToCurrentWeek = () => {
-    setCurrentWeekStart(startOfWeek(new Date(), { weekStartsOn: 0 }));
+    const today = new Date();
+    setCurrentWeekStart(startOfWeek(today, { weekStartsOn: 0 }));
+    
+    // Also select today's date and trigger proper date selection
+    setSelectedDate(today);
+    handleDateSelect(today);
   };
 
   // Function to find next workout day

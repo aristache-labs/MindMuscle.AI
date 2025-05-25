@@ -76,6 +76,13 @@ export default function WorkoutSessionScreen() {
   const [recommendations, setRecommendations] = useState<Record<string, any>>({});
   const [focusedInputs, setFocusedInputs] = useState<Record<string, boolean>>({});
   const [lastExerciseValues, setLastExerciseValues] = useState<Record<string, Record<number, { weight: string, reps: string }>>>({});
+  const [cycleWeekInfo, setCycleWeekInfo] = useState<{
+    weekNumber: number;
+    weekName: string;
+    weightAdjustmentPercentage: number;
+    repsAdjustmentPercentage: number;
+  } | null>(null);
+  const [suggestedValues, setSuggestedValues] = useState<Record<string, Record<number, { weight: string, reps: string }>>>({});
   
   // State for max weight graph data
   const [maxWeightData, setMaxWeightData] = useState<Record<string, MaxWeightDataPoint[]>>({});
@@ -101,6 +108,12 @@ export default function WorkoutSessionScreen() {
   // State for exit modal
   const [showExitModal, setShowExitModal] = useState(false);
   
+  // Extract params early so they can be used in callbacks
+  const planId = params.planId as string;
+  const workoutDay = parseInt(params.workoutDay as string, 10);
+  const cycleWeek = parseInt(params.cycleWeek as string, 10) || 1;
+  const weekName = params.weekName as string || 'Adaptation';
+  
   // Functions to handle input focus and blur
   const handleInputFocus = (id: string) => {
     setFocusedInputs(prev => ({
@@ -116,6 +129,68 @@ export default function WorkoutSessionScreen() {
     }));
   };
   
+  // Function to fetch cycle week info
+  const fetchCycleWeekInfo = useCallback(async () => {
+    try {
+      const weekInfo = await workoutPlanService.getCycleWeekInfo(cycleWeek);
+      if (weekInfo) {
+        setCycleWeekInfo(weekInfo);
+      }
+    } catch (error) {
+      console.error('Error fetching cycle week info:', error);
+    }
+  }, [cycleWeek]);
+
+  // Function to calculate suggested values based on last values and cycle week adjustments
+  const calculateSuggestedValues = useCallback(() => {
+    if (!cycleWeekInfo || cycleWeek <= 1 || Object.keys(lastExerciseValues).length === 0) {
+      setSuggestedValues({});
+      return;
+    }
+
+    const suggested: Record<string, Record<number, { weight: string, reps: string }>> = {};
+
+    exercises.forEach(exercise => {
+      if (lastExerciseValues[exercise.exercise_id]) {
+        suggested[exercise.exercise_id] = {};
+        
+        Object.entries(lastExerciseValues[exercise.exercise_id]).forEach(([setNumber, lastValue]) => {
+          const setNum = parseInt(setNumber, 10);
+          let suggestedWeight = lastValue.weight;
+          let suggestedReps = lastValue.reps;
+
+          // Calculate suggested weight if exercise requires weight
+          if (exercise.requires_weight !== false && lastValue.weight && lastValue.weight !== '-' && lastValue.weight !== '0') {
+            const lastWeight = parseFloat(lastValue.weight);
+            if (!isNaN(lastWeight) && lastWeight > 0) {
+              const adjustmentFactor = 1 + (cycleWeekInfo.weightAdjustmentPercentage / 100);
+              const newWeight = lastWeight * adjustmentFactor;
+              // Round to nearest 0.5 for practical weight increments
+              suggestedWeight = (Math.round(newWeight * 2) / 2).toString();
+            }
+          }
+
+          // Calculate suggested reps
+          if (lastValue.reps && lastValue.reps !== '-' && lastValue.reps !== '0') {
+            const lastReps = parseInt(lastValue.reps, 10);
+            if (!isNaN(lastReps) && lastReps > 0) {
+              const adjustmentFactor = 1 + (cycleWeekInfo.repsAdjustmentPercentage / 100);
+              const newReps = Math.round(lastReps * adjustmentFactor);
+              suggestedReps = Math.max(1, newReps).toString(); // Ensure at least 1 rep
+            }
+          }
+
+          suggested[exercise.exercise_id][setNum] = {
+            weight: suggestedWeight,
+            reps: suggestedReps
+          };
+        });
+      }
+    });
+
+    setSuggestedValues(suggested);
+  }, [cycleWeekInfo, cycleWeek, lastExerciseValues]); // Remove exercises to prevent infinite loop
+
   // Function to fetch last exercise records for all exercises
   const fetchLastExerciseRecords = useCallback(async () => {
     if (!user) return;
@@ -133,7 +208,7 @@ export default function WorkoutSessionScreen() {
     } catch (error) {
       // Error in fetchLastExerciseRecords
     }
-  }, [user?.id, exercises]);
+  }, [user?.id]); // Remove exercises to prevent infinite loop
   
   // Function to fetch max weight data for current exercise
   const fetchMaxWeightData = useCallback(async () => {
@@ -174,9 +249,17 @@ export default function WorkoutSessionScreen() {
     } catch (error) {
       console.error('Error fetching max weight data:', error);
     }
-  }, [user?.id, exercises, currentExerciseIndex]);
+  }, [user?.id, currentExerciseIndex]); // Remove exercises to prevent infinite loop
   
-  // Function to auto-fill the next set with values from the previous set
+  // Function to get suggested values for a specific exercise and set
+  const getSuggestedValue = (exerciseId: string, setNumber: number, type: 'weight' | 'reps'): string | null => {
+    if (cycleWeek <= 1 || !suggestedValues[exerciseId] || !suggestedValues[exerciseId][setNumber]) {
+      return null;
+    }
+    return suggestedValues[exerciseId][setNumber][type];
+  };
+
+  // Function to auto-fill the next set with values from the previous set or suggested values
   const autoFillNextSet = (exerciseId: string, currentSetIndex: number) => {
     // Only auto-fill if there's a next set
     if (exerciseSets[exerciseId] && exerciseSets[exerciseId][currentSetIndex + 1]) {
@@ -203,35 +286,155 @@ export default function WorkoutSessionScreen() {
       }
     }
   };
-  
-  // Extract params
-  const planId = params.planId as string;
-  const workoutDay = parseInt(params.workoutDay as string, 10);
-  const cycleWeek = parseInt(params.cycleWeek as string, 10) || 1;
-  const weekName = params.weekName as string || 'Adaptation';
+
+  // Function to pre-fill sets with recommended values from database
+  const preFillWithSuggestedValues = useCallback(() => {
+    if (Object.keys(recommendations).length === 0) {
+      return;
+    }
+
+    setExerciseSets(prev => {
+      const updatedSets = { ...prev };
+      
+      exercises.forEach(exercise => {
+        const exerciseRecommendation = recommendations[exercise.id];
+        if (exerciseRecommendation && updatedSets[exercise.id]) {
+          updatedSets[exercise.id].forEach((set, index) => {
+            // Only pre-fill if the set is empty and not completed
+            if (!set.isCompleted) {
+              // For weight exercises, use recommended weight and reps from database
+              if (exercise.requires_weight !== false) {
+                // Use recommended weight from database
+                if (exerciseRecommendation.recommended_weight && (set.weight === '' || set.weight === '-')) {
+                  updatedSets[exercise.id][index].weight = exerciseRecommendation.recommended_weight.toString();
+                }
+                // Use recommended reps from database, fallback to last reps
+                if (exerciseRecommendation.recommended_reps && (set.reps === '' || set.reps === '-')) {
+                  updatedSets[exercise.id][index].reps = exerciseRecommendation.recommended_reps.toString();
+                } else {
+                  const lastReps = lastExerciseValues[exercise.exercise_id]?.[index + 1]?.reps;
+                  if (lastReps && lastReps !== '-' && lastReps !== '0' && (set.reps === '' || set.reps === '-')) {
+                    updatedSets[exercise.id][index].reps = lastReps;
+                  }
+                }
+              } else {
+                // For bodyweight exercises, use recommended reps from database
+                if (exerciseRecommendation.recommended_reps && (set.reps === '' || set.reps === '-')) {
+                  updatedSets[exercise.id][index].reps = exerciseRecommendation.recommended_reps.toString();
+                }
+              }
+            }
+          });
+        }
+      });
+      
+      return updatedSets;
+    });
+  }, [recommendations, lastExerciseValues, exercises.length]); // Use recommendations instead of suggestedValues
   
   // Store the original cycle week for redo workouts
   const [originalCycleWeek, setOriginalCycleWeek] = useState<number | null>(null);
   
-  // Timer interval reference
+  // Timer interval references
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const workoutTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Get forceStart parameter from URL
   const forceStart = params.forceStart === 'true';
+
+  // Centralized timer management functions
+  const startWorkoutTimer = useCallback(() => {
+    // Clear any existing workout timer
+    if (workoutTimerRef.current) {
+      clearInterval(workoutTimerRef.current);
+      workoutTimerRef.current = null;
+    }
+    
+    // Start new workout timer
+    setWorkoutTimerActive(true);
+    workoutTimerRef.current = setInterval(() => {
+      setWorkoutDuration(prev => prev + 1);
+    }, 1000) as unknown as NodeJS.Timeout;
+  }, []);
+
+  const stopWorkoutTimer = useCallback(() => {
+    if (workoutTimerRef.current) {
+      clearInterval(workoutTimerRef.current);
+      workoutTimerRef.current = null;
+    }
+    setWorkoutTimerActive(false);
+  }, []);
+
+  const clearAllTimers = useCallback(() => {
+    if (workoutTimerRef.current) {
+      clearInterval(workoutTimerRef.current);
+      workoutTimerRef.current = null;
+    }
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+  }, []);
   
   // Effect to monitor exercises state and fetch last records when exercises change
   useEffect(() => {
-    if (exercises.length > 0 && user) {
+    if (exercises.length > 0 && user && !isLoading) {
       fetchLastExerciseRecords();
     }
-  }, [exercises, user, fetchLastExerciseRecords]);
+  }, [exercises.length, user?.id, isLoading]); // Remove function dependency to prevent infinite loop
   
   // Effect to fetch max weight data when current exercise changes
   useEffect(() => {
-    if (exercises.length > 0 && user && currentExerciseIndex >= 0) {
+    if (exercises.length > 0 && user && currentExerciseIndex >= 0 && !isLoading) {
       fetchMaxWeightData();
     }
-  }, [currentExerciseIndex, exercises, user, fetchMaxWeightData]);
+  }, [currentExerciseIndex, exercises.length, user?.id, isLoading]); // Remove function dependency to prevent infinite loop
+
+  // Effect to fetch cycle week info
+  useEffect(() => {
+    fetchCycleWeekInfo();
+  }, [cycleWeek]); // Use direct dependency instead of function
+
+  // Effect to calculate suggested values when dependencies change
+  useEffect(() => {
+    calculateSuggestedValues();
+  }, [cycleWeekInfo, cycleWeek, lastExerciseValues, exercises.length]); // Use direct dependencies instead of function
+
+  // Effect to pre-fill sets with recommended values when they become available
+  useEffect(() => {
+    if (Object.keys(recommendations).length > 0) {
+      preFillWithSuggestedValues();
+    }
+  }, [recommendations, lastExerciseValues, exercises.length]); // Use recommendations instead of suggestedValues
+
+  // Additional effect to pre-fill with last values when they become available (for cycle week 1 or when no suggested values)
+  useEffect(() => {
+    if (Object.keys(lastExerciseValues).length > 0 && exercises.length > 0) {
+      setExerciseSets(prev => {
+        const updatedSets = { ...prev };
+        let hasChanges = false;
+        
+        exercises.forEach(exercise => {
+          if (lastExerciseValues[exercise.exercise_id] && updatedSets[exercise.id]) {
+            updatedSets[exercise.id].forEach((set, index) => {
+              const setNumber = index + 1;
+              
+              // For weight exercises, always use last reps value if available
+              if (!set.isCompleted && exercise.requires_weight !== false) {
+                const lastReps = lastExerciseValues[exercise.exercise_id]?.[setNumber]?.reps;
+                if (lastReps && lastReps !== '-' && lastReps !== '0') {
+                  updatedSets[exercise.id][index].reps = lastReps;
+                  hasChanges = true;
+                }
+              }
+            });
+          }
+        });
+        
+        return hasChanges ? updatedSets : prev;
+      });
+    }
+  }, [lastExerciseValues, exercises.length]); // Trigger when last values or exercises change
 
   useEffect(() => {
     // Check if workout is already completed for today, but skip if forceStart is true
@@ -259,33 +462,13 @@ export default function WorkoutSessionScreen() {
               // No paused workout found, fetch workout data normally
               fetchWorkoutData();
               setWorkoutStartTime(new Date());
-              setWorkoutTimerActive(true);
-              
-              // Start workout duration timer
-              const workoutTimerInterval = setInterval(() => {
-                setWorkoutDuration(prev => prev + 1);
-              }, 1000);
-              
-              // Add cleanup for the timer
-              return () => {
-                clearInterval(workoutTimerInterval);
-              };
+              startWorkoutTimer();
             }
           } catch (error) {
             // If there's an error, fetch workout data normally
             fetchWorkoutData();
             setWorkoutStartTime(new Date());
-            setWorkoutTimerActive(true);
-            
-            // Start workout duration timer
-            const workoutTimerInterval = setInterval(() => {
-              setWorkoutDuration(prev => prev + 1);
-            }, 1000);
-            
-            // Add cleanup for the timer
-            return () => {
-              clearInterval(workoutTimerInterval);
-            };
+            startWorkoutTimer();
           }
         };
         
@@ -298,30 +481,37 @@ export default function WorkoutSessionScreen() {
       // If forceStart is true, always fetch workout data and start the timer
       fetchWorkoutData();
       setWorkoutStartTime(new Date());
-      setWorkoutTimerActive(true);
-      
-      // Start workout duration timer
-      const workoutTimerInterval = setInterval(() => {
-        setWorkoutDuration(prev => prev + 1);
-      }, 1000);
-      
-      // Add cleanup for the timer
-      return () => {
-        clearInterval(workoutTimerInterval);
-      };
+      startWorkoutTimer();
     }
     
     // Cleanup
     return () => {
-      if (timerIntervalRef.current) {
-        clearInterval(timerIntervalRef.current);
-      }
+      clearAllTimers();
     };
-  }, [planId, workoutDay, forceStart]);
+  }, [planId, workoutDay, forceStart, clearAllTimers]);
+
+  // Cleanup effect to ensure timers are cleared on unmount
+  useEffect(() => {
+    return () => {
+      clearAllTimers();
+    };
+  }, [clearAllTimers]);
   
   // Function to fetch workout data
   const fetchWorkoutData = async () => {
+    console.log(`DEBUG: fetchWorkoutData called with params:`, {
+      planId,
+      workoutDay,
+      cycleWeek,
+      weekName,
+      userId: user?.id,
+      isValidPlanId: !!planId,
+      isValidWorkoutDay: !isNaN(workoutDay),
+      hasUser: !!user
+    });
+    
     if (!planId || isNaN(workoutDay) || !user) {
+      console.error('Invalid workout parameters:', { planId, workoutDay, user: !!user });
       Alert.alert('Error', 'Invalid workout parameters');
       return;
     }
@@ -329,9 +519,19 @@ export default function WorkoutSessionScreen() {
     try {
       setIsLoading(true);
       
+      console.log(`DEBUG: About to call workoutPlanService.fetchWorkoutData with:`, {
+        planId,
+        workoutDay,
+        userId: user.id,
+        cycleWeek
+      });
+      
       // Use the service function to fetch workout data
       const { exercises: formattedExercises, exerciseSets: initialSets, recommendations } = 
         await workoutPlanService.fetchWorkoutData(planId, workoutDay, user.id, cycleWeek);
+      
+      console.log(`DEBUG: fetchWorkoutData received ${formattedExercises.length} exercises`);
+      console.log(`DEBUG: fetchWorkoutData recommendations:`, recommendations);
       
       // Set exercises state
       setExercises(formattedExercises);
@@ -342,17 +542,81 @@ export default function WorkoutSessionScreen() {
       // Set recommendations state
       setRecommendations(recommendations);
       
-      // Fetch last exercise records to show previous values
-      await fetchLastExerciseRecords();
+      // Fetch last exercise records directly with the exercises we just fetched
+      if (formattedExercises.length > 0) {
+        try {
+          const lastValues = await workoutPlanService.fetchLastExerciseRecords(user.id, formattedExercises);
+          if (Object.keys(lastValues).length > 0) {
+            setLastExerciseValues(lastValues);
+          }
+        } catch (error) {
+          console.error('Error fetching last exercise records:', error);
+        }
+      }
       
-      // Fetch max weight data for current exercise
-      await fetchMaxWeightData();
+      // Fetch max weight data for current exercise directly
+      if (formattedExercises.length > 0 && currentExerciseIndex >= 0) {
+        try {
+          const currentExercise = formattedExercises[currentExerciseIndex];
+          if (currentExercise?.exercise_id && currentExercise.requires_weight !== false) {
+            const [trendingData, absoluteMaxData] = await Promise.all([
+              workoutPlanService.fetchExerciseMaxWeightData(user.id, currentExercise.exercise_id, 6),
+              workoutPlanService.fetchExerciseAbsoluteMaxWeight(user.id, currentExercise.exercise_id)
+            ]);
+            
+            if (trendingData.length > 0) {
+              setMaxWeightData(prev => ({
+                ...prev,
+                [currentExercise.exercise_id]: trendingData
+              }));
+            }
+            
+            if (absoluteMaxData) {
+              setAbsoluteMaxWeightData(prev => ({
+                ...prev,
+                [currentExercise.exercise_id]: absoluteMaxData
+              }));
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching max weight data:', error);
+        }
+      }
       
       setIsLoading(false);
     } catch (error) {
-      // Error fetching workout data
+      console.error('Error fetching workout data:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Error details:', {
+        message: errorMessage,
+        stack: error instanceof Error ? error.stack : undefined,
+        planId,
+        workoutDay,
+        cycleWeek,
+        userId: user?.id
+      });
       setIsLoading(false);
-      Alert.alert('Error', 'Failed to load workout data. Please try again.');
+      
+      // Show alert and navigate back on error
+      Alert.alert(
+        'Error', 
+        `Failed to load workout data: ${errorMessage}`,
+        [
+          {
+            text: 'Go Back',
+            onPress: () => router.back(),
+            style: 'default'
+          },
+          {
+            text: 'Retry',
+            onPress: () => {
+              setIsLoading(true);
+              fetchWorkoutData();
+            },
+            style: 'default'
+          }
+        ]
+      );
     } finally {
       setIsLoading(false);
     }
@@ -363,39 +627,36 @@ export default function WorkoutSessionScreen() {
     if (!user || !planId) return;
     
     try {
-      // Use the service function to check workout completion
-      const { isCompleted, completedWorkoutData } = await workoutPlanService.checkWorkoutCompletion(
+      console.log(`Checking workout completion for cycle week ${cycleWeek}, workout day ${workoutDay}`);
+      
+      // Use the new service function to check workout completion for specific cycle week
+      const { isCompleted, completedWorkoutData } = await workoutPlanService.checkWorkoutCompletionForCycleWeek(
         user.id,
         planId,
-        workoutDay
+        workoutDay,
+        cycleWeek // Pass the cycle week to check for completion in the specific week
       );
       
+      console.log(`Workout completion check result: isCompleted=${isCompleted}, cycleWeek=${cycleWeek}`);
+      
       if (isCompleted && completedWorkoutData) {
-        // Workout is already completed
+        // Workout is already completed for this specific cycle week
+        console.log(`Workout is completed for cycle week ${cycleWeek}, showing completion screen`);
         setIsWorkoutCompleted(true);
         setCompletedWorkoutData(completedWorkoutData);
         setIsLoading(false);
       } else {
-        // Workout is not completed, fetch workout data
+        // Workout is not completed for this cycle week, fetch workout data
+        console.log(`Workout is not completed for cycle week ${cycleWeek}, starting new workout`);
         setIsWorkoutCompleted(false);
         fetchWorkoutData();
         
         // Start workout timer
         setWorkoutStartTime(new Date());
-        setWorkoutTimerActive(true);
-        
-        // Start workout duration timer
-        const workoutTimerInterval = setInterval(() => {
-          setWorkoutDuration(prev => prev + 1);
-        }, 1000);
-        
-        // Add cleanup for the timer
-        return () => {
-          clearInterval(workoutTimerInterval);
-        };
+        startWorkoutTimer();
       }
     } catch (error) {
-      // Error in checkWorkoutCompletion
+      console.error('Error in checkWorkoutCompletionOnly:', error);
       setIsLoading(false);
       // If there's an error, proceed with normal workout
       setIsWorkoutCompleted(false);
@@ -403,17 +664,7 @@ export default function WorkoutSessionScreen() {
       
       // Start workout timer
       setWorkoutStartTime(new Date());
-      setWorkoutTimerActive(true);
-      
-      // Start workout duration timer
-      const workoutTimerInterval = setInterval(() => {
-        setWorkoutDuration(prev => prev + 1);
-      }, 1000);
-      
-      // Add cleanup for the timer
-      return () => {
-        clearInterval(workoutTimerInterval);
-      };
+      startWorkoutTimer();
     }
   };
   
@@ -438,12 +689,7 @@ export default function WorkoutSessionScreen() {
       
       // Start the workout timer
       setWorkoutStartTime(new Date());
-      setWorkoutTimerActive(true);
-      
-      // Start workout duration timer
-      const workoutTimerInterval = setInterval(() => {
-        setWorkoutDuration(prev => prev + 1);
-      }, 1000);
+      startWorkoutTimer();
       
       // Remove the warmup popup if we're resuming
       setWarmupCompleted(true);
@@ -453,11 +699,6 @@ export default function WorkoutSessionScreen() {
       
       // Clear the paused workout since we're resuming it now
       workoutPlanService.clearPausedWorkout(user?.id, planId, workoutDay);
-      
-      // Add cleanup for the timer
-      return () => {
-        clearInterval(workoutTimerInterval);
-      };
     } catch (error) {
       // If resuming fails, just start a new workout
       setIsLoading(false);
@@ -465,17 +706,7 @@ export default function WorkoutSessionScreen() {
       
       // Start workout timer
       setWorkoutStartTime(new Date());
-      setWorkoutTimerActive(true);
-      
-      // Start workout duration timer
-      const workoutTimerInterval = setInterval(() => {
-        setWorkoutDuration(prev => prev + 1);
-      }, 1000);
-      
-      // Add cleanup for the timer
-      return () => {
-        clearInterval(workoutTimerInterval);
-      };
+      startWorkoutTimer();
     }
   };
   
@@ -547,7 +778,7 @@ export default function WorkoutSessionScreen() {
             text: 'OK',
             onPress: () => {
               // Stop the workout timer
-              setWorkoutTimerActive(false);
+              stopWorkoutTimer();
               
               // Navigate back to home screen
               router.replace('/');
@@ -1028,7 +1259,7 @@ export default function WorkoutSessionScreen() {
     if (!user || !planId) return;
     
     // Stop the workout timer
-    setWorkoutTimerActive(false);
+    stopWorkoutTimer();
     
     // Use override values if provided, otherwise fall back to state values
     // This ensures we capture the most up-to-date values including the last set
@@ -1137,14 +1368,7 @@ export default function WorkoutSessionScreen() {
     }, 1000); // Longer delay to ensure all state updates have completed
     
     // Start workout duration timer
-    const workoutTimerInterval = setInterval(() => {
-      setWorkoutDuration(prev => prev + 1);
-    }, 1000);
-    
-    // Add cleanup for the timer
-    return () => {
-      clearInterval(workoutTimerInterval);
-    };
+    startWorkoutTimer();
   };
 
   // Function to handle warmup completion
@@ -1162,6 +1386,10 @@ export default function WorkoutSessionScreen() {
     return (
       <View style={[styles.container, styles.loadingContainer]}>
         <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={styles.loadingText}>Loading workout...</Text>
+        <Text style={styles.debugText}>Plan: {planId}</Text>
+        <Text style={styles.debugText}>Day: {workoutDay}</Text>
+        <Text style={styles.debugText}>Week: {cycleWeek} ({weekName})</Text>
       </View>
     );
   }
@@ -1196,6 +1424,9 @@ export default function WorkoutSessionScreen() {
         <View style={styles.headerTitleContainer}>
           <Text style={styles.headerTitle}>
             EXERCISE {currentExerciseIndex + 1}/{exercises.length}
+          </Text>
+          <Text style={styles.weekIndicator}>
+            Week {cycleWeek}: {weekName}
           </Text>
         </View>
         
@@ -1299,6 +1530,40 @@ export default function WorkoutSessionScreen() {
                         <View style={styles.leftColumn}>
                           {/* Weight and Reps Cell - both inputs in same cell */}
                           <View style={styles.weightRepsCell}>
+                                                    {/* Suggested text row for weeks 2-5 */}
+                        {cycleWeek > 1 && (
+                          (currentExercise?.requires_weight !== false && getSuggestedValue(currentExercise.exercise_id, index + 1, 'weight')) ||
+                          (currentExercise?.requires_weight === false && getSuggestedValue(currentExercise.exercise_id, index + 1, 'reps'))
+                        ) && (
+                          <View style={styles.suggestedRow}>
+                            {/* Show weight suggestion only for exercises that require weight */}
+                            {currentExercise?.requires_weight !== false && (
+                              <View style={styles.suggestedContainer}>
+                                {getSuggestedValue(currentExercise.exercise_id, index + 1, 'weight') && (
+                                  <Text style={styles.suggestedLabelWeightActive}>
+                                    Suggested
+                                  </Text>
+                                )}
+                              </View>
+                            )}
+                            
+                            {currentExercise?.requires_weight !== false && (
+                              <View style={styles.suggestedSpacer} />
+                            )}
+                            
+                            {/* Show reps suggestion only for bodyweight exercises */}
+                            {currentExercise?.requires_weight === false && (
+                              <View style={styles.suggestedContainer}>
+                                {getSuggestedValue(currentExercise.exercise_id, index + 1, 'reps') && (
+                                  <Text style={styles.suggestedLabel}>
+                                    Suggested
+                                  </Text>
+                                )}
+                              </View>
+                            )}
+                          </View>
+                        )}
+
                             <View style={styles.inputRow}>
                               {/* Only show weight input if exercise requires weight */}
                               {currentExercise?.requires_weight !== false && (
@@ -1309,7 +1574,11 @@ export default function WorkoutSessionScreen() {
                                       value={set.weight}
                                       onChangeText={(value) => handleWeightChange(currentExercise.id, index, value)}
                                       keyboardType="decimal-pad"
-                                      placeholder={focusedInputs[`${currentExercise.id}-${index}-weight`] ? '' : '-'}
+                                      placeholder={focusedInputs[`${currentExercise.id}-${index}-weight`] ? '' : (
+                                        // Use recommended weight from database if available, otherwise fall back to suggested value
+                                        currentRecommendation?.recommended_weight?.toString() || 
+                                        getSuggestedValue(currentExercise.exercise_id, index + 1, 'weight') || '-'
+                                      )}
                                       placeholderTextColor="rgba(255,255,255,0.5)"
                                       selectTextOnFocus={true}
                                       onFocus={() => handleInputFocus(`${currentExercise.id}-${index}-weight`)}
@@ -1329,7 +1598,12 @@ export default function WorkoutSessionScreen() {
                                   value={set.reps}
                                   onChangeText={(value) => handleRepsChange(currentExercise.id, index, value)}
                                   keyboardType="numeric"
-                                  placeholder={focusedInputs[`${currentExercise.id}-${index}-reps`] ? '' : (currentExercise.reps_range || '-')}
+                                  placeholder={focusedInputs[`${currentExercise.id}-${index}-reps`] ? '' : (
+                                    // Use recommended reps from database if available, otherwise fall back to last values or reps range
+                                    currentRecommendation?.recommended_reps?.toString() || 
+                                    lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps || 
+                                    currentExercise.reps_range || '-'
+                                  )}
                                   placeholderTextColor="rgba(255,255,255,0.5)"
                                   selectTextOnFocus={true}
                                   onFocus={() => handleInputFocus(`${currentExercise.id}-${index}-reps`)}
@@ -1400,6 +1674,40 @@ export default function WorkoutSessionScreen() {
                     <View style={styles.inactiveSetCardContent}>
                       {/* Left Cell: Weight and Reps inputs */}
                       <View style={styles.inactiveLeftCell}>
+                        {/* Suggested text row for weeks 2-5 */}
+                        {cycleWeek > 1 && (
+                          (currentExercise?.requires_weight !== false && getSuggestedValue(currentExercise.exercise_id, index + 1, 'weight')) ||
+                          (currentExercise?.requires_weight === false && getSuggestedValue(currentExercise.exercise_id, index + 1, 'reps'))
+                        ) && (
+                          <View style={styles.suggestedRowInactive}>
+                            {/* Show weight suggestion only for exercises that require weight */}
+                            {currentExercise?.requires_weight !== false && (
+                              <View style={styles.suggestedContainerWeight}>
+                                {getSuggestedValue(currentExercise.exercise_id, index + 1, 'weight') && (
+                                  <Text style={styles.suggestedLabelWeight}>
+                                    Suggested
+                                  </Text>
+                                )}
+                              </View>
+                            )}
+                            
+                            {currentExercise?.requires_weight !== false && (
+                              <View style={styles.suggestedSpacer} />
+                            )}
+                            
+                            {/* Show reps suggestion only for bodyweight exercises */}
+                            {currentExercise?.requires_weight === false && (
+                              <View style={styles.suggestedContainer}>
+                                {getSuggestedValue(currentExercise.exercise_id, index + 1, 'reps') && (
+                                  <Text style={styles.suggestedLabel}>
+                                    Suggested
+                                  </Text>
+                                )}
+                              </View>
+                            )}
+                          </View>
+                        )}
+
                         <View style={styles.inactiveInputRow}>
                           {/* Only show weight input if exercise requires weight */}
                           {currentExercise?.requires_weight !== false && (
@@ -1410,14 +1718,18 @@ export default function WorkoutSessionScreen() {
                                   value={set.weight}
                                   onChangeText={(value) => handleWeightChange(currentExercise.id, index, value)}
                                   keyboardType="decimal-pad"
-                                  placeholder={focusedInputs[`${currentExercise.id}-${index}-weight`] ? '' : '-'}
+                                  placeholder={focusedInputs[`${currentExercise.id}-${index}-weight`] ? '' : (
+                                    // Use recommended weight from database if available, otherwise fall back to suggested value
+                                    currentRecommendation?.recommended_weight?.toString() || 
+                                    getSuggestedValue(currentExercise.exercise_id, index + 1, 'weight') || '-'
+                                  )}
                                   placeholderTextColor="rgba(255,255,255,0.5)"
                                   selectTextOnFocus={true}
                                   onFocus={() => handleInputFocus(`${currentExercise.id}-${index}-weight`)}
                                   onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-weight`)}
                                   editable={!isCompleted}
                                 />
-                                <Text style={styles.suggestedUnit}>kg</Text>
+                                <Text style={styles.activeSetValueUnit}>kg</Text>
                               </View>
                               
                               <View style={styles.inactiveInputDivider} />
@@ -1430,14 +1742,19 @@ export default function WorkoutSessionScreen() {
                               value={set.reps}
                               onChangeText={(value) => handleRepsChange(currentExercise.id, index, value)}
                               keyboardType="numeric"
-                              placeholder={focusedInputs[`${currentExercise.id}-${index}-reps`] ? '' : (currentExercise.reps_range || '-')}
+                              placeholder={focusedInputs[`${currentExercise.id}-${index}-reps`] ? '' : (
+                                // Use recommended reps from database if available, otherwise fall back to last values or reps range
+                                currentRecommendation?.recommended_reps?.toString() || 
+                                lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps || 
+                                currentExercise.reps_range || '-'
+                              )}
                               placeholderTextColor="rgba(255,255,255,0.5)"
                               selectTextOnFocus={true}
                               onFocus={() => handleInputFocus(`${currentExercise.id}-${index}-reps`)}
                               onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-reps`)}
                               editable={!isCompleted}
                             />
-                            <Text style={styles.suggestedUnit}>reps</Text>
+                            <Text style={styles.activeSetValueUnit}>reps</Text>
                           </View>
                         </View>
                       </View>
@@ -1731,6 +2048,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
   },
+  debugText: {
+    color: COLORS.secondary,
+    marginTop: 8,
+    fontSize: 14,
+    textAlign: 'center',
+    opacity: 0.8,
+  },
   completionHeaderContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1746,6 +2070,13 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginLeft: SPACING.sm,
+  },
+  weekIndicator: {
+    color: COLORS.primary,
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+    textAlign: 'center',
   },
   calendarContainer: {
     paddingHorizontal: SPACING.md,
@@ -2102,6 +2433,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-start',
+    marginTop: -10,
   },
   inactiveInputDivider: {
     width: 1,
@@ -2467,5 +2799,52 @@ const styles = StyleSheet.create({
   },
   returnButton: {
     // Background color is already in exitModalButton
+  },
+  suggestedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  suggestedRowInactive: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 0,
+    paddingHorizontal: 0,
+  },
+  suggestedContainer: {
+    flex: 1,
+    alignItems: 'flex-start',
+  },
+  suggestedLabel: {
+    color: 'rgba(255, 255, 255, 0.61)',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginLeft: 0,
+  },
+  suggestedSpacer: {
+    width: SPACING.xs,
+  },
+  suggestedLabelWeight: {
+    color: 'rgba(255, 255, 255, 0.61)',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'left',
+    marginLeft: 16,
+    marginBottom: 8,
+  },
+  suggestedLabelWeightActive: {
+    color: 'rgba(255, 255, 255, 0.61)',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'left',
+    marginLeft: 30,
+  },
+  suggestedContainerWeight: {
+    flex: 1,
+    alignItems: 'flex-start',
   },
 });

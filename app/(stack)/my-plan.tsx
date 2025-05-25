@@ -7,6 +7,8 @@ import { useAuth } from '../store/AuthContext';
 import supabase from '../services/supabase';
 import OptimizedImage from '../components/OptimizedImage';
 import MyPlanCalendar from '../components/myplanCalendar';
+import ExerciseDetailsModal from '../components/ExerciseDetailsModal';
+import PlanOverviewModal from '../components/PlanOverviewModal';
 import { format, addDays, isSameDay, startOfWeek, getDay, addWeeks, parseISO } from 'date-fns';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import workoutPlanService from '../services/workoutPlanService';
@@ -120,6 +122,31 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     currentWeekName: string;
   } | null>(null);
 
+  // Add loading state for date selection to prevent flash
+  const [isDateSelectionLoading, setIsDateSelectionLoading] = useState(false);
+
+  // Exercise Details Modal state
+  const [exerciseDetailsModalVisible, setExerciseDetailsModalVisible] = useState(false);
+  const [selectedExercise, setSelectedExercise] = useState<{
+    id: string;
+    name: string;
+    image_url?: string;
+    primary_muscles?: string[];
+    secondary_muscles?: string[];
+    exercise_id?: string;
+  } | null>(null);
+
+  // Plan Overview Modal state
+  const [planOverviewModalVisible, setPlanOverviewModalVisible] = useState(false);
+
+  // Loading component for date selection
+  const DateSelectionLoadingComponent = () => (
+    <View style={styles.dateSelectionLoadingContainer}>
+      <ActivityIndicator size="large" color={COLORS.primary} />
+      <Text style={styles.dateSelectionLoadingText}>Loading workout...</Text>
+    </View>
+  );
+
   // Helper function to format duration as H:mm (hours without leading zero)
   const formatDurationAsHMM = (duration: string): string => {
     if (!duration) return '0:00';
@@ -131,6 +158,41 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     const minutes = parts[1];
     
     return `${hours}:${minutes}`;
+  };
+
+  // Handle exercise name click to show details modal
+  const handleExerciseNamePress = (exercise: Exercise) => {
+    setSelectedExercise({
+      id: exercise.exercise_id || exercise.id,
+      name: exercise.name,
+      image_url: exercise.image_url,
+      primary_muscles: exercise.primary_muscles,
+      secondary_muscles: [], // We'll fetch this from the modal if needed
+      exercise_id: exercise.exercise_id || exercise.id
+    });
+    setExerciseDetailsModalVisible(true);
+  };
+
+  // Handle closing the exercise details modal
+  const handleExerciseDetailsModalClose = () => {
+    setExerciseDetailsModalVisible(false);
+    setSelectedExercise(null);
+  };
+
+  // Handle plan overview modal
+  const handlePlanOverviewPress = () => {
+    setPlanOverviewModalVisible(true);
+  };
+
+  const handlePlanOverviewModalClose = () => {
+    setPlanOverviewModalVisible(false);
+  };
+
+  // Handle edit plan press
+  const handleEditPlanPress = () => {
+    // TODO: Implement edit plan functionality
+    console.log('Edit plan pressed');
+    // This could navigate to a plan editing screen or show an edit modal
   };
 
   // Add a new component for the progress line
@@ -204,12 +266,18 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
               />
             </View>
             <View style={styles.exerciseDetails}>
-              <Text style={[
-                styles.exerciseName,
-                (exerciseState === 'completed' || exerciseState === 'ongoing') && styles.exerciseTextGreyed
-              ]}>
-                {item.name}
-              </Text>
+              <TouchableOpacity 
+                onPress={() => handleExerciseNamePress(item)}
+                activeOpacity={0.7}
+              >
+                <Text style={[
+                  styles.exerciseName,
+                  styles.exerciseNameClickable,
+                  (exerciseState === 'completed' || exerciseState === 'ongoing') && styles.exerciseTextGreyed
+                ]}>
+                  {item.name}
+                </Text>
+              </TouchableOpacity>
               <Text style={[
                 styles.exerciseSets,
                 (exerciseState === 'completed' || exerciseState === 'ongoing') && styles.exerciseTextGreyed
@@ -257,8 +325,25 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
           )}
         </View>
         
-        {/* Custom divider logic */}
-        {!isLastExercise && (
+        {/* Progress bar for paused exercise */}
+        {exerciseState === 'ongoing' && hasPausedWorkout && pausedWorkout && (
+          <View style={styles.exerciseProgressContainer}>
+            <View style={styles.exerciseProgressTrack}>
+              <View 
+                style={[
+                  styles.exerciseProgressFill, 
+                  { width: `${Math.max(0, Math.min(100, ((pausedWorkout.currentExerciseIndex) / pausedWorkout.exercises.length) * 100))}%` }
+                ]} 
+              />
+            </View>
+            <Text style={styles.exerciseProgressText}>
+              {pausedWorkout.currentExerciseIndex} of {pausedWorkout.exercises.length} exercises completed
+            </Text>
+          </View>
+        )}
+        
+        {/* Custom divider logic - only show for normal exercises */}
+        {!isLastExercise && exerciseState === 'normal' && (
           <View style={styles.exerciseDivider} />
         )}
       </View>
@@ -350,9 +435,9 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     return (
       <View style={styles.lockedWeekContainer}>
         <View style={styles.lockedWeekHeader}>
-          <View style={styles.lockedIconContainer}>
-            <Icon source="lock" size={40} color="#FF9800" />
-          </View>
+                  <View style={styles.lockedIconContainer}>
+          <Icon source="lock" size={40} color={COLORS.primary} />
+        </View>
           <Text style={styles.lockedWeekTitle}>Week {lockedWeekInfo.selectedWeek} Locked</Text>
           <Text style={styles.lockedWeekSubtitle}>{lockedWeekInfo.selectedWeekName} Phase</Text>
         </View>
@@ -389,8 +474,29 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
               setSelectedDate(today);
               setIsViewingLockedWeek(false);
               setLockedWeekInfo(null);
-              // Reset active day based on today
-              handleCalendarDateSelect(today, null, false);
+              
+              // Properly determine if today is a workout day
+              if (plan && userWorkoutDays.length > 0) {
+                const todayStr = format(today, 'yyyy-MM-dd');
+                const markedDatesObj = workoutPlanService.setupCalendarDatesProgressive(
+                  plan.start_date,
+                  plan.workoutDays.length,
+                  userWorkoutDays,
+                  { primary: COLORS.primary }
+                );
+                
+                const todayMarkedInfo = markedDatesObj[todayStr];
+                if (todayMarkedInfo && todayMarkedInfo.marked && todayMarkedInfo.workoutDayIndex) {
+                  // Today is a workout day
+                  handleCalendarDateSelect(today, todayMarkedInfo.workoutDayIndex, true);
+                } else {
+                  // Today is not a workout day
+                  handleCalendarDateSelect(today, null, false);
+                }
+              } else {
+                // Fallback if no plan data
+                handleCalendarDateSelect(today, null, false);
+              }
             }}
           >
             <Icon source="arrow-left" size={20} color={COLORS.text} />
@@ -409,12 +515,18 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     }
     
     try {
-      // Get plan data with cycle week information to ensure we have current cycle week
-      const cycleData = await workoutPlanService.getActivePlanWithCycleWeek(user.id, plan.id);
+      // Get the cycle week from the selected date instead of database stored week
+      const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+      const markedDatesObj = workoutPlanService.setupCalendarDatesProgressive(
+        plan.start_date,
+        plan.workoutDays.length,
+        userWorkoutDays,
+        { primary: COLORS.primary }
+      );
       
-      if (!cycleData) {
-        throw new Error('Failed to get plan cycle data');
-      }
+      const selectedDateInfo = markedDatesObj[selectedDateStr];
+      const selectedCycleWeek = selectedDateInfo?.cycleWeek || 1;
+      const selectedWeekName = selectedDateInfo?.weekName || 'Adaptation';
       
       // Navigate to workout session with the paused workout flag and explicit day
       router.push({
@@ -422,8 +534,8 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         params: { 
           planId: plan.id,
           workoutDay: pausedWorkout.workoutDay || activeDay, // Use the day from the paused workout data
-          cycleWeek: cycleData.currentWeek,
-          weekName: cycleData.weekName,
+          cycleWeek: selectedCycleWeek,
+          weekName: selectedWeekName,
           forceResume: 'true' // Add a flag to force resume
         }
       });
@@ -544,12 +656,18 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
                           setPausedWorkout(formattedPausedWorkout);
                           setHasPausedWorkout(true);
                           
-                          // Get plan data with cycle week information
-                          const cycleData = await workoutPlanService.getActivePlanWithCycleWeek(user.id, plan.id);
+                          // Get the cycle week from the selected date instead of database stored week
+                          const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+                          const markedDatesObj = workoutPlanService.setupCalendarDatesProgressive(
+                            plan.start_date,
+                            plan.workoutDays.length,
+                            userWorkoutDays,
+                            { primary: COLORS.primary }
+                          );
                           
-                          if (!cycleData) {
-                            throw new Error('Failed to get plan cycle data');
-                          }
+                          const selectedDateInfo = markedDatesObj[selectedDateStr];
+                          const selectedCycleWeek = selectedDateInfo?.cycleWeek || 1;
+                          const selectedWeekName = selectedDateInfo?.weekName || 'Adaptation';
                           
                           // Navigate directly to resume the workout
                           router.push({
@@ -557,8 +675,8 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
                             params: { 
                               planId: plan.id,
                               workoutDay: pausedWorkoutData.workout_day,
-                              cycleWeek: cycleData.currentWeek,
-                              weekName: cycleData.weekName,
+                              cycleWeek: selectedCycleWeek,
+                              weekName: selectedWeekName,
                               forceResume: 'true'
                             }
                           });
@@ -595,12 +713,18 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
                         
                         // Continue with starting the current day workout
                         if (activeDay !== null && user && plan) {
-                          // Get plan data with cycle week information
-                          const cycleData = await workoutPlanService.getActivePlanWithCycleWeek(user.id, plan.id);
+                          // Get the cycle week from the selected date instead of database stored week
+                          const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+                          const markedDatesObj = workoutPlanService.setupCalendarDatesProgressive(
+                            plan.start_date,
+                            plan.workoutDays.length,
+                            userWorkoutDays,
+                            { primary: COLORS.primary }
+                          );
                           
-                          if (!cycleData) {
-                            throw new Error('Failed to get plan cycle data');
-                          }
+                          const selectedDateInfo = markedDatesObj[selectedDateStr];
+                          const selectedCycleWeek = selectedDateInfo?.cycleWeek || 1;
+                          const selectedWeekName = selectedDateInfo?.weekName || 'Adaptation';
                           
                           // Navigate to workout session for the current day
                           router.push({
@@ -608,8 +732,8 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
                             params: { 
                               planId: plan.id,
                               workoutDay: activeDay,
-                              cycleWeek: cycleData.currentWeek,
-                              weekName: cycleData.weekName,
+                              cycleWeek: selectedCycleWeek,
+                              weekName: selectedWeekName,
                               // Add forceStart flag for redo mode
                               ...(pausedWorkoutInfo.mode === 'redo' ? { forceStart: 'true' } : {})
                             }
@@ -667,11 +791,18 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       }
 
       // No paused workout, proceed with restarting the workout
-      const cycleData = await workoutPlanService.getActivePlanWithCycleWeek(user.id, plan.id);
+      // Get the cycle week from the selected date instead of database stored week
+      const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+      const markedDatesObj = workoutPlanService.setupCalendarDatesProgressive(
+        plan.start_date,
+        plan.workoutDays.length,
+        userWorkoutDays,
+        { primary: COLORS.primary }
+      );
       
-      if (!cycleData) {
-        throw new Error('Failed to get plan cycle data');
-      }
+      const selectedDateInfo = markedDatesObj[selectedDateStr];
+      const selectedCycleWeek = selectedDateInfo?.cycleWeek || 1;
+      const selectedWeekName = selectedDateInfo?.weekName || 'Adaptation';
       
       // Navigate to workout session with a flag to force start
       router.push({
@@ -679,8 +810,8 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         params: { 
           planId: plan.id,
           workoutDay: activeDay,
-          cycleWeek: cycleData.currentWeek,
-          weekName: cycleData.weekName,
+          cycleWeek: selectedCycleWeek,
+          weekName: selectedWeekName,
           forceStart: 'true' // Add this flag to force start even if completed
         }
       });
@@ -762,10 +893,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         console.error('Error fetching paused workouts:', pausedError);
       }
       
-      // Debug logging
-      console.log('updateCalendarWorkoutStatus - completedWorkouts:', completedWorkouts);
-      console.log('updateCalendarWorkoutStatus - pausedWorkouts:', pausedWorkouts);
-      console.log('updateCalendarWorkoutStatus - markedDatesObj:', markedDatesObj);
+
       
       // Map workout days to calendar dates
       const completedDates: string[] = [];
@@ -804,8 +932,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         }
       });
       
-      console.log('updateCalendarWorkoutStatus - Final completedDates:', completedDates);
-      console.log('updateCalendarWorkoutStatus - Final pausedDates:', pausedDates);
+
       
       setCompletedWorkoutDays(completedDates);
       setPausedWorkoutDays(pausedDates);
@@ -899,7 +1026,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         if (todayMarkedInfo && todayMarkedInfo.marked && todayMarkedInfo.workoutDayIndex) {
           // Today is a workout day - set it as the active day
           setActiveDay(todayMarkedInfo.workoutDayIndex);
-          console.log(`Today is workout day ${todayMarkedInfo.workoutDayIndex} in cycle week ${todayMarkedInfo.cycleWeek} (${todayMarkedInfo.weekName})`);
+
         } else {
           // Today is not a workout day - don't set an active day (will show rest day)
           setActiveDay(null);
@@ -1007,8 +1134,13 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     setPausedWorkout(null);
     
     if (isWorkoutDay && workoutDayIndex !== null) {
-      // This is a workout day - set the active day
-      setActiveDay(workoutDayIndex);
+      // Start loading state to prevent flash
+      setIsDateSelectionLoading(true);
+      
+      // Reset states immediately to prevent flash
+      setIsWorkoutCompleted(false);
+      setCompletedWorkoutData(null);
+      setActiveDay(null); // Don't set active day yet
       
       // Check if this specific date has a completed workout
       if (user?.id && plan?.id) {
@@ -1049,6 +1181,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
             setTimeout(() => {
               setIsManualDateSelection(false);
             }, 500);
+            setIsDateSelectionLoading(false);
             return;
           } else {
             // User is viewing current or past week - reset locked week state
@@ -1156,6 +1289,10 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
           setCompletedWorkoutData(null);
           setHasPausedWorkout(false);
           setPausedWorkout(null);
+        } finally {
+          // Set the active day after completion check is done
+          setActiveDay(workoutDayIndex);
+          setIsDateSelectionLoading(false);
         }
       }
     } else {
@@ -1167,6 +1304,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       setPausedWorkout(null);
       setIsViewingLockedWeek(false);
       setLockedWeekInfo(null);
+      setIsDateSelectionLoading(false);
     }
     
     // Clear the flag after a short delay to allow effects to run normally again
@@ -1202,19 +1340,43 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       }
       
       // No paused workout, proceed with starting a new workout
-      const cycleData = await workoutPlanService.getActivePlanWithCycleWeek(user.id, plan.id);
+      // Get the current cycle week from the database (user's actual progress)
       
-      if (!cycleData) {
-        throw new Error('Failed to get plan cycle data');
+      // Fetch the user's current cycle week from the database
+      const { data: activePlanData, error: activePlanError } = await supabase
+        .from('user_active_plans')
+        .select('current_week, completed_workouts')
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id)
+        .eq('is_active', true)
+        .single();
+      
+      if (activePlanError) {
+        console.error('Error fetching active plan data:', activePlanError);
+        Alert.alert('Error', 'Failed to fetch plan data');
+        return;
       }
-      // Navigate to workout session
+      
+      const currentWeek = activePlanData?.current_week || 1;
+      const completedWorkouts = activePlanData?.completed_workouts || 0;
+      
+      // Get the week name from the database
+      const { data: weekData, error: weekError } = await supabase
+        .from('workout_cycle_weeks')
+        .select('name')
+        .eq('week_number', currentWeek)
+        .single();
+      
+      const weekName = weekData?.name || 'Adaptation';
+      
+      // Navigate to workout session using the database's current cycle week
       router.push({
         pathname: '/(stack)/workout-session',
         params: { 
           planId: plan.id,
           workoutDay: activeDay, // This is now 1-indexed (1, 2, 3)
-          cycleWeek: cycleData.currentWeek,
-          weekName: cycleData.weekName
+          cycleWeek: currentWeek,
+          weekName: weekName
         }
       });
     } catch (err) {
@@ -1549,7 +1711,10 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         ]}
       >
         {/* Workout Content - Show different UI based on completion status */}
-        {isViewingLockedWeek ? (
+        {isDateSelectionLoading ? (
+          /* Loading State */
+          <DateSelectionLoadingComponent />
+        ) : isViewingLockedWeek ? (
           /* Locked Week View */
           <LockedWeekComponent />
         ) : activeDay !== null && getWorkoutDayByNumber(activeDay) ? (
@@ -1629,11 +1794,29 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
             /* Regular Workout View */
             <>
               <View style={styles.todaysWorkoutHeader}>
-                <Text style={styles.todaysWorkoutTitle}>
-                  {isSameDay(selectedDate, new Date()) 
-                    ? "TODAY'S WORKOUT" 
-                    : `${format(selectedDate, 'EEEE').toUpperCase()} WORKOUT`}
-                </Text>
+                <View style={styles.workoutTitleRow}>
+                  <Text style={styles.todaysWorkoutTitle}>
+                    {isSameDay(selectedDate, new Date()) 
+                      ? "TODAY'S WORKOUT" 
+                      : `${format(selectedDate, 'EEEE').toUpperCase()} WORKOUT`}
+                  </Text>
+                  <View style={styles.workoutHeaderIcons}>
+                    <IconButton
+                      icon="chart-timeline-variant"
+                      iconColor={COLORS.primary}
+                      size={24}
+                      onPress={handlePlanOverviewPress}
+                      style={styles.headerIconButton}
+                    />
+                    <IconButton
+                      icon="pencil"
+                      iconColor={COLORS.primary}
+                      size={24}
+                      onPress={handleEditPlanPress}
+                      style={styles.headerIconButton}
+                    />
+                  </View>
+                </View>
                 <Text style={styles.workoutName}>{plan.subtitle || "Unknown"}</Text>
                 
                 {/* Cycle Week Information */}
@@ -1695,11 +1878,6 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
               
               {/* Workout Stats and Exercises Container */}
               <View style={styles.workoutContainer}>
-                {/* Add Progress Line above workout stats if there's a paused workout */}
-                {hasPausedWorkout && pausedWorkout && (
-                  <WorkoutProgressLine pausedWorkout={pausedWorkout} />
-                )}
-                
                 {/* Workout Stats */}
                 <View style={styles.statsRow}>
                   <View style={styles.statItem}>
@@ -1766,6 +1944,39 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       
       {/* Add the PausedWorkoutModal component here */}
       <PausedWorkoutModal />
+      
+      {/* Exercise Details Modal */}
+      {selectedExercise && (
+        <ExerciseDetailsModal
+          visible={exerciseDetailsModalVisible}
+          onClose={handleExerciseDetailsModalClose}
+          exerciseId={selectedExercise.exercise_id || selectedExercise.id}
+          exerciseName={selectedExercise.name}
+          exerciseImage={selectedExercise.image_url}
+          primary_muscles={selectedExercise.primary_muscles}
+          secondary_muscles={selectedExercise.secondary_muscles}
+        />
+      )}
+
+      {/* Plan Overview Modal */}
+      {plan && cycleProgress && (
+        <PlanOverviewModal
+          visible={planOverviewModalVisible}
+          onClose={handlePlanOverviewModalClose}
+          planTitle={plan.title}
+          planSubtitle={plan.subtitle}
+          weeks={[
+            { number: 1, name: 'Adaptation', color: '#4CAF50', description: 'Building foundation and proper form', days: plan.workoutDays.length },
+            { number: 2, name: 'Accumulation', color: '#2196F3', description: 'Increasing training volume and intensity', days: plan.workoutDays.length },
+            { number: 3, name: 'Intensification', color: '#FF9800', description: 'Peak intensity and strength focus', days: plan.workoutDays.length },
+            { number: 4, name: 'Realization', color: '#9C27B0', description: 'Testing limits and achieving PRs', days: plan.workoutDays.length },
+            { number: 5, name: 'Recovery', color: '#607D8B', description: 'Active recovery and preparation for next cycle', days: plan.workoutDays.length }
+          ]}
+          currentWeek={cycleProgress.currentWeek}
+          activePlanId={plan.id}
+          planWorkoutFrequency={plan.workoutDays.length}
+        />
+      )}
     </View>
   );
 }
@@ -1950,12 +2161,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.md,
     paddingBottom: SPACING.md,
   },
+  workoutTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    position: 'relative',
+  },
   todaysWorkoutTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: COLORS.text,
     marginBottom: SPACING.xs,
     textAlign: 'center',
+  },
+  workoutHeaderIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    position: 'absolute',
+    right: 0,
+  },
+  headerIconButton: {
+    margin: 0,
+    marginLeft: SPACING.xs / 2,
   },
   workoutName: {
     fontSize: 18,
@@ -2023,6 +2251,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     marginBottom: 4,
+  },
+  exerciseNameClickable: {
+    // Remove underline but keep the style for potential future use
   },
   exerciseSets: {
     color: COLORS.secondary,
@@ -2420,6 +2651,37 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     marginVertical: SPACING.xs,
   },
+  exerciseProgressContainer: {
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.xs,
+    paddingHorizontal: SPACING.sm,
+    width: '100%',
+  },
+  exerciseProgressTrack: {
+    width: '100%',
+    height: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  exerciseProgressFill: {
+    height: '100%',
+    backgroundColor: '#FF9800',
+    borderRadius: 3,
+    shadowColor: '#FF9800',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.5,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  exerciseProgressText: {
+    color: COLORS.text,
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: SPACING.xs,
+    opacity: 0.9,
+    textAlign: 'center',
+  },
   exerciseOverlay: {
     position: 'absolute',
     top: 0,
@@ -2644,14 +2906,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 152, 0, 0.3)',
+    borderColor: `${COLORS.primary}30`, // 30 is hex for ~18% opacity
   },
   lockedWeekHeader: {
     alignItems: 'center',
     marginBottom: SPACING.lg,
   },
   lockedIconContainer: {
-    backgroundColor: 'rgba(255, 152, 0, 0.15)',
+    backgroundColor: `${COLORS.primary}26`, // 26 is hex for ~15% opacity
     padding: SPACING.md,
     borderRadius: 50,
     marginBottom: SPACING.md,
@@ -2664,7 +2926,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   lockedWeekSubtitle: {
-    color: '#FF9800',
+    color: COLORS.primary,
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
@@ -2684,7 +2946,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     padding: SPACING.md,
     borderRadius: BORDER_RADIUS.md,
-    marginBottom: SPACING.lg,
+    marginBottom: SPACING.sm,
     width: '100%',
     alignItems: 'center',
   },
@@ -2700,7 +2962,7 @@ const styles = StyleSheet.create({
   },
   currentWeekBadge: {
     backgroundColor: COLORS.primary,
-    paddingHorizontal: SPACING.sm,
+    paddingHorizontal: SPACING.xs,
     paddingVertical: SPACING.xs,
     borderRadius: BORDER_RADIUS.md,
     marginRight: SPACING.sm,
@@ -2719,7 +2981,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     padding: SPACING.md,
     borderRadius: BORDER_RADIUS.md,
-    marginBottom: SPACING.lg,
+    marginBottom: SPACING.sm,
     width: '100%',
   },
   lockedTipsTitle: {
@@ -2733,6 +2995,7 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 14,
     marginBottom: SPACING.xs,
+    textAlign: 'center',
     lineHeight: 20,
   },
   backToCurrentWeekButton: {
@@ -2742,12 +3005,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.md,
     borderRadius: BORDER_RADIUS.md,
-    marginTop: SPACING.sm,
+    marginTop: SPACING.xs,
   },
   backToCurrentWeekText: {
     color: COLORS.text,
     fontSize: 16,
     fontWeight: '600',
     marginLeft: SPACING.xs,
+  },
+  dateSelectionLoadingContainer: {
+    padding: SPACING.lg,
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.md,
+    marginHorizontal: SPACING.md,
+    marginBottom: SPACING.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 150,
+  },
+  dateSelectionLoadingText: {
+    color: COLORS.text,
+    fontSize: 16,
+    marginTop: SPACING.md,
+    textAlign: 'center',
   },
 }); 

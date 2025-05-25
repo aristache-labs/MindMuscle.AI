@@ -84,6 +84,7 @@ export interface CycleWeekInfo {
   description: string;
   recommendationTemplate: string;
   weightAdjustmentPercentage: number;
+  repsAdjustmentPercentage: number;
 }
 
 // Enhanced interface for exercise recommendations
@@ -91,8 +92,10 @@ export interface ExerciseRecommendation {
   previousWeight: number | null;
   previousReps: number | null;
   recommendedWeight: number | null;
+  recommendedReps: number | null;
   recommendationText: string;
   weekAdjustmentPercentage: number;
+  repsAdjustmentPercentage: number;
   weekName: string;
 }
 
@@ -375,24 +378,48 @@ export const fetchWorkoutData = async (
       
     if (exercisesError) {
       console.error(`Error fetching exercises: ${exercisesError.message}`);
+      console.error(`Full error object:`, exercisesError);
       throw exercisesError;
     }
     
     // Log the results
     console.log(`Found ${exercisesData?.length || 0} exercises for workout day ${workoutDay}`);
+    console.log(`Raw exercises data:`, exercisesData);
     
     // If no exercises found, try to fetch all exercises for this plan to debug
     if (!exercisesData || exercisesData.length === 0) {
       console.log(`Trying to fetch all exercises for plan ${planId} to debug...`);
       const { data: allPlanExercises, error: allExercisesError } = await supabase
         .from('workout_plan_exercises')
-        .select('id, workout_day, exercise_name')
+        .select('id, workout_day, exercise_name, plan_id')
         .eq('plan_id', planId);
         
       if (!allExercisesError && allPlanExercises) {
         console.log(`Plan ${planId} has ${allPlanExercises.length} total exercises:`);
         const workoutDays = [...new Set(allPlanExercises.map(ex => ex.workout_day))];
         console.log(`Available workout days: ${workoutDays.join(', ')}`);
+        allPlanExercises.forEach((ex, i) => {
+          console.log(`Exercise ${i+1}: ${ex.exercise_name} (Day ${ex.workout_day}) - Plan: ${ex.plan_id}`);
+        });
+        
+        // Also try to fetch without the workout_day filter to see if there are any exercises at all
+        console.log(`\nTrying to fetch ANY exercises for plan ${planId}...`);
+        const { data: anyExercises, error: anyError } = await supabase
+          .from('workout_plan_exercises')
+          .select('*')
+          .eq('plan_id', planId)
+          .limit(5);
+          
+        if (!anyError && anyExercises) {
+          console.log(`Found ${anyExercises.length} exercises without workout_day filter:`);
+          anyExercises.forEach((ex, i) => {
+            console.log(`Exercise ${i+1}:`, JSON.stringify(ex, null, 2));
+          });
+        } else {
+          console.log(`Error fetching any exercises:`, anyError);
+        }
+      } else {
+        console.log(`Error fetching all plan exercises:`, allExercisesError);
       }
       
       console.error(`No exercises found for planId: ${planId}, workoutDay: ${workoutDay}`);
@@ -441,17 +468,53 @@ export const fetchWorkoutData = async (
       
       // Fetch recommendations for this exercise
       if (userId && exercise.exercise_id) {
-        const { data: recommendationData } = await supabase.rpc(
-          'get_exercise_recommendations',
-          {
-            p_user_id: userId,
-            p_exercise_id: exercise.exercise_id,
-            p_cycle_week: cycleWeek
-          }
-        );
+        console.log(`Fetching recommendations for exercise ${exercise.exercise_id} with cycle week ${cycleWeek}`);
         
-        if (recommendationData && recommendationData.length > 0) {
-          recommendations[exercise.id] = recommendationData[0];
+        try {
+          const { data: recommendationData, error: recError } = await supabase.rpc(
+            'get_exercise_recommendations',
+            {
+              p_user_id: userId,
+              p_exercise_id: exercise.exercise_id,
+              p_cycle_week: cycleWeek
+            }
+          );
+          
+          if (recError) {
+            console.error(`Error fetching recommendations for exercise ${exercise.exercise_id}:`, recError);
+            // Fallback: create basic recommendation based on cycle week
+            recommendations[exercise.id] = {
+              previous_weight: null,
+              previous_reps: null,
+              recommended_weight: null,
+              recommendation_text: `Week ${cycleWeek} - Focus on proper form and progressive overload`,
+              cycle_week: cycleWeek
+            };
+          } else {
+            console.log(`Recommendations for exercise ${exercise.exercise_id}:`, recommendationData);
+            if (recommendationData && recommendationData.length > 0) {
+              recommendations[exercise.id] = recommendationData[0];
+            } else {
+              // Fallback: create basic recommendation based on cycle week
+              recommendations[exercise.id] = {
+                previous_weight: null,
+                previous_reps: null,
+                recommended_weight: null,
+                recommendation_text: `Week ${cycleWeek} - Focus on proper form and progressive overload`,
+                cycle_week: cycleWeek
+              };
+            }
+          }
+        } catch (error) {
+          console.error(`Exception fetching recommendations for exercise ${exercise.exercise_id}:`, error);
+          // Fallback: create basic recommendation based on cycle week
+          recommendations[exercise.id] = {
+            previous_weight: null,
+            previous_reps: null,
+            recommended_weight: null,
+            recommendation_text: `Week ${cycleWeek} - Focus on proper form and progressive overload`,
+            cycle_week: cycleWeek
+          };
         }
       }
     }
@@ -588,6 +651,81 @@ export const checkWorkoutCompletion = async (
     }
   } catch (error) {
     // Error in checkWorkoutCompletion
+    return { isCompleted: false };
+  }
+};
+
+// Check if workout is already completed for a specific cycle week
+export const checkWorkoutCompletionForCycleWeek = async (
+  userId: string,
+  planId: string,
+  workoutDay: number,
+  cycleWeek: number
+): Promise<{
+  isCompleted: boolean;
+  completedWorkoutData?: CompletedWorkoutData;
+}> => {
+  if (!userId || !planId) {
+    return { isCompleted: false };
+  }
+  
+  try {
+    console.log(`Checking workout completion for cycle week ${cycleWeek}, workout day ${workoutDay}`);
+    
+    // Check if there's a completed workout for this specific day AND cycle week
+    const { data, error } = await supabase
+      .from('user_workout_history')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('plan_id', planId)
+      .eq('workout_day', workoutDay)
+      .eq('cycle_week', cycleWeek); // This is the key difference - check for specific cycle week
+    
+    if (error) {
+      console.error('Error checking workout completion for cycle week:', error);
+      throw error;
+    }
+    
+    console.log(`Found ${data?.length || 0} completed workouts for cycle week ${cycleWeek}, workout day ${workoutDay}`);
+    
+    if (data && data.length > 0) {
+      // Workout is already completed for this specific cycle week, get the most recent one
+      const mostRecentWorkout = data.sort((a: any, b: any) => 
+        new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime()
+      )[0];
+      
+      console.log(`Most recent workout for cycle week ${cycleWeek}:`, mostRecentWorkout);
+      
+      // Get the count of exercises from the user_exercise_records table
+      const { data: exerciseData, error: exerciseError } = await supabase
+        .from('user_exercise_records')
+        .select('exercise_id')
+        .eq('workout_history_id', mostRecentWorkout.id)
+        .limit(1000);
+      
+      // Set completed workout data
+      const completedWorkoutData: CompletedWorkoutData = {
+        completedExercises: exerciseData ? new Set(exerciseData.map((item: any) => item.exercise_id)).size : 0,
+        duration: mostRecentWorkout.workout_duration || '00:00:00',
+        caloriesBurned: mostRecentWorkout.calories_burned || 0,
+        totalVolume: mostRecentWorkout.total_volume || 0,
+        totalReps: mostRecentWorkout.total_reps || 0,
+        completedAt: mostRecentWorkout.completed_at,
+        weekName: mostRecentWorkout.week_name,
+        cycleWeek: mostRecentWorkout.cycle_week
+      };
+      
+      return {
+        isCompleted: true,
+        completedWorkoutData
+      };
+    } else {
+      // Workout is not completed for this specific cycle week
+      console.log(`No completed workout found for cycle week ${cycleWeek}, workout day ${workoutDay}`);
+      return { isCompleted: false };
+    }
+  } catch (error) {
+    console.error('Error in checkWorkoutCompletionForCycleWeek:', error);
     return { isCompleted: false };
   }
 };
@@ -1800,7 +1938,8 @@ export const getCycleWeekInfo = async (weekNumber: number): Promise<CycleWeekInf
       weekName: data.name,
       description: data.description,
       recommendationTemplate: data.recommendation_template,
-      weightAdjustmentPercentage: data.weight_adjustment_percentage
+      weightAdjustmentPercentage: data.weight_adjustment_percentage,
+      repsAdjustmentPercentage: data.reps_adjustment_percentage
     };
   } catch (error) {
     console.error('Error fetching cycle week info:', error);
@@ -1823,7 +1962,8 @@ export const getAllCycleWeeks = async (): Promise<CycleWeekInfo[]> => {
       weekName: week.name,
       description: week.description,
       recommendationTemplate: week.recommendation_template,
-      weightAdjustmentPercentage: week.weight_adjustment_percentage
+      weightAdjustmentPercentage: week.weight_adjustment_percentage,
+      repsAdjustmentPercentage: week.reps_adjustment_percentage
     }));
   } catch (error) {
     console.error('Error fetching all cycle weeks:', error);
@@ -1860,8 +2000,10 @@ export const getExerciseRecommendations = async (
       previousWeight: recommendation.previous_weight,
       previousReps: recommendation.previous_reps,
       recommendedWeight: recommendation.recommended_weight,
+      recommendedReps: recommendation.recommended_reps,
       recommendationText: recommendation.recommendation_text,
       weekAdjustmentPercentage: cycleInfo?.weightAdjustmentPercentage || 0,
+      repsAdjustmentPercentage: cycleInfo?.repsAdjustmentPercentage || 0,
       weekName: cycleInfo?.weekName || 'Unknown'
     };
   } catch (error) {
@@ -1907,6 +2049,8 @@ export const calculateProgressiveWorkoutSchedule = (
     return { schedule, markedDates };
   }
   
+
+  
   const start = new Date(startDate);
   let currentDate = new Date(start);
   let workoutCount = 0;
@@ -1929,6 +2073,8 @@ export const calculateProgressiveWorkoutSchedule = (
       if (cycleWeek <= totalWeeks) {
         const dateStr = currentDate.toISOString().split('T')[0];
         const weekName = weekNames[cycleWeek - 1] || 'Unknown';
+        
+
         
         // Add to schedule
         schedule.push({
@@ -1970,6 +2116,8 @@ export const calculateProgressiveWorkoutSchedule = (
       break;
     }
   }
+  
+
   
   return { schedule, markedDates };
 };
@@ -2132,6 +2280,7 @@ const workoutPlanService = {
   fetchWorkoutData,
   fetchLastExerciseRecords,
   checkWorkoutCompletion,
+  checkWorkoutCompletionForCycleWeek, // Add the new function
   completeWorkout,
   fetchActivePlan,
   setupCalendarDates,

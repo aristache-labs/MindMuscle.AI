@@ -10,6 +10,9 @@ import workoutPlanService from '../services/workoutPlanService';
 import { useAuth } from '../store/AuthContext';
 import OptimizedImage from '../components/OptimizedImage';
 import ExerciseMaxWeightGraph from '../components/ExerciseMaxWeightGraph';
+import ExerciseDetailsModal from '../components/ExerciseDetailsModal';
+import ExerciseListModal from '../components/ExerciseListModal';
+import CustomizeExerciseModal from '../components/CustomizeExerciseModal';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 
@@ -107,6 +110,16 @@ export default function WorkoutSessionScreen() {
   
   // State for exit modal
   const [showExitModal, setShowExitModal] = useState(false);
+  
+  // State for exercise details modal
+  const [showExerciseDetailsModal, setShowExerciseDetailsModal] = useState(false);
+  
+  // State for exercise list modal
+  const [showExerciseListModal, setShowExerciseListModal] = useState(false);
+  const [initialSelectedExercise, setInitialSelectedExercise] = useState<number | null>(null);
+  
+  // State for customize exercise modal
+  const [showCustomizeExerciseModal, setShowCustomizeExerciseModal] = useState(false);
   
   // State for keyboard handling
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -284,7 +297,47 @@ export default function WorkoutSessionScreen() {
     }
   }, [user?.id]); // Remove exercises to prevent infinite loop
   
-  // Function to fetch max weight data for current exercise
+  // Function to fetch max weight data for all exercises
+  const fetchMaxWeightDataForAllExercises = useCallback(async () => {
+    if (!user || exercises.length === 0) return;
+    
+    try {
+      const newMaxWeightData: Record<string, MaxWeightDataPoint[]> = {};
+      const newAbsoluteMaxWeightData: Record<string, { weight: number, reps: number, date: string }> = {};
+      
+      // Fetch data for all exercises that require weight
+      const promises = exercises
+        .filter(exercise => exercise.exercise_id && exercise.requires_weight !== false)
+        .map(async (exercise) => {
+          try {
+            const [trendingData, absoluteMaxData] = await Promise.all([
+              workoutPlanService.fetchExerciseMaxWeightData(user.id, exercise.exercise_id, 6),
+              workoutPlanService.fetchExerciseAbsoluteMaxWeight(user.id, exercise.exercise_id)
+            ]);
+            
+            if (trendingData.length > 0) {
+              newMaxWeightData[exercise.exercise_id] = trendingData;
+            }
+            
+            if (absoluteMaxData) {
+              newAbsoluteMaxWeightData[exercise.exercise_id] = absoluteMaxData;
+            }
+          } catch (error) {
+            console.error(`Error fetching max weight data for exercise ${exercise.exercise_id}:`, error);
+          }
+        });
+      
+      await Promise.all(promises);
+      
+      // Update state with all the fetched data
+      setMaxWeightData(prev => ({ ...prev, ...newMaxWeightData }));
+      setAbsoluteMaxWeightData(prev => ({ ...prev, ...newAbsoluteMaxWeightData }));
+    } catch (error) {
+      console.error('Error fetching max weight data for all exercises:', error);
+    }
+  }, [user?.id, exercises]);
+
+  // Function to fetch max weight data for current exercise (for immediate updates)
   const fetchMaxWeightData = useCallback(async () => {
     if (!user || exercises.length === 0 || currentExerciseIndex < 0) return;
     
@@ -447,17 +500,36 @@ export default function WorkoutSessionScreen() {
     }
   }, [exercises.length, user?.id, isLoading]); // Remove function dependency to prevent infinite loop
   
-  // Effect to fetch max weight data when current exercise changes
+  // Effect to fetch max weight data for all exercises when exercises are loaded
   useEffect(() => {
-    if (exercises.length > 0 && user && currentExerciseIndex >= 0 && !isLoading) {
-      fetchMaxWeightData();
+    if (exercises.length > 0 && user && !isLoading) {
+      fetchMaxWeightDataForAllExercises();
     }
-  }, [currentExerciseIndex, exercises.length, user?.id, isLoading]); // Remove function dependency to prevent infinite loop
+  }, [exercises.length, user?.id, isLoading]); // Remove function dependency to prevent infinite loop
 
   // Effect to fetch cycle week info
   useEffect(() => {
     fetchCycleWeekInfo();
   }, [cycleWeek]); // Use direct dependency instead of function
+
+  // Effect to update max weight data when sets are completed (for immediate graph updates)
+  useEffect(() => {
+    if (exercises.length > 0 && user && !isLoading) {
+      // Check if any sets have been completed by looking at the exerciseSets state
+      const hasCompletedSets = Object.values(exerciseSets).some(sets => 
+        sets.some(set => set.isCompleted)
+      );
+      
+      if (hasCompletedSets) {
+        // Debounce the update to avoid too many API calls
+        const timeoutId = setTimeout(() => {
+          fetchMaxWeightDataForAllExercises();
+        }, 1000);
+        
+        return () => clearTimeout(timeoutId);
+      }
+    }
+  }, [exerciseSets, exercises.length, user?.id, isLoading]);
 
   // Effect to pre-fill sets with recommended values when they become available
   useEffect(() => {
@@ -682,32 +754,41 @@ export default function WorkoutSessionScreen() {
         }
       }
       
-      // Fetch max weight data for current exercise directly
-      if (formattedExercises.length > 0 && currentExerciseIndex >= 0) {
+      // Fetch max weight data for all exercises
+      if (formattedExercises.length > 0) {
         try {
-          const currentExercise = formattedExercises[currentExerciseIndex];
-          if (currentExercise?.exercise_id && currentExercise.requires_weight !== false) {
-            const [trendingData, absoluteMaxData] = await Promise.all([
-              workoutPlanService.fetchExerciseMaxWeightData(user.id, currentExercise.exercise_id, 6),
-              workoutPlanService.fetchExerciseAbsoluteMaxWeight(user.id, currentExercise.exercise_id)
-            ]);
-            
-            if (trendingData.length > 0) {
-              setMaxWeightData(prev => ({
-                ...prev,
-                [currentExercise.exercise_id]: trendingData
-              }));
-            }
-            
-            if (absoluteMaxData) {
-              setAbsoluteMaxWeightData(prev => ({
-                ...prev,
-                [currentExercise.exercise_id]: absoluteMaxData
-              }));
-            }
-          }
+          const newMaxWeightData: Record<string, MaxWeightDataPoint[]> = {};
+          const newAbsoluteMaxWeightData: Record<string, { weight: number, reps: number, date: string }> = {};
+          
+          // Fetch data for all exercises that require weight
+          const promises = formattedExercises
+            .filter(exercise => exercise.exercise_id && exercise.requires_weight !== false)
+            .map(async (exercise) => {
+              try {
+                const [trendingData, absoluteMaxData] = await Promise.all([
+                  workoutPlanService.fetchExerciseMaxWeightData(user.id, exercise.exercise_id, 6),
+                  workoutPlanService.fetchExerciseAbsoluteMaxWeight(user.id, exercise.exercise_id)
+                ]);
+                
+                if (trendingData.length > 0) {
+                  newMaxWeightData[exercise.exercise_id] = trendingData;
+                }
+                
+                if (absoluteMaxData) {
+                  newAbsoluteMaxWeightData[exercise.exercise_id] = absoluteMaxData;
+                }
+              } catch (error) {
+                console.error(`Error fetching max weight data for exercise ${exercise.exercise_id}:`, error);
+              }
+            });
+          
+          await Promise.all(promises);
+          
+          // Update state with all the fetched data
+          setMaxWeightData(prev => ({ ...prev, ...newMaxWeightData }));
+          setAbsoluteMaxWeightData(prev => ({ ...prev, ...newAbsoluteMaxWeightData }));
         } catch (error) {
-          console.error('Error fetching max weight data:', error);
+          console.error('Error fetching max weight data for all exercises:', error);
         }
       }
       
@@ -935,6 +1016,234 @@ export default function WorkoutSessionScreen() {
     setShowExitModal(false);
   };
 
+  const handleExerciseNamePress = () => {
+    setShowExerciseDetailsModal(true);
+  };
+
+  const handleExerciseDetailsModalClose = () => {
+    setShowExerciseDetailsModal(false);
+  };
+
+  const handleExerciseListPress = () => {
+    setInitialSelectedExercise(null); // Show exercise list
+    setShowExerciseListModal(true);
+  };
+
+  const handleExerciseListModalClose = () => {
+    setShowExerciseListModal(false);
+    setInitialSelectedExercise(null); // Reset the initial selection
+  };
+
+  const handleCustomizeExercisePress = () => {
+    setShowCustomizeExerciseModal(true);
+  };
+
+  const handleCustomizeExerciseFromList = (exerciseIndex: number) => {
+    // Close the exercise list modal first
+    setShowExerciseListModal(false);
+    
+    // Set the current exercise index to the selected exercise
+    setCurrentExerciseIndex(exerciseIndex);
+    
+    // Open the customize exercise modal
+    setTimeout(() => {
+      setShowCustomizeExerciseModal(true);
+    }, 300); // Small delay to allow the list modal to close first
+  };
+
+  const handleCustomizeExerciseModalClose = () => {
+    setShowCustomizeExerciseModal(false);
+  };
+
+  const handleCustomizeExerciseSave = (updatedExercise: { sets: number; reps_range: string }) => {
+    // console.log('🚀 handleCustomizeExerciseSave called with:', updatedExercise);
+    
+    // Get the exercise that's currently being customized
+    const exerciseToUpdate = exercises[currentExerciseIndex];
+    if (!exerciseToUpdate) {
+      // console.log('❌ No exercise to update found at index:', currentExerciseIndex);
+      return;
+    }
+    
+    // console.log('🎯 Exercise to update:', {
+    //   name: exerciseToUpdate.name,
+    //   id: exerciseToUpdate.id,
+    //   currentSets: exerciseToUpdate.sets,
+    //   currentRepsRange: exerciseToUpdate.reps_range
+    // });
+    
+    const oldRepsRange = exerciseToUpdate.reps_range;
+    // console.log('📊 Old reps range:', oldRepsRange, '-> New reps range:', updatedExercise.reps_range);
+    
+    // Clear recommendations for this exercise so new reps_range takes precedence in placeholder
+    // Keep lastExerciseValues for display under inputs, only clear recommendations
+    setRecommendations(prev => {
+      // console.log('🧹 Clearing recommendations for exercise ID:', exerciseToUpdate.id);
+      const updated = { ...prev };
+      delete updated[exerciseToUpdate.id];
+      // console.log('📋 Remaining recommendations:', Object.keys(updated));
+      return updated;
+    });
+    
+    // Update the exercise with new sets and reps range
+    setExercises(prev => {
+      // console.log('🔄 Updating exercises state...');
+      const updatedExercises = [...prev];
+      const exerciseIndex = updatedExercises.findIndex(ex => ex.id === exerciseToUpdate.id);
+      // console.log('📍 Found exercise at index:', exerciseIndex);
+      
+      if (exerciseIndex !== -1) {
+        const oldExercise = updatedExercises[exerciseIndex];
+        updatedExercises[exerciseIndex] = {
+          ...updatedExercises[exerciseIndex],
+          sets: updatedExercise.sets,
+          reps_range: updatedExercise.reps_range
+        };
+        // console.log('✅ Exercise updated:', {
+        //   name: oldExercise.name,
+        //   oldSets: oldExercise.sets,
+        //   newSets: updatedExercise.sets,
+        //   oldRepsRange: oldExercise.reps_range,
+        //   newRepsRange: updatedExercise.reps_range
+        // });
+      }
+      return updatedExercises;
+    });
+
+    // Update exercise sets to match the new number of sets and reps range
+    setExerciseSets(prev => {
+      // console.log('🔄 Updating exercise sets...');
+      const currentSets = prev[exerciseToUpdate.id] || [];
+      const newSetsCount = updatedExercise.sets;
+      // console.log('📊 Current sets count:', currentSets.length, '-> New sets count:', newSetsCount);
+      // console.log('📋 Current sets data:', currentSets.map(set => ({
+      //   setNumber: set.setNumber,
+      //   reps: set.reps,
+      //   isCompleted: set.isCompleted
+      // })));
+      
+      let updatedSets = [...currentSets];
+      
+      // Clear ALL reps values for incomplete sets when customizing exercise
+      // This ensures the new reps_range placeholder will show for all sets
+      // Customize exercise is the "last action" that overrides any manual entries
+      updatedSets = updatedSets.map((set, index) => {
+        if (!set.isCompleted) {
+          // console.log(`🧹 Clearing reps for incomplete set ${set.setNumber}: "${set.reps}" -> ""`);
+          // Clear all reps values for incomplete sets to show new reps range
+          return {
+            ...set,
+            reps: '' // Clear to show new placeholder with updated reps_range
+          };
+        }
+        // console.log(`✅ Keeping completed set ${set.setNumber} reps: "${set.reps}"`);
+        return set;
+      });
+      
+      if (currentSets.length < newSetsCount) {
+        // Add new sets
+        for (let i = currentSets.length; i < newSetsCount; i++) {
+          updatedSets.push({
+            id: `${exerciseToUpdate.id}-set-${i + 1}`,
+            setNumber: i + 1,
+            weight: '',
+            reps: '',
+            isCompleted: false
+          });
+        }
+      } else if (currentSets.length > newSetsCount) {
+        // Remove excess sets (keep only the first newSetsCount sets)
+        // But first, update totals by subtracting any completed sets that will be removed
+        const setsToRemove = updatedSets.slice(newSetsCount);
+        setsToRemove.forEach(set => {
+          if (set.isCompleted) {
+            const weight = exerciseToUpdate.requires_weight !== false ? 
+              (set.weight === '-' || set.weight === '' ? 0 : parseFloat(set.weight)) : 0;
+            const reps = set.reps === '-' || set.reps === '' ? 0 : parseFloat(set.reps);
+            const setVolume = exerciseToUpdate.requires_weight !== false ? 
+              parseFloat((weight * reps).toFixed(1)) : 0;
+            
+            if (exerciseToUpdate.requires_weight !== false) {
+              setTotalVolume(prev => Math.max(0, parseFloat((prev - setVolume).toFixed(1))));
+            }
+            setTotalReps(prev => Math.max(0, prev - reps));
+          }
+        });
+        
+        updatedSets = updatedSets.slice(0, newSetsCount);
+      }
+      
+      // console.log('📋 Final updated sets:', updatedSets.map(set => ({
+      //   setNumber: set.setNumber,
+      //   reps: set.reps,
+      //   isCompleted: set.isCompleted
+      // })));
+      
+      return {
+        ...prev,
+        [exerciseToUpdate.id]: updatedSets
+      };
+    });
+    
+    // console.log('🏁 handleCustomizeExerciseSave completed');
+    
+    // Close the modal
+    setShowCustomizeExerciseModal(false);
+  };
+
+  const handleNextExercisePress = () => {
+    if (currentExerciseIndex < exercises.length - 1) {
+      setInitialSelectedExercise(currentExerciseIndex + 1); // Show next exercise detail
+      setShowExerciseListModal(true);
+    }
+  };
+
+  const moveCurrentExerciseToEnd = () => {
+    if (currentExerciseIndex >= 0 && currentExerciseIndex < exercises.length - 1) {
+      const currentExercise = exercises[currentExerciseIndex];
+      // console.log(`Moving exercise "${currentExercise.name}" from position ${currentExerciseIndex} to end`);
+      
+      // Create new exercises array with current exercise moved to end
+      const newExercises = [...exercises];
+      newExercises.splice(currentExerciseIndex, 1); // Remove current exercise
+      newExercises.push(currentExercise); // Add it to the end
+      
+      // Update the exercises state
+      setExercises(newExercises);
+      
+      // Update exercise sets to maintain the same data structure
+      setExerciseSets(prev => {
+        const newExerciseSets = { ...prev };
+        // No need to change the sets data as it's keyed by exercise.id which remains the same
+        return newExerciseSets;
+      });
+      
+      // Update other data structures that might reference exercise order
+      setLastExerciseValues(prev => ({ ...prev })); // Keep the same data
+      setMaxWeightData(prev => ({ ...prev })); // Keep the same data
+      setAbsoluteMaxWeightData(prev => ({ ...prev })); // Keep the same data
+      
+      // console.log(`Exercise moved successfully. New exercise order:`, newExercises.map(ex => ex.name));
+    }
+  };
+
+  const handleExerciseSelect = (index: number) => {
+    // console.log(`Exercise selected: index ${index}, current index: ${currentExerciseIndex}`);
+    
+    // If user selects a different exercise (not the current one), move current to end
+    if (index !== currentExerciseIndex) {
+      moveCurrentExerciseToEnd();
+      
+      // After moving current exercise to end, the selected exercise index might have changed
+      // If the selected exercise was after the current one, its index decreases by 1
+      const newSelectedIndex = index > currentExerciseIndex ? index - 1 : index;
+      // console.log(`New selected index after reordering: ${newSelectedIndex}`);
+      setCurrentExerciseIndex(newSelectedIndex);
+    }
+    
+    setShowExerciseListModal(false);
+  };
+
   const startRestTimer = (seconds: number) => {
     setRestTimer(seconds);
     setRestTimerActive(true);
@@ -971,6 +1280,18 @@ export default function WorkoutSessionScreen() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Utility function to get the highest value from a reps range
+  const getHighestRepsFromRange = (repsRange: string): number => {
+    if (repsRange.includes('-')) {
+      // Range format like "12-15"
+      const rangeParts = repsRange.split('-');
+      return parseInt(rangeParts[1]) || parseInt(rangeParts[0]) || 0;
+    } else {
+      // Single value format like "12"
+      return parseInt(repsRange) || 0;
+    }
+  };
+
   const handleSetComplete = (exerciseId: string, setIndex: number) => {
     // First, update the set state
     setExerciseSets(prev => {
@@ -985,8 +1306,27 @@ export default function WorkoutSessionScreen() {
       
       // If the set is being marked as completed, add its volume and reps to totals
       if (newCompletedState) {
-        const weight = requiresWeight ? (currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight)) : 0;
-        const reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
+        let weight = requiresWeight ? (currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight)) : 0;
+        let reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
+        
+        // If reps is empty or 0, try to use the highest value from reps_range
+        if (reps === 0 && currentExercise?.reps_range) {
+          const maxReps = getHighestRepsFromRange(currentExercise.reps_range);
+          reps = maxReps;
+          // Update the set with the highest reps value
+          updatedSets[setIndex] = {
+            ...currentSet,
+            reps: maxReps.toString(),
+            isCompleted: newCompletedState
+          };
+        } else {
+          // Normal case - just mark as completed
+          updatedSets[setIndex] = {
+            ...currentSet,
+            isCompleted: newCompletedState
+          };
+        }
+        
         const setVolume = requiresWeight ? parseFloat((weight * reps).toFixed(1)) : 0; // Only calculate volume if exercise requires weight
         
         if (requiresWeight) {
@@ -1002,10 +1342,12 @@ export default function WorkoutSessionScreen() {
         });
         
         // Store the last values for this exercise if they're valid
-        if (currentSet.reps !== '-' && currentSet.reps !== '') {
-          const lastValues: any = { reps: currentSet.reps };
-          if (requiresWeight && currentSet.weight !== '-' && currentSet.weight !== '') {
-            lastValues.weight = currentSet.weight;
+        // Use the updated set values (which might now contain the highest reps from range)
+        const updatedSet = updatedSets[setIndex];
+        if (updatedSet.reps !== '-' && updatedSet.reps !== '') {
+          const lastValues: any = { reps: updatedSet.reps };
+          if (requiresWeight && updatedSet.weight !== '-' && updatedSet.weight !== '') {
+            lastValues.weight = updatedSet.weight;
           }
           
           // Store using the exercise_id (database ID) not the exerciseId (workout plan exercise ID)
@@ -1022,7 +1364,7 @@ export default function WorkoutSessionScreen() {
             if (wasNotCompletedBefore) {
               // Use setTimeout to ensure state update completes first
               setTimeout(() => {
-                autoFillNextSetWithValues(exerciseId, setIndex, currentSet.weight, currentSet.reps);
+                autoFillNextSetWithValues(exerciseId, setIndex, updatedSet.weight, updatedSet.reps);
               }, 100);
             }
           }
@@ -1038,11 +1380,6 @@ export default function WorkoutSessionScreen() {
         }
         setTotalReps(prev => Math.max(0, prev - reps));
       }
-      
-      updatedSets[setIndex] = {
-        ...currentSet,
-        isCompleted: newCompletedState
-      };
       
       // Create a new exerciseSets object with the updated sets
       const newExerciseSets = { ...prev, [exerciseId]: updatedSets };
@@ -1165,11 +1502,16 @@ export default function WorkoutSessionScreen() {
             };
           }
           
-          // Fill empty reps with 0
+          // Fill empty reps with highest value from range or 0
           if (set.reps === '' || set.reps === '-') {
+            let repsValue = '0';
+            if (currentExercise?.reps_range) {
+              const maxReps = getHighestRepsFromRange(currentExercise.reps_range);
+              repsValue = maxReps.toString();
+            }
             setsForExercise[index] = {
               ...set,
-              reps: '0'
+              reps: repsValue
             };
           }
         }
@@ -1513,9 +1855,6 @@ export default function WorkoutSessionScreen() {
       <View style={[styles.container, styles.loadingContainer]}>
         <ActivityIndicator size="large" color={COLORS.primary} />
         <Text style={styles.loadingText}>Loading workout...</Text>
-        <Text style={styles.debugText}>Plan: {planId}</Text>
-        <Text style={styles.debugText}>Day: {workoutDay}</Text>
-        <Text style={styles.debugText}>Week: {cycleWeek} ({weekName})</Text>
       </View>
     );
   }
@@ -1556,7 +1895,7 @@ export default function WorkoutSessionScreen() {
           </Text>
         </View>
         
-        <TouchableOpacity style={styles.headerButton}>
+        <TouchableOpacity style={styles.headerButton} onPress={handleExerciseListPress}>
           <Text style={styles.headerButtonText}>Exercises</Text>
         </TouchableOpacity>
       </View>
@@ -1608,21 +1947,16 @@ export default function WorkoutSessionScreen() {
               />
             </View>
             <View style={styles.exerciseInfo}>
-              <Text style={styles.exerciseName}>
-                {currentExercise?.name || 'Unknown Exercise'}
-              </Text>
+              <TouchableOpacity onPress={handleExerciseNamePress} activeOpacity={0.7}>
+                <Text style={styles.exerciseName}>
+                  {currentExercise?.name || 'Unknown Exercise'}
+                </Text>
+              </TouchableOpacity>
               {currentExercise?.primary_muscles && currentExercise.primary_muscles.length > 0 && (
                 <View style={styles.muscleTag}>
                   <Text style={styles.muscleTagText}>{currentExercise.primary_muscles[0]}</Text>
                 </View>
               )}
-              <IconButton
-                icon="information-outline"
-                size={20}
-                style={styles.infoButton}
-                iconColor={COLORS.text}
-                onPress={() => {/* Show exercise instructions */}}
-              />
             </View>
           </View>
         </View>
@@ -1735,15 +2069,26 @@ export default function WorkoutSessionScreen() {
                               <View style={styles.inputContainer}>
                                 <TextInput
                                   style={styles.inputField}
-                                  value={set.reps}
+                                  value={set.reps === '' ? undefined : set.reps}
                                   onChangeText={(value) => handleRepsChange(currentExercise.id, index, value)}
                                   keyboardType="numeric"
-                                  placeholder={focusedInputs[`${currentExercise.id}-${index}-reps`] ? '' : (
-                                    // Use recommended reps from database if available, otherwise fall back to last values or reps range
-                                    currentRecommendation?.recommended_reps?.toString() || 
-                                    lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps || 
-                                    currentExercise.reps_range || '-'
-                                  )}
+                                  placeholder={focusedInputs[`${currentExercise.id}-${index}-reps`] ? '' : (() => {
+                                    // Use recommended reps from database if available, otherwise fall back to updated reps range or last values
+                                    const recommendedReps = currentRecommendation?.recommended_reps?.toString();
+                                    const exerciseRepsRange = currentExercise.reps_range;
+                                    const lastReps = lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps;
+                                    
+                                    const finalPlaceholder = recommendedReps || exerciseRepsRange || lastReps || '-';
+                                    
+                                                                    // console.log(`🎯 ACTIVE Placeholder for ${currentExercise.name} set ${index + 1}:`, {
+                                //   recommendedReps,
+                                //   exerciseRepsRange,
+                                //   lastReps,
+                                //   finalPlaceholder
+                                // });
+                                    
+                                    return finalPlaceholder;
+                                  })()}
                                   placeholderTextColor="rgba(255,255,255,0.5)"
                                   selectTextOnFocus={true}
                                   onFocus={(event) => handleInputFocus(`${currentExercise.id}-${index}-reps`, event)}
@@ -1753,8 +2098,8 @@ export default function WorkoutSessionScreen() {
                               </View>
                             </View>
                             
-                            {/* Last values row - split under each input */}
-                            {(lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.weight || 
+                            {/* Last values row - split under each input - only show for incomplete sets */}
+                            {!set.isCompleted && (lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.weight || 
                               lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps) && (
                               <View style={styles.lastValuesRow}>
                                 {/* Only show weight last value if exercise requires weight */}
@@ -1879,15 +2224,26 @@ export default function WorkoutSessionScreen() {
                           <View style={styles.inputContainer}>
                             <TextInput
                               style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
-                              value={set.reps}
+                              value={set.reps === '' ? undefined : set.reps}
                               onChangeText={(value) => handleRepsChange(currentExercise.id, index, value)}
                               keyboardType="numeric"
-                              placeholder={focusedInputs[`${currentExercise.id}-${index}-reps`] ? '' : (
-                                // Use recommended reps from database if available, otherwise fall back to last values or reps range
-                                currentRecommendation?.recommended_reps?.toString() || 
-                                lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps || 
-                                currentExercise.reps_range || '-'
-                              )}
+                              placeholder={focusedInputs[`${currentExercise.id}-${index}-reps`] ? '' : (() => {
+                                // Use recommended reps from database if available, otherwise fall back to updated reps range or last values
+                                const recommendedReps = currentRecommendation?.recommended_reps?.toString();
+                                const exerciseRepsRange = currentExercise.reps_range;
+                                const lastReps = lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps;
+                                
+                                const finalPlaceholder = recommendedReps || exerciseRepsRange || lastReps || '-';
+                                
+                                // console.log(`🎯 Placeholder for ${currentExercise.name} set ${index + 1}:`, {
+                                //   recommendedReps,
+                                //   exerciseRepsRange,
+                                //   lastReps,
+                                //   finalPlaceholder
+                                // });
+                                
+                                return finalPlaceholder;
+                              })()}
                               placeholderTextColor="rgba(255,255,255,0.5)"
                               selectTextOnFocus={true}
                               onFocus={(event) => handleInputFocus(`${currentExercise.id}-${index}-reps`, event)}
@@ -1897,6 +2253,35 @@ export default function WorkoutSessionScreen() {
                             <Text style={styles.activeSetValueUnit}>reps</Text>
                           </View>
                         </View>
+                        
+                        {/* Last values row for inactive cards - only show for incomplete sets */}
+                        {!set.isCompleted && (lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.weight || 
+                          lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps) && (
+                          <View style={styles.lastValuesRow}>
+                            {/* Only show weight last value if exercise requires weight */}
+                            {currentExercise?.requires_weight !== false && (
+                              <View style={styles.lastValueContainer}>
+                                {lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.weight && (
+                                  <Text style={styles.activeSetSubValue}>
+                                    ( Last {lastExerciseValues[currentExercise.exercise_id][index + 1]?.weight} )
+                                  </Text>
+                                )}
+                              </View>
+                            )}
+                            
+                            {currentExercise?.requires_weight !== false && (
+                              <View style={styles.lastValueSpacer} />
+                            )}
+                            
+                            <View style={styles.lastValueContainer}>
+                              {lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps && (
+                                <Text style={styles.activeSetSubValue}>
+                                  ( Last {lastExerciseValues[currentExercise.exercise_id][index + 1]?.reps} )
+                                </Text>
+                              )}
+                            </View>
+                          </View>
+                        )}
                       </View>
                       
                       {/* Vertical Divider */}
@@ -1943,7 +2328,7 @@ export default function WorkoutSessionScreen() {
         </Button>
         
         {/* Customize Exercise Link */}
-        <TouchableOpacity style={styles.customizeLink}>
+        <TouchableOpacity style={styles.customizeLink} onPress={handleCustomizeExercisePress}>
           <Text style={styles.customizeLinkText}>Customize Exercise</Text>
         </TouchableOpacity>
         
@@ -1954,7 +2339,7 @@ export default function WorkoutSessionScreen() {
           {currentExerciseIndex < exercises.length - 1 && (
             <TouchableOpacity 
               style={styles.nextExerciseCard}
-              onPress={moveToNextExercise}
+              onPress={handleNextExercisePress}
             >
               <View style={styles.nextExerciseImageContainer}>
                 {exercises[currentExerciseIndex + 1]?.image_url ? (
@@ -2174,6 +2559,44 @@ export default function WorkoutSessionScreen() {
           </View>
         </View>
       </Modal>
+      
+      {/* Exercise Details Modal */}
+      {currentExercise && (
+        <ExerciseDetailsModal
+          visible={showExerciseDetailsModal}
+          onClose={handleExerciseDetailsModalClose}
+          exerciseId={currentExercise.exercise_id}
+          exerciseName={currentExercise.name}
+          exerciseImage={currentExercise.image_url}
+          primary_muscles={currentExercise.primary_muscles}
+          secondary_muscles={[]} // Add secondary muscles if available in your data
+        />
+      )}
+      
+      {/* Exercise List Modal */}
+      <ExerciseListModal
+        visible={showExerciseListModal}
+        onClose={handleExerciseListModalClose}
+        exercises={exercises}
+        currentExerciseIndex={currentExerciseIndex}
+        onExerciseSelect={handleExerciseSelect}
+        exerciseSets={exerciseSets}
+        onStartExercise={handleExerciseSelect}
+        maxWeightData={maxWeightData}
+        absoluteMaxWeightData={absoluteMaxWeightData}
+        recommendations={recommendations}
+        lastExerciseValues={lastExerciseValues}
+        initialSelectedExerciseIndex={initialSelectedExercise}
+        onCustomizeExercise={handleCustomizeExerciseFromList}
+      />
+      
+      {/* Customize Exercise Modal */}
+      <CustomizeExerciseModal
+        visible={showCustomizeExerciseModal}
+        onClose={handleCustomizeExerciseModalClose}
+        exercise={exercises[currentExerciseIndex]}
+        onSave={handleCustomizeExerciseSave}
+      />
     </View>
   );
 }
@@ -2189,13 +2612,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
   },
-  debugText: {
-    color: COLORS.secondary,
-    marginTop: 8,
-    fontSize: 14,
-    textAlign: 'center',
-    opacity: 0.8,
-  },
+
   completionHeaderContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2466,17 +2883,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    flex: 1,
   },
   inputDivider: {
     width: 1,
     height: 30,
     backgroundColor: 'rgba(255,255,255,0.3)',
-    marginHorizontal: SPACING.xl,
+    marginHorizontal: SPACING.md,
   },
   labelCell: {
     flex: 1,
     justifyContent: 'center',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     padding: SPACING.sm,
   },
   horizontalDivider: {
@@ -2501,6 +2919,7 @@ const styles = StyleSheet.create({
     minWidth: 80,
     minHeight: 44,
     columnGap: 0,
+    flex: 1,
   },
   inputField: {
     color: COLORS.text,
@@ -2533,8 +2952,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     marginTop: 10,
-    marginLeft: 4,
+    marginLeft: 2,
     color: 'rgba(255, 255, 255, 0.52)',
+    textAlign: 'center',
+    alignSelf: 'center',
   },
   activeSetSubValue: {
     color: COLORS.text,
@@ -2546,10 +2967,11 @@ const styles = StyleSheet.create({
   activeSetLabel: {
     color: COLORS.text,
     fontSize: 14,
-    textAlign: 'left',
+    textAlign: 'center',
     fontWeight: '500',
     marginTop: 0,
-    marginLeft: SPACING.sm,
+    marginLeft: 0,
+    paddingHorizontal: SPACING.sm,
   },
   didItTextSet: {
     color: COLORS.text,
@@ -2560,27 +2982,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'stretch',
     width: '100%',
-    height: 80,
+    height: 100,
     paddingLeft: 0,
     paddingRight: 0,
   },
   inactiveLeftCell: {
     flex: 1,
     justifyContent: 'center',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     padding: SPACING.lg,
   },
   inactiveInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
     marginTop: -10,
+    flex: 1,
   },
   inactiveInputDivider: {
     width: 1,
     height: 30,
     backgroundColor: 'rgba(255,255,255,0.3)',
-    marginHorizontal: SPACING.xxl,
+    marginHorizontal: SPACING.lg,
   },
   inactiveVerticalDivider: {
     width: 0.5,
@@ -2877,11 +3300,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 4,
+    marginTop: 0,
   },
   lastValueContainer: {
     flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   lastValueSpacer: {
     width: SPACING.xs,
@@ -2957,7 +3381,8 @@ const styles = StyleSheet.create({
   },
   suggestedContainer: {
     flex: 1,
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   suggestedLabel: {
     color: 'rgba(255, 255, 255, 0.61)',
@@ -2973,19 +3398,20 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.61)',
     fontSize: 14,
     fontWeight: '600',
-    textAlign: 'left',
-    marginLeft: 16,
+    textAlign: 'center',
+    marginLeft: 0,
     marginBottom: 8,
   },
   suggestedLabelWeightActive: {
     color: 'rgba(255, 255, 255, 0.61)',
     fontSize: 14,
     fontWeight: '600',
-    textAlign: 'left',
-    marginLeft: 30,
+    textAlign: 'center',
+    marginLeft: 0,
   },
   suggestedContainerWeight: {
     flex: 1,
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

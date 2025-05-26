@@ -13,7 +13,8 @@
       "prebuildCommand": "npx expo prebuild",
       "env": {
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
-      }
+      },
+      "channel": "development"
     },
     "preview": {
       "developmentClient": false,      // ← embed JS, no Metro
@@ -27,7 +28,8 @@
       "prebuildCommand": "npx expo prebuild",
       "env": {
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
-      }
+      },
+      "channel": "preview"
     },
     "testflight": {
       "developmentClient": false,      // embed JS bundle
@@ -38,7 +40,8 @@
       "prebuildCommand": "npx expo prebuild",
       "env": {
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
-      }
+      },
+      "channel": "testflight"
     },
     "production": {
       "developmentClient": false,
@@ -46,7 +49,8 @@
       "prebuildCommand": "npx expo prebuild",
       "env": {
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
-      }
+      },
+      "channel": "production"
     }
   },
   "submit": {

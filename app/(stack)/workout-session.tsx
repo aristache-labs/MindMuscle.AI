@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, FlatList, Pressable, Dimensions, Modal } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, FlatList, Pressable, Dimensions, Modal, Keyboard, Platform, KeyboardAvoidingView } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -82,7 +82,7 @@ export default function WorkoutSessionScreen() {
     weightAdjustmentPercentage: number;
     repsAdjustmentPercentage: number;
   } | null>(null);
-  const [suggestedValues, setSuggestedValues] = useState<Record<string, Record<number, { weight: string, reps: string }>>>({});
+
   
   // State for max weight graph data
   const [maxWeightData, setMaxWeightData] = useState<Record<string, MaxWeightDataPoint[]>>({});
@@ -108,6 +108,11 @@ export default function WorkoutSessionScreen() {
   // State for exit modal
   const [showExitModal, setShowExitModal] = useState(false);
   
+  // State for keyboard handling
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [activeInputPosition, setActiveInputPosition] = useState(0);
+  const scrollViewRef = useRef<ScrollView>(null);
+  
   // Extract params early so they can be used in callbacks
   const planId = params.planId as string;
   const workoutDay = parseInt(params.workoutDay as string, 10);
@@ -115,11 +120,70 @@ export default function WorkoutSessionScreen() {
   const weekName = params.weekName as string || 'Adaptation';
   
   // Functions to handle input focus and blur
-  const handleInputFocus = (id: string) => {
+  const handleInputFocus = (id: string, event?: any) => {
     setFocusedInputs(prev => ({
       ...prev,
       [id]: true
     }));
+    
+    // Measure the position of the focused input with a delay to ensure layout is complete
+    if (event?.target) {
+      // Store the target reference before the timeout
+      const targetRef = event.target;
+      
+      setTimeout(() => {
+        if (targetRef) {
+          targetRef.measureInWindow((x: number, y: number, width: number, height: number) => {
+            // Store the input center position for better calculation
+            const inputCenterPosition = y + (height / 2);
+            setActiveInputPosition(inputCenterPosition);
+            
+            // If keyboard is already visible, trigger immediate scroll with improved calculation
+            if (keyboardHeight > 0 && scrollViewRef.current) {
+              const screenHeight = Dimensions.get('window').height;
+              const statusBarHeight = Platform.OS === 'ios' ? 44 : 24;
+              const headerHeight = 60;
+              const tabBarHeight = 0;
+              
+                             // Calculate the visible area above keyboard
+               const visibleHeight = screenHeight - keyboardHeight - statusBarHeight - headerHeight - tabBarHeight;
+               
+               // Dynamic positioning based on input location - lower inputs get positioned higher up
+               const currentInputPosition = inputCenterPosition - statusBarHeight - headerHeight;
+               const contentHeight = screenHeight - statusBarHeight - headerHeight; // Total scrollable content area
+               const inputRelativePosition = currentInputPosition / contentHeight; // 0 = top, 1 = bottom
+               
+               // For inputs in lower half of content, position them higher up (50-60% of visible area)
+               // For inputs in upper half, position them lower (70-80% of visible area)
+               let targetPositionRatio;
+               if (inputRelativePosition > 0.6) {
+                 // Lower content - position at 50% of visible area (more aggressive scroll up)
+                 targetPositionRatio = 0.5;
+               } else if (inputRelativePosition > 0.3) {
+                 // Middle content - position at 60% of visible area
+                 targetPositionRatio = 0.6;
+               } else {
+                 // Upper content - position at 70% of visible area (less aggressive)
+                 targetPositionRatio = 0.7;
+               }
+               
+               const targetInputPosition = visibleHeight * targetPositionRatio;
+               
+               // Calculate how much we need to scroll
+               const scrollOffset = currentInputPosition - targetInputPosition;
+               
+               // Ensure we don't scroll to negative values
+               const targetScrollY = Math.max(0, scrollOffset);
+              
+              scrollViewRef.current.scrollTo({
+                y: targetScrollY,
+                animated: true,
+              });
+            }
+          });
+        }
+      }, 50); // Reduced delay for faster response
+    }
   };
   
   const handleInputBlur = (id: string) => {
@@ -127,8 +191,66 @@ export default function WorkoutSessionScreen() {
       ...prev,
       [id]: false
     }));
+    setActiveInputPosition(0);
   };
-  
+
+  // Function to auto-fill the next set with specific values
+  const autoFillNextSetWithValues = (exerciseId: string, currentSetIndex: number, weightValue: string, repsValue: string) => {
+    setExerciseSets(prev => {
+      // Only auto-fill if there's a next set
+      if (!prev[exerciseId] || !prev[exerciseId][currentSetIndex + 1]) {
+        return prev;
+      }
+      
+      const currentSet = prev[exerciseId][currentSetIndex];
+      const nextSet = prev[exerciseId][currentSetIndex + 1];
+      const currentExercise = exercises.find(ex => ex.id === exerciseId);
+      
+      if (!currentExercise) return prev;
+      
+      // Use the actual current values from the state (in case they were modified during redo)
+      const actualWeight = currentSet.weight || weightValue;
+      const actualReps = currentSet.reps || repsValue;
+      
+      // Check if current set has valid values
+      const hasValidWeight = currentExercise.requires_weight !== false && actualWeight !== '' && actualWeight !== '-';
+      const hasValidReps = actualReps !== '' && actualReps !== '-';
+      
+      // Auto-fill if current set has values and next set is either empty or has recommended values
+      if ((hasValidWeight || currentExercise.requires_weight === false) && hasValidReps) {
+        const recommendation = recommendations[exerciseId];
+        
+        // Always fill weight if the current set has valid weight (this ensures redo values are carried forward)
+        const shouldFillWeight = hasValidWeight;
+           
+        // Always fill reps if the current set has valid reps (this ensures redo values are carried forward)
+        const shouldFillReps = hasValidReps;
+        
+        if (shouldFillWeight || shouldFillReps) {
+          const updatedSets = { ...prev };
+          updatedSets[exerciseId] = [...updatedSets[exerciseId]];
+          updatedSets[exerciseId][currentSetIndex + 1] = {
+            ...updatedSets[exerciseId][currentSetIndex + 1],
+            weight: shouldFillWeight ? actualWeight : nextSet.weight,
+            reps: shouldFillReps ? actualReps : nextSet.reps
+          };
+          return updatedSets;
+        }
+      }
+      
+      return prev;
+    });
+  };
+
+  // Function to auto-fill the next set with values from the previous set or suggested values
+  const autoFillNextSet = (exerciseId: string, currentSetIndex: number) => {
+    // Only auto-fill if there's a next set
+    if (exerciseSets[exerciseId] && exerciseSets[exerciseId][currentSetIndex + 1]) {
+      const currentSet = exerciseSets[exerciseId][currentSetIndex];
+      autoFillNextSetWithValues(exerciseId, currentSetIndex, currentSet.weight, currentSet.reps);
+    }
+  };
+
   // Function to fetch cycle week info
   const fetchCycleWeekInfo = useCallback(async () => {
     try {
@@ -141,55 +263,7 @@ export default function WorkoutSessionScreen() {
     }
   }, [cycleWeek]);
 
-  // Function to calculate suggested values based on last values and cycle week adjustments
-  const calculateSuggestedValues = useCallback(() => {
-    if (!cycleWeekInfo || cycleWeek <= 1 || Object.keys(lastExerciseValues).length === 0) {
-      setSuggestedValues({});
-      return;
-    }
 
-    const suggested: Record<string, Record<number, { weight: string, reps: string }>> = {};
-
-    exercises.forEach(exercise => {
-      if (lastExerciseValues[exercise.exercise_id]) {
-        suggested[exercise.exercise_id] = {};
-        
-        Object.entries(lastExerciseValues[exercise.exercise_id]).forEach(([setNumber, lastValue]) => {
-          const setNum = parseInt(setNumber, 10);
-          let suggestedWeight = lastValue.weight;
-          let suggestedReps = lastValue.reps;
-
-          // Calculate suggested weight if exercise requires weight
-          if (exercise.requires_weight !== false && lastValue.weight && lastValue.weight !== '-' && lastValue.weight !== '0') {
-            const lastWeight = parseFloat(lastValue.weight);
-            if (!isNaN(lastWeight) && lastWeight > 0) {
-              const adjustmentFactor = 1 + (cycleWeekInfo.weightAdjustmentPercentage / 100);
-              const newWeight = lastWeight * adjustmentFactor;
-              // Round to nearest 0.5 for practical weight increments
-              suggestedWeight = (Math.round(newWeight * 2) / 2).toString();
-            }
-          }
-
-          // Calculate suggested reps
-          if (lastValue.reps && lastValue.reps !== '-' && lastValue.reps !== '0') {
-            const lastReps = parseInt(lastValue.reps, 10);
-            if (!isNaN(lastReps) && lastReps > 0) {
-              const adjustmentFactor = 1 + (cycleWeekInfo.repsAdjustmentPercentage / 100);
-              const newReps = Math.round(lastReps * adjustmentFactor);
-              suggestedReps = Math.max(1, newReps).toString(); // Ensure at least 1 rep
-            }
-          }
-
-          suggested[exercise.exercise_id][setNum] = {
-            weight: suggestedWeight,
-            reps: suggestedReps
-          };
-        });
-      }
-    });
-
-    setSuggestedValues(suggested);
-  }, [cycleWeekInfo, cycleWeek, lastExerciseValues]); // Remove exercises to prevent infinite loop
 
   // Function to fetch last exercise records for all exercises
   const fetchLastExerciseRecords = useCallback(async () => {
@@ -253,39 +327,29 @@ export default function WorkoutSessionScreen() {
   
   // Function to get suggested values for a specific exercise and set
   const getSuggestedValue = (exerciseId: string, setNumber: number, type: 'weight' | 'reps'): string | null => {
-    if (cycleWeek <= 1 || !suggestedValues[exerciseId] || !suggestedValues[exerciseId][setNumber]) {
+    if (cycleWeek <= 1) {
       return null;
     }
-    return suggestedValues[exerciseId][setNumber][type];
+    
+    // Find the exercise by exerciseId to get the recommendation
+    const exercise = exercises.find(ex => ex.exercise_id === exerciseId);
+    if (!exercise) return null;
+    
+    const recommendation = recommendations[exercise.id];
+    if (!recommendation) return null;
+    
+    // Return the recommended value based on type
+    if (type === 'weight' && recommendation.recommended_weight) {
+      return recommendation.recommended_weight.toString();
+    }
+    if (type === 'reps' && recommendation.recommended_reps) {
+      return recommendation.recommended_reps.toString();
+    }
+    
+    return null;
   };
 
-  // Function to auto-fill the next set with values from the previous set or suggested values
-  const autoFillNextSet = (exerciseId: string, currentSetIndex: number) => {
-    // Only auto-fill if there's a next set
-    if (exerciseSets[exerciseId] && exerciseSets[exerciseId][currentSetIndex + 1]) {
-      const nextSet = exerciseSets[exerciseId][currentSetIndex + 1];
-      const currentSet = exerciseSets[exerciseId][currentSetIndex];
-      
-      // Only auto-fill if the next set doesn't already have values
-      if ((nextSet.weight === '' || nextSet.weight === '-') && 
-          (nextSet.reps === '' || nextSet.reps === '-') &&
-          currentSet.weight !== '' && currentSet.weight !== '-' && 
-          currentSet.reps !== '' && currentSet.reps !== '-') {
-        
-        setExerciseSets(prev => {
-          const updatedSets = { ...prev };
-          if (updatedSets[exerciseId]) {
-            updatedSets[exerciseId][currentSetIndex + 1] = {
-              ...updatedSets[exerciseId][currentSetIndex + 1],
-              weight: currentSet.weight,
-              reps: currentSet.reps
-            };
-          }
-          return updatedSets;
-        });
-      }
-    }
-  };
+
 
   // Function to pre-fill sets with recommended values from database
   const preFillWithSuggestedValues = useCallback(() => {
@@ -330,7 +394,7 @@ export default function WorkoutSessionScreen() {
       
       return updatedSets;
     });
-  }, [recommendations, lastExerciseValues, exercises.length]); // Use recommendations instead of suggestedValues
+      }, [recommendations, lastExerciseValues, exercises.length]);
   
   // Store the original cycle week for redo workouts
   const [originalCycleWeek, setOriginalCycleWeek] = useState<number | null>(null);
@@ -395,17 +459,12 @@ export default function WorkoutSessionScreen() {
     fetchCycleWeekInfo();
   }, [cycleWeek]); // Use direct dependency instead of function
 
-  // Effect to calculate suggested values when dependencies change
-  useEffect(() => {
-    calculateSuggestedValues();
-  }, [cycleWeekInfo, cycleWeek, lastExerciseValues, exercises.length]); // Use direct dependencies instead of function
-
   // Effect to pre-fill sets with recommended values when they become available
   useEffect(() => {
     if (Object.keys(recommendations).length > 0) {
       preFillWithSuggestedValues();
     }
-  }, [recommendations, lastExerciseValues, exercises.length]); // Use recommendations instead of suggestedValues
+  }, [recommendations, lastExerciseValues, exercises.length]);
 
   // Additional effect to pre-fill with last values when they become available (for cycle week 1 or when no suggested values)
   useEffect(() => {
@@ -496,19 +555,88 @@ export default function WorkoutSessionScreen() {
       clearAllTimers();
     };
   }, [clearAllTimers]);
+
+  // Keyboard handling effect
+  useEffect(() => {
+    const keyboardWillShowListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (event) => {
+        const keyboardHeight = event.endCoordinates.height;
+        setKeyboardHeight(keyboardHeight);
+        
+        // Scroll to active input after a short delay
+        setTimeout(() => {
+          if (scrollViewRef.current && activeInputPosition > 0) {
+            const screenHeight = Dimensions.get('window').height;
+            const statusBarHeight = Platform.OS === 'ios' ? 44 : 24; // Status bar height
+            const headerHeight = 60; // Approximate header height
+            const tabBarHeight = 0; // No tab bar in this screen
+            
+            // Calculate the visible area above keyboard
+            const visibleHeight = screenHeight - keyboardHeight - statusBarHeight - headerHeight - tabBarHeight;
+            
+            // Dynamic positioning based on input location - lower inputs get positioned higher up
+            const currentInputPosition = activeInputPosition - statusBarHeight - headerHeight;
+            const contentHeight = screenHeight - statusBarHeight - headerHeight; // Total scrollable content area
+            const inputRelativePosition = currentInputPosition / contentHeight; // 0 = top, 1 = bottom
+            
+            // For inputs in lower half of content, position them higher up (50-60% of visible area)
+            // For inputs in upper half, position them lower (70-80% of visible area)
+            let targetPositionRatio;
+            if (inputRelativePosition > 0.6) {
+              // Lower content - position at 50% of visible area (more aggressive scroll up)
+              targetPositionRatio = 0.5;
+            } else if (inputRelativePosition > 0.3) {
+              // Middle content - position at 60% of visible area
+              targetPositionRatio = 0.6;
+            } else {
+              // Upper content - position at 70% of visible area (less aggressive)
+              targetPositionRatio = 0.7;
+            }
+            
+            const targetInputPosition = visibleHeight * targetPositionRatio;
+            
+            // Calculate how much we need to scroll
+            const scrollOffset = currentInputPosition - targetInputPosition;
+            
+            // Ensure we don't scroll to negative values
+            const targetScrollY = Math.max(0, scrollOffset);
+            
+            scrollViewRef.current.scrollTo({
+              y: targetScrollY,
+              animated: true,
+            });
+          }
+        }, Platform.OS === 'ios' ? 100 : 200);
+      }
+    );
+
+    const keyboardWillHideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardHeight(0);
+      }
+    );
+
+    return () => {
+      keyboardWillShowListener.remove();
+      keyboardWillHideListener.remove();
+    };
+  }, [activeInputPosition]);
   
   // Function to fetch workout data
   const fetchWorkoutData = async () => {
-    console.log(`DEBUG: fetchWorkoutData called with params:`, {
-      planId,
-      workoutDay,
-      cycleWeek,
-      weekName,
-      userId: user?.id,
-      isValidPlanId: !!planId,
-      isValidWorkoutDay: !isNaN(workoutDay),
-      hasUser: !!user
-    });
+    // Debug logging disabled
+    // console.log(`DEBUG: fetchWorkoutData called with params:`, {
+    //   planId,
+    //   workoutDay,
+    //   cycleWeek,
+    //   weekName,
+    //   userId: user?.id,
+    //   isValidPlanId: !!planId,
+    //   isValidWorkoutDay: !isNaN(workoutDay),
+    //   hasUser: !!user
+    // });
     
     if (!planId || isNaN(workoutDay) || !user) {
       console.error('Invalid workout parameters:', { planId, workoutDay, user: !!user });
@@ -519,19 +647,19 @@ export default function WorkoutSessionScreen() {
     try {
       setIsLoading(true);
       
-      console.log(`DEBUG: About to call workoutPlanService.fetchWorkoutData with:`, {
-        planId,
-        workoutDay,
-        userId: user.id,
-        cycleWeek
-      });
+      // console.log(`DEBUG: About to call workoutPlanService.fetchWorkoutData with:`, {
+      //   planId,
+      //   workoutDay,
+      //   userId: user.id,
+      //   cycleWeek
+      // });
       
       // Use the service function to fetch workout data
       const { exercises: formattedExercises, exerciseSets: initialSets, recommendations } = 
         await workoutPlanService.fetchWorkoutData(planId, workoutDay, user.id, cycleWeek);
       
-      console.log(`DEBUG: fetchWorkoutData received ${formattedExercises.length} exercises`);
-      console.log(`DEBUG: fetchWorkoutData recommendations:`, recommendations);
+      // console.log(`DEBUG: fetchWorkoutData received ${formattedExercises.length} exercises`);
+      // console.log(`DEBUG: fetchWorkoutData recommendations:`, recommendations);
       
       // Set exercises state
       setExercises(formattedExercises);
@@ -627,7 +755,7 @@ export default function WorkoutSessionScreen() {
     if (!user || !planId) return;
     
     try {
-      console.log(`Checking workout completion for cycle week ${cycleWeek}, workout day ${workoutDay}`);
+      // console.log(`Checking workout completion for cycle week ${cycleWeek}, workout day ${workoutDay}`);
       
       // Use the new service function to check workout completion for specific cycle week
       const { isCompleted, completedWorkoutData } = await workoutPlanService.checkWorkoutCompletionForCycleWeek(
@@ -637,17 +765,17 @@ export default function WorkoutSessionScreen() {
         cycleWeek // Pass the cycle week to check for completion in the specific week
       );
       
-      console.log(`Workout completion check result: isCompleted=${isCompleted}, cycleWeek=${cycleWeek}`);
+      // console.log(`Workout completion check result: isCompleted=${isCompleted}, cycleWeek=${cycleWeek}`);
       
       if (isCompleted && completedWorkoutData) {
         // Workout is already completed for this specific cycle week
-        console.log(`Workout is completed for cycle week ${cycleWeek}, showing completion screen`);
+        // console.log(`Workout is completed for cycle week ${cycleWeek}, showing completion screen`);
         setIsWorkoutCompleted(true);
         setCompletedWorkoutData(completedWorkoutData);
         setIsLoading(false);
       } else {
         // Workout is not completed for this cycle week, fetch workout data
-        console.log(`Workout is not completed for cycle week ${cycleWeek}, starting new workout`);
+        // console.log(`Workout is not completed for cycle week ${cycleWeek}, starting new workout`);
         setIsWorkoutCompleted(false);
         fetchWorkoutData();
         
@@ -880,24 +1008,22 @@ export default function WorkoutSessionScreen() {
             lastValues.weight = currentSet.weight;
           }
           
-          setLastExerciseValues(prev => ({
-            ...prev,
-            [exerciseId]: lastValues
-          }));
-          
-          // If this set is being completed, auto-fill the next set if it exists
-          if (wasNotCompletedBefore && updatedSets.length > setIndex + 1) {
-            const nextSet = updatedSets[setIndex + 1];
-            // Only auto-fill if the next set doesn't already have values
-            const shouldAutoFillWeight = requiresWeight && (nextSet.weight === '' || nextSet.weight === '-');
-            const shouldAutoFillReps = (nextSet.reps === '' || nextSet.reps === '-');
+          // Store using the exercise_id (database ID) not the exerciseId (workout plan exercise ID)
+          if (currentExercise?.exercise_id) {
+            setLastExerciseValues(prev => ({
+              ...prev,
+              [currentExercise.exercise_id]: {
+                ...prev[currentExercise.exercise_id],
+                [setIndex + 1]: lastValues // Store by set number (1-indexed)
+              }
+            }));
             
-            if (shouldAutoFillWeight || shouldAutoFillReps) {
-              updatedSets[setIndex + 1] = {
-                ...nextSet,
-                weight: shouldAutoFillWeight ? currentSet.weight : nextSet.weight,
-                reps: shouldAutoFillReps ? currentSet.reps : nextSet.reps
-              };
+            // If this set is being completed, auto-fill the next set if it exists
+            if (wasNotCompletedBefore) {
+              // Use setTimeout to ensure state update completes first
+              setTimeout(() => {
+                autoFillNextSetWithValues(exerciseId, setIndex, currentSet.weight, currentSet.reps);
+              }, 100);
             }
           }
         }
@@ -1454,7 +1580,21 @@ export default function WorkoutSessionScreen() {
       </View>
       
       {/* Main Content */}
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollViewContent}>
+      <KeyboardAvoidingView 
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
+        <ScrollView 
+          ref={scrollViewRef}
+          style={styles.scrollView} 
+          contentContainerStyle={[
+            styles.scrollViewContent,
+            { paddingBottom: keyboardHeight > 0 ? 50 : 24 }
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
         {/* Exercise Card */}
         <View style={styles.exerciseCard}>
           <View style={styles.exerciseRow}>
@@ -1581,7 +1721,7 @@ export default function WorkoutSessionScreen() {
                                       )}
                                       placeholderTextColor="rgba(255,255,255,0.5)"
                                       selectTextOnFocus={true}
-                                      onFocus={() => handleInputFocus(`${currentExercise.id}-${index}-weight`)}
+                                      onFocus={(event) => handleInputFocus(`${currentExercise.id}-${index}-weight`, event)}
                                       onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-weight`)}
                                       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                                     />
@@ -1606,7 +1746,7 @@ export default function WorkoutSessionScreen() {
                                   )}
                                   placeholderTextColor="rgba(255,255,255,0.5)"
                                   selectTextOnFocus={true}
-                                  onFocus={() => handleInputFocus(`${currentExercise.id}-${index}-reps`)}
+                                  onFocus={(event) => handleInputFocus(`${currentExercise.id}-${index}-reps`, event)}
                                   onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-reps`)}
                                 />
                                 <Text style={styles.activeSetValueUnit}>reps</Text>
@@ -1725,7 +1865,7 @@ export default function WorkoutSessionScreen() {
                                   )}
                                   placeholderTextColor="rgba(255,255,255,0.5)"
                                   selectTextOnFocus={true}
-                                  onFocus={() => handleInputFocus(`${currentExercise.id}-${index}-weight`)}
+                                  onFocus={(event) => handleInputFocus(`${currentExercise.id}-${index}-weight`, event)}
                                   onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-weight`)}
                                   editable={!isCompleted}
                                 />
@@ -1750,7 +1890,7 @@ export default function WorkoutSessionScreen() {
                               )}
                               placeholderTextColor="rgba(255,255,255,0.5)"
                               selectTextOnFocus={true}
-                              onFocus={() => handleInputFocus(`${currentExercise.id}-${index}-reps`)}
+                              onFocus={(event) => handleInputFocus(`${currentExercise.id}-${index}-reps`, event)}
                               onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-reps`)}
                               editable={!isCompleted}
                             />
@@ -1883,6 +2023,7 @@ export default function WorkoutSessionScreen() {
           </View>
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
       
       {/* Warmup Modal */}
       <Modal

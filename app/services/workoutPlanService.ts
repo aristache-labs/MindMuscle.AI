@@ -334,8 +334,8 @@ export const fetchWorkoutData = async (
   recommendations: Record<string, any>;
 }> => {
   try {
-    // Add debug logging
-    console.log(`Fetching workout data for planId: ${planId}, workoutDay: ${workoutDay}, userId: ${userId}, cycleWeek: ${cycleWeek}`);
+    // Debug logging disabled
+    // console.log(`Fetching workout data for planId: ${planId}, workoutDay: ${workoutDay}, userId: ${userId}, cycleWeek: ${cycleWeek}`);
     
     // Validate workout day
     if (isNaN(workoutDay) || workoutDay < 1) {
@@ -349,8 +349,8 @@ export const fetchWorkoutData = async (
       throw new Error('Invalid plan ID');
     }
     
-    // Log the SQL query we're about to execute
-    console.log(`SQL Query: SELECT * FROM workout_plan_exercises WHERE plan_id = '${planId}' AND workout_day = ${workoutDay}`);
+    // Debug logging disabled
+    // console.log(`SQL Query: SELECT * FROM workout_plan_exercises WHERE plan_id = '${planId}' AND workout_day = ${workoutDay}`);
     
     // Fetch exercises for this workout
     const { data: exercisesData, error: exercisesError } = await supabase
@@ -382,28 +382,29 @@ export const fetchWorkoutData = async (
       throw exercisesError;
     }
     
-    // Log the results
-    console.log(`Found ${exercisesData?.length || 0} exercises for workout day ${workoutDay}`);
-    console.log(`Raw exercises data:`, exercisesData);
+    // Debug logging disabled
+    // console.log(`Found ${exercisesData?.length || 0} exercises for workout day ${workoutDay}`);
+    // console.log(`Raw exercises data:`, exercisesData);
     
     // If no exercises found, try to fetch all exercises for this plan to debug
     if (!exercisesData || exercisesData.length === 0) {
-      console.log(`Trying to fetch all exercises for plan ${planId} to debug...`);
+      // Debug logging disabled
+      // console.log(`Trying to fetch all exercises for plan ${planId} to debug...`);
       const { data: allPlanExercises, error: allExercisesError } = await supabase
         .from('workout_plan_exercises')
         .select('id, workout_day, exercise_name, plan_id')
         .eq('plan_id', planId);
         
       if (!allExercisesError && allPlanExercises) {
-        console.log(`Plan ${planId} has ${allPlanExercises.length} total exercises:`);
+        // console.log(`Plan ${planId} has ${allPlanExercises.length} total exercises:`);
         const workoutDays = [...new Set(allPlanExercises.map(ex => ex.workout_day))];
-        console.log(`Available workout days: ${workoutDays.join(', ')}`);
-        allPlanExercises.forEach((ex, i) => {
-          console.log(`Exercise ${i+1}: ${ex.exercise_name} (Day ${ex.workout_day}) - Plan: ${ex.plan_id}`);
-        });
+        // console.log(`Available workout days: ${workoutDays.join(', ')}`);
+        // allPlanExercises.forEach((ex, i) => {
+        //   console.log(`Exercise ${i+1}: ${ex.exercise_name} (Day ${ex.workout_day}) - Plan: ${ex.plan_id}`);
+        // });
         
         // Also try to fetch without the workout_day filter to see if there are any exercises at all
-        console.log(`\nTrying to fetch ANY exercises for plan ${planId}...`);
+        // console.log(`\nTrying to fetch ANY exercises for plan ${planId}...`);
         const { data: anyExercises, error: anyError } = await supabase
           .from('workout_plan_exercises')
           .select('*')
@@ -411,25 +412,25 @@ export const fetchWorkoutData = async (
           .limit(5);
           
         if (!anyError && anyExercises) {
-          console.log(`Found ${anyExercises.length} exercises without workout_day filter:`);
-          anyExercises.forEach((ex, i) => {
-            console.log(`Exercise ${i+1}:`, JSON.stringify(ex, null, 2));
-          });
+          // console.log(`Found ${anyExercises.length} exercises without workout_day filter:`);
+          // anyExercises.forEach((ex, i) => {
+          //   console.log(`Exercise ${i+1}:`, JSON.stringify(ex, null, 2));
+          // });
         } else {
-          console.log(`Error fetching any exercises:`, anyError);
+          // console.log(`Error fetching any exercises:`, anyError);
         }
       } else {
-        console.log(`Error fetching all plan exercises:`, allExercisesError);
+        // console.log(`Error fetching all plan exercises:`, allExercisesError);
       }
       
       console.error(`No exercises found for planId: ${planId}, workoutDay: ${workoutDay}`);
       throw new Error(`No exercises found for this workout (Day ${workoutDay})`);
     }
     
-    // Log the first few exercises found
-    exercisesData.slice(0, 3).forEach((ex, i) => {
-      console.log(`Exercise ${i+1}: ${ex.exercise_name} (workout_day=${ex.workout_day})`);
-    });
+    // Debug logging disabled
+    // exercisesData.slice(0, 3).forEach((ex, i) => {
+    //   console.log(`Exercise ${i+1}: ${ex.exercise_name} (workout_day=${ex.workout_day})`);
+    // });
     
     // Format exercise data with proper typing
     const formattedExercises: ExerciseData[] = exercisesData.map((item: any) => ({
@@ -466,13 +467,13 @@ export const fetchWorkoutData = async (
       
       initialSets[exercise.id] = exerciseSets;
       
-      // Fetch recommendations for this exercise
+      // Fetch recommendations for this exercise using the new smart recommendations function
       if (userId && exercise.exercise_id) {
-        console.log(`Fetching recommendations for exercise ${exercise.exercise_id} with cycle week ${cycleWeek}`);
+        // console.log(`Fetching smart recommendations for exercise ${exercise.exercise_id} with cycle week ${cycleWeek}`);
         
         try {
           const { data: recommendationData, error: recError } = await supabase.rpc(
-            'get_exercise_recommendations',
+            'get_smart_exercise_recommendations',
             {
               p_user_id: userId,
               p_exercise_id: exercise.exercise_id,
@@ -481,7 +482,7 @@ export const fetchWorkoutData = async (
           );
           
           if (recError) {
-            console.error(`Error fetching recommendations for exercise ${exercise.exercise_id}:`, recError);
+            console.error(`Error fetching smart recommendations for exercise ${exercise.exercise_id}:`, recError);
             // Fallback: create basic recommendation based on cycle week
             recommendations[exercise.id] = {
               previous_weight: null,
@@ -491,7 +492,7 @@ export const fetchWorkoutData = async (
               cycle_week: cycleWeek
             };
           } else {
-            console.log(`Recommendations for exercise ${exercise.exercise_id}:`, recommendationData);
+            // console.log(`Smart recommendations for exercise ${exercise.exercise_id}:`, recommendationData);
             if (recommendationData && recommendationData.length > 0) {
               recommendations[exercise.id] = recommendationData[0];
             } else {
@@ -506,7 +507,7 @@ export const fetchWorkoutData = async (
             }
           }
         } catch (error) {
-          console.error(`Exception fetching recommendations for exercise ${exercise.exercise_id}:`, error);
+          console.error(`Exception fetching smart recommendations for exercise ${exercise.exercise_id}:`, error);
           // Fallback: create basic recommendation based on cycle week
           recommendations[exercise.id] = {
             previous_weight: null,
@@ -670,7 +671,7 @@ export const checkWorkoutCompletionForCycleWeek = async (
   }
   
   try {
-    console.log(`Checking workout completion for cycle week ${cycleWeek}, workout day ${workoutDay}`);
+    // console.log(`Checking workout completion for cycle week ${cycleWeek}, workout day ${workoutDay}`);
     
     // Check if there's a completed workout for this specific day AND cycle week
     const { data, error } = await supabase
@@ -686,7 +687,7 @@ export const checkWorkoutCompletionForCycleWeek = async (
       throw error;
     }
     
-    console.log(`Found ${data?.length || 0} completed workouts for cycle week ${cycleWeek}, workout day ${workoutDay}`);
+    // console.log(`Found ${data?.length || 0} completed workouts for cycle week ${cycleWeek}, workout day ${workoutDay}`);
     
     if (data && data.length > 0) {
       // Workout is already completed for this specific cycle week, get the most recent one
@@ -694,7 +695,7 @@ export const checkWorkoutCompletionForCycleWeek = async (
         new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime()
       )[0];
       
-      console.log(`Most recent workout for cycle week ${cycleWeek}:`, mostRecentWorkout);
+      // console.log(`Most recent workout for cycle week ${cycleWeek}:`, mostRecentWorkout);
       
       // Get the count of exercises from the user_exercise_records table
       const { data: exerciseData, error: exerciseError } = await supabase
@@ -721,7 +722,7 @@ export const checkWorkoutCompletionForCycleWeek = async (
       };
     } else {
       // Workout is not completed for this specific cycle week
-      console.log(`No completed workout found for cycle week ${cycleWeek}, workout day ${workoutDay}`);
+      // console.log(`No completed workout found for cycle week ${cycleWeek}, workout day ${workoutDay}`);
       return { isCompleted: false };
     }
   } catch (error) {
@@ -1971,7 +1972,7 @@ export const getAllCycleWeeks = async (): Promise<CycleWeekInfo[]> => {
   }
 };
 
-// Enhanced function to get exercise recommendations with cycle progression
+// Enhanced function to get exercise recommendations with smart cycle progression
 export const getExerciseRecommendations = async (
   userId: string,
   exerciseId: string,
@@ -1979,7 +1980,7 @@ export const getExerciseRecommendations = async (
 ): Promise<ExerciseRecommendation | null> => {
   try {
     const { data, error } = await supabase.rpc(
-      'get_exercise_recommendations',
+      'get_smart_exercise_recommendations',
       {
         p_user_id: userId,
         p_exercise_id: exerciseId,
@@ -2007,7 +2008,7 @@ export const getExerciseRecommendations = async (
       weekName: cycleInfo?.weekName || 'Unknown'
     };
   } catch (error) {
-    console.error('Error getting exercise recommendations:', error);
+    console.error('Error getting smart exercise recommendations:', error);
     return null;
   }
 };

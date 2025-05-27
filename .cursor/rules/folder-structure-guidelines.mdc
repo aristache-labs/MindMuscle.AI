@@ -12,7 +12,7 @@ alwaysApply: true
 
 ## Project Folder Structure
 
-Regularly update this folder structure each time you create, modify, or delete a file or folder. (Latest: Hid bottom tab navigation on plan and exercise detail screens):
+Regularly update this folder structure each time you create, modify, or delete a file or folder. (Latest: Updated with complete current project structure including all files and directories):
 
 ```
 mindmuscle-ai/
@@ -20,84 +20,196 @@ mindmuscle-ai/
 │   ├── _layout.tsx
 │   ├── index.tsx
 │   ├── achievements.tsx
+│   ├── router-ignore.json
 │   ├── (auth)/
+│   │   ├── _layout.tsx
+│   │   ├── login.tsx
+│   │   ├── register.tsx
+│   │   ├── forgot-password.tsx
+│   │   ├── reset-password.tsx
+│   │   └── edit-profile.tsx
 │   ├── (stack)/
 │   │   ├── _layout.tsx
 │   │   ├── settings.tsx
 │   │   ├── exercises-list.tsx
-│   │   ├── exercise-details.tsx
 │   │   ├── plan-details.tsx
-│   │   └── plans.tsx
+│   │   ├── workout-session.tsx        # Updated with auto-fill consistency fixes
+│   │   ├── my-plan.tsx
+│   │   ├── plans.tsx
+│   │   ├── ai-coaching.tsx
+│   │   ├── custom.tsx
+│   │   └── single-workout.tsx
 │   ├── (tabs)/
-│   │   ├── _layout.tsx             # Modified to conditionally hide bottom tab bar
+│   │   ├── _layout.tsx                # Modified to conditionally hide bottom tab bar
 │   │   ├── index.tsx
 │   │   ├── discover.tsx
 │   │   ├── exercises.tsx
-│   │   ├── plans.tsx               # Tab bar hidden on this screen
-│   │   ├── plan-details.tsx        # Tab bar hidden on this screen
-│   │   ├── exercises-list.tsx      # Tab bar hidden on this screen
-│   │   ├── exercise-details.tsx    # Tab bar hidden on this screen
+│   │   ├── exercises-list.tsx
+│   │   ├── exercises-single-group.tsx
 │   │   ├── insights.tsx
 │   │   └── profile.tsx
 │   ├── coaching/
+│   │   ├── index.tsx
+│   │   └── ai-plan-generator.tsx
 │   ├── components/
 │   │   ├── Achievements.tsx
 │   │   ├── AuthGuard.tsx
 │   │   ├── CoachingInterface.tsx
+│   │   ├── CustomizeExerciseModal.tsx
 │   │   ├── ExerciseCard.tsx
+│   │   ├── ExerciseDetailsModal.tsx
 │   │   ├── ExerciseGraphs.tsx
 │   │   ├── ExerciseGraphModal.tsx
 │   │   ├── ExerciseInstructions.tsx
+│   │   ├── ExerciseListModal.tsx
+│   │   ├── ExerciseMaxWeightGraph.tsx
 │   │   ├── GeneralHeader.tsx
-│   │   ├── GlobalGestureHandler
-│   │   ├── HowToMeasureModal
+│   │   ├── HowToMeasureModal.tsx
 │   │   ├── InitialLoadingScreen.tsx
-│   │   ├── MeasurementHistory
-│   │   ├── MeasurementModal
-│   │   ├── MeasurementsGraph
+│   │   ├── MeasurementHistory.tsx
+│   │   ├── MeasurementModal.tsx
+│   │   ├── MeasurementsGraph.tsx
+│   │   ├── MenuHeader.tsx
 │   │   ├── MuscleDiagram.tsx
 │   │   ├── MuscleTags.tsx
+│   │   ├── myplanCalendar.tsx
+│   │   ├── NavigationBackgrounds.tsx
+│   │   ├── NavigationIcons.tsx
 │   │   ├── OptimizedImage.tsx
+│   │   ├── PlanOverviewModal.tsx
+│   │   ├── QueryProvider.tsx
 │   │   ├── SplashScreenManager.tsx
-│   │   ├── SwipeBackHandler
-│   │   ├── ThemedDatePicker
-│   │   ├── ThemedNumberPicker
-│   │   └── timer.tsx
+│   │   ├── ThemedDatePicker.tsx
+│   │   ├── ThemedNumberPicker.tsx
+│   │   ├── timer.tsx
+│   │   └── WorkoutDaysModal.tsx
 │   ├── constants/
+│   │   ├── loadingMessages.ts
+│   │   └── theme.tsx
 │   ├── docs/
+│   │   ├── DEBUG.md
+│   │   ├── fast-image-caching-guide.md
+│   │   ├── image-caching-implementation.md
+│   │   └── react-query-usage.md
 │   ├── hooks/
+│   │   ├── useDatabase.ts
+│   │   ├── useDebounce.ts
+│   │   ├── useExercises.ts
 │   │   ├── useImagePreloader.ts
-│   │   └── other hooks...
+│   │   └── useIntelligentPreloader.ts
 │   ├── services/
+│   │   ├── achievements.ts
+│   │   ├── aiCoaching.ts
+│   │   ├── auth.ts
+│   │   ├── database.tsx
 │   │   ├── exerciseService.ts
+│   │   ├── firebase.ts
+│   │   ├── firebaseAvatarService.ts
+│   │   ├── firebaseProgressPhotos.ts
+│   │   ├── initDatabase.ts
+│   │   ├── measurements.ts
 │   │   ├── profileService.ts
 │   │   ├── progressPhotos.ts
+│   │   ├── queryClient.ts
+│   │   ├── sentry.ts
 │   │   ├── supabase.ts
-│   │   └── workoutPlanService.ts
+│   │   └── workoutPlanService.ts      # Updated with comprehensive workout functionality
 │   ├── store/
-│   │   ├── AuthContext
-│   │   ├── CoachingContext
-│   │   ├── GamificationContext
-│   │   ├── ProfileContext
-│   │   ├── ProgressContext
-│   │   ├── ProgressPhotosContext.tsx
-│   │   └── TaskContext
+│   │   ├── AuthContext.tsx
+│   │   ├── CoachingContext.tsx
+│   │   ├── GamificationContext.tsx
+│   │   ├── MeasurementsContext.tsx
+│   │   ├── ProfileContext.tsx
+│   │   └── TaskContext.tsx
 │   ├── types/
+│   │   ├── exercise.ts
+│   │   └── global.d.ts
 │   └── utils/
+│       ├── debugConfig.ts
+│       ├── debugHelpers.ts
 │       ├── imagePreloader.ts
-│       └── muscleHighlighter.ts
+│       ├── logger.ts
+│       ├── muscleHighlighter.ts
+│       ├── polyfills.ts
+│       └── secureStorage.ts
 ├── assets/
+│   ├── adaptive-icon.png
+│   ├── body-model_back.png
+│   ├── body-model_front.png
+│   ├── icon.png
+│   ├── placeholder.jpg
+│   ├── splash.png
 │   ├── exercises/
-│   └── measurements/
-├── prisma/
-├── supabase/
-│   └── migrations/
+│   │   ├── .gitkeep
+│   │   ├── body_back.svg
+│   │   ├── body_front.svg
+│   │   ├── dumbbell.jpg
+│   │   ├── fullbody.jpg
+│   │   ├── placeholder.jpg
+│   │   ├── pushup.jpg
+│   │   ├── squat.jpg
+│   │   └── yoga.jpg
+│   ├── measurements/
+│   │   └── instructions/
+│   │       ├── abs-instruction.png
+│   │       ├── biceps-instruction.png
+│   │       ├── calf-instruction.png
+│   │       ├── chest-instruction.png
+│   │       ├── shoulders-instruction.png
+│   │       ├── thigh-instruction.png
+│   │       ├── waist-instruction.png
+│   │       └── weight-instruction.png
+│   ├── navigation/
+│   │   ├── Ellipse 205background.svg
+│   │   ├── Ellipse 205light.svg
+│   │   ├── Rectangle 372background.svg
+│   │   └── Rectangle 372light.svg
+│   └── profile/
 ├── android/
-├── .env
-├── .env.example
+│   ├── .gitignore
+│   ├── build.gradle
+│   ├── gradle.properties
+│   ├── gradlew
+│   ├── gradlew.bat
+│   ├── sentry.properties
+│   ├── settings.gradle
+│   ├── app/
+│   └── gradle/
+├── prisma/
+│   ├── dev.db
+│   └── schema.prisma
+├── supabase/
+│   ├── .temp/
+│   └── migrations/
+│       ├── 20230605000000_add_current_day_to_user_active_plans.sql
+│       ├── 20230606000000_add_day_number_to_plan_progress.sql
+│       ├── 20240530_remove_image_url_from_active_plans.sql
+│       ├── 20240612_add_workout_frequency_to_plans.sql
+│       ├── 20240620_update_plan_status.sql
+│       └── 20241220_add_reps_adjustment_to_cycle_weeks.sql
+├── .cursor/
+├── .expo/
+├── .git/
+├── .vscode/
+├── .windsurf/
+├── dist/
+├── node_modules/
+├── .cursorignore
+├── .easignore
+├── .gitignore
+├── .prettierrc
 ├── app.json
+├── babel.config.js
+├── eas.json
+├── firebase-setup.md
+├── GoogleService-Info.plist
+├── metro.config.js
+├── package-lock.json
 ├── package.json
-└── tsconfig.json
+├── README.md
+├── sentry.properties
+├── tsconfig.json
+└── tsconfig.tsbuildinfo
 ```
 
 ### Guidelines
@@ -108,7 +220,25 @@ mindmuscle-ai/
 - Avoid duplicating existing files or folders by checking the structure carefully.
 - For image handling, use the OptimizedImage component with the imagePreloader utilities to ensure efficient loading.
 - Use SplashScreenManager for proper application initialization and asset preloading.
-- The bottom tab navigation is hidden on specific screens (plans, plan-details, exercises-list, exercise-details) for a cleaner UI.
+- The bottom tab navigation is hidden on specific screens for a cleaner UI.
+- The ExerciseMaxWeightGraph component displays exercise progress data from the user_exercise_records table.
+- workout-session.tsx has been updated with consistent auto-fill behavior for customized exercises.
+- All modals (CustomizeExerciseModal, ExerciseListModal, etc.) are properly organized in the components directory.
+- Services are comprehensive and include Firebase, Supabase, and local database functionality.
+- Context providers handle global state management for auth, coaching, gamification, measurements, profile, and tasks.
+- Utils include debugging, image preloading, muscle highlighting, and secure storage functionality.
+- Assets are organized by category (exercises, measurements, navigation, profile) with appropriate subdirectories.
+
+### Key Features by Directory
+
+**Components**: UI components including modals, graphs, timers, and specialized workout components
+**Services**: Backend integration, data management, and external API connections
+**Store**: React Context providers for global state management
+**Utils**: Utility functions for debugging, image handling, security, and muscle highlighting
+**Hooks**: Custom React hooks for database, exercises, image preloading, and debouncing
+**Constants**: Theme configuration and loading messages
+**Types**: TypeScript type definitions for exercises and global types
+**Assets**: Static assets organized by functionality (exercises, measurements, navigation)
 
 ---
 

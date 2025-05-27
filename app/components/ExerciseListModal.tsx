@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Dimensions, Platform, Animated } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Dimensions, Platform, Animated, LayoutAnimation } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -304,12 +304,6 @@ export default function ExerciseListModal({
   const handleCustomizePress = () => {
     const newCustomizeMode = !isCustomizeMode;
     
-    console.log('🔧 Customize button pressed:', {
-      currentMode: isCustomizeMode,
-      newMode: newCustomizeMode,
-      draggableDataLength: draggableData.length
-    });
-    
     setIsCustomizeMode(newCustomizeMode);
     setShowBottomMenu(newCustomizeMode);
     
@@ -371,45 +365,42 @@ export default function ExerciseListModal({
     }
   };
 
-  // Handle drag end from DraggableFlatList
+  // Handle drag end from DraggableFlatList - with layout animation for smooth transitions
   const handleDragEnd = ({ data }: { data: Exercise[] }) => {
-    console.log('🎯 Drag ended:', {
-      originalDataLength: localExercises.length,
-      newDataLength: data.length,
-      currentExerciseIndex,
-      reorderedData: data.map(ex => ex.name)
+    // Get the current exercise before updating the array
+    const currentExercise = localExercises[currentExerciseIndex];
+    
+    // Configure layout animation for smooth transition
+    LayoutAnimation.configureNext({
+      duration: 200,
+      create: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity,
+      },
+      update: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.scaleXY,
+      },
     });
     
-    // Update the local exercises with the new order
-    setLocalExercises(data);
-    
-    // Update the current exercise index to follow the moved exercise
-    const currentExercise = localExercises[currentExerciseIndex];
-    const newCurrentIndex = data.findIndex(ex => ex.id === currentExercise.id);
-    
-    console.log('✅ Final reordered exercises:', data.map(ex => ex.name));
-    console.log('🔄 Current exercise moved from index', currentExerciseIndex, 'to', newCurrentIndex);
-    
-    // Update the current exercise index if the active exercise was moved
-    if (newCurrentIndex !== -1 && newCurrentIndex !== currentExerciseIndex) {
-      console.log('📍 Active exercise index updated to:', newCurrentIndex);
-      onCurrentExerciseIndexChange?.(newCurrentIndex);
-    }
+    // Small delay to allow drop frame to resolve before state update
+    setTimeout(() => {
+      setLocalExercises(data);
+      
+      // Find the new index of the current exercise
+      const newCurrentIndex = data.findIndex(ex => ex.id === currentExercise.id);
+      
+      // Update the current exercise index if the active exercise was moved
+      if (newCurrentIndex !== -1 && newCurrentIndex !== currentExerciseIndex) {
+        onCurrentExerciseIndexChange?.(newCurrentIndex);
+      }
+    }, 16); // Single frame delay (16ms) to prevent visual desync
   };
 
   // Use all exercises for dragging (no exclusions)
   const draggableData = localExercises;
 
-  // Debug log for DraggableFlatList configuration
-  useEffect(() => {
-    console.log('📋 DraggableFlatList config updated:', {
-      dataLength: draggableData.length,
-      isCustomizeMode,
-      activationDistance: isCustomizeMode ? 0 : 999999,
-      scrollEnabled: !isCustomizeMode,
-      data: draggableData.map(item => ({ id: item.id, name: item.name }))
-    });
-  }, [isCustomizeMode, draggableData.length]);
+
 
 
 
@@ -423,28 +414,35 @@ export default function ExerciseListModal({
           backgroundColor: 'transparent',
           borderRadius: 16,
           marginBottom: SPACING.sm,
-          // Add subtle visual feedback for the placeholder space
-          borderWidth: 1,
-          borderColor: 'rgba(139, 92, 246, 0.3)',
+          // Enhanced visual feedback for the placeholder space
+          borderWidth: 2,
+          borderColor: 'rgba(139, 92, 246, 0.5)',
           borderStyle: 'dashed',
-          opacity: 0.6,
+          opacity: 0.8,
+          // Subtle pulsing effect
+          shadowColor: '#8B5CF6',
+          shadowOpacity: 0.2,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 2 },
         }
       ]}>
         <View style={[
           styles.exerciseCard,
           {
-            backgroundColor: 'rgba(139, 92, 246, 0.1)',
+            backgroundColor: 'rgba(139, 92, 246, 0.15)',
             borderWidth: 0,
             height: EXERCISE_CARD_HEIGHT - SPACING.sm,
             justifyContent: 'center',
             alignItems: 'center',
+            borderRadius: 14,
           }
         ]}>
           <Text style={{
-            color: 'rgba(139, 92, 246, 0.7)',
-            fontSize: 14,
-            fontWeight: '600',
+            color: 'rgba(139, 92, 246, 0.9)',
+            fontSize: 15,
+            fontWeight: '700',
             textAlign: 'center',
+            letterSpacing: 0.5,
           }}>
             Drop here
           </Text>
@@ -579,108 +577,73 @@ export default function ExerciseListModal({
             <View style={styles.contentContainer}>
               {/* Exercise List View */}
               <View style={styles.listView}>
-                                {/* Active Exercise Section */}
-                {draggableData.length > 0 && (
-                  <View style={styles.activeExerciseSection}>
-                    <Text style={styles.sectionTitle}>ACTIVE EXERCISE</Text>
-                    
-                                         {/* Current Exercise Card - Single item draggable */}
+                {/* Single DraggableFlatList for all exercises */}
+                {draggableData.length > 0 ? (
+                  <View style={styles.exerciseListSection}>
                     <DraggableFlatList
-                      data={[draggableData[currentExerciseIndex]]}
-                      onDragEnd={({ data }) => {
-                        // Handle moving the active exercise within the full list
-                        const movedExercise = data[0];
-                        const fullArray = [...draggableData];
-                        // Remove from current position and add to new position
-                        fullArray.splice(currentExerciseIndex, 1);
-                        fullArray.unshift(movedExercise); // Move to beginning for now
-                        handleDragEnd({ data: fullArray });
+                      data={draggableData}
+                      onDragEnd={handleDragEnd}
+                      keyExtractor={(item) => `exercise-${item.id}`}
+                      animationConfig={{
+                        damping: 30,
+                        mass: 0.3,
+                        stiffness: 120,
+                        restSpeedThreshold: 0.1,
+                        restDisplacementThreshold: 0.1,
                       }}
-                      onPlaceholderIndexChange={(index) => {
-                        console.log("👉 Active exercise placeholder moved to index", index);
-                      }}
-                      keyExtractor={(item) => `active-${item.id}`}
-                      renderItem={({ item, drag, isActive }) => (
-                        <View
-                          style={[
-                            styles.exerciseCardWrapper,
-                            {
-                              zIndex: isActive ? 999 : currentExerciseIndex,
-                              elevation: isActive ? 10 : 1,
-                              position: 'relative',
-                              transform: [{ scale: isActive ? 1.03 : 1 }],
-                              overflow: 'visible',
-                            }
-                          ]}
-                        >
-                          <EnhancedExerciseCard
-                            exercise={item}
-                            index={currentExerciseIndex}
-                            currentExerciseIndex={currentExerciseIndex}
-                            isCustomizeMode={isCustomizeMode}
-                            exerciseSets={exerciseSets}
-                            onPress={() => handleExercisePress(currentExerciseIndex)}
-                            onRemove={() => handleRemoveExercise(currentExerciseIndex)}
-                            drag={drag}
-                            isActive={isActive}
-                          />
-                        </View>
-                      )}
-                      renderPlaceholder={renderPlaceholder}
-                      activationDistance={isCustomizeMode ? 0 : 999999}
-                      dragItemOverflow={true}
-                      scrollEnabled={!isCustomizeMode}
-                      showsVerticalScrollIndicator={false}
-                    />
-                  </View>
-                )}
-
-                {/* Upcoming Exercises Section */}
-                {draggableData.length > 1 && (
-                  <View style={styles.upcomingExercisesSection}>
-                    <Text style={styles.sectionTitle}>
-                      UPCOMING EXERCISES ({draggableData.length - 1})
-                    </Text>
-                    
-                                         {/* Remaining exercises */}
-                    <DraggableFlatList
-                      data={draggableData.filter((_, index) => index !== currentExerciseIndex)}
-                      onDragEnd={({ data }) => {
-                        // Reconstruct the full array with current exercise at its position
-                        const fullArray = [...data];
-                        fullArray.splice(currentExerciseIndex, 0, draggableData[currentExerciseIndex]);
-                        handleDragEnd({ data: fullArray });
-                      }}
-                      onPlaceholderIndexChange={(index) => {
-                        console.log("👉 Upcoming exercise placeholder moved to index", index);
-                      }}
-                      keyExtractor={(item) => `upcoming-${item.id}`}
-                      renderItem={({ item, drag, isActive }) => {
-                        const realIndex = draggableData.findIndex(ex => ex.id === item.id);
+                      renderItem={({ item, drag, isActive, getIndex }) => {
+                        const index = getIndex() ?? 0;
+                        const isCurrentExercise = index === currentExerciseIndex;
+                        const isUpcomingExercise = index > currentExerciseIndex;
+                        const isPastExercise = index < currentExerciseIndex;
+                        
                         return (
-                          <View
-                            style={[
-                              styles.exerciseCardWrapper,
-                              {
-                                zIndex: isActive ? 999 : realIndex,
-                                elevation: isActive ? 10 : 1,
-                                position: 'relative',
-                                transform: [{ scale: isActive ? 1.03 : 1 }],
-                                overflow: 'visible',
-                              }
-                            ]}
-                          >
-                            <EnhancedExerciseCard
-                              exercise={item}
-                              index={realIndex}
-                              currentExerciseIndex={currentExerciseIndex}
-                              isCustomizeMode={isCustomizeMode}
-                              exerciseSets={exerciseSets}
-                              onPress={() => handleExercisePress(realIndex)}
-                              onRemove={() => handleRemoveExercise(realIndex)}
-                              drag={drag}
-                              isActive={isActive}
-                            />
+                          <View style={styles.exerciseItemContainer}>
+                            {/* Section Header - only show for first item in each section */}
+                            {isCurrentExercise && (
+                              <View style={styles.sectionHeaderContainer}>
+                                <Text style={styles.sectionTitle}>ACTIVE EXERCISE</Text>
+                              </View>
+                            )}
+                            {isUpcomingExercise && index === currentExerciseIndex + 1 && (
+                              <View style={styles.sectionHeaderContainer}>
+                                <Text style={styles.sectionTitle}>
+                                  UPCOMING EXERCISES ({draggableData.length - currentExerciseIndex - 1})
+                                </Text>
+                              </View>
+                            )}
+                            
+                            {/* Exercise Card */}
+                            <View
+                              style={[
+                                styles.exerciseCardWrapper,
+                                {
+                                  zIndex: isActive ? 999 : index,
+                                  elevation: isActive ? 10 : 1,
+                                  position: 'relative',
+                                  // Disable transform during drag to prevent conflicts
+                                  transform: isActive ? [{ scale: 1 }] : [],
+                                  overflow: 'visible',
+                                  // Stable opacity to prevent flicker
+                                  opacity: 1,
+                                  shadowOpacity: isActive ? 0.3 : 0.15,
+                                  shadowRadius: isActive ? 12 : 8,
+                                  shadowOffset: { width: 0, height: isActive ? 6 : 2 },
+                                }
+                              ]}
+                            >
+                              <EnhancedExerciseCard
+                                exercise={item}
+                                index={index}
+                                currentExerciseIndex={currentExerciseIndex}
+                                isCustomizeMode={isCustomizeMode}
+                                exerciseSets={exerciseSets}
+                                onPress={() => handleExercisePress(index)}
+                                onRemove={() => handleRemoveExercise(index)}
+                                drag={drag}
+                                isActive={isActive}
+                              />
+                            </View>
                           </View>
                         );
                       }}
@@ -692,13 +655,10 @@ export default function ExerciseListModal({
                       showsVerticalScrollIndicator={false}
                       scrollEnabled={!isCustomizeMode}
                       autoscrollThreshold={50}
-                      autoscrollSpeed={100}
+                      autoscrollSpeed={80}
                     />
                   </View>
-                )}
-
-                {/* No exercises fallback */}
-                {draggableData.length === 0 && (
+                ) : (
                   <View style={styles.noExercises}>
                     <Text style={styles.noExercisesText}>
                       No exercises available
@@ -1473,12 +1433,17 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 6,
-    borderWidth: 0.,
-    borderColor: 'rgba(139, 92, 246, 0.8)',
+    elevation: 8,
+    borderWidth: 1.5,
+    borderColor: 'rgba(139, 92, 246, 0.6)',
+    // Enhanced shadow for better depth
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
   },
   imageShadowOverlay: {
     position: 'absolute',
@@ -1594,5 +1559,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.md,
     flex: 1,
     overflow: 'visible', // Allow dragged items to be visible outside bounds
+  },
+  exerciseItemContainer: {
+    overflow: 'visible',
+  },
+  sectionHeaderContainer: {
+    paddingHorizontal: SPACING.md,
+    paddingBottom: SPACING.sm,
+    paddingTop: SPACING.md,
   },
 }); 

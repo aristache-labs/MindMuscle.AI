@@ -68,16 +68,55 @@ export default function WorkoutExerciseSetRow({
   
   // Helper function to get placeholder text for weight input
   const getWeightPlaceholder = () => {
-    if (focusedInputs[`${exercise.id}-${setIndex}-weight`] || set.isCompleted) {
+    // First debug the key values to understand why placeholders aren't showing
+    const inputId = `${exercise.id}-${setIndex}-weight`;
+    const isFocused = focusedInputs[inputId] || false;
+    const hasCompletedSet = set.isCompleted || false;
+    const hasValue = set.weight && set.weight !== '' && set.weight !== '-';
+    
+    // Only return empty if the input is focused OR the set is completed
+    if (isFocused || hasCompletedSet) {
       return '';
     }
-    return currentRecommendation?.recommended_weight?.toString() || 
-           getSuggestedValue(exercise.exercise_id, setIndex + 1, 'weight') || '--';
+    
+    // If the set already has a value entered, don't show placeholder
+    if (hasValue) {
+      return '';
+    }
+    
+    const recommendedWeight = currentRecommendation?.recommended_weight?.toString();
+    const suggestedValue = getSuggestedValue(exercise.exercise_id, setIndex + 1, 'weight');
+    const lastWeight = lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight;
+    
+    // Create placeholder with correct priority
+    let placeholder = '--';
+    
+    if (recommendedWeight) {
+      placeholder = recommendedWeight;
+    } else if (suggestedValue) {
+      placeholder = suggestedValue;
+    } else if (lastWeight) {
+      placeholder = lastWeight;
+    }
+    
+    return placeholder;
   };
 
   // Helper function to get placeholder text for reps input
   const getRepsPlaceholder = () => {
-    if (focusedInputs[`${exercise.id}-${setIndex}-reps`] || set.isCompleted) {
+    // First debug the key values to understand why placeholders aren't showing
+    const inputId = `${exercise.id}-${setIndex}-reps`;
+    const isFocused = focusedInputs[inputId] || false;
+    const hasCompletedSet = set.isCompleted || false;
+    const hasValue = set.reps && set.reps !== '' && set.reps !== '-';
+    
+    // Only return empty if the input is focused OR the set is completed
+    if (isFocused || hasCompletedSet) {
+      return '';
+    }
+    
+    // If the set already has a value entered, don't show placeholder
+    if (hasValue) {
       return '';
     }
     
@@ -86,9 +125,22 @@ export default function WorkoutExerciseSetRow({
     const exerciseRepsRange = exercise.reps_range;
     const isCustomized = exerciseCustomized[exercise.id];
     
-    return recommendedReps || 
-           (isCustomized ? exerciseRepsRange : lastReps) || 
-           (isCustomized ? lastReps : exerciseRepsRange) || '--';
+    // Create a placeholder value with correct priority
+    // 1. Recommended reps (if available)
+    // 2. Last workout's reps (if not customized)
+    // 3. Exercise reps range (if customized)
+    // 4. Default '--'
+    let placeholder = '--';
+    
+    if (recommendedReps) {
+      placeholder = recommendedReps;
+    } else if (!isCustomized && lastReps) {
+      placeholder = lastReps;
+    } else if (exerciseRepsRange) {
+      placeholder = exerciseRepsRange;
+    }
+    
+    return placeholder;
   };
 
   // Render active set card

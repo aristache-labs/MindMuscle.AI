@@ -20,6 +20,7 @@ export interface UseExerciseCustomizationReturn {
   getCustomizedExercise: (exerciseId: string) => ExerciseData | undefined;
   resetExerciseCustomization: (exerciseId: string) => void;
   resetAllCustomizations: () => void;
+  shouldShowLastValues: (exerciseId: string) => boolean;
 }
 
 export const useExerciseCustomization = (params: UseExerciseCustomizationParams): UseExerciseCustomizationReturn => {
@@ -35,6 +36,12 @@ export const useExerciseCustomization = (params: UseExerciseCustomizationParams)
     textInputRefreshKey,
     setTextInputRefreshKey
   } = params;
+
+  // New helper function to determine if we should show last values for an exercise
+  const shouldShowLastValues = useCallback((exerciseId: string) => {
+    // Only show last values if the exercise hasn't been customized
+    return !exerciseCustomized[exerciseId];
+  }, [exerciseCustomized]);
 
   const customizeExercise = useCallback((exerciseId: string, updates: { sets?: number; reps_range?: string }) => {
     // Update the exercise
@@ -168,5 +175,6 @@ export const useExerciseCustomization = (params: UseExerciseCustomizationParams)
     getCustomizedExercise,
     resetExerciseCustomization,
     resetAllCustomizations,
+    shouldShowLastValues,
   };
 }; 

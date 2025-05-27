@@ -223,9 +223,16 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
       const isCustomized = exerciseCustomized[currentExercise?.id || ''];
       
       // If exercise was customized, prioritize the reps_range over last values
-      repsValue = recommendedReps || 
-        (isCustomized ? exerciseRepsRange : lastReps) || 
-        (isCustomized ? lastReps : exerciseRepsRange) || "1";
+      // Otherwise, use last workout values before falling back to the reps range
+      if (recommendedReps) {
+        repsValue = recommendedReps;
+      } else if (!isCustomized && lastReps && lastReps !== '-' && lastReps !== '0') {
+        repsValue = lastReps;
+      } else if (exerciseRepsRange) {
+        repsValue = exerciseRepsRange;
+      } else {
+        repsValue = "1"; // Final fallback
+      }
     }
     
     // Store the original reps value for auto-fill logic (before conversion)

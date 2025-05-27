@@ -271,7 +271,7 @@ export default function WorkoutSessionScreen() {
     } catch (error) {
       // Error in fetchLastExerciseRecords
     }
-  }, [user?.id]); // Remove exercises to prevent infinite loop
+  }, [user?.id, exercises]);
   
   // Function to fetch max weight data for all exercises
   const fetchMaxWeightDataForAllExercises = useCallback(async () => {
@@ -469,7 +469,6 @@ export default function WorkoutSessionScreen() {
   // Additional effect to pre-fill with last values when they become available (for cycle week 1 or when no suggested values)
   useEffect(() => {
     if (Object.keys(lastExerciseValues).length > 0 && exercises.length > 0) {
-      
       setExerciseSets(prev => {
         const updatedSets = { ...prev };
         let hasChanges = false;
@@ -485,11 +484,20 @@ export default function WorkoutSessionScreen() {
             updatedSets[exercise.id].forEach((set, index) => {
               const setNumber = index + 1;
               
-              // For weight exercises, always use last reps value if available
-              if (!set.isCompleted && exercise.requires_weight !== false) {
+              // Only fill empty sets that aren't completed
+              if (!set.isCompleted && (set.reps === '' || set.reps === '-')) {
                 const lastReps = lastExerciseValues[exercise.exercise_id]?.[setNumber]?.reps;
                 if (lastReps && lastReps !== '-' && lastReps !== '0') {
                   updatedSets[exercise.id][index].reps = lastReps;
+                  hasChanges = true;
+                }
+              }
+              
+              // For weight exercises, also pre-fill weight values
+              if (!set.isCompleted && exercise.requires_weight !== false && (set.weight === '' || set.weight === '-')) {
+                const lastWeight = lastExerciseValues[exercise.exercise_id]?.[setNumber]?.weight;
+                if (lastWeight && lastWeight !== '-' && lastWeight !== '0') {
+                  updatedSets[exercise.id][index].weight = lastWeight;
                   hasChanges = true;
                 }
               }
@@ -497,11 +505,10 @@ export default function WorkoutSessionScreen() {
           }
         });
 
-        
         return hasChanges ? updatedSets : prev;
       });
     }
-  }, [lastExerciseValues, exercises.length, exerciseCustomized]); // Add exerciseCustomized dependency
+  }, [lastExerciseValues, exercises, exerciseCustomized]);
 
   useEffect(() => {
     // Check if workout is already completed for today, but skip if forceStart is true

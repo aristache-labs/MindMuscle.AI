@@ -137,10 +137,14 @@ const EnhancedExerciseCard: React.FC<EnhancedExerciseCardProps> = ({
           </TouchableOpacity>
         ) : (
           <View style={styles.exerciseCardContent}>
-            {/* Drag Handle - visual indicator only */}
-            <View style={styles.dragHandle}>
+            {/* Drag Handle - functional drag initiator */}
+            <TouchableOpacity
+              onPressIn={drag} // initiate drag immediately
+              style={styles.dragHandle}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
               <Ionicons name="menu" size={28} color="rgba(255, 255, 255, 0.95)" />
-            </View>
+            </TouchableOpacity>
             
             <View style={[
               styles.exerciseImageContainer,
@@ -409,10 +413,43 @@ export default function ExerciseListModal({
 
 
 
-  // Render placeholder to prevent layout jumps during dragging
+  // Render animated placeholder to prevent layout jumps during dragging
   const renderPlaceholder = () => {
     return (
-      <View style={{ height: TOTAL_CARD_HEIGHT, backgroundColor: 'transparent' }} />
+      <View style={[
+        styles.exerciseCardWrapper,
+        {
+          height: TOTAL_CARD_HEIGHT,
+          backgroundColor: 'transparent',
+          borderRadius: 16,
+          marginBottom: SPACING.sm,
+          // Add subtle visual feedback for the placeholder space
+          borderWidth: 1,
+          borderColor: 'rgba(139, 92, 246, 0.3)',
+          borderStyle: 'dashed',
+          opacity: 0.6,
+        }
+      ]}>
+        <View style={[
+          styles.exerciseCard,
+          {
+            backgroundColor: 'rgba(139, 92, 246, 0.1)',
+            borderWidth: 0,
+            height: EXERCISE_CARD_HEIGHT - SPACING.sm,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }
+        ]}>
+          <Text style={{
+            color: 'rgba(139, 92, 246, 0.7)',
+            fontSize: 14,
+            fontWeight: '600',
+            textAlign: 'center',
+          }}>
+            Drop here
+          </Text>
+        </View>
+      </View>
     );
   };
 
@@ -547,7 +584,7 @@ export default function ExerciseListModal({
                   <View style={styles.activeExerciseSection}>
                     <Text style={styles.sectionTitle}>ACTIVE EXERCISE</Text>
                     
-                    {/* Current Exercise Card - Single item draggable */}
+                                         {/* Current Exercise Card - Single item draggable */}
                     <DraggableFlatList
                       data={[draggableData[currentExerciseIndex]]}
                       onDragEnd={({ data }) => {
@@ -559,44 +596,40 @@ export default function ExerciseListModal({
                         fullArray.unshift(movedExercise); // Move to beginning for now
                         handleDragEnd({ data: fullArray });
                       }}
+                      onPlaceholderIndexChange={(index) => {
+                        console.log("👉 Active exercise placeholder moved to index", index);
+                      }}
                       keyExtractor={(item) => `active-${item.id}`}
                       renderItem={({ item, drag, isActive }) => (
                         <View
                           style={[
                             styles.exerciseCardWrapper,
                             {
-                              zIndex: isActive ? 20 : 10,
-                              elevation: isActive ? 10 : 5,
+                              zIndex: isActive ? 999 : currentExerciseIndex,
+                              elevation: isActive ? 10 : 1,
                               position: 'relative',
-                              transform: [{ scale: isActive ? 1.02 : 1 }],
-                              opacity: isActive ? 0.98 : 1,
+                              transform: [{ scale: isActive ? 1.03 : 1 }],
                               overflow: 'visible',
                             }
                           ]}
                         >
-                          <TouchableOpacity
-                            onLongPress={isCustomizeMode ? drag : undefined}
-                            delayLongPress={isCustomizeMode ? 80 : undefined}
-                            activeOpacity={0.95}
-                            style={{ width: '100%' }}
-                          >
-                            <EnhancedExerciseCard
-                              exercise={item}
-                              index={currentExerciseIndex}
-                              currentExerciseIndex={currentExerciseIndex}
-                              isCustomizeMode={isCustomizeMode}
-                              exerciseSets={exerciseSets}
-                              onPress={() => handleExercisePress(currentExerciseIndex)}
-                              onRemove={() => handleRemoveExercise(currentExerciseIndex)}
-                              drag={drag}
-                              isActive={isActive}
-                            />
-                          </TouchableOpacity>
+                          <EnhancedExerciseCard
+                            exercise={item}
+                            index={currentExerciseIndex}
+                            currentExerciseIndex={currentExerciseIndex}
+                            isCustomizeMode={isCustomizeMode}
+                            exerciseSets={exerciseSets}
+                            onPress={() => handleExercisePress(currentExerciseIndex)}
+                            onRemove={() => handleRemoveExercise(currentExerciseIndex)}
+                            drag={drag}
+                            isActive={isActive}
+                          />
                         </View>
                       )}
-                      activationDistance={isCustomizeMode ? 8 : 999999}
+                      renderPlaceholder={renderPlaceholder}
+                      activationDistance={isCustomizeMode ? 0 : 999999}
                       dragItemOverflow={true}
-                      scrollEnabled={false}
+                      scrollEnabled={!isCustomizeMode}
                       showsVerticalScrollIndicator={false}
                     />
                   </View>
@@ -609,7 +642,7 @@ export default function ExerciseListModal({
                       UPCOMING EXERCISES ({draggableData.length - 1})
                     </Text>
                     
-                    {/* Remaining exercises */}
+                                         {/* Remaining exercises */}
                     <DraggableFlatList
                       data={draggableData.filter((_, index) => index !== currentExerciseIndex)}
                       onDragEnd={({ data }) => {
@@ -617,6 +650,9 @@ export default function ExerciseListModal({
                         const fullArray = [...data];
                         fullArray.splice(currentExerciseIndex, 0, draggableData[currentExerciseIndex]);
                         handleDragEnd({ data: fullArray });
+                      }}
+                      onPlaceholderIndexChange={(index) => {
+                        console.log("👉 Upcoming exercise placeholder moved to index", index);
                       }}
                       keyExtractor={(item) => `upcoming-${item.id}`}
                       renderItem={({ item, drag, isActive }) => {
@@ -626,37 +662,30 @@ export default function ExerciseListModal({
                             style={[
                               styles.exerciseCardWrapper,
                               {
-                                zIndex: isActive ? 20 : 0,
+                                zIndex: isActive ? 999 : realIndex,
                                 elevation: isActive ? 10 : 1,
                                 position: 'relative',
-                                transform: [{ scale: isActive ? 1.02 : 1 }],
-                                opacity: isActive ? 0.98 : 1,
+                                transform: [{ scale: isActive ? 1.03 : 1 }],
                                 overflow: 'visible',
                               }
                             ]}
                           >
-                            <TouchableOpacity
-                              onLongPress={isCustomizeMode ? drag : undefined}
-                              delayLongPress={isCustomizeMode ? 80 : undefined}
-                              activeOpacity={0.95}
-                              style={{ width: '100%' }}
-                            >
-                              <EnhancedExerciseCard
-                                exercise={item}
-                                index={realIndex}
-                                currentExerciseIndex={currentExerciseIndex}
-                                isCustomizeMode={isCustomizeMode}
-                                exerciseSets={exerciseSets}
-                                onPress={() => handleExercisePress(realIndex)}
-                                onRemove={() => handleRemoveExercise(realIndex)}
-                                drag={drag}
-                                isActive={isActive}
-                              />
-                            </TouchableOpacity>
+                            <EnhancedExerciseCard
+                              exercise={item}
+                              index={realIndex}
+                              currentExerciseIndex={currentExerciseIndex}
+                              isCustomizeMode={isCustomizeMode}
+                              exerciseSets={exerciseSets}
+                              onPress={() => handleExercisePress(realIndex)}
+                              onRemove={() => handleRemoveExercise(realIndex)}
+                              drag={drag}
+                              isActive={isActive}
+                            />
                           </View>
                         );
                       }}
-                      activationDistance={isCustomizeMode ? 8 : 999999}
+                      renderPlaceholder={renderPlaceholder}
+                      activationDistance={isCustomizeMode ? 0 : 999999}
                       dragItemOverflow={true}
                       containerStyle={styles.draggableList}
                       contentContainerStyle={styles.draggableListContent}

@@ -1202,10 +1202,10 @@ export default function WorkoutSessionScreen() {
             isCompleted: false
           });
         }
-              } else if (currentSets.length > newSetsCount) {
-          // Remove excess sets and update totals
-          const setsToRemove = updatedSets.slice(newSetsCount);
-          
+                    } else if (currentSets.length > newSetsCount) {
+        // Remove excess sets and update totals
+        const setsToRemove = updatedSets.slice(newSetsCount);
+        
         setsToRemove.forEach((set, idx) => {
           if (set.isCompleted) {
             const weight = exerciseToUpdate.requires_weight !== false ? 
@@ -1222,6 +1222,36 @@ export default function WorkoutSessionScreen() {
         });
         
         updatedSets = updatedSets.slice(0, newSetsCount);
+        
+        // Check if all remaining sets are completed after reducing the number of sets
+        const allRemainingCompleted = updatedSets.every(set => set.isCompleted);
+        
+        if (allRemainingCompleted) {
+          // All sets are now completed, handle progression
+          setTimeout(() => {
+            // Check if this is the last exercise
+            if (currentExerciseIndex === exercises.length - 1) {
+              // Check if all exercises have all their sets completed
+              const allExercisesCompleted = exercises.every(exercise => {
+                if (exercise.id === exerciseToUpdate.id) {
+                  // For the current exercise, we know all sets are completed
+                  return true;
+                }
+                // For other exercises, check their sets
+                const exSets = exerciseSets[exercise.id] || [];
+                return exSets.length > 0 && exSets.every(s => s.isCompleted);
+              });
+              
+              if (allExercisesCompleted) {
+                // All exercises are completed, save workout data
+                completeWorkout();
+              }
+            } else {
+              // Not the last exercise, move to next exercise
+              moveToNextExercise();
+            }
+          }, 500); // Small delay to allow state updates to complete
+        }
       }
       
       
@@ -2184,6 +2214,11 @@ export default function WorkoutSessionScreen() {
             // If warmup is showing and not completed, no set should be active
             if (showWarmup && !warmupCompleted) {
               activeSetIndex = -1; // No set is active when warmup is showing
+            }
+            
+            // Ensure activeSetIndex is within bounds (safety check for when sets are reduced)
+            if (activeSetIndex >= currentSets.length) {
+              activeSetIndex = -1; // No set should be active if index is out of bounds
             }
             
             const isActive = index === activeSetIndex;

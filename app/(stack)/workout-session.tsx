@@ -1618,16 +1618,6 @@ export default function WorkoutSessionScreen() {
   };
 
   const handleRedoSet = (exerciseId: string, setIndex: number) => {
-    // Reset user-entered flags for this set when redoing
-    const weightInputKey = `${exerciseId}-${setIndex}-weight`;
-    const repsInputKey = `${exerciseId}-${setIndex}-reps`;
-    setUserEnteredValues(prev => {
-      const updated = { ...prev };
-      delete updated[weightInputKey];
-      delete updated[repsInputKey];
-      return updated;
-    });
-    
     // Mark the set as not completed and update volume/reps totals
     setExerciseSets(prev => {
       const updatedSets = [...prev[exerciseId]];
@@ -1637,21 +1627,11 @@ export default function WorkoutSessionScreen() {
       const currentExercise = exercises.find(ex => ex.id === exerciseId);
       const requiresWeight = currentExercise?.requires_weight !== false; // Default to true if not specified
       
-      // If the set was completed, subtract its volume and reps from totals
+      // If the set was completed, subtract its EXACT volume and reps from totals
       if (currentSet.isCompleted) {
+        // Use the exact values that are currently stored in the set (these are what were used when it was completed)
         const weight = requiresWeight ? (currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight)) : 0;
-        let reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
-        
-        // Check if reps field contains a range format and use max value if so
-        const repsContainsRange = currentSet.reps && typeof currentSet.reps === 'string' && currentSet.reps.includes('-');
-        const userEnteredRepsKey = `${exerciseId}-${setIndex}-reps`;
-        const isUserEnteredValue = userEnteredValues[userEnteredRepsKey];
-        
-        if (repsContainsRange || isNaN(reps) || !isUserEnteredValue) {
-          if (currentExercise?.reps_range) {
-            reps = getHighestRepsFromRange(currentExercise.reps_range);
-          }
-        }
+        const reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
         
         const setVolume = requiresWeight ? parseFloat((weight * reps).toFixed(1)) : 0;
         
@@ -1668,6 +1648,16 @@ export default function WorkoutSessionScreen() {
       };
       
       return { ...prev, [exerciseId]: updatedSets };
+    });
+    
+    // Reset user-entered flags for this set when redoing (AFTER calculating subtraction)
+    const weightInputKey = `${exerciseId}-${setIndex}-weight`;
+    const repsInputKey = `${exerciseId}-${setIndex}-reps`;
+    setUserEnteredValues(prev => {
+      const updated = { ...prev };
+      delete updated[weightInputKey];
+      delete updated[repsInputKey];
+      return updated;
     });
   };
 

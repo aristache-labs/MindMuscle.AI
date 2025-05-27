@@ -15,6 +15,7 @@ import ExerciseListModal from '../components/ExerciseListModal';
 import CustomizeExerciseModal from '../components/CustomizeExerciseModal';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
+import { useWorkoutTimer } from '../hooks/useWorkoutTimer';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -69,13 +70,25 @@ export default function WorkoutSessionScreen() {
   const [exercises, setExercises] = useState<ExerciseData[]>([]);
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
   const [exerciseSets, setExerciseSets] = useState<Record<string, ExerciseSet[]>>({});
-  const [restTimer, setRestTimer] = useState(0);
-  const [restTimerActive, setRestTimerActive] = useState(false);
-  const [workoutStartTime, setWorkoutStartTime] = useState<Date | null>(null);
-  const [workoutDuration, setWorkoutDuration] = useState(0);
-  const [workoutTimerActive, setWorkoutTimerActive] = useState(false);
   const [totalVolume, setTotalVolume] = useState<number>(0); // Total weight lifted (kg)
   const [totalReps, setTotalReps] = useState<number>(0); // Total reps performed
+  
+  // Use the timer hook
+  const {
+    workoutDuration,
+    workoutTimerActive,
+    restTimer,
+    restTimerActive,
+    workoutStartTime,
+    startWorkoutTimer,
+    stopWorkoutTimer,
+    startRestTimer,
+    clearAllTimers,
+    setWorkoutStartTime,
+    setWorkoutDuration,
+    formatTime,
+    formatRestTime,
+  } = useWorkoutTimer();
   const [recommendations, setRecommendations] = useState<Record<string, any>>({});
   const [focusedInputs, setFocusedInputs] = useState<Record<string, boolean>>({});
   const [lastExerciseValues, setLastExerciseValues] = useState<Record<string, Record<number, { weight: string, reps: string }>>>({});
@@ -535,46 +548,10 @@ export default function WorkoutSessionScreen() {
   // Store the original cycle week for redo workouts
   const [originalCycleWeek, setOriginalCycleWeek] = useState<number | null>(null);
   
-  // Timer interval references
-  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const workoutTimerRef = useRef<NodeJS.Timeout | null>(null);
-
   // Get forceStart parameter from URL
   const forceStart = params.forceStart === 'true';
 
-  // Centralized timer management functions
-  const startWorkoutTimer = useCallback(() => {
-    // Clear any existing workout timer
-    if (workoutTimerRef.current) {
-      clearInterval(workoutTimerRef.current);
-      workoutTimerRef.current = null;
-    }
-    
-    // Start new workout timer
-    setWorkoutTimerActive(true);
-    workoutTimerRef.current = setInterval(() => {
-      setWorkoutDuration(prev => prev + 1);
-    }, 1000) as unknown as NodeJS.Timeout;
-  }, []);
-
-  const stopWorkoutTimer = useCallback(() => {
-    if (workoutTimerRef.current) {
-      clearInterval(workoutTimerRef.current);
-      workoutTimerRef.current = null;
-    }
-    setWorkoutTimerActive(false);
-  }, []);
-
-  const clearAllTimers = useCallback(() => {
-    if (workoutTimerRef.current) {
-      clearInterval(workoutTimerRef.current);
-      workoutTimerRef.current = null;
-    }
-    if (timerIntervalRef.current) {
-      clearInterval(timerIntervalRef.current);
-      timerIntervalRef.current = null;
-    }
-  }, []);
+  // REMOVED: Timer functions now come from useWorkoutTimer hook
   
   // Effect to monitor exercises state and fetch last records when exercises change
   useEffect(() => {
@@ -1324,41 +1301,7 @@ export default function WorkoutSessionScreen() {
     setShowExerciseListModal(false);
   };
 
-  const startRestTimer = (seconds: number) => {
-    setRestTimer(seconds);
-    setRestTimerActive(true);
-    
-    if (timerIntervalRef.current) {
-      clearInterval(timerIntervalRef.current);
-    }
-    
-    timerIntervalRef.current = setInterval(() => {
-      setRestTimer(prev => {
-        if (prev <= 1) {
-          if (timerIntervalRef.current) {
-            clearInterval(timerIntervalRef.current);
-            timerIntervalRef.current = null;
-          }
-          setRestTimerActive(false);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000) as unknown as NodeJS.Timeout;
-  };
-
-  const formatTime = (seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-  
-  const formatRestTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
+  // REMOVED: Timer functions now come from useWorkoutTimer hook
 
   // Utility function to get the highest value from a reps range
   const getHighestRepsFromRange = (repsRange: string): number => {
@@ -1930,7 +1873,6 @@ export default function WorkoutSessionScreen() {
     setIsWorkoutCompleted(false);
     setCompletedWorkoutData(null);
     setWorkoutStartTime(new Date());
-    setWorkoutTimerActive(true);
     setWorkoutDuration(0);
     setTotalVolume(0);
     setTotalReps(0);

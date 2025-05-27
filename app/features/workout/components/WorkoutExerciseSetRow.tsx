@@ -190,7 +190,7 @@ export default function WorkoutExerciseSetRow({
                       )}
                       <View style={styles.inputFieldContainer}>
                         <TextInput
-                          key={`${exercise.exercise_id}-${exercise.id}-${setIndex}-reps-${exercise.reps_range}-${exerciseCustomized[exercise.id] ? 'customized' : 'default'}-${textInputRefreshKey}`}
+                          key={`${exercise.exercise_id}-${exercise.id}-${setIndex}-reps-${exercise.reps_range}-${exercise.requires_weight}-${exerciseCustomized[exercise.id] ? 'customized' : 'default'}-${textInputRefreshKey}`}
                           style={styles.inputField}
                           value={set.reps}
                           onChangeText={(value) => onRepsChange(exercise.id, setIndex, value)}
@@ -324,7 +324,7 @@ export default function WorkoutExerciseSetRow({
                 )}
                 <View style={styles.inputFieldContainer}>
                   <TextInput
-                    key={`${exercise.exercise_id}-${exercise.id}-${setIndex}-reps-${exercise.reps_range}-${exerciseCustomized[exercise.id] ? 'customized' : 'default'}-${textInputRefreshKey}`}
+                    key={`${exercise.exercise_id}-${exercise.id}-${setIndex}-reps-${exercise.reps_range}-${exercise.requires_weight}-${exerciseCustomized[exercise.id] ? 'customized' : 'default'}-${textInputRefreshKey}`}
                     style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
                     value={set.reps}
                     onChangeText={(value) => onRepsChange(exercise.id, setIndex, value)}

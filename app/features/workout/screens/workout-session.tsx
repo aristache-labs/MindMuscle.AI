@@ -13,6 +13,7 @@ import ExerciseMaxWeightGraph from '../../../components/ExerciseMaxWeightGraph';
 import ExerciseDetailsModal from '../../../components/ExerciseDetailsModal';
 import ExerciseListModal from '../../../components/ExerciseListModal';
 import CustomizeExerciseModal from '../../../components/CustomizeExerciseModal';
+
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, SPACING, BORDER_RADIUS } from '../../../constants/theme';
 import { useWorkoutTimer, useExerciseSets } from '../hooks';
@@ -145,6 +146,8 @@ export default function WorkoutSessionScreen() {
   
   // State for customize exercise modal
   const [showCustomizeExerciseModal, setShowCustomizeExerciseModal] = useState(false);
+  
+
   
   // State to force TextInput re-render when exercise is customized
   const [textInputRefreshKey, setTextInputRefreshKey] = useState(0);
@@ -1176,6 +1179,8 @@ export default function WorkoutSessionScreen() {
     setShowCustomizeExerciseModal(false);
   };
 
+
+
   const handleExerciseChange = (newExercise: any) => {
     try {
       // Get the current exercise before any state updates
@@ -1221,20 +1226,56 @@ export default function WorkoutSessionScreen() {
       // Check if this is a changed exercise (from ChangeExerciseModal)
       const isChangedExercise = newExercise.isChangedExercise === true;
 
+      // Update the current exercise in the exercises array FIRST
+      // This ensures the exercise data is updated before we create new sets
+      setExercises(prev => prev.map((exercise, index) => {
+        if (index === currentExerciseIndex) {
+          return {
+            ...exercise, // Keep original exercise structure
+            exercise_id: newExercise.exercise_id || newExercise.id, // Use exercise_id if available, fallback to id
+            name: newExercise.name,
+            sets: newExercise.sets,
+            reps_range: newExercise.reps_range,
+            image_url: newExercise.image_url,
+            primary_muscles: newExercise.primary_muscles,
+            requires_weight: newExercise.requires_weight,
+            // Preserve the isChangedExercise flag to indicate this exercise was switched
+            isChangedExercise: isChangedExercise,
+            // Keep original workout-specific properties
+            id: exercise.id,
+            order: exercise.order,
+            workout_day: exercise.workout_day,
+          };
+        }
+        return exercise;
+      }));
+
       // Reset the exercise sets for the new exercise using the captured currentExercise
-      // Use setTimeout to ensure the above state clears happen first
+      // Use setTimeout to ensure the exercise update happens first
       setTimeout(() => {
         setExerciseSets(prev => {
-          // Initialize with placeholder values if this is a changed exercise
-          const newSets = Array.from({ length: newExercise.sets }, (_, index) => ({
-            id: `${currentExercise.id}-set-${index + 1}`,
-            setNumber: index + 1,
-            weight: isChangedExercise ? '-' : '', // Use placeholder if changed exercise
-            reps: isChangedExercise ? '-' : '', // Use placeholder if changed exercise
-            isCompleted: false
-          }));
+          // Initialize sets based on the new exercise type
+          const newSets = Array.from({ length: newExercise.sets }, (_, index) => {
+            const baseSet = {
+              id: `${currentExercise.id}-set-${index + 1}`,
+              setNumber: index + 1,
+              reps: isChangedExercise ? '-' : '', // Use placeholder if changed exercise
+              isCompleted: false
+            };
 
-
+            // Only add weight field if the new exercise requires weight
+            if (newExercise.requires_weight !== false) {
+              return {
+                ...baseSet,
+                weight: isChangedExercise ? '-' : '', // Use placeholder if changed exercise
+              };
+            } else {
+              return {
+                ...baseSet,
+                weight: '', // Always include weight field but empty for bodyweight exercises
+              };
+            }
+          });
 
           return {
             ...prev,
@@ -1242,30 +1283,7 @@ export default function WorkoutSessionScreen() {
           };
         });
 
-        // Update the current exercise in the exercises array after sets are cleared
-        setExercises(prev => prev.map((exercise, index) => {
-          if (index === currentExerciseIndex) {
-            return {
-              ...exercise, // Keep original exercise structure
-              exercise_id: newExercise.exercise_id || newExercise.id, // Use exercise_id if available, fallback to id
-              name: newExercise.name,
-              sets: newExercise.sets,
-              reps_range: newExercise.reps_range,
-              image_url: newExercise.image_url,
-              primary_muscles: newExercise.primary_muscles,
-              requires_weight: newExercise.requires_weight,
-              // Preserve the isChangedExercise flag to indicate this exercise was switched
-              isChangedExercise: isChangedExercise,
-              // Keep original workout-specific properties
-              id: exercise.id,
-              order: exercise.order,
-              workout_day: exercise.workout_day,
-            };
-          }
-          return exercise;
-        }));
-
-        // Force another TextInput re-render after all updates
+        // Force TextInput re-render after all updates
         setTextInputRefreshKey(prev => prev + 1);
 
         // Fetch last exercise values for the new exercise
@@ -1303,11 +1321,20 @@ export default function WorkoutSessionScreen() {
                         const historySet = historyData[setNumber];
                         
                         if (historySet) {
-                          return {
+                          const updatedSet = {
                             ...set,
-                            weight: historySet.weight || '-',
                             reps: historySet.reps || '-'
                           };
+                          
+                          // Only update weight if the new exercise requires weight
+                          if (newExercise.requires_weight !== false) {
+                            updatedSet.weight = historySet.weight || '-';
+                          } else {
+                            // For bodyweight exercises, keep weight empty
+                            updatedSet.weight = '';
+                          }
+                          
+                          return updatedSet;
                         }
                         return set;
                       });
@@ -2128,6 +2155,7 @@ export default function WorkoutSessionScreen() {
         availableExercises={exercises}
         onExerciseChange={handleExerciseChange}
       />
+
     </View>
   );
 }

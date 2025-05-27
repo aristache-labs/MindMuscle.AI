@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import OptimizedImage from './OptimizedImage';
+import ChangeExerciseModal from './ChangeExerciseModal';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -26,13 +27,17 @@ interface CustomizeExerciseModalProps {
   onClose: () => void;
   exercise: Exercise | null;
   onSave: (updatedExercise: { sets: number; reps_range: string }) => void;
+  availableExercises?: Exercise[];
+  onExerciseChange?: (newExercise: Exercise) => void;
 }
 
 export default function CustomizeExerciseModal({
   visible,
   onClose,
   exercise,
-  onSave
+  onSave,
+  availableExercises = [],
+  onExerciseChange
 }: CustomizeExerciseModalProps) {
   const insets = useSafeAreaInsets();
   const [sets, setSets] = useState(exercise?.sets || 4);
@@ -46,6 +51,7 @@ export default function CustomizeExerciseModal({
     const range = exercise.reps_range.split('-');
     return parseInt(range[1]) || parseInt(range[0]) || 10;
   });
+  const [showChangeExerciseModal, setShowChangeExerciseModal] = useState(false);
 
   // Reset values when exercise changes
   React.useEffect(() => {
@@ -70,17 +76,53 @@ export default function CustomizeExerciseModal({
 
   const handleSave = () => {
     const reps_range = repsMin === repsMax ? repsMin.toString() : `${repsMin}-${repsMax}`;
-    // console.log('🔧 CustomizeExerciseModal - handleSave called');
-    // console.log('🔧 Exercise being customized:', exercise?.name);
-    // console.log('🔧 Original exercise data:', { 
-    //   sets: exercise?.sets, 
-    //   reps_range: exercise?.reps_range 
-    // });
-    // console.log('🔧 New values being saved:', { sets, reps_range });
-    // console.log('🔧 Calling onSave with:', { sets, reps_range });
-    
     onSave({ sets, reps_range });
     onClose();
+  };
+
+  const handleChangeExercise = () => {
+    setShowChangeExerciseModal(true);
+  };
+
+  const handleExerciseSelect = (selectedExercise: any) => {
+    console.log('CustomizeExerciseModal: Received exercise selection:', selectedExercise);
+    
+    if (onExerciseChange) {
+      try {
+        // Convert ExerciseAlternative to Exercise format
+        const newExercise: Exercise = {
+          id: selectedExercise.id,
+          exercise_id: selectedExercise.exercise_id || selectedExercise.id, // Use exercise_id if available, fallback to id
+          name: selectedExercise.name,
+          sets: selectedExercise.sets,
+          reps_range: selectedExercise.reps_range,
+          image_url: selectedExercise.image_url,
+          primary_muscles: selectedExercise.primary_muscles,
+          order: selectedExercise.order,
+          workout_day: selectedExercise.workout_day,
+          requires_weight: selectedExercise.requires_weight,
+        };
+        
+        console.log('CustomizeExerciseModal: Calling onExerciseChange with:', newExercise);
+        onExerciseChange(newExercise);
+        
+        // Close modals after successful exercise change
+        setTimeout(() => {
+          setShowChangeExerciseModal(false);
+          onClose();
+        }, 100); // Small delay to ensure state updates complete
+        
+      } catch (error) {
+        console.error('Error in handleExerciseSelect:', error);
+        // Still close modals even if there's an error
+        setShowChangeExerciseModal(false);
+        onClose();
+      }
+    } else {
+      // Close modals if no onExerciseChange callback
+      setShowChangeExerciseModal(false);
+      onClose();
+    }
   };
 
   const adjustSets = (increment: boolean) => {
@@ -209,6 +251,15 @@ export default function CustomizeExerciseModal({
                   )}
                 </View>
                 
+                {/* Change Exercise Button */}
+                {availableExercises.length > 0 && onExerciseChange && (
+                  <TouchableOpacity 
+                    style={styles.changeExerciseButton}
+                    onPress={handleChangeExercise}
+                  >
+                    <Ionicons name="swap-horizontal" size={20} color={COLORS.text} />
+                  </TouchableOpacity>
+                )}
 
               </View>
             </View>
@@ -271,6 +322,15 @@ export default function CustomizeExerciseModal({
           </LinearGradient>
         </View>
       </View>
+      
+      {/* Change Exercise Modal */}
+      <ChangeExerciseModal
+        visible={showChangeExerciseModal}
+        onClose={() => setShowChangeExerciseModal(false)}
+        currentExercise={exercise}
+        availableExercises={availableExercises}
+        onExerciseSelect={handleExerciseSelect}
+      />
     </Modal>
   );
 }
@@ -386,6 +446,15 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 14,
     opacity: 0.7,
+  },
+  changeExerciseButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: SPACING.md,
   },
   controlsSection: {
     flex: 1,

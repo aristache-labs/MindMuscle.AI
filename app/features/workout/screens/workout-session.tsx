@@ -963,6 +963,145 @@ export default function WorkoutSessionScreen() {
     setShowCustomizeExerciseModal(false);
   };
 
+  const handleExerciseChange = (newExercise: any) => {
+    try {
+      console.log('WorkoutSession: handleExerciseChange called with:', newExercise);
+      console.log('WorkoutSession: Current exercise index:', currentExerciseIndex);
+      console.log('WorkoutSession: Current exercises array length:', exercises.length);
+      
+      // Get the current exercise before any state updates
+      const currentExercise = exercises[currentExerciseIndex];
+      if (!currentExercise) {
+        console.error('No current exercise found at index:', currentExerciseIndex);
+        console.error('Available exercises:', exercises.map(ex => ({ id: ex.id, name: ex.name })));
+        return;
+      }
+
+      console.log('WorkoutSession: Current exercise:', currentExercise);
+
+      // Clear focused inputs first to ensure TextInputs lose focus
+      setFocusedInputs({});
+
+      // Force TextInput re-render immediately to clear any cached states
+      setTextInputRefreshKey(prev => prev + 1);
+
+      // Clear user entered values for this exercise using the captured currentExercise
+      setUserEnteredValues(prev => {
+        const updated = { ...prev };
+        // Clear all input flags for this exercise
+        Object.keys(updated).forEach(key => {
+          if (key.startsWith(currentExercise.id)) {
+            delete updated[key];
+          }
+        });
+        return updated;
+      });
+
+      // Clear customization flags for this exercise using the captured currentExercise
+      setExerciseCustomized(prev => {
+        const updated = { ...prev };
+        delete updated[currentExercise.id];
+        return updated;
+      });
+
+      // Clear last exercise values for the old exercise to prevent confusion
+      setLastExerciseValues(prev => {
+        const updated = { ...prev };
+        delete updated[currentExercise.exercise_id];
+        return updated;
+      });
+
+      // Reset the exercise sets for the new exercise using the captured currentExercise
+      // Use setTimeout to ensure the above state clears happen first
+      setTimeout(() => {
+        setExerciseSets(prev => {
+          const newSets = Array.from({ length: newExercise.sets }, (_, index) => ({
+            id: `${currentExercise.id}-set-${index + 1}`,
+            setNumber: index + 1,
+            weight: '', // Ensure empty string for weight
+            reps: '', // Start with empty string, not the range
+            isCompleted: false
+          }));
+
+          console.log('WorkoutSession: Created new sets:', newSets);
+
+          return {
+            ...prev,
+            [currentExercise.id]: newSets
+          };
+        });
+
+        // Update the current exercise in the exercises array after sets are cleared
+        setExercises(prev => prev.map((exercise, index) => {
+          if (index === currentExerciseIndex) {
+            return {
+              ...exercise, // Keep original exercise structure
+              exercise_id: newExercise.exercise_id || newExercise.id, // Use exercise_id if available, fallback to id
+              name: newExercise.name,
+              sets: newExercise.sets,
+              reps_range: newExercise.reps_range,
+              image_url: newExercise.image_url,
+              primary_muscles: newExercise.primary_muscles,
+              requires_weight: newExercise.requires_weight,
+              // Keep original workout-specific properties
+              id: exercise.id,
+              order: exercise.order,
+              workout_day: exercise.workout_day,
+            };
+          }
+          return exercise;
+        }));
+
+                 // Force another TextInput re-render after all updates
+         setTextInputRefreshKey(prev => prev + 1);
+
+         // Fetch last exercise values for the new exercise
+         if (user) {
+           setTimeout(async () => {
+             try {
+               const lastValues = await workoutPlanService.fetchLastExerciseRecords(user.id, [{
+                 ...currentExercise,
+                 exercise_id: newExercise.exercise_id || newExercise.id,
+                 name: newExercise.name,
+                 sets: newExercise.sets,
+                 reps_range: newExercise.reps_range,
+                 primary_muscles: newExercise.primary_muscles,
+                 requires_weight: newExercise.requires_weight
+               }]);
+               
+               if (Object.keys(lastValues).length > 0) {
+                 setLastExerciseValues(prev => ({
+                   ...prev,
+                   ...lastValues
+                 }));
+               } else {
+                 // Clear any existing last values for this exercise_id
+                 setLastExerciseValues(prev => {
+                   const updated = { ...prev };
+                   delete updated[newExercise.exercise_id || newExercise.id];
+                   return updated;
+                 });
+               }
+             } catch (error) {
+               console.error('Error fetching last exercise values for new exercise:', error);
+               // Clear any existing last values for this exercise_id
+               setLastExerciseValues(prev => {
+                 const updated = { ...prev };
+                 delete updated[newExercise.exercise_id || newExercise.id];
+                 return updated;
+               });
+             }
+           }, 100);
+         }
+       }, 50); // Small delay to ensure state updates are processed
+      
+      console.log('WorkoutSession: Exercise change completed successfully');
+    } catch (error) {
+      console.error('WorkoutSession: Error in handleExerciseChange:', error);
+      console.error('WorkoutSession: Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+    }
+  };
+
   const handleCustomizeExerciseSave = (updatedExercise: { sets: number; reps_range: string }) => {
     // Get the exercise that's currently being customized
     const exerciseToUpdate = exercises[currentExerciseIndex];
@@ -1708,6 +1847,8 @@ export default function WorkoutSessionScreen() {
         onClose={handleCustomizeExerciseModalClose}
         exercise={exercises[currentExerciseIndex]}
         onSave={handleCustomizeExerciseSave}
+        availableExercises={exercises}
+        onExerciseChange={handleExerciseChange}
       />
     </View>
   );

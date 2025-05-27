@@ -72,7 +72,7 @@ export default function WorkoutExerciseSetRow({
       return '';
     }
     return currentRecommendation?.recommended_weight?.toString() || 
-           getSuggestedValue(exercise.exercise_id, setIndex + 1, 'weight') || '-';
+           getSuggestedValue(exercise.exercise_id, setIndex + 1, 'weight') || '--';
   };
 
   // Helper function to get placeholder text for reps input
@@ -88,7 +88,7 @@ export default function WorkoutExerciseSetRow({
     
     return recommendedReps || 
            (isCustomized ? exerciseRepsRange : lastReps) || 
-           (isCustomized ? lastReps : exerciseRepsRange) || '-';
+           (isCustomized ? lastReps : exerciseRepsRange) || '--';
   };
 
   // Render active set card
@@ -116,6 +116,7 @@ export default function WorkoutExerciseSetRow({
                           )}
                           <View style={styles.inputFieldContainer}>
                             <TextInput
+                              key={`${exercise.exercise_id}-${exercise.id}-${setIndex}-weight-${exercise.requires_weight}-${textInputRefreshKey}`}
                               style={styles.inputField}
                               value={set.weight}
                               onChangeText={(value) => onWeightChange(exercise.id, setIndex, value)}
@@ -144,7 +145,7 @@ export default function WorkoutExerciseSetRow({
                       )}
                       <View style={styles.inputFieldContainer}>
                         <TextInput
-                          key={`${exercise.id}-${setIndex}-reps-${exercise.reps_range}-${exerciseCustomized[exercise.id] ? 'customized' : 'default'}-${textInputRefreshKey}`}
+                          key={`${exercise.exercise_id}-${exercise.id}-${setIndex}-reps-${exercise.reps_range}-${exerciseCustomized[exercise.id] ? 'customized' : 'default'}-${textInputRefreshKey}`}
                           style={styles.inputField}
                           value={set.reps}
                           onChangeText={(value) => onRepsChange(exercise.id, setIndex, value)}
@@ -249,6 +250,7 @@ export default function WorkoutExerciseSetRow({
                     )}
                     <View style={styles.inputFieldContainer}>
                       <TextInput
+                        key={`${exercise.exercise_id}-${exercise.id}-${setIndex}-weight-${exercise.requires_weight}-${textInputRefreshKey}`}
                         style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
                         value={set.weight}
                         onChangeText={(value) => onWeightChange(exercise.id, setIndex, value)}
@@ -277,7 +279,7 @@ export default function WorkoutExerciseSetRow({
                 )}
                 <View style={styles.inputFieldContainer}>
                   <TextInput
-                    key={`${exercise.id}-${setIndex}-reps-${exercise.reps_range}-${exerciseCustomized[exercise.id] ? 'customized' : 'default'}-${textInputRefreshKey}`}
+                    key={`${exercise.exercise_id}-${exercise.id}-${setIndex}-reps-${exercise.reps_range}-${exerciseCustomized[exercise.id] ? 'customized' : 'default'}-${textInputRefreshKey}`}
                     style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
                     value={set.reps}
                     onChangeText={(value) => onRepsChange(exercise.id, setIndex, value)}

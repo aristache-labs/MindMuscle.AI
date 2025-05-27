@@ -125,6 +125,9 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
   // Add loading state for date selection to prevent flash
   const [isDateSelectionLoading, setIsDateSelectionLoading] = useState(false);
 
+  // Add state to track when customizations have been applied to prevent override
+  const [hasAppliedCustomizations, setHasAppliedCustomizations] = useState(false);
+
   // Exercise Details Modal state
   const [exerciseDetailsModalVisible, setExerciseDetailsModalVisible] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState<{
@@ -228,6 +231,8 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     
     // Determine the exercise state if there's a paused workout
     let exerciseState = 'normal'; // 'completed', 'ongoing', 'normal'
+    let displaySets = item.sets;
+    let displayRepsRange = item.reps_range;
     
     if (hasPausedWorkout && pausedWorkout && pausedWorkout.exercises) {
       const pausedExerciseIndex = pausedWorkout.exercises.findIndex(
@@ -235,9 +240,14 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       );
       
       if (pausedExerciseIndex !== -1) {
+        const pausedExercise = pausedWorkout.exercises[pausedExerciseIndex];
         const isCurrentExercise = pausedExerciseIndex === pausedWorkout.currentExerciseIndex;
-        const exerciseSets = pausedWorkout.exerciseSets[pausedWorkout.exercises[pausedExerciseIndex].id] || [];
+        const exerciseSets = pausedWorkout.exerciseSets[pausedExercise.id] || [];
         const isCompleted = exerciseSets.length > 0 && exerciseSets.every((set: any) => set.isCompleted);
+        
+        // Use customized values from paused workout if available
+        displaySets = pausedExercise.sets || item.sets;
+        displayRepsRange = pausedExercise.reps_range || item.reps_range;
         
         if (isCompleted) {
           exerciseState = 'completed';
@@ -282,7 +292,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
                 styles.exerciseSets,
                 (exerciseState === 'completed' || exerciseState === 'ongoing') && styles.exerciseTextGreyed
               ]}>
-                {item.sets} sets × {item.reps_range} reps
+                {displaySets} sets × {displayRepsRange} reps
               </Text>
             </View>
           </View>
@@ -515,6 +525,31 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     }
     
     try {
+      // Update paused workout with any exercise customizations
+      const updatedPausedWorkout = await updatePausedWorkoutWithCustomizations(pausedWorkout);
+      setHasAppliedCustomizations(true);
+      
+      // Save the updated paused workout back to the database
+      if (updatedPausedWorkout !== pausedWorkout) {
+        await workoutPlanService.savePausedWorkout(
+          user.id,
+          plan.id,
+          updatedPausedWorkout.workoutDay,
+          updatedPausedWorkout.cycleWeek,
+          updatedPausedWorkout.weekName,
+          updatedPausedWorkout.exercises,
+          updatedPausedWorkout.exerciseSets,
+          updatedPausedWorkout.workoutDuration,
+          updatedPausedWorkout.totalVolume,
+          updatedPausedWorkout.totalReps,
+          updatedPausedWorkout.currentExerciseIndex,
+          updatedPausedWorkout.originalCycleWeek
+        );
+        
+        // Update local state
+        setPausedWorkout(updatedPausedWorkout);
+      }
+      
       // Get the cycle week from the selected date instead of database stored week
       const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
       const markedDatesObj = workoutPlanService.setupCalendarDatesProgressive(
@@ -533,7 +568,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         pathname: '/(stack)/workout-session',
         params: { 
           planId: plan.id,
-          workoutDay: pausedWorkout.workoutDay || activeDay, // Use the day from the paused workout data
+          workoutDay: updatedPausedWorkout.workoutDay || activeDay, // Use the day from the paused workout data
           cycleWeek: selectedCycleWeek,
           weekName: selectedWeekName,
           forceResume: 'true' // Add a flag to force resume
@@ -636,7 +671,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
                           
                           // Set up the pausedWorkout state with the retrieved data
                           const pausedWorkoutData = data[0];
-                          const formattedPausedWorkout = {
+                          let formattedPausedWorkout = {
                             userId: pausedWorkoutData.user_id,
                             planId: pausedWorkoutData.plan_id,
                             workoutDay: pausedWorkoutData.workout_day,
@@ -651,6 +686,29 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
                             originalCycleWeek: pausedWorkoutData.original_cycle_week,
                             pausedAt: pausedWorkoutData.paused_at
                           };
+                          
+                          // Update paused workout with any exercise customizations
+                          formattedPausedWorkout = await updatePausedWorkoutWithCustomizations(formattedPausedWorkout);
+                          setHasAppliedCustomizations(true);
+                          
+                          // Save the updated paused workout back to the database if changes were made
+                          if (JSON.stringify(formattedPausedWorkout.exercises) !== JSON.stringify(pausedWorkoutData.exercises) ||
+                              JSON.stringify(formattedPausedWorkout.exerciseSets) !== JSON.stringify(pausedWorkoutData.exercise_sets)) {
+                            await workoutPlanService.savePausedWorkout(
+                              user.id,
+                              plan.id,
+                              formattedPausedWorkout.workoutDay,
+                              formattedPausedWorkout.cycleWeek,
+                              formattedPausedWorkout.weekName,
+                              formattedPausedWorkout.exercises,
+                              formattedPausedWorkout.exerciseSets,
+                              formattedPausedWorkout.workoutDuration,
+                              formattedPausedWorkout.totalVolume,
+                              formattedPausedWorkout.totalReps,
+                              formattedPausedWorkout.currentExerciseIndex,
+                              formattedPausedWorkout.originalCycleWeek
+                            );
+                          }
                           
                           // Temporarily update the state to enable resuming
                           setPausedWorkout(formattedPausedWorkout);
@@ -674,7 +732,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
                             pathname: '/(stack)/workout-session',
                             params: { 
                               planId: plan.id,
-                              workoutDay: pausedWorkoutData.workout_day,
+                              workoutDay: formattedPausedWorkout.workoutDay,
                               cycleWeek: selectedCycleWeek,
                               weekName: selectedWeekName,
                               forceResume: 'true'
@@ -768,6 +826,79 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         </View>
       </Modal>
     );
+  };
+
+  // Function to update paused workout with current exercise customizations
+  const updatePausedWorkoutWithCustomizations = async (pausedWorkoutData: any) => {
+    if (!pausedWorkoutData || !pausedWorkoutData.exercises || !user || !plan) {
+      return pausedWorkoutData;
+    }
+
+    try {
+      // Fetch the current workout data to get any customizations
+      const { exercises: currentExercises } = await workoutPlanService.fetchWorkoutData(
+        plan.id, 
+        pausedWorkoutData.workoutDay, 
+        user.id, 
+        pausedWorkoutData.cycleWeek
+      );
+
+      // Update the paused workout exercises with current customizations
+      const updatedExercises = pausedWorkoutData.exercises.map((pausedExercise: any) => {
+        const currentExercise = currentExercises.find((ex: any) => 
+          ex.exercise_id === pausedExercise.exercise_id || ex.id === pausedExercise.id
+        );
+        
+        if (currentExercise) {
+          // Update with current sets and reps_range
+          return {
+            ...pausedExercise,
+            sets: currentExercise.sets,
+            reps_range: currentExercise.reps_range
+          };
+        }
+        
+        return pausedExercise;
+      });
+
+      // Update exercise sets to match new set counts
+      const updatedExerciseSets = { ...pausedWorkoutData.exerciseSets };
+      
+      updatedExercises.forEach((exercise: any) => {
+        const currentSets = updatedExerciseSets[exercise.id] || [];
+        const newSetsCount = exercise.sets;
+        
+        if (currentSets.length !== newSetsCount) {
+          if (currentSets.length < newSetsCount) {
+            // Add new sets
+            const newSets = [...currentSets];
+            for (let i = currentSets.length; i < newSetsCount; i++) {
+              newSets.push({
+                id: `${exercise.id}-set-${i + 1}`,
+                setNumber: i + 1,
+                weight: '',
+                reps: exercise.reps_range || '',
+                isCompleted: false
+              });
+            }
+            updatedExerciseSets[exercise.id] = newSets;
+          } else {
+            // Remove excess sets (keep only completed ones if they fit)
+            const trimmedSets = currentSets.slice(0, newSetsCount);
+            updatedExerciseSets[exercise.id] = trimmedSets;
+          }
+        }
+      });
+
+      return {
+        ...pausedWorkoutData,
+        exercises: updatedExercises,
+        exerciseSets: updatedExerciseSets
+      };
+    } catch (error) {
+      console.error('Error updating paused workout with customizations:', error);
+      return pausedWorkoutData;
+    }
   };
 
   // Add the Function to restart a completed workout
@@ -1546,37 +1677,45 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
             // Check for paused workout for this specific day
             const hasPaused = await checkForPausedWorkout(activeDay);
             if (hasPaused) {
-              // Fetch the paused workout data
-              const { data } = await supabase
-                .from('user_paused_workouts')
-                .select('*')
-                .eq('user_id', user.id)
-                .eq('plan_id', plan.id)
-                .eq('workout_day', activeDay)
-                .limit(1);
-              
-              if (data && data.length > 0) {
-                const formattedPausedWorkout = {
-                  userId: data[0].user_id,
-                  planId: data[0].plan_id,
-                  workoutDay: data[0].workout_day,
-                  cycleWeek: data[0].cycle_week,
-                  weekName: data[0].week_name,
-                  exercises: data[0].exercises,
-                  exerciseSets: data[0].exercise_sets,
-                  workoutDuration: data[0].workout_duration,
-                  totalVolume: data[0].total_volume,
-                  totalReps: data[0].total_reps,
-                  currentExerciseIndex: data[0].current_exercise_index,
-                  originalCycleWeek: data[0].original_cycle_week,
-                  pausedAt: data[0].paused_at
-                };
+              // Only update paused workout if we don't already have one with customizations
+              // This prevents overriding customized data that was just applied
+              if ((!pausedWorkout || !hasPausedWorkout) && !hasAppliedCustomizations) {
+                // Fetch the paused workout data
+                const { data } = await supabase
+                  .from('user_paused_workouts')
+                  .select('*')
+                  .eq('user_id', user.id)
+                  .eq('plan_id', plan.id)
+                  .eq('workout_day', activeDay)
+                  .limit(1);
                 
-                setPausedWorkout(formattedPausedWorkout);
-                setHasPausedWorkout(true);
-              } else {
-                setHasPausedWorkout(false);
-                setPausedWorkout(null);
+                if (data && data.length > 0) {
+                  let formattedPausedWorkout = {
+                    userId: data[0].user_id,
+                    planId: data[0].plan_id,
+                    workoutDay: data[0].workout_day,
+                    cycleWeek: data[0].cycle_week,
+                    weekName: data[0].week_name,
+                    exercises: data[0].exercises,
+                    exerciseSets: data[0].exercise_sets,
+                    workoutDuration: data[0].workout_duration,
+                    totalVolume: data[0].total_volume,
+                    totalReps: data[0].total_reps,
+                    currentExerciseIndex: data[0].current_exercise_index,
+                    originalCycleWeek: data[0].original_cycle_week,
+                    pausedAt: data[0].paused_at
+                  };
+                  
+                  // Update paused workout with any exercise customizations
+                  formattedPausedWorkout = await updatePausedWorkoutWithCustomizations(formattedPausedWorkout);
+                  
+                  setPausedWorkout(formattedPausedWorkout);
+                  setHasPausedWorkout(true);
+                  setHasAppliedCustomizations(true);
+                } else {
+                  setHasPausedWorkout(false);
+                  setPausedWorkout(null);
+                }
               }
             } else {
               setHasPausedWorkout(false);
@@ -1593,7 +1732,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     if (plan?.id && user?.id && userWorkoutDays.length > 0) {
       updateCalendarData();
     }
-  }, [plan?.id, user?.id, userWorkoutDays.length, activeDay, selectedDate, isManualDateSelection]); // Added isManualDateSelection to dependencies
+  }, [plan?.id, user?.id, userWorkoutDays.length, activeDay, selectedDate, isManualDateSelection, hasAppliedCustomizations]); // Added isManualDateSelection and hasAppliedCustomizations to dependencies
   
   // Clear paused workout state when workout is completed or conditions are not met
   useEffect(() => {
@@ -1602,6 +1741,11 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       setPausedWorkout(null);
     }
   }, [activeDay, isWorkoutCompleted, user?.id, plan?.id]);
+
+  // Reset customizations flag when active day changes
+  useEffect(() => {
+    setHasAppliedCustomizations(false);
+  }, [activeDay]);
 
   if (isLoading) {
     return (

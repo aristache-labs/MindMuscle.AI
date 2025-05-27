@@ -1564,171 +1564,146 @@ export default function WorkoutSessionScreen() {
     const currentExercise = exercises.find(ex => ex.id === exerciseId);
     const requiresWeight = currentExercise?.requires_weight !== false; // Default to true if not specified
     
-    // First, fill in any empty values with 0
-    setExerciseSets(prev => {
-      const updatedSets = { ...prev };
-      const setsForExercise = [...updatedSets[exerciseId]];
+    // Find all incomplete sets
+    const incompleteSets = sets.filter(set => !set.isCompleted);
+    
+    if (incompleteSets.length === 0) {
+      // All sets are already completed
+      Alert.alert(
+        'Sets Completed',
+        'All sets for this exercise are already logged.',
+        [{ text: 'OK' }]
+      );
+      // Move to next exercise since all sets are already completed
+      moveToNextExercise();
+      return;
+    }
+    
+    // Calculate total volume and reps that will be added
+    let totalVolumeToAdd = 0;
+    let totalRepsToAdd = 0;
+    
+    // Prepare the updated sets with resolved values
+    const updatedSetsData = sets.map((set, index) => {
+      if (set.isCompleted) {
+        return set; // Keep completed sets as they are
+      }
       
-      // Update any incomplete sets with empty values
-      setsForExercise.forEach((set, index) => {
-        if (!set.isCompleted) {
-          // Fill empty weight with placeholder value or fallback
-          if (requiresWeight && (set.weight === '' || set.weight === '-')) {
-                         // Use recommended weight from database if available, otherwise fall back to suggested value or "0"
-             const weightValue = currentRecommendation?.recommended_weight?.toString() || 
-               getSuggestedValue(currentExercise?.exercise_id || '', index + 1, 'weight') || "0";
-            setsForExercise[index] = {
-              ...set,
-              weight: weightValue
-            };
-          }
+      // Resolve weight value
+      let weightValue = set.weight;
+      if (requiresWeight && (weightValue === '' || weightValue === '-')) {
+        // Use recommended weight from database if available, otherwise fall back to suggested value or "0"
+        weightValue = currentRecommendation?.recommended_weight?.toString() || 
+          getSuggestedValue(currentExercise?.exercise_id || '', index + 1, 'weight') || "0";
+      }
+      
+      // Resolve reps value
+      let repsValue = set.reps;
+      const repsContainsRange = repsValue && typeof repsValue === 'string' && repsValue.includes('-');
+      
+      if (repsValue === '' || repsValue === '-' || repsContainsRange) {
+        if (repsContainsRange) {
+          // If it's a range, use the highest value from that range
+          const rangeParts = repsValue.split('-');
+          repsValue = (parseInt(rangeParts[1]) || parseInt(rangeParts[0]) || 0).toString();
+        } else {
+          // Priority: 1. Recommended reps from database, 2. Last workout values (if not customized), 3. Exercise reps range (if customized)
+          const recommendedReps = currentRecommendation?.recommended_reps?.toString();
+          const lastReps = lastExerciseValues[currentExercise?.exercise_id || '']?.[index + 1]?.reps;
+          const exerciseRepsRange = currentExercise?.reps_range;
+          const isCustomized = exerciseCustomized[currentExercise?.id || ''];
           
-          // Fill empty reps or reps with range format with placeholder value or fallback
-          const repsContainsRange = set.reps && typeof set.reps === 'string' && set.reps.includes('-');
-          if (set.reps === '' || set.reps === '-' || repsContainsRange) {
-            let repsValue = '0';
-            if (repsContainsRange) {
-              // If it's a range, use the highest value from that range
-              const rangeParts = set.reps.split('-');
-              repsValue = (parseInt(rangeParts[1]) || parseInt(rangeParts[0]) || 0).toString();
-            } else {
-              // Priority: 1. Recommended reps from database, 2. Last workout values (if not customized), 3. Exercise reps range (if customized)
-              const recommendedReps = currentRecommendation?.recommended_reps?.toString();
-              const lastReps = lastExerciseValues[currentExercise?.exercise_id || '']?.[index + 1]?.reps;
-              const exerciseRepsRange = currentExercise?.reps_range;
-              const isCustomized = exerciseCustomized[currentExercise?.id || ''];
-              
-              // If exercise was customized, prioritize the reps_range over last values
-              repsValue = recommendedReps || 
-                (isCustomized ? exerciseRepsRange : lastReps) || 
-                (isCustomized ? lastReps : exerciseRepsRange) || "1";
-              
-              // If it's still a range after getting the value, extract the highest number
-              if (repsValue && typeof repsValue === 'string' && repsValue.includes('-')) {
-                const rangeParts = repsValue.split('-');
-                repsValue = (parseInt(rangeParts[1]) || parseInt(rangeParts[0]) || 1).toString();
-              }
-            }
-            setsForExercise[index] = {
-              ...set,
-              reps: repsValue
-            };
+          // If exercise was customized, prioritize the reps_range over last values
+          repsValue = recommendedReps || 
+            (isCustomized ? exerciseRepsRange : lastReps) || 
+            (isCustomized ? lastReps : exerciseRepsRange) || "1";
+          
+          // If it's still a range after getting the value, extract the highest number
+          if (repsValue && typeof repsValue === 'string' && repsValue.includes('-')) {
+            const rangeParts = repsValue.split('-');
+            repsValue = (parseInt(rangeParts[1]) || parseInt(rangeParts[0]) || 1).toString();
           }
         }
-      });
+      }
       
-      updatedSets[exerciseId] = setsForExercise;
-      return updatedSets;
+      // Calculate volume and reps for this set
+      const weight = requiresWeight ? (parseFloat(weightValue) || 0) : 0;
+      const reps = parseInt(repsValue) || 0;
+      const setVolume = requiresWeight ? parseFloat((weight * reps).toFixed(1)) : 0;
+      
+      // Add to totals
+      if (requiresWeight) {
+        totalVolumeToAdd += setVolume;
+      }
+      totalRepsToAdd += reps;
+      
+      return {
+        ...set,
+        weight: weightValue,
+        reps: repsValue,
+        isCompleted: true
+      };
     });
     
-    // Use setTimeout to ensure state update completes before marking sets as complete
-    setTimeout(() => {
-      // Get the updated sets after filling in zeros
-      const updatedSets = exerciseSets[exerciseId];
-      if (!updatedSets) return;
+    // Update all sets at once and update totals atomically
+    setExerciseSets(prev => ({
+      ...prev,
+      [exerciseId]: updatedSetsData
+    }));
+    
+    // Update totals atomically
+    if (requiresWeight) {
+      setTotalVolume(prev => parseFloat((prev + totalVolumeToAdd).toFixed(1)));
+    }
+    setTotalReps(prev => prev + totalRepsToAdd);
+    
+    // Start rest timer
+    if (currentExercise && currentExercise.restTime) {
+      startRestTimer(currentExercise.restTime);
+    } else {
+      startRestTimer(60);
+    }
+    
+    // Check if this was the last exercise
+    if (currentExerciseIndex === exercises.length - 1) {
+      // Check if all exercises have all their sets completed after this update
+      const allExercisesCompleted = exercises.every(ex => {
+        // For the current exercise, we know all sets are now completed
+        if (ex.id === exerciseId) return true;
+        
+        // For other exercises, check their sets
+        const exSets = exerciseSets[ex.id] || [];
+        return exSets.length > 0 && exSets.every(s => s.isCompleted);
+      });
       
-      // Find all incomplete sets (they now all have values)
-      const incompleteSets = updatedSets.filter(set => !set.isCompleted);
-      
-      if (incompleteSets.length > 0) {
-        // Mark each set as completed one by one to ensure proper volume calculation
-        incompleteSets.forEach((set, idx) => {
-          const setIndex = updatedSets.findIndex(s => s.id === set.id);
-          if (setIndex !== -1) {
-            // For all sets except the last one, use normal handleSetComplete
-            if (idx < incompleteSets.length - 1) {
-              handleSetComplete(exerciseId, setIndex);
-            } else {
-              // For the last set, directly mark it as completed and then move to next exercise
-              setExerciseSets(prev => {
-                const finalUpdatedSets = [...prev[exerciseId]];
-                finalUpdatedSets[setIndex] = {
-                  ...finalUpdatedSets[setIndex],
-                  isCompleted: true
-                };
-                return { ...prev, [exerciseId]: finalUpdatedSets };
-              });
-              
-              // Update volume and reps for the last set
-              const lastSet = updatedSets[setIndex];
-              const weight = requiresWeight ? (lastSet.weight === '-' || lastSet.weight === '' ? 0 : parseFloat(lastSet.weight)) : 0;
-              let reps = lastSet.reps === '-' || lastSet.reps === '' ? 0 : parseFloat(lastSet.reps);
-              
-              // Check if reps field contains a range format and use max value if so
-              const repsContainsRange = lastSet.reps && typeof lastSet.reps === 'string' && lastSet.reps.includes('-');
-              const userEnteredRepsKey = `${exerciseId}-${setIndex}-reps`;
-              const isUserEnteredValue = userEnteredValues[userEnteredRepsKey];
-              
-              if (repsContainsRange) {
-                // If it's a range, always use the highest value
-                const rangeParts = lastSet.reps.split('-');
-                reps = parseInt(rangeParts[1]) || parseInt(rangeParts[0]) || 0;
-              } else if (isNaN(reps) || !isUserEnteredValue) {
-                if (currentExercise?.reps_range) {
-                  reps = getHighestRepsFromRange(currentExercise.reps_range);
-                }
-              }
-              
-              const setVolume = requiresWeight ? parseFloat((weight * reps).toFixed(1)) : 0;
-              
-              if (requiresWeight) {
-                setTotalVolume(prev => parseFloat((prev + setVolume).toFixed(1)));
-              }
-              setTotalReps(prev => prev + reps);
-              
-              // Start rest timer
-              const exercise = exercises.find(ex => ex.id === exerciseId);
-              if (exercise && exercise.restTime) {
-                startRestTimer(exercise.restTime);
-              } else {
-                startRestTimer(60);
-              }
-              
-              // Check if this was the last exercise
-              if (currentExerciseIndex === exercises.length - 1) {
-                // Check if all exercises have all their sets completed after this update
-                setTimeout(() => {
-                  const allExercisesCompleted = exercises.every(ex => {
-                    // For the current exercise, we know all sets are now completed
-                    if (ex.id === exerciseId) return true;
-                    
-                    // For other exercises, check their sets
-                    const exSets = exerciseSets[ex.id] || [];
-                    return exSets.length > 0 && exSets.every(s => s.isCompleted);
-                  });
-                  
-                  if (allExercisesCompleted) {
-                    // All exercises are completed, save workout data
-                    // Use the current UI state values which should be accurate after the timeout
-                    const currentTotalVolume = totalVolume;
-                    const currentTotalReps = totalReps;
-                    
-                    completeWorkout(currentTotalVolume, currentTotalReps);
-                  } else {
-                    // Not all exercises are completed, just move to next exercise
-                    moveToNextExercise();
-                  }
-                }, 500);
-              } else {
-                // Not the last exercise, just move to next
-                setTimeout(() => {
-                  moveToNextExercise();
-                }, 500);
-              }
-            }
-          }
-        });
+      if (allExercisesCompleted) {
+        // All exercises are completed, save workout data immediately with calculated values
+        // Calculate final totals including the sets we just completed
+        const finalVolume = totalVolume + totalVolumeToAdd;
+        const finalReps = totalReps + totalRepsToAdd;
+        
+        // Create the final exercise sets state including our updates
+        const finalExerciseSets = {
+          ...exerciseSets,
+          [exerciseId]: updatedSetsData
+        };
+        
+        // Use the state sync version to ensure data is saved properly
+        setTimeout(() => {
+          completeWorkoutWithStateSync(finalVolume, finalReps, finalExerciseSets);
+        }, 100);
       } else {
-        // All sets are already completed
-        Alert.alert(
-          'Sets Completed',
-          'All sets for this exercise are already logged.',
-          [{ text: 'OK' }]
-        );
-        // Move to next exercise since all sets are already completed
-        moveToNextExercise();
+        // Not all exercises are completed, just move to next exercise
+        setTimeout(() => {
+          moveToNextExercise();
+        }, 100);
       }
-    }, 100); // Small delay to ensure state update completes
+    } else {
+      // Not the last exercise, just move to next
+      setTimeout(() => {
+        moveToNextExercise();
+      }, 100);
+    }
   };
 
   const handleWeightChange = (exerciseId: string, setIndex: number, value: string) => {

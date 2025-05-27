@@ -212,7 +212,89 @@ export default function WorkoutSessionScreen() {
     setActiveInputPosition(0);
   };
 
-  // Function to auto-fill the next set with specific values
+  // Function to auto-fill the next incomplete set with specific values
+  const autoFillNextIncompleteSetWithValues = (exerciseId: string, currentSetIndex: number, weightValue: string, repsValue: string) => {
+    setExerciseSets(prev => {
+      const currentSets = prev[exerciseId];
+      if (!currentSets) return prev;
+      
+      // Find the next incomplete set (not just the immediate next set)
+      const nextIncompleteSetIndex = currentSets.findIndex((set, index) => 
+        index > currentSetIndex && !set.isCompleted
+      );
+      
+      // If no incomplete set found, try to find ANY incomplete set (for redo scenarios)
+      const anyIncompleteSetIndex = nextIncompleteSetIndex !== -1 ? 
+        nextIncompleteSetIndex : 
+        currentSets.findIndex(set => !set.isCompleted);
+      
+      if (anyIncompleteSetIndex === -1) {
+        return prev;
+      }
+      
+      const currentSet = currentSets[currentSetIndex];
+      const targetSet = currentSets[anyIncompleteSetIndex];
+      const currentExercise = exercises.find(ex => ex.id === exerciseId);
+      
+      if (!currentExercise) return prev;
+      
+      // Use the actual current values from the state (in case they were modified during redo)
+      const actualWeight = currentSet.weight || weightValue;
+      const actualReps = currentSet.reps || repsValue;
+      
+      // Check if current set has valid values
+      const hasValidWeight = currentExercise.requires_weight !== false && actualWeight !== '' && actualWeight !== '-';
+      const hasValidReps = actualReps !== '' && actualReps !== '-';
+      
+      // Auto-fill if current set has values
+      if ((hasValidWeight || currentExercise.requires_weight === false) && hasValidReps) {
+        const isCustomized = exerciseCustomized[exerciseId];
+        
+        // Always fill weight if the current set has valid weight (this ensures redo values are carried forward)
+        const shouldFillWeight = hasValidWeight;
+           
+        // Always fill reps if the current set has valid reps (this ensures redo values are carried forward)
+        const shouldFillReps = hasValidReps;
+        
+        if (shouldFillWeight || shouldFillReps) {
+          const updatedSets = { ...prev };
+          updatedSets[exerciseId] = [...updatedSets[exerciseId]];
+          
+          // Determine what value to use for auto-fill
+          let autoFillWeight = actualWeight;
+          let autoFillReps = actualReps;
+          
+          // For reps: priority order for customized exercises
+          if (shouldFillReps && isCustomized && currentExercise.reps_range) {
+            // Check if the current set had a user-entered value
+            const currentSetInputKey = `${exerciseId}-${currentSetIndex}-reps`;
+            const wasUserEntered = userEnteredValues[currentSetInputKey];
+            
+            if (wasUserEntered) {
+              // 1. User manually entered a value, use it for auto-fill (highest priority)
+              autoFillReps = actualReps;
+            } else {
+              // 2. No manual entry, clear the value so the placeholder (range) shows (medium priority)
+              autoFillReps = '';
+            }
+          }
+          
+
+          
+          updatedSets[exerciseId][anyIncompleteSetIndex] = {
+            ...updatedSets[exerciseId][anyIncompleteSetIndex],
+            weight: shouldFillWeight ? autoFillWeight : targetSet.weight,
+            reps: shouldFillReps ? autoFillReps : targetSet.reps
+          };
+          return updatedSets;
+        }
+      }
+      
+      return prev;
+    });
+  };
+
+  // Function to auto-fill the next set with specific values (legacy function for immediate next set)
   const autoFillNextSetWithValues = (exerciseId: string, currentSetIndex: number, weightValue: string, repsValue: string) => {
     setExerciseSets(prev => {
       // Only auto-fill if there's a next set
@@ -226,6 +308,11 @@ export default function WorkoutSessionScreen() {
       
       if (!currentExercise) return prev;
       
+      // IMPORTANT: Don't auto-fill if the next set is already completed
+      if (nextSet.isCompleted) {
+        return prev;
+      }
+      
       // Use the actual current values from the state (in case they were modified during redo)
       const actualWeight = currentSet.weight || weightValue;
       const actualReps = currentSet.reps || repsValue;
@@ -237,6 +324,7 @@ export default function WorkoutSessionScreen() {
       // Auto-fill if current set has values and next set is either empty or has recommended values
       if ((hasValidWeight || currentExercise.requires_weight === false) && hasValidReps) {
         const recommendation = recommendations[exerciseId];
+        const isCustomized = exerciseCustomized[exerciseId];
         
         // Always fill weight if the current set has valid weight (this ensures redo values are carried forward)
         const shouldFillWeight = hasValidWeight;
@@ -247,10 +335,30 @@ export default function WorkoutSessionScreen() {
         if (shouldFillWeight || shouldFillReps) {
           const updatedSets = { ...prev };
           updatedSets[exerciseId] = [...updatedSets[exerciseId]];
+          
+          // Determine what value to use for auto-fill
+          let autoFillWeight = actualWeight;
+          let autoFillReps = actualReps;
+          
+          // For reps: priority order for customized exercises
+          if (shouldFillReps && isCustomized && currentExercise.reps_range) {
+            // Check if the current set had a user-entered value
+            const currentSetInputKey = `${exerciseId}-${currentSetIndex}-reps`;
+            const wasUserEntered = userEnteredValues[currentSetInputKey];
+            
+            if (wasUserEntered) {
+              // 1. User manually entered a value, use it for auto-fill (highest priority)
+              autoFillReps = actualReps;
+            } else {
+              // 2. No manual entry, clear the value so the placeholder (range) shows (medium priority)
+              autoFillReps = '';
+            }
+          }
+          
           updatedSets[exerciseId][currentSetIndex + 1] = {
             ...updatedSets[exerciseId][currentSetIndex + 1],
-            weight: shouldFillWeight ? actualWeight : nextSet.weight,
-            reps: shouldFillReps ? actualReps : nextSet.reps
+            weight: shouldFillWeight ? autoFillWeight : nextSet.weight,
+            reps: shouldFillReps ? autoFillReps : nextSet.reps
           };
           return updatedSets;
         }
@@ -415,8 +523,6 @@ export default function WorkoutSessionScreen() {
       return;
     }
 
-    console.log('🔄 PRE-FILL WITH SUGGESTED VALUES TRIGGERED');
-
     setExerciseSets(prev => {
       const updatedSets = { ...prev };
       let hasChanges = false;
@@ -431,13 +537,11 @@ export default function WorkoutSessionScreen() {
               if (exercise.requires_weight !== false) {
                 // Use recommended weight from database
                 if (exerciseRecommendation.recommended_weight && (set.weight === '' || set.weight === '-')) {
-                  console.log(`💉 PRE-FILLING WEIGHT for ${exercise.name} set ${index + 1}: ${exerciseRecommendation.recommended_weight}`);
                   updatedSets[exercise.id][index].weight = exerciseRecommendation.recommended_weight.toString();
                   hasChanges = true;
                 }
                 // Use recommended reps from database, fallback to last reps (but not for customized exercises)
                 if (exerciseRecommendation.recommended_reps && (set.reps === '' || set.reps === '-')) {
-                  console.log(`💉 PRE-FILLING REPS (recommended) for ${exercise.name} set ${index + 1}: ${exerciseRecommendation.recommended_reps}`);
                   updatedSets[exercise.id][index].reps = exerciseRecommendation.recommended_reps.toString();
                   hasChanges = true;
                 } else {
@@ -446,18 +550,14 @@ export default function WorkoutSessionScreen() {
                   if (!isCustomized) {
                     const lastReps = lastExerciseValues[exercise.exercise_id]?.[index + 1]?.reps;
                     if (lastReps && lastReps !== '-' && lastReps !== '0' && (set.reps === '' || set.reps === '-')) {
-                      console.log(`💉 PRE-FILLING REPS (last value) for ${exercise.name} set ${index + 1}: ${lastReps}`);
                       updatedSets[exercise.id][index].reps = lastReps;
                       hasChanges = true;
                     }
-                  } else {
-                    console.log(`⏭️ SKIPPING PRE-FILL for customized exercise ${exercise.name} set ${index + 1}`);
                   }
                 }
               } else {
                 // For bodyweight exercises, use recommended reps from database
                 if (exerciseRecommendation.recommended_reps && (set.reps === '' || set.reps === '-')) {
-                  console.log(`💉 PRE-FILLING REPS (bodyweight) for ${exercise.name} set ${index + 1}: ${exerciseRecommendation.recommended_reps}`);
                   updatedSets[exercise.id][index].reps = exerciseRecommendation.recommended_reps.toString();
                   hasChanges = true;
                 }
@@ -466,12 +566,7 @@ export default function WorkoutSessionScreen() {
           });
         }
       });
-      
-      if (hasChanges) {
-        console.log('✅ PRE-FILL COMPLETED WITH CHANGES');
-      } else {
-        console.log('⏭️ PRE-FILL COMPLETED WITHOUT CHANGES');
-      }
+
       
       return updatedSets;
     });
@@ -569,7 +664,6 @@ export default function WorkoutSessionScreen() {
   // Additional effect to pre-fill with last values when they become available (for cycle week 1 or when no suggested values)
   useEffect(() => {
     if (Object.keys(lastExerciseValues).length > 0 && exercises.length > 0) {
-      console.log('🔄 PRE-FILL WITH LAST VALUES EFFECT TRIGGERED');
       
       setExerciseSets(prev => {
         const updatedSets = { ...prev };
@@ -577,6 +671,12 @@ export default function WorkoutSessionScreen() {
         
         exercises.forEach(exercise => {
           if (lastExerciseValues[exercise.exercise_id] && updatedSets[exercise.id]) {
+            // Don't pre-fill with last values if exercise was customized
+            const isCustomized = exerciseCustomized[exercise.id];
+            if (isCustomized) {
+              return;
+            }
+            
             updatedSets[exercise.id].forEach((set, index) => {
               const setNumber = index + 1;
               
@@ -584,7 +684,6 @@ export default function WorkoutSessionScreen() {
               if (!set.isCompleted && exercise.requires_weight !== false) {
                 const lastReps = lastExerciseValues[exercise.exercise_id]?.[setNumber]?.reps;
                 if (lastReps && lastReps !== '-' && lastReps !== '0') {
-                  console.log(`💉 PRE-FILLING LAST REPS for ${exercise.name} set ${setNumber}: "${set.reps}" -> "${lastReps}"`);
                   updatedSets[exercise.id][index].reps = lastReps;
                   hasChanges = true;
                 }
@@ -592,17 +691,12 @@ export default function WorkoutSessionScreen() {
             });
           }
         });
-        
-        if (hasChanges) {
-          console.log('✅ LAST VALUES PRE-FILL COMPLETED WITH CHANGES');
-        } else {
-          console.log('⏭️ LAST VALUES PRE-FILL COMPLETED WITHOUT CHANGES');
-        }
+
         
         return hasChanges ? updatedSets : prev;
       });
     }
-  }, [lastExerciseValues, exercises.length]); // Trigger when last values or exercises change
+  }, [lastExerciseValues, exercises.length, exerciseCustomized]); // Add exerciseCustomized dependency
 
   useEffect(() => {
     // Check if workout is already completed for today, but skip if forceStart is true
@@ -1093,31 +1187,11 @@ export default function WorkoutSessionScreen() {
   };
 
   const handleCustomizeExerciseSave = (updatedExercise: { sets: number; reps_range: string }) => {
-    console.log('🚀 CUSTOMIZE SAVE START:', {
-      updatedExercise,
-      currentExerciseIndex,
-      exerciseName: exercises[currentExerciseIndex]?.name
-    });
-    
     // Get the exercise that's currently being customized
     const exerciseToUpdate = exercises[currentExerciseIndex];
     if (!exerciseToUpdate) {
-      console.log('❌ No exercise to update found');
       return;
     }
-    
-    console.log('📊 BEFORE CUSTOMIZE - Current state:', {
-      exerciseId: exerciseToUpdate.id,
-      currentRepsRange: exerciseToUpdate.reps_range,
-      newRepsRange: updatedExercise.reps_range,
-      currentSets: exerciseSets[exerciseToUpdate.id]?.map(set => ({
-        setNumber: set.setNumber,
-        reps: set.reps,
-        isCompleted: set.isCompleted
-      })),
-      userEnteredValues: Object.keys(userEnteredValues).filter(key => key.includes(exerciseToUpdate.id)),
-      exerciseCustomized: exerciseCustomized[exerciseToUpdate.id]
-    });
     
     // Always clear reps recommendations when customizing exercise, keep weight recommendations
     setRecommendations(prev => {
@@ -1129,11 +1203,10 @@ export default function WorkoutSessionScreen() {
           recommended_reps: null
         };
       }
-      console.log('🔄 RECOMMENDATIONS CLEARED for exercise:', exerciseToUpdate.id);
       return updated;
     });
     
-    // Clear user-entered flags for all reps inputs of this exercise FIRST
+    // Clear user-entered flags for all reps inputs of this exercise because customization is the latest user action
     setUserEnteredValues(prev => {
       const updated = { ...prev };
       const currentSets = exerciseSets[exerciseToUpdate.id] || [];
@@ -1147,8 +1220,6 @@ export default function WorkoutSessionScreen() {
         }
       });
       
-      console.log('🧹 USER ENTERED VALUES CLEARED:', clearedKeys);
-      console.log('🧹 Remaining user entered values:', Object.keys(updated).filter(key => key.includes(exerciseToUpdate.id)));
       return updated;
     });
     
@@ -1164,11 +1235,6 @@ export default function WorkoutSessionScreen() {
           sets: updatedExercise.sets,
           reps_range: updatedExercise.reps_range
         };
-        console.log('🔄 EXERCISE UPDATED:', {
-          exerciseId: exerciseToUpdate.id,
-          oldRepsRange,
-          newRepsRange: updatedExercise.reps_range
-        });
       }
       return updatedExercises;
     });
@@ -1178,30 +1244,19 @@ export default function WorkoutSessionScreen() {
       const currentSets = prev[exerciseToUpdate.id] || [];
       const newSetsCount = updatedExercise.sets;
       
-      console.log('🔄 UPDATING EXERCISE SETS:', {
-        currentSetsCount: currentSets.length,
-        newSetsCount,
-        currentSetsData: currentSets.map(set => ({
-          setNumber: set.setNumber,
-          reps: set.reps,
-          isCompleted: set.isCompleted
-        }))
-      });
-      
       let updatedSets = [...currentSets];
       
-      // Clear ALL reps values for incomplete sets when customizing exercise
-      updatedSets = updatedSets.map((set, index) => {
-        if (!set.isCompleted) {
-          console.log(`🧹 CLEARING REPS for set ${set.setNumber}: "${set.reps}" -> ""`);
-          return {
-            ...set,
-            reps: '' // Clear to show new placeholder with updated reps_range
-          };
-        }
-        console.log(`✅ KEEPING COMPLETED set ${set.setNumber} reps: "${set.reps}"`);
-        return set;
-      });
+      // Set all reps values to the new range because customization is the latest user action
+              updatedSets = updatedSets.map((set, index) => {
+          if (!set.isCompleted) {
+            // Set reps to the new range for all incomplete sets (latest user action)
+            return {
+              ...set,
+              reps: updatedExercise.reps_range // Use the new reps range as the value
+            };
+          }
+          return set;
+        });
       
       if (currentSets.length < newSetsCount) {
         // Add new sets
@@ -1213,12 +1268,10 @@ export default function WorkoutSessionScreen() {
             reps: '',
             isCompleted: false
           });
-          console.log(`➕ ADDED NEW SET ${i + 1}`);
         }
-      } else if (currentSets.length > newSetsCount) {
-        // Remove excess sets and update totals
-        const setsToRemove = updatedSets.slice(newSetsCount);
-        console.log('➖ REMOVING SETS:', setsToRemove.map(s => s.setNumber));
+              } else if (currentSets.length > newSetsCount) {
+          // Remove excess sets and update totals
+          const setsToRemove = updatedSets.slice(newSetsCount);
         setsToRemove.forEach(set => {
           if (set.isCompleted) {
             const weight = exerciseToUpdate.requires_weight !== false ? 
@@ -1237,11 +1290,6 @@ export default function WorkoutSessionScreen() {
         updatedSets = updatedSets.slice(0, newSetsCount);
       }
       
-      console.log('📋 FINAL UPDATED SETS:', updatedSets.map(set => ({
-        setNumber: set.setNumber,
-        reps: set.reps,
-        isCompleted: set.isCompleted
-      })));
       
       return {
         ...prev,
@@ -1255,18 +1303,11 @@ export default function WorkoutSessionScreen() {
         ...prev,
         [exerciseToUpdate.id]: true
       };
-      console.log('✅ EXERCISE MARKED AS CUSTOMIZED:', exerciseToUpdate.id);
       return updated;
     });
     
     // Force TextInput re-render by updating refresh key
-    setTextInputRefreshKey(prev => {
-      const newKey = prev + 1;
-      console.log('🔄 TEXTINPUT REFRESH KEY UPDATED:', prev, '->', newKey);
-      return newKey;
-    });
-    
-    console.log('✅ CUSTOMIZE SAVE COMPLETE');
+    setTextInputRefreshKey(prev => prev + 1);
     
     // Close the modal
     setShowCustomizeExerciseModal(false);
@@ -1396,9 +1437,12 @@ export default function WorkoutSessionScreen() {
         const isUserEnteredValue = userEnteredValues[userEnteredRepsKey];
         
         // Use placeholder values if:
-        // 1. Reps is empty, 0, or contains a range format, OR
-        // 2. The value is not user-entered (meaning it's from placeholder/auto-fill)
-        const shouldUsePlaceholderValue = reps === 0 || repsContainsRange || isNaN(reps) || !isUserEnteredValue;
+        // 1. Reps contains a range format, OR
+        // 2. The value is not user-entered AND reps is 0 (meaning it's from placeholder/auto-fill)
+        // BUT NOT if user explicitly cleared the field (empty string with no user-entered flag)
+        const shouldUsePlaceholderValue = repsContainsRange || (!isUserEnteredValue && reps === 0);
+        
+
         
         // If we should use placeholder value, prioritize based on whether exercise was customized
         if (shouldUsePlaceholderValue && currentExercise) {
@@ -1474,11 +1518,12 @@ export default function WorkoutSessionScreen() {
               }
             }));
             
-            // If this set is being completed, auto-fill the next set if it exists
+            // If this set is being completed, auto-fill the next incomplete set
             if (wasNotCompletedBefore) {
               // Use setTimeout to ensure state update completes first
               setTimeout(() => {
-                autoFillNextSetWithValues(exerciseId, setIndex, updatedSet.weight, updatedSet.reps);
+                // Use the new function that finds any incomplete set (perfect for redo scenarios)
+                autoFillNextIncompleteSetWithValues(exerciseId, setIndex, updatedSet.weight, updatedSet.reps);
               }, 100);
             }
           }
@@ -1618,8 +1663,8 @@ export default function WorkoutSessionScreen() {
       
       updatedSets[setIndex] = {
         ...currentSet,
-        isCompleted: false,
-        reps: ''    // Clear reps value so placeholder will show (weight should remain)
+        isCompleted: false
+        // Keep both weight and reps values - don't clear them on redo
       };
       
       return { ...prev, [exerciseId]: updatedSets };
@@ -1830,12 +1875,6 @@ export default function WorkoutSessionScreen() {
   };
 
   const handleRepsChange = (exerciseId: string, setIndex: number, value: string) => {
-    console.log(`📝 REPS CHANGE:`, {
-      exerciseId,
-      setIndex,
-      value,
-      exerciseName: exercises.find(ex => ex.id === exerciseId)?.name
-    });
     
     // Validate and transform the input value
     let processedValue = value === '-' ? value : value.replace(/^0+(?=\d)/, ''); // Keep '-' as is but remove leading zeros
@@ -1850,7 +1889,6 @@ export default function WorkoutSessionScreen() {
     
     // Mark this input as user-entered
     const inputKey = `${exerciseId}-${setIndex}-reps`;
-    console.log(`✅ MARKING AS USER ENTERED:`, inputKey);
     setUserEnteredValues(prev => ({
       ...prev,
       [inputKey]: true
@@ -1859,14 +1897,7 @@ export default function WorkoutSessionScreen() {
     setExerciseSets(prev => {
       const updatedSets = { ...prev };
       if (updatedSets[exerciseId]) {
-        const oldValue = updatedSets[exerciseId][setIndex].reps;
         updatedSets[exerciseId][setIndex].reps = processedValue;
-        console.log(`🔄 REPS VALUE UPDATED:`, {
-          exerciseId,
-          setIndex,
-          oldValue,
-          newValue: processedValue
-        });
       }
       return updatedSets;
     });
@@ -2294,28 +2325,7 @@ export default function WorkoutSessionScreen() {
                                         (isCustomized ? exerciseRepsRange : lastReps) || 
                                         (isCustomized ? lastReps : exerciseRepsRange) || '-';
                                       
-                                      // Only log when placeholder actually changes (include currentValue and isUserEntered in key)
-                                      const logKey = `active-${currentExercise.id}-${index}-${finalPlaceholder}-${set.reps}-${userEnteredValues[`${currentExercise.id}-${index}-reps`]}-${textInputRefreshKey}`;
-                                      if (!(global as any).lastActivePlaceholderLogs) {
-                                        (global as any).lastActivePlaceholderLogs = {};
-                                      }
-                                      if ((global as any).lastActivePlaceholderLogs[`${currentExercise.id}-${index}`] !== logKey) {
-                                        (global as any).lastActivePlaceholderLogs[`${currentExercise.id}-${index}`] = logKey;
-                                        console.log(`🎯 ACTIVE REPS PLACEHOLDER for set ${index + 1}:`, {
-                                          exerciseId: currentExercise.id,
-                                          exerciseName: currentExercise.name,
-                                          setNumber: index + 1,
-                                          currentValue: set.reps,
-                                          recommendedReps,
-                                          lastReps,
-                                          exerciseRepsRange,
-                                          isCustomized,
-                                          finalPlaceholder,
-                                          userEnteredKey: `${currentExercise.id}-${index}-reps`,
-                                          isUserEntered: userEnteredValues[`${currentExercise.id}-${index}-reps`],
-                                          textInputRefreshKey
-                                        });
-                                      }
+
                                       
                                       return finalPlaceholder;
                                     })()}
@@ -2452,29 +2462,7 @@ export default function WorkoutSessionScreen() {
                                         (isCustomized ? exerciseRepsRange : lastReps) || 
                                         (isCustomized ? lastReps : exerciseRepsRange) || '-';
                                       
-                                      // Only log when placeholder actually changes (include currentValue and isUserEntered in key)
-                                      const logKey = `inactive-${currentExercise.id}-${index}-${finalPlaceholder}-${set.reps}-${userEnteredValues[`${currentExercise.id}-${index}-reps`]}-${textInputRefreshKey}`;
-                                      if (!(global as any).lastInactivePlaceholderLogs) {
-                                        (global as any).lastInactivePlaceholderLogs = {};
-                                      }
-                                      if ((global as any).lastInactivePlaceholderLogs[`${currentExercise.id}-${index}`] !== logKey) {
-                                        (global as any).lastInactivePlaceholderLogs[`${currentExercise.id}-${index}`] = logKey;
-                                        console.log(`🎯 INACTIVE REPS PLACEHOLDER for set ${index + 1}:`, {
-                                          exerciseId: currentExercise.id,
-                                          exerciseName: currentExercise.name,
-                                          setNumber: index + 1,
-                                          currentValue: set.reps,
-                                          recommendedReps,
-                                          lastReps,
-                                          exerciseRepsRange,
-                                          isCustomized,
-                                          finalPlaceholder,
-                                          userEnteredKey: `${currentExercise.id}-${index}-reps`,
-                                          isUserEntered: userEnteredValues[`${currentExercise.id}-${index}-reps`],
-                                          textInputRefreshKey,
-                                          isCompleted: set.isCompleted
-                                        });
-                                      }
+
                                       
                                       return finalPlaceholder;
                                     })()}

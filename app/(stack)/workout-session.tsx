@@ -141,11 +141,16 @@ export default function WorkoutSessionScreen() {
 
   // Use hook functions for all exercise set management
   const {
-    handleWeightChange: hookHandleWeightChange,
-    handleRepsChange: hookHandleRepsChange,
-    handleSetComplete: hookHandleSetComplete,
-    handleRedoSet: hookHandleRedoSet,
-    handleLogAllSets: hookHandleLogAllSets,
+    handleWeightChange,
+    handleRepsChange,
+    handleSetComplete,
+    handleRedoSet,
+    handleLogAllSets,
+    autoFillNextIncompleteSetWithValues,
+    autoFillNextSetWithValues,
+    autoFillNextSet,
+    getHighestRepsFromRange,
+    getSuggestedValue,
   } = exerciseSetsHook;
 
   
@@ -275,128 +280,6 @@ export default function WorkoutSessionScreen() {
     setActiveInputPosition(0);
   };
 
-  // Function to auto-fill the next incomplete set with specific values
-  const autoFillNextIncompleteSetWithValues = (exerciseId: string, currentSetIndex: number, weightValue: string, repsValue: string) => {
-    setExerciseSets(prev => {
-      const currentSets = prev[exerciseId];
-      if (!currentSets) return prev;
-      
-      // Find the next incomplete set (not just the immediate next set)
-      const nextIncompleteSetIndex = currentSets.findIndex((set, index) => 
-        index > currentSetIndex && !set.isCompleted
-      );
-      
-      // If no incomplete set found, try to find ANY incomplete set (for redo scenarios)
-      const anyIncompleteSetIndex = nextIncompleteSetIndex !== -1 ? 
-        nextIncompleteSetIndex : 
-        currentSets.findIndex(set => !set.isCompleted);
-      
-      if (anyIncompleteSetIndex === -1) {
-        return prev;
-      }
-      
-      const currentExercise = exercises.find(ex => ex.id === exerciseId);
-      if (!currentExercise) return prev;
-      
-      // Check if current set has valid values
-      const hasValidWeight = currentExercise.requires_weight !== false && weightValue !== '' && weightValue !== '-';
-      const hasValidReps = repsValue !== '' && repsValue !== '-';
-      
-      // Auto-fill if current set has values
-      if ((hasValidWeight || currentExercise.requires_weight === false) && hasValidReps) {
-        const updatedSets = { ...prev };
-        updatedSets[exerciseId] = [...updatedSets[exerciseId]];
-        
-        // Determine what value to use for auto-fill
-        let autoFillWeight = weightValue;
-        let autoFillReps = repsValue;
-        
-        // For customized exercises, only use the range if the current value IS the range and wasn't manually entered
-        const isCustomized = exerciseCustomized[exerciseId];
-        const currentSetInputKey = `${exerciseId}-${currentSetIndex}-reps`;
-        const wasUserEntered = userEnteredValues[currentSetInputKey];
-        
-        // Only use customized range if the current value is still the range AND user hasn't manually entered it
-        if (isCustomized && currentExercise.reps_range && !wasUserEntered && repsValue === currentExercise.reps_range) {
-          autoFillReps = currentExercise.reps_range;
-        }
-        // Otherwise, always use the actual current value (prioritize user input)
-        
-        updatedSets[exerciseId][anyIncompleteSetIndex] = {
-          ...updatedSets[exerciseId][anyIncompleteSetIndex],
-          weight: hasValidWeight ? autoFillWeight : updatedSets[exerciseId][anyIncompleteSetIndex].weight,
-          reps: hasValidReps ? autoFillReps : updatedSets[exerciseId][anyIncompleteSetIndex].reps
-        };
-        return updatedSets;
-      }
-      
-      return prev;
-    });
-  };
-
-  // Function to auto-fill the next set with specific values (legacy function for immediate next set)
-  const autoFillNextSetWithValues = (exerciseId: string, currentSetIndex: number, weightValue: string, repsValue: string) => {
-    setExerciseSets(prev => {
-      // Only auto-fill if there's a next set
-      if (!prev[exerciseId] || !prev[exerciseId][currentSetIndex + 1]) {
-        return prev;
-      }
-      
-      const nextSet = prev[exerciseId][currentSetIndex + 1];
-      const currentExercise = exercises.find(ex => ex.id === exerciseId);
-      
-      if (!currentExercise) return prev;
-      
-      // IMPORTANT: Don't auto-fill if the next set is already completed
-      if (nextSet.isCompleted) {
-        return prev;
-      }
-      
-      // Check if current set has valid values
-      const hasValidWeight = currentExercise.requires_weight !== false && weightValue !== '' && weightValue !== '-';
-      const hasValidReps = repsValue !== '' && repsValue !== '-';
-      
-      // Auto-fill if current set has values
-      if ((hasValidWeight || currentExercise.requires_weight === false) && hasValidReps) {
-        const updatedSets = { ...prev };
-        updatedSets[exerciseId] = [...updatedSets[exerciseId]];
-        
-        // Determine what value to use for auto-fill
-        let autoFillWeight = weightValue;
-        let autoFillReps = repsValue;
-        
-        // For customized exercises, only use the range if the current value IS the range and wasn't manually entered
-        const isCustomized = exerciseCustomized[exerciseId];
-        const currentSetInputKey = `${exerciseId}-${currentSetIndex}-reps`;
-        const wasUserEntered = userEnteredValues[currentSetInputKey];
-        
-        // Only use customized range if the current value is still the range AND user hasn't manually entered it
-        if (isCustomized && currentExercise.reps_range && !wasUserEntered && repsValue === currentExercise.reps_range) {
-          autoFillReps = currentExercise.reps_range;
-        }
-        // Otherwise, always use the actual current value (prioritize user input)
-        
-        updatedSets[exerciseId][currentSetIndex + 1] = {
-          ...updatedSets[exerciseId][currentSetIndex + 1],
-          weight: hasValidWeight ? autoFillWeight : nextSet.weight,
-          reps: hasValidReps ? autoFillReps : nextSet.reps
-        };
-        return updatedSets;
-      }
-      
-      return prev;
-    });
-  };
-
-  // Function to auto-fill the next set with values from the previous set or suggested values
-  const autoFillNextSet = (exerciseId: string, currentSetIndex: number) => {
-    // Only auto-fill if there's a next set
-    if (exerciseSets[exerciseId] && exerciseSets[exerciseId][currentSetIndex + 1]) {
-      const currentSet = exerciseSets[exerciseId][currentSetIndex];
-      autoFillNextSetWithValues(exerciseId, currentSetIndex, currentSet.weight, currentSet.reps);
-    }
-  };
-
   // Function to fetch cycle week info
   const fetchCycleWeekInfo = useCallback(async () => {
     try {
@@ -511,29 +394,7 @@ export default function WorkoutSessionScreen() {
     }
   }, [user?.id, currentExerciseIndex]); // Remove exercises to prevent infinite loop
   
-  // Function to get suggested values for a specific exercise and set
-  const getSuggestedValue = (exerciseId: string, setNumber: number, type: 'weight' | 'reps'): string | null => {
-    if (cycleWeek <= 1) {
-      return null;
-    }
-    
-    // Find the exercise by exerciseId to get the recommendation
-    const exercise = exercises.find(ex => ex.exercise_id === exerciseId);
-    if (!exercise) return null;
-    
-    const recommendation = recommendations[exercise.id];
-    if (!recommendation) return null;
-    
-    // Return the recommended value based on type
-    if (type === 'weight' && recommendation.recommended_weight) {
-      return recommendation.recommended_weight.toString();
-    }
-    if (type === 'reps' && recommendation.recommended_reps) {
-      return recommendation.recommended_reps.toString();
-    }
-    
-    return null;
-  };
+
 
 
 
@@ -1350,359 +1211,10 @@ export default function WorkoutSessionScreen() {
 
   // REMOVED: Timer functions now come from useWorkoutTimer hook
 
-  // Utility function to get the highest value from a reps range
-  const getHighestRepsFromRange = (repsRange: string): number => {
-    if (repsRange.includes('-')) {
-      // Range format like "12-15"
-      const rangeParts = repsRange.split('-');
-      return parseInt(rangeParts[1]) || parseInt(rangeParts[0]) || 0;
-    } else {
-      // Single value format like "12"
-      return parseInt(repsRange) || 0;
-    }
-  };
 
-  // REPLACED BY HOOK VERSIONS - These local functions are no longer used
-  // All set management functions are now provided by useExerciseSets hook
-  const handleSetComplete = (exerciseId: string, setIndex: number) => {
-    console.warn('⚠️ LOCAL VERSION: handleSetComplete called - THIS SHOULD NOT HAPPEN!', exerciseId, setIndex);
-    // Get current weight and reps values from the inputs
-    const currentSet = exerciseSets[exerciseId][setIndex];
-    
-    // Handle weight value - if empty, use placeholder value or fallback
-    let weightValue = currentSet.weight;
-    if (!weightValue || weightValue === '') {
-      if (currentExercise?.requires_weight === false) {
-        weightValue = "";
-      } else {
-        // Use recommended weight from database if available, otherwise fall back to suggested value or "0"
-        weightValue = currentRecommendation?.recommended_weight?.toString() || 
-          getSuggestedValue(currentExercise?.exercise_id || '', setIndex + 1, 'weight') || "0";
-        
-        console.log(`🔧 RESOLVED WEIGHT VALUE: Empty weight resolved to "${weightValue}" for set ${setIndex + 1}`);
-      }
-    }
-    
-    // Handle reps value - if empty, use placeholder value or fallback
-    let repsValue = currentSet.reps;
-    if (!repsValue || repsValue === '') {
-      // Priority: 1. Recommended reps from database, 2. Last workout values (if not customized), 3. Exercise reps range (if customized)
-      const recommendedReps = currentRecommendation?.recommended_reps?.toString();
-      const lastReps = lastExerciseValues[currentExercise?.exercise_id || '']?.[setIndex + 1]?.reps;
-      const exerciseRepsRange = currentExercise?.reps_range;
-      const isCustomized = exerciseCustomized[currentExercise?.id || ''];
-      
-      // If exercise was customized, prioritize the reps_range over last values
-      repsValue = recommendedReps || 
-        (isCustomized ? exerciseRepsRange : lastReps) || 
-        (isCustomized ? lastReps : exerciseRepsRange) || "1";
-      
-      console.log(`🔧 RESOLVED REPS VALUE: Empty reps resolved to "${repsValue}" for set ${setIndex + 1}`);
-    } else {
-      console.log(`✅ EXISTING REPS VALUE: "${repsValue}" for set ${setIndex + 1}`);
-    }
-    
-    // Store the original reps value for auto-fill logic (before conversion)
-    const originalRepsValue = repsValue;
-    
-    // For CALCULATION purposes, convert ranges to highest value
-    let calculationRepsValue = repsValue;
-    if (repsValue && typeof repsValue === 'string' && repsValue.includes('-')) {
-      const rangeParts = repsValue.split('-');
-      const highestReps = parseInt(rangeParts[1]) || parseInt(rangeParts[0]) || 1;
-      calculationRepsValue = highestReps.toString();
-    }
-    
-    // FORCE ALL VALUES TO BE STRINGS for TextInput compatibility
-    weightValue = String(weightValue);
-    
-    // For COMPLETED sets, always show the calculated value (what was actually counted)
-    // For auto-fill, use the original format to preserve user intent
-    const finalDisplayReps = String(calculationRepsValue); // Show calculated value in completed set
-    const finalCalculationReps = String(calculationRepsValue);
 
-    // ATOMIC UPDATE: Calculate all state changes before applying any
-    const newExerciseSets = { ...exerciseSets };
-    
-    // Update the specific set with the processed reps value - ENSURE VALUES ARE ACTUALLY STORED
-    newExerciseSets[exerciseId] = newExerciseSets[exerciseId].map((set, index) => 
-      index === setIndex 
-        ? { 
-            ...set, 
-            weight: weightValue,        // This now contains the resolved value (not empty)
-            reps: finalDisplayReps,     // This preserves the original format for display
-            isCompleted: true 
-          }
-        : set
-    );
-    
-    // IMMEDIATELY update the exerciseSets state to show the actual values in the UI
-    setExerciseSets(newExerciseSets);
-    
-    console.log(`💾 SET COMPLETED: Set ${setIndex + 1} completed with weight="${weightValue}" display_reps="${finalDisplayReps}" calc_reps="${finalCalculationReps}"`);
-    console.log(`📱 UI STATE: Updated exerciseSets for ${exerciseId}:`, newExerciseSets[exerciseId][setIndex]);
-
-    // Calculate totals based on the new state
-    let newTotalVolume = totalVolume;
-    let newTotalReps = totalReps;
-    
-    const parsedWeight = parseFloat(weightValue) || 0;
-    const parsedReps = parseInt(finalCalculationReps) || 0; // Use calculation value for totals
-    const setVolume = parsedWeight * parsedReps;
-    
-    newTotalVolume += setVolume;
-    newTotalReps += parsedReps;
-
-    // Check if all exercises will be completed after this update
-    const allExercisesCompleted = exercises.every(exercise => {
-      const exerciseSetsList = newExerciseSets[exercise.id];
-      return exerciseSetsList && exerciseSetsList.every(set => set.isCompleted);
-    });
-
-    // ATOMIC STATE APPLICATION: Apply remaining state changes
-    setTotalVolume(newTotalVolume);
-    setTotalReps(newTotalReps);
-
-    // Check completion with the new state
-    if (allExercisesCompleted) {
-      // Complete workout with the already calculated values
-      setTimeout(() => {
-        completeWorkoutWithStateSync(newTotalVolume, newTotalReps, newExerciseSets);
-      }, 100);
-      return;
-    }
-
-    // Check if current exercise is fully completed to move to next exercise
-    const currentExerciseCompleted = newExerciseSets[exerciseId].every(set => set.isCompleted);
-    
-    if (currentExerciseCompleted) {
-      // Check if this is the last exercise
-      if (currentExerciseIndex === exercises.length - 1) {
-        // This case should be handled by allExercisesCompleted above, but just in case
-        setTimeout(() => {
-          completeWorkoutWithStateSync(newTotalVolume, newTotalReps, newExerciseSets);
-        }, 100);
-      } else {
-        // Move to next exercise with a delay to allow state to settle
-        setTimeout(() => {
-          moveToNextExercise();
-        }, 500);
-      }
-      return;
-    }
-
-    // Auto-fill next incomplete set in current exercise
-    // Use original reps value for auto-fill (preserves ranges)
-    const nextIncompleteSetIndex = newExerciseSets[exerciseId].findIndex(set => !set.isCompleted);
-    if (nextIncompleteSetIndex !== -1) {
-      autoFillNextIncompleteSetWithValues(exerciseId, setIndex, weightValue, originalRepsValue);
-    }
-
-    // Start rest timer if applicable
-    if (currentExercise && currentExercise.restTime && currentExercise.restTime > 0) {
-      startRestTimer(currentExercise.restTime);
-    }
-  };
-
-  const handleRedoSet = (exerciseId: string, setIndex: number) => {
-    console.warn('⚠️ LOCAL VERSION: handleRedoSet called - THIS SHOULD NOT HAPPEN!', exerciseId, setIndex);
-    // Mark the set as not completed and update volume/reps totals
-    setExerciseSets(prev => {
-      const updatedSets = [...prev[exerciseId]];
-      const currentSet = updatedSets[setIndex];
-      
-      // Get the current exercise to check if it requires weight
-      const currentExercise = exercises.find(ex => ex.id === exerciseId);
-      const requiresWeight = currentExercise?.requires_weight !== false; // Default to true if not specified
-      
-      // If the set was completed, subtract its EXACT volume and reps from totals
-      if (currentSet.isCompleted) {
-        // Use the exact values that are currently stored in the set (these are what were used when it was completed)
-        const weight = requiresWeight ? (currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight)) : 0;
-        const reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
-        
-        const setVolume = requiresWeight ? parseFloat((weight * reps).toFixed(1)) : 0;
-        
-        if (requiresWeight) {
-          setTotalVolume(prev => Math.max(0, parseFloat((prev - setVolume).toFixed(1))));
-        }
-        setTotalReps(prev => Math.max(0, prev - reps));
-      }
-      
-      updatedSets[setIndex] = {
-        ...currentSet,
-        isCompleted: false
-        // Keep both weight and reps values - don't clear them on redo
-      };
-      
-      return { ...prev, [exerciseId]: updatedSets };
-    });
-    
-    // Reset user-entered flags for this set when redoing (AFTER calculating subtraction)
-    const weightInputKey = `${exerciseId}-${setIndex}-weight`;
-    const repsInputKey = `${exerciseId}-${setIndex}-reps`;
-    setUserEnteredValues(prev => {
-      const updated = { ...prev };
-      delete updated[weightInputKey];
-      delete updated[repsInputKey];
-      return updated;
-    });
-  };
-
-  const handleLogAllSets = (exerciseId: string) => {
-    console.warn('⚠️ LOCAL VERSION: handleLogAllSets called - THIS SHOULD NOT HAPPEN!', exerciseId);
-    // Get the current sets for this exercise
-    const sets = exerciseSets[exerciseId];
-    if (!sets || sets.length === 0) return;
-    
-    // Get the current exercise to check if it requires weight
-    const currentExercise = exercises.find(ex => ex.id === exerciseId);
-    const requiresWeight = currentExercise?.requires_weight !== false; // Default to true if not specified
-    
-    // Find all incomplete sets
-    const incompleteSets = sets.filter(set => !set.isCompleted);
-    
-    if (incompleteSets.length === 0) {
-      // All sets are already completed
-      Alert.alert(
-        'Sets Completed',
-        'All sets for this exercise are already logged.',
-        [{ text: 'OK' }]
-      );
-      // Move to next exercise since all sets are already completed
-      moveToNextExercise();
-      return;
-    }
-    
-    // Calculate total volume and reps that will be added
-    let totalVolumeToAdd = 0;
-    let totalRepsToAdd = 0;
-    
-    // Prepare the updated sets with resolved values
-    const updatedSetsData = sets.map((set, index) => {
-      if (set.isCompleted) {
-        return set; // Keep completed sets as they are
-      }
-      
-      // Resolve weight value
-      let weightValue = set.weight;
-      if (requiresWeight && (weightValue === '' || weightValue === '-')) {
-        // Use recommended weight from database if available, otherwise fall back to suggested value or "0"
-        weightValue = currentRecommendation?.recommended_weight?.toString() || 
-          getSuggestedValue(currentExercise?.exercise_id || '', index + 1, 'weight') || "0";
-      }
-      
-      // Resolve reps value
-      let repsValue = set.reps;
-      const repsContainsRange = repsValue && typeof repsValue === 'string' && repsValue.includes('-');
-      
-      if (repsValue === '' || repsValue === '-' || repsContainsRange) {
-        if (repsContainsRange) {
-          // If it's a range, use the highest value from that range
-          const rangeParts = repsValue.split('-');
-          repsValue = (parseInt(rangeParts[1]) || parseInt(rangeParts[0]) || 0).toString();
-        } else {
-          // Priority: 1. Recommended reps from database, 2. Last workout values (if not customized), 3. Exercise reps range (if customized)
-          const recommendedReps = currentRecommendation?.recommended_reps?.toString();
-          const lastReps = lastExerciseValues[currentExercise?.exercise_id || '']?.[index + 1]?.reps;
-          const exerciseRepsRange = currentExercise?.reps_range;
-          const isCustomized = exerciseCustomized[currentExercise?.id || ''];
-          
-          // If exercise was customized, prioritize the reps_range over last values
-          repsValue = recommendedReps || 
-            (isCustomized ? exerciseRepsRange : lastReps) || 
-            (isCustomized ? lastReps : exerciseRepsRange) || "1";
-          
-          // If it's still a range after getting the value, extract the highest number
-          if (repsValue && typeof repsValue === 'string' && repsValue.includes('-')) {
-            const rangeParts = repsValue.split('-');
-            repsValue = (parseInt(rangeParts[1]) || parseInt(rangeParts[0]) || 1).toString();
-          }
-        }
-      }
-      
-      // Calculate volume and reps for this set
-      const weight = requiresWeight ? (parseFloat(weightValue) || 0) : 0;
-      const reps = parseInt(repsValue) || 0;
-      const setVolume = requiresWeight ? parseFloat((weight * reps).toFixed(1)) : 0;
-      
-      // Add to totals
-      if (requiresWeight) {
-        totalVolumeToAdd += setVolume;
-      }
-      totalRepsToAdd += reps;
-      
-      return {
-        ...set,
-        weight: weightValue,
-        reps: repsValue,
-        isCompleted: true
-      };
-    });
-    
-    // Update all sets at once and update totals atomically
-    setExerciseSets(prev => ({
-      ...prev,
-      [exerciseId]: updatedSetsData
-    }));
-    
-    // Update totals atomically
-    if (requiresWeight) {
-      setTotalVolume(prev => parseFloat((prev + totalVolumeToAdd).toFixed(1)));
-    }
-    setTotalReps(prev => prev + totalRepsToAdd);
-    
-    // Start rest timer
-    if (currentExercise && currentExercise.restTime) {
-      startRestTimer(currentExercise.restTime);
-    } else {
-      startRestTimer(60);
-    }
-    
-    // Check if this was the last exercise
-    if (currentExerciseIndex === exercises.length - 1) {
-      // Check if all exercises have all their sets completed after this update
-      const allExercisesCompleted = exercises.every(ex => {
-        // For the current exercise, we know all sets are now completed
-        if (ex.id === exerciseId) return true;
-        
-        // For other exercises, check their sets
-        const exSets = exerciseSets[ex.id] || [];
-        return exSets.length > 0 && exSets.every(s => s.isCompleted);
-      });
-      
-      if (allExercisesCompleted) {
-        // All exercises are completed, save workout data immediately with calculated values
-        // Calculate final totals including the sets we just completed
-        const finalVolume = totalVolume + totalVolumeToAdd;
-        const finalReps = totalReps + totalRepsToAdd;
-        
-        // Create the final exercise sets state including our updates
-        const finalExerciseSets = {
-          ...exerciseSets,
-          [exerciseId]: updatedSetsData
-        };
-        
-        // Use the state sync version to ensure data is saved properly
-        setTimeout(() => {
-          completeWorkoutWithStateSync(finalVolume, finalReps, finalExerciseSets);
-        }, 100);
-      } else {
-        // Not all exercises are completed, just move to next exercise
-        setTimeout(() => {
-          moveToNextExercise();
-        }, 100);
-      }
-    } else {
-      // Not the last exercise, just move to next
-      setTimeout(() => {
-        moveToNextExercise();
-      }, 100);
-    }
-  };
-
-  // REPLACED BY HOOK VERSIONS - These local functions are no longer used
-  // handleWeightChange and handleRepsChange are now provided by useExerciseSets hook
+  // Local functions removed - now handled by useExerciseSets hook
+  // Functions moved to hook: handleSetComplete, handleRedoSet, handleLogAllSets, handleWeightChange, handleRepsChange
 
   const moveToNextExercise = () => {
     if (currentExerciseIndex < exercises.length - 1) {
@@ -2147,7 +1659,7 @@ export default function WorkoutSessionScreen() {
                                       <TextInput
                                         style={styles.inputField}
                                         value={set.weight}
-                                        onChangeText={(value) => hookHandleWeightChange(currentExercise.id, index, value)}
+                                        onChangeText={(value) => handleWeightChange(currentExercise.id, index, value)}
                                         keyboardType="decimal-pad"
                                         placeholder={focusedInputs[`${currentExercise.id}-${index}-weight`] ? '' : (
                                           // For completed sets, don't show any placeholder since they have actual values
@@ -2183,7 +1695,7 @@ export default function WorkoutSessionScreen() {
                                     key={`${currentExercise.id}-${index}-reps-${currentExercise.reps_range}-${exerciseCustomized[currentExercise.id] ? 'customized' : 'default'}-${textInputRefreshKey}`}
                                     style={styles.inputField}
                                     value={set.reps}
-                                    onChangeText={(value) => hookHandleRepsChange(currentExercise.id, index, value)}
+                                    onChangeText={(value) => handleRepsChange(currentExercise.id, index, value)}
                                     keyboardType="numeric"
                                     placeholder={focusedInputs[`${currentExercise.id}-${index}-reps`] ? '' : (() => {
                                       // For completed sets, don't show any placeholder since they have actual values
@@ -2269,7 +1781,7 @@ export default function WorkoutSessionScreen() {
                         <View style={styles.didItButtonCell}>
                           <TouchableOpacity 
                             style={{flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center'}}
-                            onPress={() => hookHandleSetComplete(currentExercise.id, index)}
+                            onPress={() => handleSetComplete(currentExercise.id, index)}
                           >
                             <Text style={styles.didItTextSet}>Did It</Text>
                           </TouchableOpacity>
@@ -2295,7 +1807,7 @@ export default function WorkoutSessionScreen() {
                                   <TextInput
                                     style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
                                     value={set.weight}
-                                    onChangeText={(value) => hookHandleWeightChange(currentExercise.id, index, value)}
+                                    onChangeText={(value) => handleWeightChange(currentExercise.id, index, value)}
                                     keyboardType="decimal-pad"
                                     placeholder={focusedInputs[`${currentExercise.id}-${index}-weight`] ? '' : (
                                       // For completed sets, don't show any placeholder since they have actual values
@@ -2331,7 +1843,7 @@ export default function WorkoutSessionScreen() {
                                 key={`${currentExercise.id}-${index}-reps-${currentExercise.reps_range}-${exerciseCustomized[currentExercise.id] ? 'customized' : 'default'}-${textInputRefreshKey}`}
                                 style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
                                 value={set.reps}
-                                onChangeText={(value) => hookHandleRepsChange(currentExercise.id, index, value)}
+                                onChangeText={(value) => handleRepsChange(currentExercise.id, index, value)}
                                 keyboardType="numeric"
                                                                     placeholder={focusedInputs[`${currentExercise.id}-${index}-reps`] ? '' : (() => {
                                       // For completed sets, don't show any placeholder since they have actual values
@@ -2405,10 +1917,10 @@ export default function WorkoutSessionScreen() {
                           onPress={() => {
                             if (isCompleted) {
                               // If completed, redo the set
-                              hookHandleRedoSet(currentExercise.id, index);
+                              handleRedoSet(currentExercise.id, index);
                             } else if (isActive) {
                               // If active but not completed, mark as complete
-                              hookHandleSetComplete(currentExercise.id, index);
+                              handleSetComplete(currentExercise.id, index);
                             }
                           }}
                           disabled={!isCompleted && !isActive}
@@ -2433,7 +1945,7 @@ export default function WorkoutSessionScreen() {
           mode="contained"
           style={styles.logAllButton}
           labelStyle={styles.logAllButtonText}
-          onPress={() => hookHandleLogAllSets(currentExercise.id)}
+          onPress={() => handleLogAllSets(currentExercise.id)}
         >
           Log All Sets
         </Button>

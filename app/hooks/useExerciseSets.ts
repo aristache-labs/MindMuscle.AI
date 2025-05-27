@@ -219,7 +219,6 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
 
   // Complex set management functions
   const handleSetComplete = useCallback((exerciseId: string, setIndex: number) => {
-    console.log('🚀 HOOK VERSION: handleSetComplete called for exercise:', exerciseId, 'set:', setIndex);
     // Get current weight and reps values from the inputs
     const currentSet = exerciseSets[exerciseId][setIndex];
     
@@ -233,7 +232,6 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
         weightValue = currentRecommendation?.recommended_weight?.toString() || 
           getSuggestedValue(currentExercise?.exercise_id || '', setIndex + 1, 'weight') || "0";
         
-        console.log(`🔧 RESOLVED WEIGHT VALUE: Empty weight resolved to "${weightValue}" for set ${setIndex + 1}`);
       }
     }
     
@@ -250,10 +248,6 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
       repsValue = recommendedReps || 
         (isCustomized ? exerciseRepsRange : lastReps) || 
         (isCustomized ? lastReps : exerciseRepsRange) || "1";
-      
-      console.log(`🔧 RESOLVED REPS VALUE: Empty reps resolved to "${repsValue}" for set ${setIndex + 1}`);
-    } else {
-      console.log(`✅ EXISTING REPS VALUE: "${repsValue}" for set ${setIndex + 1}`);
     }
     
     // Store the original reps value for auto-fill logic (before conversion)
@@ -292,9 +286,6 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
     
     // IMMEDIATELY update the exerciseSets state to show the actual values in the UI
     setExerciseSets(newExerciseSets);
-    
-    console.log(`💾 SET COMPLETED: Set ${setIndex + 1} completed with weight="${weightValue}" display_reps="${finalDisplayReps}" calc_reps="${finalCalculationReps}"`);
-    console.log(`📱 UI STATE: Updated exerciseSets for ${exerciseId}:`, newExerciseSets[exerciseId][setIndex]);
 
     // Calculate totals based on the new state
     let newTotalVolume = totalVolume;
@@ -377,7 +368,6 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
   ]);
 
   const handleRedoSet = useCallback((exerciseId: string, setIndex: number) => {
-    console.log('🚀 HOOK VERSION: handleRedoSet called for exercise:', exerciseId, 'set:', setIndex);
     // Mark the set as not completed and update volume/reps totals
     setExerciseSets(prev => {
       const updatedSets = [...prev[exerciseId]];
@@ -422,7 +412,6 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
   }, [exercises, setExerciseSets, setTotalVolume, setTotalReps, setUserEnteredValues]);
 
   const handleLogAllSets = useCallback((exerciseId: string) => {
-    console.log('🚀 HOOK VERSION: handleLogAllSets called for exercise:', exerciseId);
     // Get the current sets for this exercise
     const sets = exerciseSets[exerciseId];
     if (!sets || sets.length === 0) return;
@@ -590,7 +579,6 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
   ]);
 
   const handleWeightChange = useCallback((exerciseId: string, setIndex: number, value: string) => {
-    console.log('🚀 HOOK VERSION: handleWeightChange called for exercise:', exerciseId, 'set:', setIndex, 'value:', value);
     // Validate and transform the input value
     // Allow decimal input with either dot or comma as separator
     let processedValue = value;
@@ -642,7 +630,6 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
   }, []);
 
   const handleRepsChange = useCallback((exerciseId: string, setIndex: number, value: string) => {
-    console.log('🚀 HOOK VERSION: handleRepsChange called for exercise:', exerciseId, 'set:', setIndex, 'value:', value);
     // Validate and transform the input value for reps (whole numbers only)
     let processedValue = value;
     

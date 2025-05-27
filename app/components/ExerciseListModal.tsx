@@ -3,11 +3,266 @@ import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Dimensions
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Reanimated, { 
+  useSharedValue, 
+  useAnimatedStyle, 
+  useAnimatedGestureHandler, 
+  runOnJS,
+  withSpring,
+  withTiming
+} from 'react-native-reanimated';
 import OptimizedImage from './OptimizedImage';
 import ExerciseMaxWeightGraph from './ExerciseMaxWeightGraph';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+
+const EXERCISE_CARD_HEIGHT = 96; // Height of each exercise card
+const DRAG_THRESHOLD = 10; // Pixels to move before starting drag
+
+// Draggable Exercise Card Component
+interface DraggableExerciseCardProps {
+  exercise: Exercise;
+  index: number;
+  currentExerciseIndex: number;
+  isCustomizeMode: boolean;
+  exerciseSets: Record<string, any[]>;
+  onPress: () => void;
+  onRemove: () => void;
+  onDragStart: (index: number) => void;
+  onDragEnd: (fromIndex: number, toIndex: number) => void;
+  isDragging: boolean;
+  draggedIndex: number | null;
+}
+
+const DraggableExerciseCard: React.FC<DraggableExerciseCardProps> = ({
+  exercise,
+  index,
+  currentExerciseIndex,
+  isCustomizeMode,
+  exerciseSets,
+  onPress,
+  onRemove,
+  onDragStart,
+  onDragEnd,
+  isDragging,
+  draggedIndex,
+}) => {
+  const translateY = useSharedValue(0);
+  const scale = useSharedValue(1);
+  const zIndex = useSharedValue(0);
+  const opacity = useSharedValue(1);
+  
+  const isBeingDragged = draggedIndex === index;
+  const shouldShift = draggedIndex !== null && draggedIndex !== index;
+  
+  const gestureHandler = useAnimatedGestureHandler({
+    onStart: (_, context: any) => {
+      if (!isCustomizeMode) return;
+      
+      context.startY = translateY.value;
+      scale.value = withSpring(1.05);
+      zIndex.value = 1000;
+      opacity.value = withTiming(0.9);
+      runOnJS(onDragStart)(index);
+    },
+    onActive: (event, context: any) => {
+      if (!isCustomizeMode) return;
+      
+      translateY.value = context.startY + event.translationY;
+      
+      // Calculate which position this should be dropped to
+      const newIndex = Math.round((context.startY + event.translationY) / EXERCISE_CARD_HEIGHT) + index;
+      const clampedIndex = Math.max(0, Math.min(newIndex, exerciseSets ? Object.keys(exerciseSets).length - 1 : 0));
+      
+      // Provide haptic feedback when crossing boundaries
+      if (Math.abs(event.translationY) > EXERCISE_CARD_HEIGHT / 2) {
+        // Could add haptic feedback here
+      }
+    },
+    onEnd: (event, context: any) => {
+      if (!isCustomizeMode) return;
+      
+      const newIndex = Math.round((context.startY + event.translationY) / EXERCISE_CARD_HEIGHT) + index;
+      const clampedIndex = Math.max(0, Math.min(newIndex, exerciseSets ? Object.keys(exerciseSets).length - 1 : 0));
+      
+      // Reset animations
+      translateY.value = withSpring(0);
+      scale.value = withSpring(1);
+      zIndex.value = 0;
+      opacity.value = withTiming(1);
+      
+      if (clampedIndex !== index) {
+        runOnJS(onDragEnd)(index, clampedIndex);
+      }
+    },
+  });
+
+  const animatedStyle = useAnimatedStyle(() => {
+    let transform = [];
+    
+    if (isBeingDragged) {
+      transform.push({ translateY: translateY.value });
+      transform.push({ scale: scale.value });
+    } else if (shouldShift && draggedIndex !== null) {
+      // Shift other items to make space
+      const shiftAmount = draggedIndex < index ? -EXERCISE_CARD_HEIGHT : EXERCISE_CARD_HEIGHT;
+      transform.push({ translateY: withSpring(shiftAmount) });
+    } else {
+      transform.push({ translateY: withSpring(0) });
+    }
+    
+    // Add subtle scale animation for current exercise
+    if (isCurrent && !isBeingDragged) {
+      transform.push({ scale: withSpring(1.01, { damping: 20, stiffness: 200 }) });
+    }
+    
+    return {
+      transform,
+      zIndex: zIndex.value,
+      opacity: opacity.value,
+    };
+  });
+
+  const getCompletedSets = (exerciseId: string): number => {
+    const sets = exerciseSets[exerciseId] || [];
+    return sets.filter(set => set.isCompleted).length;
+  };
+
+  const getTotalSets = (exerciseId: string): number => {
+    const sets = exerciseSets[exerciseId] || [];
+    return sets.length;
+  };
+
+  const getMuscleTagColor = (muscle: string) => {
+    const muscleColors: Record<string, string> = {
+      'Chest': '#FF6B6B',
+      'Back': '#4ECDC4',
+      'Shoulders': '#45B7D1',
+      'Arms': '#96CEB4',
+      'Legs': '#FFEAA7',
+      'Core': '#DDA0DD',
+      'Glutes': '#F39C12',
+      'Biceps': '#96CEB4',
+      'Triceps': '#96CEB4',
+      'Quadriceps': '#FFEAA7',
+      'Hamstrings': '#FFEAA7',
+      'Calves': '#FFEAA7',
+      'Lats': '#4ECDC4',
+      'Traps': '#4ECDC4',
+      'Delts': '#45B7D1',
+      'Abs': '#DDA0DD',
+    };
+    return muscleColors[muscle] || '#FFD700';
+  };
+
+  const getImageSource = () => {
+    const hasValidImageUrl = exercise?.image_url && 
+                             exercise.image_url.trim() !== '' && 
+                             exercise.image_url !== 'null' && 
+                             exercise.image_url !== 'undefined';
+    
+    if (hasValidImageUrl) {
+      return { uri: exercise.image_url };
+    } else {
+      return require('../../assets/exercises/placeholder.jpg');
+    }
+  };
+
+  const isCompleted = getCompletedSets(exercise.id) === getTotalSets(exercise.id) && getTotalSets(exercise.id) > 0;
+  const isPast = index < currentExerciseIndex;
+  const isCurrent = index === currentExerciseIndex;
+
+  return (
+    <Reanimated.View style={[animatedStyle, { height: EXERCISE_CARD_HEIGHT }]}>
+      <PanGestureHandler
+        onGestureEvent={gestureHandler}
+        enabled={isCustomizeMode}
+        minPointers={1}
+        maxPointers={1}
+      >
+        <Reanimated.View
+          style={[
+            styles.exerciseCard,
+            isCurrent && styles.currentExerciseCard,
+            isCompleted && styles.completedExerciseCard,
+            isPast && styles.pastExerciseCard,
+            isCustomizeMode && styles.customizeModeCard,
+            { minHeight: EXERCISE_CARD_HEIGHT - SPACING.sm },
+          ]}
+        >
+          {/* Drag Handle - only show in customize mode */}
+          {isCustomizeMode && (
+            <View style={styles.dragHandle}>
+              <Ionicons name="menu" size={28} color="rgba(255, 255, 255, 0.9)" />
+            </View>
+          )}
+          
+          <TouchableOpacity 
+            style={styles.exerciseCardContent}
+            onPress={() => !isCustomizeMode && onPress()}
+            disabled={isCustomizeMode}
+            activeOpacity={0.7}
+          >
+            <View style={[
+              styles.exerciseImageContainer,
+              isCurrent && styles.currentExerciseImageContainer
+            ]}>
+              <OptimizedImage
+                source={getImageSource()}
+                style={[
+                  styles.exerciseImage,
+                  (isCompleted || isPast) && styles.completedExerciseImage
+                ]}
+                fallback={require('../../assets/exercises/placeholder.jpg')}
+                resizeMode="cover"
+                cachePolicy="immutable"
+              />
+              {/* Shadow overlay when in customize mode */}
+              {isCustomizeMode && (
+                <View style={styles.imageShadowOverlay} />
+              )}
+              {isCompleted && (
+                <View style={styles.completedOverlay}>
+                  <Ionicons name="checkmark-circle" size={24} color={COLORS.primary} />
+                </View>
+              )}
+            </View>
+            
+            <View style={styles.exerciseInfo}>
+              <Text 
+                style={[
+                  styles.exerciseName,
+                  (isCompleted || isPast) && styles.completedExerciseName
+                ]}
+                numberOfLines={2}
+                ellipsizeMode="tail"
+              >
+                {exercise.name}
+              </Text>
+              <Text style={[
+                styles.exerciseDetails,
+                (isCompleted || isPast) && styles.completedExerciseDetails
+              ]}>
+                {getCompletedSets(exercise.id)}/{getTotalSets(exercise.id)} sets x {exercise.reps_range} reps
+              </Text>
+            </View>
+            
+            {isCustomizeMode && (
+              <TouchableOpacity 
+                style={styles.recycleIconContainer}
+                onPress={onRemove}
+              >
+                <Ionicons name="trash-outline" size={20} color={'#FF5252'} />
+              </TouchableOpacity>
+            )}
+          </TouchableOpacity>
+        </Reanimated.View>
+      </PanGestureHandler>
+    </Reanimated.View>
+  );
+};
 
 interface Exercise {
   id: string;
@@ -36,6 +291,8 @@ interface ExerciseListModalProps {
   lastExerciseValues?: Record<string, Record<number, { weight: string, reps: string }>>;
   initialSelectedExerciseIndex?: number | null;
   onCustomizeExercise?: (exerciseIndex: number) => void;
+  onReorderExercises?: (exercises: Exercise[]) => void;
+  onRemoveExercise?: (exerciseIndex: number) => void;
 }
 
 export default function ExerciseListModal({
@@ -51,11 +308,24 @@ export default function ExerciseListModal({
   recommendations = {},
   lastExerciseValues = {},
   initialSelectedExerciseIndex = null,
-  onCustomizeExercise
+  onCustomizeExercise,
+  onReorderExercises,
+  onRemoveExercise
 }: ExerciseListModalProps) {
   const insets = useSafeAreaInsets();
   const [selectedExerciseIndex, setSelectedExerciseIndex] = useState<number | null>(null);
+  const [isCustomizeMode, setIsCustomizeMode] = useState(false);
+  const [showBottomMenu, setShowBottomMenu] = useState(false);
+  const [localExercises, setLocalExercises] = useState<Exercise[]>(exercises);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const slideAnim = useRef(new Animated.Value(screenWidth)).current;
+  const bottomMenuAnim = useRef(new Animated.Value(100)).current;
+
+  // Sync local exercises with props
+  useEffect(() => {
+    setLocalExercises(exercises);
+  }, [exercises]);
 
   // Handle initial selected exercise when modal becomes visible
   useEffect(() => {
@@ -83,12 +353,73 @@ export default function ExerciseListModal({
 
   const resetModal = () => {
     setSelectedExerciseIndex(null);
+    setIsCustomizeMode(false);
+    setShowBottomMenu(false);
     slideAnim.setValue(screenWidth);
+    bottomMenuAnim.setValue(100);
   };
 
   const handleClose = () => {
     resetModal();
     onClose();
+  };
+
+  const handleCustomizePress = () => {
+    const newCustomizeMode = !isCustomizeMode;
+    setIsCustomizeMode(newCustomizeMode);
+    setShowBottomMenu(newCustomizeMode);
+    
+    // Apply reorder changes when exiting customize mode
+    if (!newCustomizeMode) {
+      // Apply reorder changes if any
+      if (onReorderExercises && JSON.stringify(localExercises) !== JSON.stringify(exercises)) {
+        onReorderExercises(localExercises);
+      }
+    }
+    
+    // Animate bottom menu
+    Animated.timing(bottomMenuAnim, {
+      toValue: newCustomizeMode ? 0 : 100,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handleDragStart = (index: number) => {
+    setDraggedIndex(index);
+    setIsDragging(true);
+  };
+
+  const handleDragEnd = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) {
+      setDraggedIndex(null);
+      setIsDragging(false);
+      return;
+    }
+
+    const newExercises = [...localExercises];
+    const movedExercise = newExercises.splice(fromIndex, 1)[0];
+    newExercises.splice(toIndex, 0, movedExercise);
+    
+    setLocalExercises(newExercises);
+    setDraggedIndex(null);
+    setIsDragging(false);
+  };
+
+  const handleRemoveExercise = (index: number) => {
+    if (!isCustomizeMode || !onRemoveExercise) return;
+    
+    // Adjust index based on current vs other exercises
+    let actualIndex = index;
+    if (index > currentExerciseIndex) {
+      actualIndex = index; // Keep the same index for exercises after current
+    } else if (index === currentExerciseIndex) {
+      actualIndex = currentExerciseIndex; // Current exercise
+    } else {
+      actualIndex = index; // Exercises before current
+    }
+    
+    onRemoveExercise(actualIndex);
   };
 
   const handleBackToList = () => {
@@ -193,7 +524,7 @@ export default function ExerciseListModal({
       animationType="slide"
       onRequestClose={handleClose}
     >
-      <View style={styles.modalOverlay}>
+      <GestureHandlerRootView style={styles.modalOverlay}>
         <View style={[styles.modalContainer, { paddingTop: insets.top }]}>
           <LinearGradient
             colors={['#121418', '#0A0C10']}
@@ -225,10 +556,16 @@ export default function ExerciseListModal({
                     <Text style={styles.headerButtonText}>Close</Text>
                   </TouchableOpacity>
                   
-                  <Text style={styles.headerTitle}>Exercise List</Text>
+                  <View style={styles.headerTitleContainer}>
+                    <Text style={styles.headerTitle}>
+                      {isCustomizeMode ? 'Customize List' : 'Exercise List'}
+                    </Text>
+                  </View>
                   
-                  <TouchableOpacity style={styles.headerButton}>
-                    <Text style={styles.headerButtonText}>Customize</Text>
+                  <TouchableOpacity onPress={handleCustomizePress} style={styles.headerButton}>
+                    <Text style={[styles.headerButtonText, isCustomizeMode && styles.activeCustomizeText]}>
+                      {isCustomizeMode ? 'Done' : 'Customize'}
+                    </Text>
                   </TouchableOpacity>
                 </>
               )}
@@ -238,124 +575,72 @@ export default function ExerciseListModal({
             <View style={styles.contentContainer}>
               {/* Exercise List View */}
               <View style={styles.listView}>
-                {/* Current Exercise Section */}
-                <View style={styles.currentExerciseSection}>
-                  <Text style={styles.sectionTitle}>Current Exercise</Text>
-                  {exercises[currentExerciseIndex] && (
-                    <TouchableOpacity 
-                      style={[styles.exerciseCard, styles.currentExerciseCard]}
+                {/* Active Exercise Section */}
+                <View style={styles.activeExerciseSection}>
+                  <Text style={styles.sectionTitle}>Active Exercise</Text>
+                  {localExercises[currentExerciseIndex] && (
+                    <DraggableExerciseCard
+                      key={`active-${localExercises[currentExerciseIndex].id}`}
+                      exercise={localExercises[currentExerciseIndex]}
+                      index={currentExerciseIndex}
+                      currentExerciseIndex={currentExerciseIndex}
+                      isCustomizeMode={isCustomizeMode}
+                      exerciseSets={exerciseSets}
                       onPress={() => handleExercisePress(currentExerciseIndex)}
-                    >
-                      <View style={styles.exerciseImageContainer}>
-                        <OptimizedImage
-                          source={getImageSource(exercises[currentExerciseIndex])}
-                          style={styles.exerciseImage}
-                          fallback={require('../../assets/exercises/placeholder.jpg')}
-                          resizeMode="cover"
-                          cachePolicy="immutable"
-                        />
-                      </View>
-                      
-                      <View style={styles.exerciseInfo}>
-                        <Text style={styles.exerciseName}>
-                          {exercises[currentExerciseIndex].name}
-                        </Text>
-                        <Text style={styles.exerciseDetails}>
-                          {getCompletedSets(exercises[currentExerciseIndex].id)}/{getTotalSets(exercises[currentExerciseIndex].id)} sets x {exercises[currentExerciseIndex].reps_range} reps
-                        </Text>
-                      </View>
-                      
-                      {exercises[currentExerciseIndex].primary_muscles && 
-                       exercises[currentExerciseIndex].primary_muscles!.length > 0 && (
-                        <View style={[
-                          styles.muscleTag, 
-                          { backgroundColor: getMuscleTagColor(exercises[currentExerciseIndex].primary_muscles![0]) }
-                        ]}>
-                          <Text style={styles.muscleTagText}>
-                            {exercises[currentExerciseIndex].primary_muscles![0]}
-                          </Text>
-                        </View>
-                      )}
-                    </TouchableOpacity>
+                      onRemove={() => handleRemoveExercise(currentExerciseIndex)}
+                      onDragStart={handleDragStart}
+                      onDragEnd={handleDragEnd}
+                      isDragging={isDragging}
+                      draggedIndex={draggedIndex}
+                    />
                   )}
                 </View>
 
-                {/* Next Exercises Section */}
-                <View style={styles.nextExercisesSection}>
-                  <Text style={styles.sectionTitle}>Next Exercises</Text>
+                {/* Upcoming Exercises Section */}
+                <View style={styles.upcomingExercisesSection}>
+                  <Text style={styles.sectionTitle}>
+                    Upcoming Exercises ({localExercises.length - currentExerciseIndex - 1})
+                  </Text>
                   
                   <ScrollView 
                     style={styles.exercisesList}
                     showsVerticalScrollIndicator={false}
+                    scrollEnabled={!isDragging} // Disable scroll when dragging
                   >
-                    {exercises.map((exercise, index) => {
+                    {localExercises.map((exercise, index) => {
+                      // Skip the current exercise (shown in Active section)
                       if (index === currentExerciseIndex) return null;
                       
-                      const isCompleted = getCompletedSets(exercise.id) === getTotalSets(exercise.id) && getTotalSets(exercise.id) > 0;
-                      const isPast = index < currentExerciseIndex;
-                      
                       return (
-                        <TouchableOpacity
+                        <DraggableExerciseCard
                           key={exercise.id}
-                          style={[
-                            styles.exerciseCard,
-                            isCompleted && styles.completedExerciseCard,
-                            isPast && styles.pastExerciseCard
-                          ]}
+                          exercise={exercise}
+                          index={index}
+                          currentExerciseIndex={currentExerciseIndex}
+                          isCustomizeMode={isCustomizeMode}
+                          exerciseSets={exerciseSets}
                           onPress={() => handleExercisePress(index)}
-                        >
-                          <View style={styles.exerciseImageContainer}>
-                            <OptimizedImage
-                              source={getImageSource(exercise)}
-                              style={[
-                                styles.exerciseImage,
-                                (isCompleted || isPast) && styles.completedExerciseImage
-                              ]}
-                              fallback={require('../../assets/exercises/placeholder.jpg')}
-                              resizeMode="cover"
-                              cachePolicy="immutable"
-                            />
-                            {isCompleted && (
-                              <View style={styles.completedOverlay}>
-                                <Ionicons name="checkmark-circle" size={24} color={COLORS.primary} />
-                              </View>
-                            )}
-                          </View>
-                          
-                          <View style={styles.exerciseInfo}>
-                            <Text style={[
-                              styles.exerciseName,
-                              (isCompleted || isPast) && styles.completedExerciseName
-                            ]}>
-                              {exercise.name}
-                            </Text>
-                            <Text style={[
-                              styles.exerciseDetails,
-                              (isCompleted || isPast) && styles.completedExerciseDetails
-                            ]}>
-                              {getCompletedSets(exercise.id)}/{getTotalSets(exercise.id)} sets x {exercise.reps_range} reps
-                            </Text>
-                          </View>
-                          
-                          {exercise.primary_muscles && exercise.primary_muscles.length > 0 && (
-                            <View style={[
-                              styles.muscleTag, 
-                              { backgroundColor: getMuscleTagColor(exercise.primary_muscles[0]) },
-                              (isCompleted || isPast) && styles.completedMuscleTag
-                            ]}>
-                              <Text style={[
-                                styles.muscleTagText,
-                                (isCompleted || isPast) && styles.completedMuscleTagText
-                              ]}>
-                                {exercise.primary_muscles[0]}
-                              </Text>
-                            </View>
-                          )}
-                        </TouchableOpacity>
+                          onRemove={() => handleRemoveExercise(index)}
+                          onDragStart={handleDragStart}
+                          onDragEnd={handleDragEnd}
+                          isDragging={isDragging}
+                          draggedIndex={draggedIndex}
+                        />
                       );
                     })}
+                    
+                    {/* Show message if no upcoming exercises */}
+                    {localExercises.length - currentExerciseIndex - 1 === 0 && (
+                      <View style={styles.noUpcomingExercises}>
+                        <Text style={styles.noUpcomingText}>
+                          🎉 This is your last exercise!
+                        </Text>
+                      </View>
+                    )}
                   </ScrollView>
                 </View>
+
+
               </View>
 
               {/* Exercise Detail View - Slides in from right */}
@@ -373,7 +658,7 @@ export default function ExerciseListModal({
                     <View style={styles.detailHeader}>
                       <View style={styles.detailImageContainer}>
                         <OptimizedImage
-                          source={getImageSource(exercises[selectedExerciseIndex])}
+                          source={getImageSource(localExercises[selectedExerciseIndex])}
                           style={styles.detailImage}
                           fallback={require('../../assets/exercises/placeholder.jpg')}
                           resizeMode="cover"
@@ -383,17 +668,17 @@ export default function ExerciseListModal({
                       
                       <View style={styles.detailInfo}>
                         <Text style={styles.detailExerciseName}>
-                          {exercises[selectedExerciseIndex].name}
+                          {localExercises[selectedExerciseIndex].name}
                         </Text>
-                        {exercises[selectedExerciseIndex].primary_muscles && 
-                         exercises[selectedExerciseIndex].primary_muscles!.length > 0 && (
+                        {localExercises[selectedExerciseIndex].primary_muscles && 
+                         localExercises[selectedExerciseIndex].primary_muscles!.length > 0 && (
                           <View style={styles.detailMuscleContainer}>
                             <View style={[
                               styles.detailMuscleTag, 
-                              { backgroundColor: getMuscleTagColor(exercises[selectedExerciseIndex].primary_muscles![0]) }
+                              { backgroundColor: getMuscleTagColor(localExercises[selectedExerciseIndex].primary_muscles![0]) }
                             ]}>
                               <Text style={styles.detailMuscleText}>
-                                {exercises[selectedExerciseIndex].primary_muscles![0]}
+                                {localExercises[selectedExerciseIndex].primary_muscles![0]}
                               </Text>
                             </View>
                           </View>
@@ -402,21 +687,21 @@ export default function ExerciseListModal({
                     </View>
 
                     {/* Max Weight Graph Section */}
-                    {exercises[selectedExerciseIndex] && exercises[selectedExerciseIndex].requires_weight !== false && (
+                    {localExercises[selectedExerciseIndex] && localExercises[selectedExerciseIndex].requires_weight !== false && (
                       <View style={styles.maxWeightGraphContainer}>
                         <ExerciseMaxWeightGraph
-                          data={maxWeightData[exercises[selectedExerciseIndex].exercise_id] || []}
-                          exerciseName={exercises[selectedExerciseIndex].name}
-                          absoluteMaxWeight={absoluteMaxWeightData[exercises[selectedExerciseIndex].exercise_id] || null}
+                          data={maxWeightData[localExercises[selectedExerciseIndex].exercise_id] || []}
+                          exerciseName={localExercises[selectedExerciseIndex].name}
+                          absoluteMaxWeight={absoluteMaxWeightData[localExercises[selectedExerciseIndex].exercise_id] || null}
                         />
                       </View>
                     )}
 
                     {/* Sets Section */}
                     <View style={styles.setsSection}>
-                      {Array.from({ length: exercises[selectedExerciseIndex].sets || 4 }).map((_, index) => {
+                      {Array.from({ length: localExercises[selectedExerciseIndex].sets || 4 }).map((_, index) => {
                         const setNumber = index + 1;
-                        const exercise = exercises[selectedExerciseIndex];
+                        const exercise = localExercises[selectedExerciseIndex];
                         
                         return (
                           <View key={index} style={styles.setRow}>
@@ -507,7 +792,60 @@ export default function ExerciseListModal({
             </View>
           </LinearGradient>
         </View>
-      </View>
+        
+        {/* Bottom Menu */}
+        {showBottomMenu && (
+          <Animated.View 
+            style={[
+              styles.bottomMenu,
+              {
+                transform: [{ translateY: bottomMenuAnim }]
+              }
+            ]}
+          >
+            <View style={styles.bottomMenuContent}>
+              <TouchableOpacity 
+                style={styles.bottomMenuButton}
+                onPress={() => {
+                  // TODO: Implement add exercise functionality
+                  console.log('Add Exercise pressed');
+                }}
+              >
+                <View style={styles.bottomMenuButtonContent}>
+                  <Ionicons name="add-circle" size={24} color={COLORS.primary} />
+                  <Text style={styles.bottomMenuButtonText}>Add Exercise</Text>
+                </View>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.bottomMenuButton}
+                onPress={() => {
+                  // TODO: Implement add superset functionality
+                  console.log('Add Superset pressed');
+                }}
+              >
+                <View style={styles.bottomMenuButtonContent}>
+                  <Ionicons name="link" size={24} color={COLORS.primary} />
+                  <Text style={styles.bottomMenuButtonText}>Add Superset</Text>
+                </View>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.bottomMenuButton}
+                onPress={() => {
+                  // TODO: Implement add cardio functionality
+                  console.log('Add Cardio pressed');
+                }}
+              >
+                <View style={styles.bottomMenuButtonContent}>
+                  <Ionicons name="heart" size={24} color={COLORS.primary} />
+                  <Text style={styles.bottomMenuButtonText}>Add Cardio</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        )}
+      </GestureHandlerRootView>
     </Modal>
   );
 }
@@ -573,11 +911,20 @@ const styles = StyleSheet.create({
   },
   headerButton: {
     padding: SPACING.xs,
+    zIndex: 1,
   },
   headerButtonText: {
     color: COLORS.text,
     fontSize: 16,
     fontWeight: '600',
+  },
+  headerTitleContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 0,
   },
   headerTitle: {
     color: COLORS.text,
@@ -593,6 +940,31 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: SPACING.md,
   },
+  allExercisesSection: {
+    flex: 1,
+    paddingHorizontal: SPACING.md,
+  },
+  activeExerciseSection: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
+  },
+  upcomingExercisesSection: {
+    flex: 1,
+    paddingHorizontal: SPACING.md,
+  },
+  noUpcomingExercises: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING.xl,
+    paddingHorizontal: SPACING.md,
+  },
+  noUpcomingText: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontStyle: 'italic',
+    opacity: 0.7,
+    textAlign: 'center',
+  },
   sectionTitle: {
     color: COLORS.text,
     fontSize: 14,
@@ -607,29 +979,64 @@ const styles = StyleSheet.create({
   exerciseCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.surface,
-    borderRadius: BORDER_RADIUS.md,
-    padding: SPACING.md,
+    backgroundColor: 'rgba(45, 52, 65, 0.95)',
+    borderRadius: 12,
+    padding: 8,
     marginBottom: SPACING.sm,
+    borderWidth: 0.3,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 4,
+    height: 76,
   },
   currentExerciseCard: {
-    backgroundColor: COLORS.primary,
-    borderWidth: 2,
-    borderColor: COLORS.primary,
+    backgroundColor: 'rgba(138, 80, 255, 0.12)',
+    borderWidth: 0.8,
+    borderColor: 'rgba(138, 80, 255, 0.6)',
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
   },
   completedExerciseCard: {
-    opacity: 0.7,
+    backgroundColor: 'rgba(45, 52, 65, 0.6)',
+    borderColor: 'rgba(76, 175, 80, 0.3)',
+    opacity: 0.8,
   },
   pastExerciseCard: {
-    opacity: 0.6,
+    backgroundColor: 'rgba(45, 52, 65, 0.7)',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    opacity: 0.7,
   },
   exerciseImageContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: BORDER_RADIUS.sm,
+    width: 72,
+    height: 72,
+    borderRadius: 10,
     overflow: 'hidden',
-    marginRight: SPACING.md,
+    marginRight: 14,
     position: 'relative',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderWidth: 0.3,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  currentExerciseImageContainer: {
+    borderWidth: 0.5,
+    borderColor: 'rgba(138, 80, 255, 0.4)',
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+    backgroundColor: 'rgba(138, 80, 255, 0.08)',
   },
   exerciseImage: {
     width: '100%',
@@ -650,37 +1057,60 @@ const styles = StyleSheet.create({
   },
   exerciseInfo: {
     flex: 1,
+    marginRight: 50,
   },
   exerciseName: {
     color: COLORS.text,
     fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: SPACING.xs,
+    fontWeight: '700',
+    marginBottom: 5,
+    letterSpacing: 0.3,
+    lineHeight: 18,
+    flexShrink: 1,
   },
   completedExerciseName: {
-    opacity: 0.7,
+    opacity: 0.75,
+    textDecorationLine: 'line-through',
+    textDecorationColor: 'rgba(76, 175, 80, 0.8)',
   },
   exerciseDetails: {
-    color: COLORS.text,
-    fontSize: 14,
-    opacity: 0.8,
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontSize: 13,
+    fontWeight: '500',
+    letterSpacing: 0.2,
+    lineHeight: 16,
   },
   completedExerciseDetails: {
-    opacity: 0.5,
+    opacity: 0.6,
   },
   muscleTag: {
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.xs,
-    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
     marginLeft: SPACING.sm,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 1,
   },
   completedMuscleTag: {
     opacity: 0.6,
   },
+  currentMuscleTag: {
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 3,
+    transform: [{ scale: 1.02 }],
+  },
   muscleTagText: {
     color: COLORS.background,
-    fontSize: 12,
-    fontWeight: 'bold',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
   },
   completedMuscleTagText: {
     opacity: 0.8,
@@ -882,5 +1312,124 @@ const styles = StyleSheet.create({
     opacity: 0.7,
     textAlign: 'center',
     marginTop: SPACING.xs,
+  },
+  // New styles for customize mode
+  activeCustomizeText: {
+    color: COLORS.primary,
+  },
+  reorderHandle: {
+    position: 'absolute',
+    left: SPACING.xs,
+    top: '50%',
+    transform: [{ translateY: -12 }],
+    zIndex: 1,
+    flexDirection: 'column',
+    alignItems: 'center',
+  },
+  reorderButton: {
+    padding: 2,
+    marginVertical: 1,
+  },
+  recycleIconContainer: {
+    position: 'absolute',
+    right: 6,
+    top: '40%',
+    transform: [{ translateY: -12 }],
+    zIndex: 999,
+    padding: 0,
+    backgroundColor: 'rgba(138, 80, 255, 0.15)',
+    borderRadius: 26,
+    width: 42,
+    height: 42,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 0.5,
+    borderColor: 'rgba(138, 80, 255, 0.33)',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  customizeModeCard: {
+    borderWidth: 0.3,
+    borderColor: COLORS.primary,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  // Bottom menu styles
+  bottomMenu: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: BORDER_RADIUS.lg,
+    borderTopRightRadius: BORDER_RADIUS.lg,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.primary,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -5 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+  },
+  bottomMenuContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: SPACING.lg,
+    paddingHorizontal: SPACING.md,
+  },
+  bottomMenuButton: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: SPACING.sm,
+  },
+  bottomMenuButtonContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bottomMenuButtonText: {
+    color: COLORS.text,
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: SPACING.xs,
+    textAlign: 'center',
+  },
+  // Reorder styles
+  exerciseCardContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 2,
+    paddingVertical: 2,
+  },
+  dragHandle: {
+    position: 'absolute',
+    left: SPACING.xs + 6, // Position it over the center of the image
+    top: '60%',
+    transform: [{ translateY: -22 }, { translateX: 14 }], // Perfect center over 72px image
+    zIndex: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+    elevation: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  imageShadowOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.66)',
+    borderRadius: 10,
   },
 }); 

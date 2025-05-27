@@ -2144,6 +2144,30 @@ export default function WorkoutSessionScreen() {
         lastExerciseValues={lastExerciseValues}
         initialSelectedExerciseIndex={initialSelectedExercise}
         onCustomizeExercise={handleCustomizeExerciseFromList}
+        onReorderExercises={(reorderedExercises) => {
+          setExercises(reorderedExercises);
+        }}
+        onRemoveExercise={(exerciseIndex) => {
+          // Remove exercise from the exercises array
+          setExercises(prev => prev.filter((_, index) => index !== exerciseIndex));
+          
+          // Remove exercise sets for the removed exercise
+          const removedExercise = exercises[exerciseIndex];
+          if (removedExercise) {
+            setExerciseSets(prev => {
+              const updated = { ...prev };
+              delete updated[removedExercise.id];
+              return updated;
+            });
+          }
+          
+          // Adjust current exercise index if needed
+          if (exerciseIndex < currentExerciseIndex) {
+            setCurrentExerciseIndex(prev => prev - 1);
+          } else if (exerciseIndex === currentExerciseIndex && currentExerciseIndex >= exercises.length - 1) {
+            setCurrentExerciseIndex(prev => Math.max(0, prev - 1));
+          }
+        }}
       />
       
       {/* Customize Exercise Modal */}

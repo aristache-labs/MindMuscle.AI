@@ -102,7 +102,7 @@ export default function WorkoutSessionScreen() {
     repsAdjustmentPercentage: number;
   } | null>(null);
 
-  // Initialize the exercise sets hook (keeping original state as backup for now)
+  // Initialize the exercise sets hook with all necessary callbacks
   const exerciseSetsHook = useExerciseSets({
     exercises,
     currentExerciseIndex,
@@ -113,29 +113,39 @@ export default function WorkoutSessionScreen() {
     setTotalVolume,
     setTotalReps,
     onWorkoutComplete: (volume, reps, sets) => {
-      // TODO: Implement workout completion callback
+      // Callback for basic workout completion (not currently used)
       console.log('Workout completion callback:', volume, reps);
     },
     onExerciseComplete: () => {
-      // TODO: Implement exercise completion callback
+      // Callback for exercise completion (not currently used)
       console.log('Exercise completion callback');
     },
     onStartRestTimer: (seconds) => {
       startRestTimer(seconds);
     },
-    // TEST: Pass external state to hook for integration testing
+    // Pass external state to hook for integration
     exerciseSets,
     setExerciseSets,
     userEnteredValues,
     setUserEnteredValues,
     exerciseCustomized,
     setExerciseCustomized,
+    // Additional callbacks for complex functions
+    onCompleteWorkoutWithStateSync: (volume, reps, sets) => {
+      completeWorkoutWithStateSync(volume, reps, sets);
+    },
+    onMoveToNextExercise: () => {
+      moveToNextExercise();
+    },
   });
 
-  // TEST: Use hook functions instead of local functions for weight and reps changes
+  // Use hook functions for all exercise set management
   const {
     handleWeightChange: hookHandleWeightChange,
     handleRepsChange: hookHandleRepsChange,
+    handleSetComplete: hookHandleSetComplete,
+    handleRedoSet: hookHandleRedoSet,
+    handleLogAllSets: hookHandleLogAllSets,
   } = exerciseSetsHook;
 
   
@@ -1352,7 +1362,10 @@ export default function WorkoutSessionScreen() {
     }
   };
 
+  // REPLACED BY HOOK VERSIONS - These local functions are no longer used
+  // All set management functions are now provided by useExerciseSets hook
   const handleSetComplete = (exerciseId: string, setIndex: number) => {
+    console.warn('⚠️ LOCAL VERSION: handleSetComplete called - THIS SHOULD NOT HAPPEN!', exerciseId, setIndex);
     // Get current weight and reps values from the inputs
     const currentSet = exerciseSets[exerciseId][setIndex];
     
@@ -1492,6 +1505,7 @@ export default function WorkoutSessionScreen() {
   };
 
   const handleRedoSet = (exerciseId: string, setIndex: number) => {
+    console.warn('⚠️ LOCAL VERSION: handleRedoSet called - THIS SHOULD NOT HAPPEN!', exerciseId, setIndex);
     // Mark the set as not completed and update volume/reps totals
     setExerciseSets(prev => {
       const updatedSets = [...prev[exerciseId]];
@@ -1536,6 +1550,7 @@ export default function WorkoutSessionScreen() {
   };
 
   const handleLogAllSets = (exerciseId: string) => {
+    console.warn('⚠️ LOCAL VERSION: handleLogAllSets called - THIS SHOULD NOT HAPPEN!', exerciseId);
     // Get the current sets for this exercise
     const sets = exerciseSets[exerciseId];
     if (!sets || sets.length === 0) return;
@@ -1686,113 +1701,8 @@ export default function WorkoutSessionScreen() {
     }
   };
 
-  // COMMENTED OUT FOR TESTING - Using hook version instead
-  // const handleWeightChange = (exerciseId: string, setIndex: number, value: string) => {
-  //   // Validate and transform the input value
-  //   // Allow decimal input with either dot or comma as separator
-  //   let processedValue = value;
-  //   
-  //   // Replace comma with dot for decimal values
-  //   if (value.includes(',')) {
-  //     processedValue = value.replace(',', '.');
-  //   }
-  //   
-  //   // Keep '-' as is but remove leading zeros
-  //   if (processedValue !== '-') {
-  //     // Handle decimal values correctly
-  //     if (processedValue.includes('.')) {
-  //       const [wholePart, decimalPart] = processedValue.split('.');
-  //       
-  //       // Limit whole part to 999 maximum
-  //       let limitedWholePart = wholePart.replace(/^0+(?=\d)/, '');
-  //       if (limitedWholePart !== '' && parseInt(limitedWholePart, 10) > 999) {
-  //         limitedWholePart = '999';
-  //       }
-  //       
-  //       // Limit decimal part to 1 digit
-  //       const limitedDecimalPart = decimalPart.length > 0 ? decimalPart.substring(0, 1) : '';
-  //       processedValue = `${limitedWholePart}.${limitedDecimalPart}`;
-  //     } else {
-  //       // For non-decimal values, limit to 999 maximum
-  //       let limitedValue = processedValue.replace(/^0+(?=\d)/, '');
-  //       if (limitedValue !== '' && parseInt(limitedValue, 10) > 999) {
-  //         limitedValue = '999';
-  //       }
-  //       processedValue = limitedValue;
-  //     }
-  //   }
-  //   
-  //   // Mark this input as user-entered
-  //   const inputKey = `${exerciseId}-${setIndex}-weight`;
-  //   setUserEnteredValues(prev => ({
-  //     ...prev,
-  //     [inputKey]: true
-  //   }));
-  //   
-  //   setExerciseSets(prev => {
-  //     const updatedSets = { ...prev };
-  //     if (updatedSets[exerciseId]) {
-  //       updatedSets[exerciseId][setIndex].weight = processedValue;
-  //     }
-  //     return updatedSets;
-  //   });
-  // };
-
-  // COMMENTED OUT FOR TESTING - Using hook version instead
-  // const handleRepsChange = (exerciseId: string, setIndex: number, value: string) => {
-  //   // Validate and transform the input value for reps (whole numbers only)
-  //   let processedValue = value;
-  //   
-  //   // Remove any decimal characters (. and ,) since reps must be whole numbers
-  //   processedValue = processedValue.replace(/[.,]/g, '');
-  //   
-  //   // Keep '-' as is for ranges, but remove leading zeros from numbers
-  //   if (processedValue !== '-' && processedValue !== '') {
-  //     // Remove leading zeros but preserve the value
-  //     processedValue = processedValue.replace(/^0+(?=\d)/, '');
-  //   }
-  //   
-  //   // Limit reps to a maximum of 999
-  //   if (processedValue !== '-' && processedValue !== '' && !processedValue.includes('-')) {
-  //     const numValue = parseInt(processedValue, 10);
-  //     if (!isNaN(numValue) && numValue > 999) {
-  //       processedValue = '999';
-  //     }
-  //   }
-  //   
-  //   // For ranges (like "1-99"), validate each part separately
-  //   if (processedValue.includes('-') && processedValue !== '-') {
-  //     const parts = processedValue.split('-');
-  //     if (parts.length === 2) {
-  //       const firstNum = parseInt(parts[0], 10);
-  //       const secondNum = parseInt(parts[1], 10);
-  //       
-  //       // Limit each part of the range to 99
-  //       const limitedFirst = !isNaN(firstNum) && firstNum > 99 ? 99 : firstNum;
-  //       const limitedSecond = !isNaN(secondNum) && secondNum > 99 ? 99 : secondNum;
-  //       
-  //       // Reconstruct the range if both parts are valid numbers
-  //       if (!isNaN(limitedFirst) && !isNaN(limitedSecond)) {
-  //         processedValue = `${limitedFirst}-${limitedSecond}`;
-  //       }
-  //     }
-  //   }
-  //   
-  //   // Mark this input as user-entered
-  //   const inputKey = `${exerciseId}-${setIndex}-reps`;
-  //   setUserEnteredValues(prev => ({
-  //     ...prev,
-  //     [inputKey]: true
-  //   }));
-  //   
-  //   setExerciseSets(prev => {
-  //     const updatedSets = { ...prev };
-  //     if (updatedSets[exerciseId]) {
-  //       updatedSets[exerciseId][setIndex].reps = processedValue;
-  //     }
-  //     return updatedSets;
-  //   });
-  // };
+  // REPLACED BY HOOK VERSIONS - These local functions are no longer used
+  // handleWeightChange and handleRepsChange are now provided by useExerciseSets hook
 
   const moveToNextExercise = () => {
     if (currentExerciseIndex < exercises.length - 1) {
@@ -2359,7 +2269,7 @@ export default function WorkoutSessionScreen() {
                         <View style={styles.didItButtonCell}>
                           <TouchableOpacity 
                             style={{flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center'}}
-                            onPress={() => handleSetComplete(currentExercise.id, index)}
+                            onPress={() => hookHandleSetComplete(currentExercise.id, index)}
                           >
                             <Text style={styles.didItTextSet}>Did It</Text>
                           </TouchableOpacity>
@@ -2495,10 +2405,10 @@ export default function WorkoutSessionScreen() {
                           onPress={() => {
                             if (isCompleted) {
                               // If completed, redo the set
-                              handleRedoSet(currentExercise.id, index);
+                              hookHandleRedoSet(currentExercise.id, index);
                             } else if (isActive) {
                               // If active but not completed, mark as complete
-                              handleSetComplete(currentExercise.id, index);
+                              hookHandleSetComplete(currentExercise.id, index);
                             }
                           }}
                           disabled={!isCompleted && !isActive}
@@ -2523,7 +2433,7 @@ export default function WorkoutSessionScreen() {
           mode="contained"
           style={styles.logAllButton}
           labelStyle={styles.logAllButtonText}
-          onPress={() => handleLogAllSets(currentExercise.id)}
+          onPress={() => hookHandleLogAllSets(currentExercise.id)}
         >
           Log All Sets
         </Button>

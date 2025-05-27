@@ -71,6 +71,7 @@
     "react-dom": "19.0.0",
     "react-native": "0.79.2",
     "react-native-calendars": "^1.1312.0",
+    "react-native-draggable-flatlist": "^4.0.3",
     "react-native-gesture-handler": "~2.24.0",
     "react-native-get-random-values": "^1.11.0",
     "react-native-gifted-charts": "^1.4.61",

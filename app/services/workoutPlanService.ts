@@ -1743,6 +1743,30 @@ export const savePausedWorkout = async (
   originalCycleWeek: number | null = null
 ): Promise<boolean> => {
   try {
+    console.log('SAVING PAUSED WORKOUT - User ID:', userId, 'Plan ID:', planId, 'Day:', workoutDay);
+    
+    // Check for any switched exercises
+    const switchedExercises = exercises.filter((ex: any) => ex.isChangedExercise === true);
+    if (switchedExercises.length > 0) {
+      console.log('SAVING PAUSED WORKOUT - Found switched exercises:', JSON.stringify(switchedExercises));
+      console.log('SAVING PAUSED WORKOUT - Exercise sets for switched exercises:', 
+        JSON.stringify(switchedExercises.map(ex => ({
+          id: ex.id,
+          sets: exerciseSets[ex.id]
+        }))));
+      
+      // Make sure the isChangedExercise flag is properly set for all switched exercises
+      // This ensures the flag will be preserved in the database
+      exercises = exercises.map(ex => {
+        if (switchedExercises.some(switched => switched.id === ex.id)) {
+          return {
+            ...ex,
+            isChangedExercise: true
+          };
+        }
+        return ex;
+      });
+    }
     // Create a paused workout object with all necessary data
     const pausedWorkout = {
       userId,
@@ -1803,14 +1827,33 @@ export const getPausedWorkout = async (
   workoutDay?: number
 ): Promise<any | null> => {
   try {
+    console.log('GETTING PAUSED WORKOUT - User ID:', userId, 'Plan ID:', planId, 'Day:', workoutDay);
     // First try to get from AsyncStorage (works offline)
     const pausedWorkoutJson = await AsyncStorage.getItem(PAUSED_WORKOUT_KEY);
     let pausedWorkout = pausedWorkoutJson ? JSON.parse(pausedWorkoutJson) : null;
+    
+    if (pausedWorkout) {
+      console.log('GETTING PAUSED WORKOUT - Found paused workout in AsyncStorage');
+      
+      // Check for any switched exercises in the paused workout
+      if (pausedWorkout.exercises) {
+        const switchedExercises = pausedWorkout.exercises.filter((ex: any) => ex.isChangedExercise === true);
+        if (switchedExercises.length > 0) {
+          console.log('GETTING PAUSED WORKOUT - Found switched exercises in AsyncStorage:', JSON.stringify(switchedExercises));
+          console.log('GETTING PAUSED WORKOUT - Exercise sets for switched exercises:', 
+            JSON.stringify(switchedExercises.map((ex: any) => ({
+              id: ex.id,
+              sets: pausedWorkout.exerciseSets[ex.id]
+            }))));
+        }
+      }
+    }
     
     // If we have a specific workout to check for
     if (pausedWorkout && planId && workoutDay !== undefined) {
       // Check if the paused workout matches the requested plan and day
       if (pausedWorkout.planId !== planId || pausedWorkout.workoutDay !== workoutDay) {
+        console.log('GETTING PAUSED WORKOUT - Paused workout does not match requested plan/day');
         pausedWorkout = null;
       }
     }
@@ -1831,7 +1874,13 @@ export const getPausedWorkout = async (
       
       const { data, error } = await query;
       
+      if (error) {
+        console.log('GETTING PAUSED WORKOUT - Error fetching from database:', error);
+      }
+      
       if (!error && data && data.length > 0) {
+        console.log('GETTING PAUSED WORKOUT - Found paused workout in database');
+        
         // Convert from database format to application format
         pausedWorkout = {
           userId: data[0].user_id,
@@ -1848,6 +1897,34 @@ export const getPausedWorkout = async (
           originalCycleWeek: data[0].original_cycle_week,
           pausedAt: data[0].paused_at
         };
+        
+        // Ensure the isChangedExercise flag is properly set for all exercises
+        // This is important because the flag might not be properly serialized in the database
+        if (pausedWorkout.exercises && Array.isArray(pausedWorkout.exercises)) {
+          pausedWorkout.exercises = pausedWorkout.exercises.map((ex: any) => {
+            // Make sure the isChangedExercise property is a boolean
+            if (ex.isChangedExercise === 'true' || ex.isChangedExercise === true) {
+              return {
+                ...ex,
+                isChangedExercise: true
+              };
+            }
+            return ex;
+          });
+        }
+        
+        // Check for any switched exercises in the database paused workout
+        if (pausedWorkout.exercises) {
+          const switchedExercises = pausedWorkout.exercises.filter((ex: any) => ex.isChangedExercise === true);
+          if (switchedExercises.length > 0) {
+            console.log('GETTING PAUSED WORKOUT - Found switched exercises in database:', JSON.stringify(switchedExercises));
+            console.log('GETTING PAUSED WORKOUT - Exercise sets for switched exercises from database:', 
+              JSON.stringify(switchedExercises.map((ex: any) => ({
+                id: ex.id,
+                sets: pausedWorkout.exerciseSets[ex.id]
+              }))));
+          }
+        }
         
         // Save to AsyncStorage for offline access
         await AsyncStorage.setItem(PAUSED_WORKOUT_KEY, JSON.stringify(pausedWorkout));

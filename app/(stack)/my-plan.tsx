@@ -834,67 +834,265 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
       return pausedWorkoutData;
     }
 
+    console.log('UPDATING PAUSED WORKOUT - Initial paused workout data:', JSON.stringify(pausedWorkoutData.exercises));
+    
+    // Check for any switched exercises in the paused workout
+    const switchedExercisesInPausedWorkout = pausedWorkoutData.exercises.filter((ex: any) => ex.isChangedExercise === true);
+    if (switchedExercisesInPausedWorkout.length > 0) {
+      console.log('UPDATING PAUSED WORKOUT - Found switched exercises in paused workout:', JSON.stringify(switchedExercisesInPausedWorkout));
+      console.log('UPDATING PAUSED WORKOUT - Exercise sets for switched exercises:', 
+        JSON.stringify(switchedExercisesInPausedWorkout.map((ex: any) => ({
+          id: ex.id,
+          sets: pausedWorkoutData.exerciseSets[ex.id]
+        }))));
+    }
+
     try {
       // Fetch the current workout data to get any customizations
+      console.log('UPDATING PAUSED WORKOUT - Fetching current workout data for plan:', plan.id, 'day:', pausedWorkoutData.workoutDay, 'cycle week:', pausedWorkoutData.cycleWeek);
+      
       const { exercises: currentExercises } = await workoutPlanService.fetchWorkoutData(
         plan.id, 
         pausedWorkoutData.workoutDay, 
         user.id, 
         pausedWorkoutData.cycleWeek
       );
+      
+      console.log('UPDATING PAUSED WORKOUT - Current workout data from database:', JSON.stringify(currentExercises));
 
-      // Update the paused workout exercises with current customizations
-      const updatedExercises = pausedWorkoutData.exercises.map((pausedExercise: any) => {
-        const currentExercise = currentExercises.find((ex: any) => 
-          ex.exercise_id === pausedExercise.exercise_id || ex.id === pausedExercise.id
-        );
+      // Define interface for exercise changes
+      interface ExerciseChange {
+        id: string;
+        oldExerciseId: string;
+        newExerciseId: string;
+        newExercise: any; // Using any here as it's from the current exercises
+      }
+
+      // Check for any exercise changes (exercises that have been switched)
+      const updatedExercises: any[] = [];
+      const exerciseChanges: ExerciseChange[] = [];
+      
+      // First, identify exercises that have been changed
+      for (const pausedExercise of pausedWorkoutData.exercises) {
+        // Check if this exercise was already changed during the workout (has isChangedExercise flag)
+        const wasChangedDuringWorkout = pausedExercise.isChangedExercise === true;
+        
+        // Find the corresponding exercise in the current workout
+        const currentExercise = currentExercises.find((ex: any) => ex.id === pausedExercise.id);
         
         if (currentExercise) {
-          // Update with current sets and reps_range
-          return {
-            ...pausedExercise,
-            sets: currentExercise.sets,
-            reps_range: currentExercise.reps_range
-          };
+          // Check if the exercise was already changed during the workout (has isChangedExercise flag)
+          if (wasChangedDuringWorkout) {
+            console.log('UPDATING PAUSED WORKOUT - Exercise was already changed during workout:', pausedExercise.name);
+            // IMPORTANT: For exercises that were already switched during the workout,
+            // we should NOT update them with the database values, as those will contain the original exercise
+            updatedExercises.push({
+              ...pausedExercise,
+              // Only update non-identifying properties
+              sets: currentExercise.sets,
+              reps_range: currentExercise.reps_range,
+              // Keep the isChangedExercise flag
+              isChangedExercise: true
+            });
+          } else {
+            // Check if the exercise has been changed since pausing (different exercise_id)
+            const hasChangedSincePausing = currentExercise.exercise_id !== pausedExercise.exercise_id;
+            
+            if (hasChangedSincePausing) {
+              console.log('UPDATING PAUSED WORKOUT - Exercise has changed since pausing:', 
+                pausedExercise.name, '->', currentExercise.name);
+              
+              exerciseChanges.push({
+                id: pausedExercise.id,
+                oldExerciseId: pausedExercise.exercise_id,
+                newExerciseId: currentExercise.exercise_id,
+                newExercise: currentExercise
+              });
+              
+              // Update the exercise with current customizations
+              updatedExercises.push({
+                ...pausedExercise,
+                // Update with the current exercise data
+                exercise_id: currentExercise.exercise_id,
+                name: currentExercise.name,
+                sets: currentExercise.sets,
+                reps_range: currentExercise.reps_range,
+                image_url: currentExercise.image_url,
+                primary_muscles: currentExercise.primary_muscles,
+                requires_weight: currentExercise.requires_weight,
+                // Mark as a changed exercise
+                isChangedExercise: true
+              });
+            } else {
+              // The exercise hasn't changed since pausing
+              updatedExercises.push({
+                ...pausedExercise,
+                // Update with current customizations
+                sets: currentExercise.sets,
+                reps_range: currentExercise.reps_range,
+                // No change flag needed
+                isChangedExercise: false
+              });
+            }
+          }
+        } else {
+          // If the exercise doesn't exist in the current workout, keep it as is
+          // but preserve the isChangedExercise flag
+          updatedExercises.push(pausedExercise);
         }
-        
-        return pausedExercise;
-      });
+      }
 
-      // Update exercise sets to match new set counts
+      // Update exercise sets to match new set counts and handle exercise changes
       const updatedExerciseSets = { ...pausedWorkoutData.exerciseSets };
       
+      // For each exercise that has been changed, fetch history data
+      if (exerciseChanges.length > 0) {
+        // Create a list of exercises to fetch history data for
+        const exercisesToFetch = exerciseChanges.map(change => ({
+          id: change.id,
+          exercise_id: change.newExerciseId,
+          name: change.newExercise.name,
+          sets: change.newExercise.sets,
+          reps_range: change.newExercise.reps_range,
+          // Add required properties from ExerciseData interface
+          order: change.newExercise.order || 0,
+          workout_day: pausedWorkoutData.workoutDay
+        }));
+        
+        // Fetch last exercise records for the new exercises
+        if (exercisesToFetch.length > 0) {
+          const lastValues = await workoutPlanService.fetchLastExerciseRecords(user.id, exercisesToFetch);
+          
+          // Update exercise sets with history data or placeholders
+          for (const change of exerciseChanges) {
+            const historyData = lastValues[change.newExerciseId];
+            const currentSets = updatedExerciseSets[change.id] || [];
+            const newSetsCount = change.newExercise.sets;
+            
+            // Create new sets array with the correct number of sets
+            const newSets = [];
+            
+            for (let i = 0; i < newSetsCount; i++) {
+              const setNumber = i + 1;
+              const historySet = historyData?.[setNumber];
+              
+              // If we have history data for this set, use it; otherwise use placeholder
+              if (historySet) {
+                newSets.push({
+                  id: `${change.id}-set-${setNumber}`,
+                  setNumber: setNumber,
+                  weight: historySet.weight || '-',
+                  reps: historySet.reps || '-',
+                  isCompleted: false
+                });
+              } else {
+                // No history data, use placeholder
+                newSets.push({
+                  id: `${change.id}-set-${setNumber}`,
+                  setNumber: setNumber,
+                  weight: '-',
+                  reps: '-',
+                  isCompleted: false
+                });
+              }
+            }
+            
+            // Update the exercise sets
+            updatedExerciseSets[change.id] = newSets;
+          }
+        }
+      }
+      
+      // Handle all exercises to ensure proper set counts and preserve completed sets
       updatedExercises.forEach((exercise: any) => {
         const currentSets = updatedExerciseSets[exercise.id] || [];
         const newSetsCount = exercise.sets;
+        const wasChangedExercise = exercise.isChangedExercise === true;
         
-        if (currentSets.length !== newSetsCount) {
-          if (currentSets.length < newSetsCount) {
-            // Add new sets
-            const newSets = [...currentSets];
-            for (let i = currentSets.length; i < newSetsCount; i++) {
-              newSets.push({
-                id: `${exercise.id}-set-${i + 1}`,
-                setNumber: i + 1,
-                weight: '',
-                reps: exercise.reps_range || '',
-                isCompleted: false
-              });
+        // For exercises that were switched during the workout but already have completed sets,
+        // we want to preserve those completed sets rather than fetching new history
+        const hasCompletedSets = currentSets.some((set: { isCompleted: boolean }) => set.isCompleted);
+        
+        // If this is a changed exercise with completed sets, we should skip fetching history
+        // and preserve the existing sets data
+        if (wasChangedExercise && hasCompletedSets) {
+          // Skip this exercise in the exerciseChanges array to prevent fetching history
+          const changeIndex = exerciseChanges.findIndex(change => change.id === exercise.id);
+          if (changeIndex !== -1) {
+            exerciseChanges.splice(changeIndex, 1);
+          }
+          
+          // Just adjust the set count if needed
+          if (currentSets.length !== newSetsCount) {
+            if (currentSets.length < newSetsCount) {
+              // Add new sets
+              const newSets = [...currentSets];
+              for (let i = currentSets.length; i < newSetsCount; i++) {
+                newSets.push({
+                  id: `${exercise.id}-set-${i + 1}`,
+                  setNumber: i + 1,
+                  weight: '',
+                  reps: exercise.reps_range || '',
+                  isCompleted: false
+                });
+              }
+              updatedExerciseSets[exercise.id] = newSets;
+            } else {
+              // Remove excess sets (keep only completed ones if they fit)
+              const trimmedSets = currentSets.slice(0, newSetsCount);
+              updatedExerciseSets[exercise.id] = trimmedSets;
             }
-            updatedExerciseSets[exercise.id] = newSets;
-          } else {
-            // Remove excess sets (keep only completed ones if they fit)
-            const trimmedSets = currentSets.slice(0, newSetsCount);
-            updatedExerciseSets[exercise.id] = trimmedSets;
+          }
+        }
+        // For exercises that weren't handled by exerciseChanges (not newly switched)
+        else if (!exerciseChanges.some(change => change.id === exercise.id)) {
+          if (currentSets.length !== newSetsCount) {
+            if (currentSets.length < newSetsCount) {
+              // Add new sets
+              const newSets = [...currentSets];
+              for (let i = currentSets.length; i < newSetsCount; i++) {
+                newSets.push({
+                  id: `${exercise.id}-set-${i + 1}`,
+                  setNumber: i + 1,
+                  weight: '',
+                  reps: exercise.reps_range || '',
+                  isCompleted: false
+                });
+              }
+              updatedExerciseSets[exercise.id] = newSets;
+            } else {
+              // Remove excess sets (keep only completed ones if they fit)
+              const trimmedSets = currentSets.slice(0, newSetsCount);
+              updatedExerciseSets[exercise.id] = trimmedSets;
+            }
           }
         }
       });
 
-      return {
+      // Create the final updated paused workout data
+      const finalPausedWorkoutData = {
         ...pausedWorkoutData,
         exercises: updatedExercises,
         exerciseSets: updatedExerciseSets
       };
+      
+      // Log the final result
+      console.log('UPDATING PAUSED WORKOUT - Final updated exercises:', JSON.stringify(finalPausedWorkoutData.exercises));
+      
+      // Check if any switched exercises were preserved
+      const finalSwitchedExercises = finalPausedWorkoutData.exercises.filter((ex: any) => ex.isChangedExercise === true);
+      if (finalSwitchedExercises.length > 0) {
+        console.log('UPDATING PAUSED WORKOUT - Switched exercises in final result:', JSON.stringify(finalSwitchedExercises));
+        console.log('UPDATING PAUSED WORKOUT - Final exercise sets for switched exercises:', 
+          JSON.stringify(finalSwitchedExercises.map((ex: any) => ({
+            id: ex.id,
+            sets: finalPausedWorkoutData.exerciseSets[ex.id]
+          }))));
+      } else if (switchedExercisesInPausedWorkout.length > 0) {
+        console.log('UPDATING PAUSED WORKOUT - WARNING: Switched exercises were lost during update!');
+      }
+      
+      return finalPausedWorkoutData;
     } catch (error) {
       console.error('Error updating paused workout with customizations:', error);
       return pausedWorkoutData;

@@ -20,6 +20,7 @@ interface Exercise {
   order: number;
   workout_day: number;
   requires_weight?: boolean;
+  isChangedExercise?: boolean;
 }
 
 interface CustomizeExerciseModalProps {
@@ -101,6 +102,8 @@ export default function CustomizeExerciseModal({
           order: selectedExercise.order,
           workout_day: selectedExercise.workout_day,
           requires_weight: selectedExercise.requires_weight,
+          // Pass along the isChangedExercise flag if it exists
+          isChangedExercise: selectedExercise.isChangedExercise || false
         };
         
         console.log('CustomizeExerciseModal: Calling onExerciseChange with:', newExercise);

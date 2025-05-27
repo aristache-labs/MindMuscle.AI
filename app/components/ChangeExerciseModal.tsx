@@ -113,7 +113,12 @@ export default function ChangeExerciseModal({
     if (selectedExercise) {
       console.log('ChangeExerciseModal: Confirming exercise change:', selectedExercise);
       try {
-        onExerciseSelect(selectedExercise);
+        // Add a flag to indicate this is a changed exercise that needs history data
+        const exerciseWithChangeFlag = {
+          ...selectedExercise,
+          isChangedExercise: true // This flag will be used to identify changed exercises
+        };
+        onExerciseSelect(exerciseWithChangeFlag);
         onClose();
       } catch (error) {
         console.error('Error in handleConfirmChange:', error);

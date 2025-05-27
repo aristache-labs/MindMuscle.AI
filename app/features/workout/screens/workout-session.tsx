@@ -74,11 +74,9 @@ export default function WorkoutSessionScreen() {
     setTotalReps,
     onWorkoutComplete: (volume, reps, sets) => {
       // Callback for basic workout completion (not currently used)
-      console.log('Workout completion callback:', volume, reps);
     },
     onExerciseComplete: () => {
       // Callback for exercise completion (not currently used)
-      console.log('Exercise completion callback');
     },
     onStartRestTimer: (seconds) => {
       startRestTimer(seconds);
@@ -164,6 +162,9 @@ export default function WorkoutSessionScreen() {
   
   // Add workout state management
   const [workoutState, setWorkoutState] = useState<'in_progress' | 'completing' | 'completed'>('in_progress');
+  
+  // Add state to track if we're resuming a paused workout to prevent overwriting paused data
+  const [isResumingPausedWorkout, setIsResumingPausedWorkout] = useState(false);
   
   // Functions to handle input focus and blur
   const handleInputFocus = (id: string, event?: any) => {
@@ -360,7 +361,7 @@ export default function WorkoutSessionScreen() {
 
   // Function to pre-fill sets with recommended values from database
   const preFillWithSuggestedValues = useCallback(() => {
-    if (Object.keys(recommendations).length === 0) {
+    if (Object.keys(recommendations).length === 0 || isResumingPausedWorkout) {
       return;
     }
 
@@ -411,7 +412,7 @@ export default function WorkoutSessionScreen() {
       
       return updatedSets;
     });
-      }, [recommendations, lastExerciseValues, exercises.length]);
+      }, [recommendations, lastExerciseValues, exercises.length, isResumingPausedWorkout]);
   
   // Store the original cycle week for redo workouts
   const [originalCycleWeek, setOriginalCycleWeek] = useState<number | null>(null);
@@ -423,10 +424,10 @@ export default function WorkoutSessionScreen() {
   
   // Effect to monitor exercises state and fetch last records when exercises change
   useEffect(() => {
-    if (exercises.length > 0 && user && !isLoading) {
+    if (exercises.length > 0 && user && !isLoading && !isResumingPausedWorkout) {
       fetchLastExerciseRecords();
     }
-  }, [exercises.length, user?.id, isLoading]); // Remove function dependency to prevent infinite loop
+  }, [exercises.length, user?.id, isLoading, isResumingPausedWorkout]); // Remove function dependency to prevent infinite loop
   
   // Effect to fetch max weight data for all exercises when exercises are loaded
   useEffect(() => {
@@ -461,14 +462,14 @@ export default function WorkoutSessionScreen() {
 
   // Effect to pre-fill sets with recommended values when they become available
   useEffect(() => {
-    if (Object.keys(recommendations).length > 0) {
+    if (Object.keys(recommendations).length > 0 && !isResumingPausedWorkout) {
       preFillWithSuggestedValues();
     }
-  }, [recommendations, lastExerciseValues, exercises.length]);
+  }, [recommendations, lastExerciseValues, exercises.length, isResumingPausedWorkout]);
 
   // Additional effect to pre-fill with last values when they become available (for cycle week 1 or when no suggested values)
   useEffect(() => {
-    if (Object.keys(lastExerciseValues).length > 0 && exercises.length > 0) {
+    if (Object.keys(lastExerciseValues).length > 0 && exercises.length > 0 && !isResumingPausedWorkout) {
       setExerciseSets(prev => {
         const updatedSets = { ...prev };
         let hasChanges = false;
@@ -478,6 +479,19 @@ export default function WorkoutSessionScreen() {
             // Don't pre-fill with last values if exercise was customized
             const isCustomized = exerciseCustomized[exercise.id];
             if (isCustomized) {
+              return;
+            }
+            
+            // Check if exercise sets already have values (indicating this might be a resumed workout)
+            const currentSets = updatedSets[exercise.id] || [];
+            const hasExistingValues = currentSets.some(set => 
+              (set.weight && set.weight !== '' && set.weight !== '-') || 
+              (set.reps && set.reps !== '' && set.reps !== '-') ||
+              set.isCompleted
+            );
+            
+            // Skip pre-filling if exercise already has values (resumed workout scenario)
+            if (hasExistingValues) {
               return;
             }
             
@@ -508,7 +522,7 @@ export default function WorkoutSessionScreen() {
         return hasChanges ? updatedSets : prev;
       });
     }
-  }, [lastExerciseValues, exercises, exerciseCustomized]);
+  }, [lastExerciseValues, exercises, exerciseCustomized, isResumingPausedWorkout]);
 
   useEffect(() => {
     // Check if workout is already completed for today, but skip if forceStart is true
@@ -534,12 +548,14 @@ export default function WorkoutSessionScreen() {
               resumePausedWorkout(pausedWorkout);
             } else {
               // No paused workout found, fetch workout data normally
+              setIsResumingPausedWorkout(false); // Make sure flag is cleared
               fetchWorkoutData();
               setWorkoutStartTime(new Date());
               startWorkoutTimer();
             }
           } catch (error) {
             // If there's an error, fetch workout data normally
+            setIsResumingPausedWorkout(false); // Make sure flag is cleared
             fetchWorkoutData();
             setWorkoutStartTime(new Date());
             startWorkoutTimer();
@@ -650,9 +666,12 @@ export default function WorkoutSessionScreen() {
     try {
       setIsLoading(true);
       
+      // Check if this is a redo workout
+      const isRedoWorkout = params.forceStart === 'true';
+      
       // Use the service function to fetch workout data
       const { exercises: formattedExercises, exerciseSets: initialSets, recommendations } = 
-        await workoutPlanService.fetchWorkoutData(planId, workoutDay, user.id, cycleWeek);
+        await workoutPlanService.fetchWorkoutData(planId, workoutDay, user.id, cycleWeek, isRedoWorkout);
       
       // Set exercises state
       setExercises(formattedExercises);
@@ -797,6 +816,9 @@ export default function WorkoutSessionScreen() {
     try {
       console.log('Resuming paused workout:', JSON.stringify(pausedWorkout.exercises));
       
+      // Set flag to prevent effects from overwriting paused workout data
+      setIsResumingPausedWorkout(true);
+      
       // Ensure all exercises have the correct isChangedExercise flag
       // Sometimes the flag might be a string 'true' instead of a boolean true
       if (pausedWorkout.exercises) {
@@ -865,7 +887,15 @@ export default function WorkoutSessionScreen() {
           workoutPlanService.fetchLastExerciseRecords(user.id, nonSwitchedExercises)
             .then((lastValues) => {
               console.log('Fetched last values for non-switched exercises');
-              // Only update non-switched exercises
+              
+              // Store the last values in state for the effects to use later
+              setLastExerciseValues(prev => ({
+                ...prev,
+                ...lastValues
+              }));
+              
+              // Only update non-switched exercises that have completely empty sets
+              // This is more conservative and prevents overwriting paused workout data
               setExerciseSets(prev => {
                 const updatedSets = { ...prev };
                 
@@ -877,14 +907,18 @@ export default function WorkoutSessionScreen() {
                   if (exerciseLastValues && !customizedExercises[exercise.id]) {
                     const currentSets = updatedSets[exercise.id] || [];
                     
-                    // Only update sets that haven't been completed yet
+                    // Only update sets that are completely empty (both weight and reps are empty or '-')
+                    // This ensures we don't overwrite paused workout data
                     updatedSets[exercise.id] = currentSets.map((set: any) => {
                       if (!set.isCompleted && exerciseLastValues[set.setNumber]) {
-                        return {
-                          ...set,
-                          weight: exerciseLastValues[set.setNumber].weight || '',
-                          reps: exerciseLastValues[set.setNumber].reps || ''
-                        };
+                        const isEmpty = (set.weight === '' || set.weight === '-') && (set.reps === '' || set.reps === '-');
+                        if (isEmpty) {
+                          return {
+                            ...set,
+                            weight: exerciseLastValues[set.setNumber].weight || '',
+                            reps: exerciseLastValues[set.setNumber].reps || ''
+                          };
+                        }
                       }
                       return set;
                     });
@@ -899,8 +933,9 @@ export default function WorkoutSessionScreen() {
             });
         }
       } else {
-        // If no switched exercises, fetch records for all exercises as normal
-        fetchLastExerciseRecords();
+        // If no switched exercises, delay fetching records until resume process is complete
+        // The existing effects will handle this automatically once isResumingPausedWorkout is cleared
+        console.log('No switched exercises - will fetch records after resume is complete');
       }
       
       // After everything is set up, verify that switched exercises are still marked correctly
@@ -969,8 +1004,16 @@ export default function WorkoutSessionScreen() {
       
       // Clear the paused workout since we're resuming it now
       workoutPlanService.clearPausedWorkout(user?.id, planId, workoutDay);
+      
+      // Clear the resuming flag after a longer delay to ensure all state updates are complete
+      setTimeout(() => {
+        setIsResumingPausedWorkout(false);
+        console.log('Cleared isResumingPausedWorkout flag - effects can now run normally');
+      }, 2000);
     } catch (error) {
       console.error('Error resuming paused workout:', error);
+      // Clear the resuming flag on error too
+      setIsResumingPausedWorkout(false);
       // If resuming fails, just start a new workout
       setIsLoading(false);
       fetchWorkoutData();
@@ -1135,10 +1178,6 @@ export default function WorkoutSessionScreen() {
 
   const handleExerciseChange = (newExercise: any) => {
     try {
-      console.log('WorkoutSession: handleExerciseChange called with:', newExercise);
-      console.log('WorkoutSession: Current exercise index:', currentExerciseIndex);
-      console.log('WorkoutSession: Current exercises array length:', exercises.length);
-      
       // Get the current exercise before any state updates
       const currentExercise = exercises[currentExerciseIndex];
       if (!currentExercise) {
@@ -1146,8 +1185,6 @@ export default function WorkoutSessionScreen() {
         console.error('Available exercises:', exercises.map(ex => ({ id: ex.id, name: ex.name })));
         return;
       }
-
-      console.log('WorkoutSession: Current exercise:', currentExercise);
 
       // Clear focused inputs first to ensure TextInputs lose focus
       setFocusedInputs({});
@@ -1183,7 +1220,6 @@ export default function WorkoutSessionScreen() {
 
       // Check if this is a changed exercise (from ChangeExerciseModal)
       const isChangedExercise = newExercise.isChangedExercise === true;
-      console.log('WorkoutSession: Is changed exercise:', isChangedExercise);
 
       // Reset the exercise sets for the new exercise using the captured currentExercise
       // Use setTimeout to ensure the above state clears happen first
@@ -1198,7 +1234,7 @@ export default function WorkoutSessionScreen() {
             isCompleted: false
           }));
 
-          console.log('WorkoutSession: Created new sets:', newSets);
+
 
           return {
             ...prev,
@@ -1285,7 +1321,6 @@ export default function WorkoutSessionScreen() {
                 }
               } else if (isChangedExercise) {
                 // No history data but this is a changed exercise, keep the placeholder values
-                console.log('No history data found for changed exercise, keeping placeholder values');
               } else {
                 // Clear any existing last values for this exercise_id
                 setLastExerciseValues(prev => {
@@ -1306,8 +1341,6 @@ export default function WorkoutSessionScreen() {
           }, 100);
         }
       }, 50); // Small delay to ensure state updates are processed
-      
-      console.log('WorkoutSession: Exercise change completed successfully');
     } catch (error) {
       console.error('WorkoutSession: Error in handleExerciseChange:', error);
       console.error('WorkoutSession: Error stack:', error instanceof Error ? error.stack : 'No stack trace');
@@ -1663,6 +1696,12 @@ export default function WorkoutSessionScreen() {
   const redoWorkout = async () => {
     // Store the current last exercise values before resetting
     const currentLastValues = {...lastExerciseValues};
+    
+    // Store the current exercises (including any switched ones) that we want to redo
+    const currentCompletedExercises = [...exercises];
+    
+    // Store the current exercise customizations to preserve them
+    const currentCustomizations = {...exerciseCustomized};
 
     // Store the original cycle week before resetting
     // This ensures we use the correct cycle week when saving the workout history
@@ -1676,9 +1715,12 @@ export default function WorkoutSessionScreen() {
     setTotalReps(0);
     setCurrentExerciseIndex(0);
     setUserEnteredValues({});
-    setExerciseCustomized({});
     
-    // Reset all sets to not completed
+    // Keep the exercise customizations from the completed workout
+    // This ensures switched exercises remain switched in the redo
+    setExerciseCustomized(currentCustomizations);
+    
+    // Reset all sets to not completed but maintain the same exercise structure
     setExerciseSets(prev => {
       const resetSets = { ...prev };
       Object.keys(resetSets).forEach(exerciseId => {
@@ -1692,49 +1734,70 @@ export default function WorkoutSessionScreen() {
       return resetSets;
     });
     
-    // Immediately restore the last exercise values to ensure they're available
-    // This prevents the values from disappearing during state updates
-    setLastExerciseValues(currentLastValues);
-    
-    // Fetch fresh workout data to reset exercises to their original state
-    // This ensures that any customizations from previous sessions are cleared
+    // Keep the same exercises that were just completed (including switched exercises)
+    // Instead of fetching fresh data from the plan, preserve the workout as it was completed
     try {
       setIsLoading(true);
       
-      // Use the service function to fetch fresh workout data
-      const { exercises: freshExercises, exerciseSets: freshSets, recommendations: freshRecommendations } = 
-        await workoutPlanService.fetchWorkoutData(planId, workoutDay, user?.id || '', cycleWeek);
+      // Preserve the exercises exactly as they were (including any switches)
+      setExercises(currentCompletedExercises);
       
-      // Update exercises with fresh data (this resets any customizations)
-      setExercises(freshExercises);
+      // CRITICAL FIX: Fetch fresh exercise history for the preserved exercises
+      // This ensures we have the latest exercise history regardless of which week we're on
+      let freshLastValues = currentLastValues;
+      if (currentCompletedExercises.length > 0 && user) {
+        try {
+          freshLastValues = await workoutPlanService.fetchLastExerciseRecords(user.id, currentCompletedExercises);
+        } catch (error) {
+          console.error('REDO WORKOUT - Error fetching fresh exercise history:', error);
+          // Fall back to current values if fetch fails
+          freshLastValues = currentLastValues;
+        }
+      }
       
-      // Update exercise sets with fresh data but keep them as not completed
-      setExerciseSets(prev => {
-        const resetSets = { ...freshSets };
-        Object.keys(resetSets).forEach(exerciseId => {
-          resetSets[exerciseId] = resetSets[exerciseId].map(set => ({
-            ...set,
-            isCompleted: false,
-            weight: '',
-            reps: ''
-          }));
+      // Set the fresh exercise history immediately
+      setLastExerciseValues(freshLastValues);
+      
+      // Create fresh exercise sets for the preserved exercises and pre-fill with history
+      const freshSets: Record<string, ExerciseSet[]> = {};
+      currentCompletedExercises.forEach(exercise => {
+        const exerciseSets = Array.from({ length: exercise.sets }, (_, index) => {
+          const setNumber = index + 1;
+          const lastWeight = freshLastValues[exercise.exercise_id]?.[setNumber]?.weight || '';
+          const lastReps = freshLastValues[exercise.exercise_id]?.[setNumber]?.reps || '';
+          
+
+          
+          return {
+            id: `${exercise.id}-set-${index + 1}`,
+            setNumber: setNumber,
+            // Pre-fill with last values immediately for redo workouts - ENSURE STRINGS
+            weight: String(lastWeight),
+            reps: String(lastReps),
+            isCompleted: false
+          };
         });
-        return resetSets;
+        
+        freshSets[exercise.id] = exerciseSets;
       });
       
-      // Update recommendations with fresh data
-      setRecommendations(freshRecommendations);
+
+      
+      // Update exercise sets with pre-filled sets
+      setExerciseSets(freshSets);
+      
+      // CRITICAL: Force TextInput re-render to show the pre-filled values
+      setTextInputRefreshKey(prev => prev + 1);
+      
+      // Keep recommendations as they were (don't fetch fresh ones to preserve context)
+      // setRecommendations remains unchanged
       
       setIsLoading(false);
+      
     } catch (error) {
-      console.error('Error fetching fresh workout data for redo:', error);
+      console.error('Error setting up redo workout:', error);
       setIsLoading(false);
     }
-    
-    // Also fetch fresh last exercise records after a delay to ensure we have the latest records
-    setTimeout(async () => {
-      await fetchLastExerciseRecords();
-    }, 1000); // Longer delay to ensure all state updates have completed
     
     // Start workout duration timer
     startWorkoutTimer();

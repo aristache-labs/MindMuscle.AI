@@ -265,4 +265,82 @@ Enable debug logging in development:
 ```typescript
 const workoutState = useWorkoutState(params);
 console.log('Workout State:', workoutState); // Debug current state
-``` 
+```
+
+## 🔧 Exercise Switching and Paused Workout Display
+
+### Issue Description
+
+When a user switches an exercise during a workout session and then pauses the workout, the `my-plan.tsx` screen was showing the original exercise name instead of the switched exercise name in the paused workout section.
+
+### Root Cause
+
+The issue was in the `renderExerciseItem` function in `my-plan.tsx`. When displaying paused workout information:
+
+1. **Correct Data Storage**: The switched exercise data was being correctly saved to the database with the `isChangedExercise: true` flag
+2. **Correct Data Retrieval**: The `updatePausedWorkoutWithCustomizations` function was correctly preserving switched exercise data
+3. **Display Issue**: The UI was using `item.name` (original exercise) instead of `pausedExercise.name` (switched exercise)
+
+### The Fix
+
+**Before (Incorrect)**:
+```typescript
+// Finding paused exercise with OR condition
+const pausedExerciseIndex = pausedWorkout.exercises.findIndex(
+  (e: any) => e.id === item.id || e.exercise_id === item.exercise_id  // Problem: could match wrong exercise
+);
+
+// Using original exercise data for display
+<Text>{item.name}</Text>  // Always showed original exercise name
+```
+
+**After (Fixed)**:
+```typescript
+// Finding paused exercise by ID only (same workout plan slot)
+const pausedExerciseIndex = pausedWorkout.exercises.findIndex(
+  (e: any) => e.id === item.id  // Correct: matches by workout plan exercise slot
+);
+
+// Using paused exercise data for display
+let displayName = item.name;
+let displayImageUrl = item.image_url;
+let displayPrimaryMuscles = item.primary_muscles;
+
+if (pausedExerciseIndex !== -1) {
+  const pausedExercise = pausedWorkout.exercises[pausedExerciseIndex];
+  displayName = pausedExercise.name || item.name;  // Use switched exercise name
+  displayImageUrl = pausedExercise.image_url || item.image_url;
+  displayPrimaryMuscles = pausedExercise.primary_muscles || item.primary_muscles;
+}
+
+<Text>{displayName}</Text>  // Now shows correct exercise name
+```
+
+### Key Changes Made
+
+1. **Simplified Exercise Matching**: Only match by `e.id === item.id` (workout plan exercise slot)
+2. **Added Display Variables**: Created `displayName`, `displayImageUrl`, and `displayPrimaryMuscles` variables
+3. **Prioritized Paused Data**: Use paused exercise data when available, fallback to original exercise data
+4. **Updated UI Rendering**: Use display variables instead of original `item` properties throughout the component
+
+### Files Modified
+
+- `app/(stack)/my-plan.tsx` - Fixed `renderExerciseItem` function to properly display switched exercise data
+
+### Testing
+
+To test this fix:
+
+1. Start a workout session
+2. Switch an exercise to a different exercise
+3. Pause the workout
+4. Navigate back to My Plan screen
+5. Verify that the paused workout section shows the switched exercise name, image, and muscle groups
+6. Resume the workout to ensure the switched exercise is correctly loaded
+
+### Related Functions
+
+- `updatePausedWorkoutWithCustomizations()` - Preserves switched exercise data when updating from database
+- `savePausedWorkout()` - Saves switched exercise data with `isChangedExercise` flag
+- `getPausedWorkout()` - Properly handles `isChangedExercise` flag when retrieving from database
+- `handleExerciseChange()` - Marks exercises as switched with `isChangedExercise: true` flag 

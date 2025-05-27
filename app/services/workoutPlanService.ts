@@ -327,7 +327,8 @@ export const fetchWorkoutData = async (
   planId: string,
   workoutDay: number,
   userId: string,
-  cycleWeek: number
+  cycleWeek: number,
+  isRedoWorkout: boolean = false
 ): Promise<{
   exercises: ExerciseData[];
   exerciseSets: Record<string, ExerciseSet[]>;
@@ -344,6 +345,59 @@ export const fetchWorkoutData = async (
     if (!planId || planId.trim() === '') {
       console.error('Invalid plan ID');
       throw new Error('Invalid plan ID');
+    }
+
+    // If this is a redo workout, try to get the saved exercise structure first
+    if (isRedoWorkout) {
+      const savedExercises = await getLastCompletedWorkoutStructure(userId, planId, workoutDay, cycleWeek);
+      
+      if (savedExercises && savedExercises.length > 0) {
+        // CRITICAL FIX: Fetch last exercise values for redo workout
+        const lastExerciseValues = await fetchLastExerciseRecords(userId, savedExercises);
+        
+        // Create exercise sets from the saved structure and pre-fill with last values
+        const exerciseSets: Record<string, ExerciseSet[]> = {};
+        savedExercises.forEach(exercise => {
+          const exerciseLastValues = lastExerciseValues[exercise.exercise_id] || {};
+          
+          exerciseSets[exercise.id] = Array.from({ length: exercise.sets }, (_, index) => {
+            const setNumber = index + 1;
+            const lastWeight = exerciseLastValues[setNumber]?.weight || '';
+            const lastReps = exerciseLastValues[setNumber]?.reps || '';
+            
+
+            
+            return {
+              id: `${exercise.id}-set-${index + 1}`,
+              setNumber: setNumber,
+              weight: lastWeight,  // Pre-fill with last weight
+              reps: lastReps,      // Pre-fill with last reps
+              isCompleted: false
+            };
+          });
+        });
+
+        // Get recommendations for the saved exercises (but don't use them for pre-filling)
+        const recommendations: Record<string, any> = {};
+        for (const exercise of savedExercises) {
+          try {
+            const recommendation = await getExerciseRecommendations(userId, exercise.exercise_id, cycleWeek);
+            if (recommendation) {
+              recommendations[exercise.id] = recommendation;
+            }
+          } catch (error) {
+            console.error(`Error getting recommendations for exercise ${exercise.exercise_id}:`, error);
+          }
+        }
+
+
+
+        return {
+          exercises: savedExercises,
+          exerciseSets,
+          recommendations
+        };
+      }
     }
     
     // Fetch exercises for this workout
@@ -439,9 +493,9 @@ export const fetchWorkoutData = async (
           const { data: recommendationData, error: recError } = await supabase.rpc(
             'get_smart_exercise_recommendations',
             {
-              p_user_id: userId,
+              p_cycle_week: cycleWeek,
               p_exercise_id: exercise.exercise_id,
-              p_cycle_week: cycleWeek
+              p_user_id: userId
             }
           );
           
@@ -536,8 +590,8 @@ export const fetchLastExerciseRecords = async (
           // Only store the first (most recent) record for each set number
           if (!setRecords[setNumber]) {
             setRecords[setNumber] = {
-              weight: record.weight,
-              reps: record.reps
+              weight: String(record.weight || ''),
+              reps: String(record.reps || '')
             };
           }
         });
@@ -616,6 +670,61 @@ export const checkWorkoutCompletion = async (
   } catch (error) {
     // Error in checkWorkoutCompletion
     return { isCompleted: false };
+  }
+};
+
+// Get the exercise structure from the most recent completed workout for redo functionality
+export const getLastCompletedWorkoutStructure = async (
+  userId: string,
+  planId: string,
+  workoutDay: number,
+  cycleWeek: number
+): Promise<ExerciseData[] | null> => {
+  try {
+    // Get the most recent completed workout for this specific day and cycle week
+    const { data, error } = await supabase
+      .from('user_workout_history')
+      .select('exercise_structure')
+      .eq('user_id', userId)
+      .eq('plan_id', planId)
+      .eq('workout_day', workoutDay)
+      .eq('cycle_week', cycleWeek)
+      .order('completed_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error || !data?.exercise_structure) {
+      return null;
+    }
+
+    try {
+      // Parse the saved exercise structure
+      const exerciseStructure = JSON.parse(data.exercise_structure);
+      
+      // Convert back to ExerciseData format
+      const exercises: ExerciseData[] = exerciseStructure.map((ex: any) => ({
+        id: ex.id,
+        exercise_id: ex.exercise_id,
+        name: ex.name,
+        sets: ex.sets,
+        reps_range: ex.reps_range,
+        image_url: ex.image_url,
+        primary_muscles: ex.primary_muscles,
+        requires_weight: ex.requires_weight,
+        workout_day: ex.workout_day,
+        order: ex.order,
+        restTime: ex.restTime,
+        isChangedExercise: ex.isChangedExercise
+      }));
+
+      return exercises;
+    } catch (parseError) {
+      console.error('Error parsing exercise structure:', parseError);
+      return null;
+    }
+  } catch (error) {
+    console.error('Error fetching last completed workout structure:', error);
+    return null;
   }
 };
 
@@ -751,6 +860,22 @@ export const completeWorkout = async (
       }
     }
     
+    // Save the exercise structure (including any switches) for redo functionality
+    const exerciseStructure = exercises.map(exercise => ({
+      id: exercise.id,
+      exercise_id: exercise.exercise_id,
+      name: exercise.name,
+      sets: exercise.sets,
+      reps_range: exercise.reps_range,
+      image_url: exercise.image_url,
+      primary_muscles: exercise.primary_muscles,
+      requires_weight: exercise.requires_weight,
+      workout_day: exercise.workout_day,
+      order: exercise.order,
+      restTime: exercise.restTime,
+      isChangedExercise: (exercise as any).isChangedExercise || false
+    }));
+
     // 1. Insert workout history entry with total volume and reps
     const { data: workoutData, error: workoutError } = await supabase
       .from('user_workout_history')
@@ -765,7 +890,8 @@ export const completeWorkout = async (
         total_volume: totalVolume, // Add total volume (kg)
         total_reps: totalReps, // Add total reps
         completed_at: new Date().toISOString(), // Add completion timestamp
-        exercises_count: exercises.length // Store the actual number of exercises
+        exercises_count: exercises.length, // Store the actual number of exercises
+        exercise_structure: JSON.stringify(exerciseStructure) // Save the exercise structure for redo functionality
       })
       .select('id')
       .single();
@@ -2031,9 +2157,9 @@ export const getExerciseRecommendations = async (
     const { data, error } = await supabase.rpc(
       'get_smart_exercise_recommendations',
       {
-        p_user_id: userId,
+        p_cycle_week: cycleWeek,
         p_exercise_id: exerciseId,
-        p_cycle_week: cycleWeek
+        p_user_id: userId
       }
     );
     
@@ -2331,6 +2457,7 @@ const workoutPlanService = {
   fetchLastExerciseRecords,
   checkWorkoutCompletion,
   checkWorkoutCompletionForCycleWeek, // Add the new function
+  getLastCompletedWorkoutStructure, // Add the new function for redo functionality
   completeWorkout,
   fetchActivePlan,
   setupCalendarDates,

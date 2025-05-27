@@ -233,10 +233,14 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
     let exerciseState = 'normal'; // 'completed', 'ongoing', 'normal'
     let displaySets = item.sets;
     let displayRepsRange = item.reps_range;
+    let displayName = item.name;
+    let displayImageUrl = item.image_url;
+    let displayPrimaryMuscles = item.primary_muscles;
     
     if (hasPausedWorkout && pausedWorkout && pausedWorkout.exercises) {
+      // First try to find by exercise ID (same workout plan exercise slot)
       const pausedExerciseIndex = pausedWorkout.exercises.findIndex(
-        (e: any) => e.id === item.id || e.exercise_id === item.exercise_id
+        (e: any) => e.id === item.id
       );
       
       if (pausedExerciseIndex !== -1) {
@@ -245,9 +249,12 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
         const exerciseSets = pausedWorkout.exerciseSets[pausedExercise.id] || [];
         const isCompleted = exerciseSets.length > 0 && exerciseSets.every((set: any) => set.isCompleted);
         
-        // Use customized values from paused workout if available
+        // Use values from paused workout (which may include switched exercise data)
         displaySets = pausedExercise.sets || item.sets;
         displayRepsRange = pausedExercise.reps_range || item.reps_range;
+        displayName = pausedExercise.name || item.name;
+        displayImageUrl = pausedExercise.image_url || item.image_url;
+        displayPrimaryMuscles = pausedExercise.primary_muscles || item.primary_muscles;
         
         if (isCompleted) {
           exerciseState = 'completed';
@@ -267,7 +274,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
           <View style={styles.exerciseLeftContent}>
             <View style={styles.exerciseImageContainer}>
               <OptimizedImage
-                source={item.image_url ? { uri: item.image_url } : require('../../assets/exercises/placeholder.jpg')}
+                source={displayImageUrl ? { uri: displayImageUrl } : require('../../assets/exercises/placeholder.jpg')}
                 style={styles.exerciseImage}
                 fallback={require('../../assets/exercises/placeholder.jpg')}
                 resizeMode="cover"
@@ -277,7 +284,12 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
             </View>
             <View style={styles.exerciseDetails}>
               <TouchableOpacity 
-                onPress={() => handleExerciseNamePress(item)}
+                onPress={() => handleExerciseNamePress({
+                  ...item,
+                  name: displayName,
+                  image_url: displayImageUrl,
+                  primary_muscles: displayPrimaryMuscles
+                })}
                 activeOpacity={0.7}
               >
                 <Text style={[
@@ -285,7 +297,7 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
                   styles.exerciseNameClickable,
                   (exerciseState === 'completed' || exerciseState === 'ongoing') && styles.exerciseTextGreyed
                 ]}>
-                  {item.name}
+                  {displayName}
                 </Text>
               </TouchableOpacity>
               <Text style={[
@@ -297,17 +309,17 @@ export default function MyPlanScreen({ embedded = false }: MyPlanScreenProps) {
             </View>
           </View>
           {/* Muscle group tag */}
-          {item.primary_muscles && item.primary_muscles.length > 0 && (
+          {displayPrimaryMuscles && displayPrimaryMuscles.length > 0 && (
             <View style={[
               styles.muscleTag, 
-              { backgroundColor: getMuscleTagColor(item.primary_muscles[0]) },
+              { backgroundColor: getMuscleTagColor(displayPrimaryMuscles[0]) },
               (exerciseState === 'completed' || exerciseState === 'ongoing') && styles.muscleTagGreyed
             ]}>
               <Text style={[
                 styles.muscleTagText,
                 (exerciseState === 'completed' || exerciseState === 'ongoing') && styles.muscleTagTextGreyed
               ]}>
-                {getMuscleTagName(item.primary_muscles[0])}
+                {getMuscleTagName(displayPrimaryMuscles[0])}
               </Text>
             </View>
           )}

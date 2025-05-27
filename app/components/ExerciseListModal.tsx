@@ -62,9 +62,9 @@ const DraggableExerciseCard: React.FC<DraggableExerciseCardProps> = ({
       if (!isCustomizeMode) return;
       
       context.startY = translateY.value;
-      scale.value = withSpring(1.05);
+      scale.value = withSpring(1.08, { damping: 15, stiffness: 200 });
       zIndex.value = 1000;
-      opacity.value = withTiming(0.9);
+      opacity.value = withTiming(0.95, { duration: 150 });
       runOnJS(onDragStart)(index);
     },
     onActive: (event, context: any) => {
@@ -72,14 +72,17 @@ const DraggableExerciseCard: React.FC<DraggableExerciseCardProps> = ({
       
       translateY.value = context.startY + event.translationY;
       
+      // Add subtle rotation based on drag velocity for more natural feel
+      const rotation = Math.max(-3, Math.min(3, event.velocityY / 1000));
+      
       // Calculate which position this should be dropped to
       const newIndex = Math.round((context.startY + event.translationY) / EXERCISE_CARD_HEIGHT) + index;
       const clampedIndex = Math.max(0, Math.min(newIndex, exerciseSets ? Object.keys(exerciseSets).length - 1 : 0));
       
-      // Provide haptic feedback when crossing boundaries
-      if (Math.abs(event.translationY) > EXERCISE_CARD_HEIGHT / 2) {
-        // Could add haptic feedback here
-      }
+      // Smooth scale animation based on drag distance
+      const dragDistance = Math.abs(event.translationY);
+      const scaleValue = 1.08 + Math.min(0.04, dragDistance / 1000);
+      scale.value = withSpring(scaleValue, { damping: 20, stiffness: 300 });
     },
     onEnd: (event, context: any) => {
       if (!isCustomizeMode) return;
@@ -87,11 +90,11 @@ const DraggableExerciseCard: React.FC<DraggableExerciseCardProps> = ({
       const newIndex = Math.round((context.startY + event.translationY) / EXERCISE_CARD_HEIGHT) + index;
       const clampedIndex = Math.max(0, Math.min(newIndex, exerciseSets ? Object.keys(exerciseSets).length - 1 : 0));
       
-      // Reset animations
-      translateY.value = withSpring(0);
-      scale.value = withSpring(1);
+      // Smooth return animations with spring physics
+      translateY.value = withSpring(0, { damping: 20, stiffness: 300 });
+      scale.value = withSpring(1, { damping: 18, stiffness: 250 });
       zIndex.value = 0;
-      opacity.value = withTiming(1);
+      opacity.value = withTiming(1, { duration: 200 });
       
       if (clampedIndex !== index) {
         runOnJS(onDragEnd)(index, clampedIndex);
@@ -105,23 +108,48 @@ const DraggableExerciseCard: React.FC<DraggableExerciseCardProps> = ({
     if (isBeingDragged) {
       transform.push({ translateY: translateY.value });
       transform.push({ scale: scale.value });
+      // Add subtle rotation for more natural drag feel
+      const rotation = Math.max(-2, Math.min(2, translateY.value / 200));
+      transform.push({ rotate: `${rotation}deg` });
     } else if (shouldShift && draggedIndex !== null) {
-      // Shift other items to make space
+      // Smooth shift animation for other items
       const shiftAmount = draggedIndex < index ? -EXERCISE_CARD_HEIGHT : EXERCISE_CARD_HEIGHT;
-      transform.push({ translateY: withSpring(shiftAmount) });
+      transform.push({ 
+        translateY: withSpring(shiftAmount, { 
+          damping: 25, 
+          stiffness: 400,
+          mass: 0.8 
+        }) 
+      });
     } else {
-      transform.push({ translateY: withSpring(0) });
+      // Smooth return to original position
+      transform.push({ 
+        translateY: withSpring(0, { 
+          damping: 25, 
+          stiffness: 400,
+          mass: 0.8 
+        }) 
+      });
     }
     
-    // Add subtle scale animation for current exercise
+    // Enhanced scale animation for current exercise
     if (isCurrent && !isBeingDragged) {
-      transform.push({ scale: withSpring(1.01, { damping: 20, stiffness: 200 }) });
+      transform.push({ 
+        scale: withSpring(1.02, { 
+          damping: 25, 
+          stiffness: 300,
+          mass: 0.9 
+        }) 
+      });
     }
     
     return {
       transform,
       zIndex: zIndex.value,
       opacity: opacity.value,
+      // Add subtle shadow enhancement during drag
+      shadowOpacity: isBeingDragged ? 0.3 : 0.1,
+      elevation: isBeingDragged ? 15 : 4,
     };
   });
 
@@ -181,6 +209,9 @@ const DraggableExerciseCard: React.FC<DraggableExerciseCardProps> = ({
         enabled={isCustomizeMode}
         minPointers={1}
         maxPointers={1}
+        activeOffsetY={[-8, 8]}
+        failOffsetX={[-20, 20]}
+        shouldCancelWhenOutside={false}
       >
         <Reanimated.View
           style={[

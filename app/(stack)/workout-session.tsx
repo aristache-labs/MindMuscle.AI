@@ -16,6 +16,7 @@ import CustomizeExerciseModal from '../components/CustomizeExerciseModal';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { useWorkoutTimer } from '../hooks/useWorkoutTimer';
+import { useExerciseSets } from '../hooks/useExerciseSets';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -100,6 +101,42 @@ export default function WorkoutSessionScreen() {
     weightAdjustmentPercentage: number;
     repsAdjustmentPercentage: number;
   } | null>(null);
+
+  // Initialize the exercise sets hook (keeping original state as backup for now)
+  const exerciseSetsHook = useExerciseSets({
+    exercises,
+    currentExerciseIndex,
+    recommendations,
+    lastExerciseValues,
+    totalVolume,
+    totalReps,
+    setTotalVolume,
+    setTotalReps,
+    onWorkoutComplete: (volume, reps, sets) => {
+      // TODO: Implement workout completion callback
+      console.log('Workout completion callback:', volume, reps);
+    },
+    onExerciseComplete: () => {
+      // TODO: Implement exercise completion callback
+      console.log('Exercise completion callback');
+    },
+    onStartRestTimer: (seconds) => {
+      startRestTimer(seconds);
+    },
+    // TEST: Pass external state to hook for integration testing
+    exerciseSets,
+    setExerciseSets,
+    userEnteredValues,
+    setUserEnteredValues,
+    exerciseCustomized,
+    setExerciseCustomized,
+  });
+
+  // TEST: Use hook functions instead of local functions for weight and reps changes
+  const {
+    handleWeightChange: hookHandleWeightChange,
+    handleRepsChange: hookHandleRepsChange,
+  } = exerciseSetsHook;
 
   
   // State for max weight graph data
@@ -1649,85 +1686,113 @@ export default function WorkoutSessionScreen() {
     }
   };
 
-  const handleWeightChange = (exerciseId: string, setIndex: number, value: string) => {
-    // Validate and transform the input value
-    // Allow decimal input with either dot or comma as separator
-    let processedValue = value;
-    
-    // Replace comma with dot for decimal values
-    if (value.includes(',')) {
-      processedValue = value.replace(',', '.');
-    }
-    
-    // Keep '-' as is but remove leading zeros
-    if (processedValue !== '-') {
-      // Handle decimal values correctly
-      if (processedValue.includes('.')) {
-        const [wholePart, decimalPart] = processedValue.split('.');
-        
-        // Limit whole part to 999 maximum
-        let limitedWholePart = wholePart.replace(/^0+(?=\d)/, '');
-        if (limitedWholePart !== '' && parseInt(limitedWholePart, 10) > 999) {
-          limitedWholePart = '999';
-        }
-        
-        // Limit decimal part to 1 digit
-        const limitedDecimalPart = decimalPart.length > 0 ? decimalPart.substring(0, 1) : '';
-        processedValue = `${limitedWholePart}.${limitedDecimalPart}`;
-      } else {
-        // For non-decimal values, limit to 999 maximum
-        let limitedValue = processedValue.replace(/^0+(?=\d)/, '');
-        if (limitedValue !== '' && parseInt(limitedValue, 10) > 999) {
-          limitedValue = '999';
-        }
-        processedValue = limitedValue;
-      }
-    }
-    
-    // Mark this input as user-entered
-    const inputKey = `${exerciseId}-${setIndex}-weight`;
-    setUserEnteredValues(prev => ({
-      ...prev,
-      [inputKey]: true
-    }));
-    
-    setExerciseSets(prev => {
-      const updatedSets = { ...prev };
-      if (updatedSets[exerciseId]) {
-        updatedSets[exerciseId][setIndex].weight = processedValue;
-      }
-      return updatedSets;
-    });
-  };
+  // COMMENTED OUT FOR TESTING - Using hook version instead
+  // const handleWeightChange = (exerciseId: string, setIndex: number, value: string) => {
+  //   // Validate and transform the input value
+  //   // Allow decimal input with either dot or comma as separator
+  //   let processedValue = value;
+  //   
+  //   // Replace comma with dot for decimal values
+  //   if (value.includes(',')) {
+  //     processedValue = value.replace(',', '.');
+  //   }
+  //   
+  //   // Keep '-' as is but remove leading zeros
+  //   if (processedValue !== '-') {
+  //     // Handle decimal values correctly
+  //     if (processedValue.includes('.')) {
+  //       const [wholePart, decimalPart] = processedValue.split('.');
+  //       
+  //       // Limit whole part to 999 maximum
+  //       let limitedWholePart = wholePart.replace(/^0+(?=\d)/, '');
+  //       if (limitedWholePart !== '' && parseInt(limitedWholePart, 10) > 999) {
+  //         limitedWholePart = '999';
+  //       }
+  //       
+  //       // Limit decimal part to 1 digit
+  //       const limitedDecimalPart = decimalPart.length > 0 ? decimalPart.substring(0, 1) : '';
+  //       processedValue = `${limitedWholePart}.${limitedDecimalPart}`;
+  //     } else {
+  //       // For non-decimal values, limit to 999 maximum
+  //       let limitedValue = processedValue.replace(/^0+(?=\d)/, '');
+  //       if (limitedValue !== '' && parseInt(limitedValue, 10) > 999) {
+  //         limitedValue = '999';
+  //       }
+  //       processedValue = limitedValue;
+  //     }
+  //   }
+  //   
+  //   // Mark this input as user-entered
+  //   const inputKey = `${exerciseId}-${setIndex}-weight`;
+  //   setUserEnteredValues(prev => ({
+  //     ...prev,
+  //     [inputKey]: true
+  //   }));
+  //   
+  //   setExerciseSets(prev => {
+  //     const updatedSets = { ...prev };
+  //     if (updatedSets[exerciseId]) {
+  //       updatedSets[exerciseId][setIndex].weight = processedValue;
+  //     }
+  //     return updatedSets;
+  //   });
+  // };
 
-  const handleRepsChange = (exerciseId: string, setIndex: number, value: string) => {
-    
-    // Validate and transform the input value
-    let processedValue = value === '-' ? value : value.replace(/^0+(?=\d)/, ''); // Keep '-' as is but remove leading zeros
-    
-    // Limit reps to a maximum of 999
-    if (processedValue !== '-' && processedValue !== '') {
-      const numValue = parseInt(processedValue, 10);
-      if (!isNaN(numValue) && numValue > 999) {
-        processedValue = '999';
-      }
-    }
-    
-    // Mark this input as user-entered
-    const inputKey = `${exerciseId}-${setIndex}-reps`;
-    setUserEnteredValues(prev => ({
-      ...prev,
-      [inputKey]: true
-    }));
-    
-    setExerciseSets(prev => {
-      const updatedSets = { ...prev };
-      if (updatedSets[exerciseId]) {
-        updatedSets[exerciseId][setIndex].reps = processedValue;
-      }
-      return updatedSets;
-    });
-  };
+  // COMMENTED OUT FOR TESTING - Using hook version instead
+  // const handleRepsChange = (exerciseId: string, setIndex: number, value: string) => {
+  //   // Validate and transform the input value for reps (whole numbers only)
+  //   let processedValue = value;
+  //   
+  //   // Remove any decimal characters (. and ,) since reps must be whole numbers
+  //   processedValue = processedValue.replace(/[.,]/g, '');
+  //   
+  //   // Keep '-' as is for ranges, but remove leading zeros from numbers
+  //   if (processedValue !== '-' && processedValue !== '') {
+  //     // Remove leading zeros but preserve the value
+  //     processedValue = processedValue.replace(/^0+(?=\d)/, '');
+  //   }
+  //   
+  //   // Limit reps to a maximum of 999
+  //   if (processedValue !== '-' && processedValue !== '' && !processedValue.includes('-')) {
+  //     const numValue = parseInt(processedValue, 10);
+  //     if (!isNaN(numValue) && numValue > 999) {
+  //       processedValue = '999';
+  //     }
+  //   }
+  //   
+  //   // For ranges (like "1-99"), validate each part separately
+  //   if (processedValue.includes('-') && processedValue !== '-') {
+  //     const parts = processedValue.split('-');
+  //     if (parts.length === 2) {
+  //       const firstNum = parseInt(parts[0], 10);
+  //       const secondNum = parseInt(parts[1], 10);
+  //       
+  //       // Limit each part of the range to 99
+  //       const limitedFirst = !isNaN(firstNum) && firstNum > 99 ? 99 : firstNum;
+  //       const limitedSecond = !isNaN(secondNum) && secondNum > 99 ? 99 : secondNum;
+  //       
+  //       // Reconstruct the range if both parts are valid numbers
+  //       if (!isNaN(limitedFirst) && !isNaN(limitedSecond)) {
+  //         processedValue = `${limitedFirst}-${limitedSecond}`;
+  //       }
+  //     }
+  //   }
+  //   
+  //   // Mark this input as user-entered
+  //   const inputKey = `${exerciseId}-${setIndex}-reps`;
+  //   setUserEnteredValues(prev => ({
+  //     ...prev,
+  //     [inputKey]: true
+  //   }));
+  //   
+  //   setExerciseSets(prev => {
+  //     const updatedSets = { ...prev };
+  //     if (updatedSets[exerciseId]) {
+  //       updatedSets[exerciseId][setIndex].reps = processedValue;
+  //     }
+  //     return updatedSets;
+  //   });
+  // };
 
   const moveToNextExercise = () => {
     if (currentExerciseIndex < exercises.length - 1) {
@@ -2172,7 +2237,7 @@ export default function WorkoutSessionScreen() {
                                       <TextInput
                                         style={styles.inputField}
                                         value={set.weight}
-                                        onChangeText={(value) => handleWeightChange(currentExercise.id, index, value)}
+                                        onChangeText={(value) => hookHandleWeightChange(currentExercise.id, index, value)}
                                         keyboardType="decimal-pad"
                                         placeholder={focusedInputs[`${currentExercise.id}-${index}-weight`] ? '' : (
                                           // For completed sets, don't show any placeholder since they have actual values
@@ -2208,7 +2273,7 @@ export default function WorkoutSessionScreen() {
                                     key={`${currentExercise.id}-${index}-reps-${currentExercise.reps_range}-${exerciseCustomized[currentExercise.id] ? 'customized' : 'default'}-${textInputRefreshKey}`}
                                     style={styles.inputField}
                                     value={set.reps}
-                                    onChangeText={(value) => handleRepsChange(currentExercise.id, index, value)}
+                                    onChangeText={(value) => hookHandleRepsChange(currentExercise.id, index, value)}
                                     keyboardType="numeric"
                                     placeholder={focusedInputs[`${currentExercise.id}-${index}-reps`] ? '' : (() => {
                                       // For completed sets, don't show any placeholder since they have actual values
@@ -2320,7 +2385,7 @@ export default function WorkoutSessionScreen() {
                                   <TextInput
                                     style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
                                     value={set.weight}
-                                    onChangeText={(value) => handleWeightChange(currentExercise.id, index, value)}
+                                    onChangeText={(value) => hookHandleWeightChange(currentExercise.id, index, value)}
                                     keyboardType="decimal-pad"
                                     placeholder={focusedInputs[`${currentExercise.id}-${index}-weight`] ? '' : (
                                       // For completed sets, don't show any placeholder since they have actual values
@@ -2356,7 +2421,7 @@ export default function WorkoutSessionScreen() {
                                 key={`${currentExercise.id}-${index}-reps-${currentExercise.reps_range}-${exerciseCustomized[currentExercise.id] ? 'customized' : 'default'}-${textInputRefreshKey}`}
                                 style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
                                 value={set.reps}
-                                onChangeText={(value) => handleRepsChange(currentExercise.id, index, value)}
+                                onChangeText={(value) => hookHandleRepsChange(currentExercise.id, index, value)}
                                 keyboardType="numeric"
                                                                     placeholder={focusedInputs[`${currentExercise.id}-${index}-reps`] ? '' : (() => {
                                       // For completed sets, don't show any placeholder since they have actual values

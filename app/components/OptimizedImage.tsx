@@ -128,12 +128,13 @@ const calculateEstimatedSize = (uri: string, dimensions: { width: number, height
   return Math.max(1024, estimatedBytes); // Minimum 1KB
 };
 
-// Check if an image is an SVG (for special loading behavior)
+// Check if source is SVG
 const isSvgImage = (source: any): boolean => {
   if (typeof source === 'string') {
     return source.endsWith('.svg');
-  } else if (typeof source === 'object' && source !== null && source.uri) {
-    return source.uri.endsWith('.svg');
+  }
+  if (typeof source === 'object' && source !== null && 'uri' in source) {
+    return source.uri?.endsWith('.svg') || false;
   }
   return false;
 };
@@ -174,7 +175,7 @@ export default function OptimizedImage({
   resizeMode = 'cover',
   priority = 'normal',
   cachePolicy = 'immutable',
-  showLoader = true,
+  showLoader = false, // Changed default to false to prevent flickering
   loaderColor = '#007AFF',
   loaderSize = 'small',
   isImportant = false,
@@ -188,22 +189,17 @@ export default function OptimizedImage({
 }: OptimizedImageProps) {
   // Reference to track if component is mounted
   const isMounted = useRef(true);
-  // State
-  const [loading, setLoading] = useState(false); // Start with false to avoid flash
-  const [error, setError] = useState(false);
-  const [isCached, setIsCached] = useState(false);
-  const [timing, setTiming] = useState<ImageTiming>({
-    loadStart: 0,
-    loadEnd: null,
-    loadDuration: null,
-  });
-
+  
+  // State - simplified to reduce flickering
+  const [hasError, setHasError] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  
   // Check if this is an SVG
   const isSvg = useMemo(() => isSvgImage(source), [source]);
 
-  // Process the source for expo-image
+  // Process the source for expo-image with stable memoization
   const processedSource = useMemo(() => {
-    // Handle require() case (static image)
+    // Handle require() case (static image) - always stable
     if (typeof source === 'number') {
       return source;
     }
@@ -212,21 +208,60 @@ export default function OptimizedImage({
     if (typeof source === 'object' && source !== null && 
         'testUri' in source && source.testUri && 
         (!source.uri || source.uri === null)) {
-      // This is a placeholder image with a stable reference
-      // Use require() if possible, otherwise fallback to a standard placeholder
       try {
         return require('../../assets/exercises/placeholder.jpg');
       } catch (e) {
-        // If require fails, use a standard placeholder
         return source;
       }
     }
 
-    // Get optimal dimensions based on style
-    const dimensions = getOptimalImageDimensions(style);
+    // Handle Source object with better validation
+    if (typeof source === 'object' && source !== null && 'uri' in source) {
+      const uri = source.uri;
+      
+      // Check if URI is valid - if not, return null to trigger fallback
+      if (!uri || 
+          uri === null || 
+          uri === undefined || 
+          uri === '' || 
+          uri === 'null' || 
+          uri === 'undefined' || 
+          typeof uri !== 'string') {
+        // Return null to trigger immediate fallback without loading attempts
+        return null;
+      }
+      
+      // Get optimal dimensions based on style
+      const dimensions = getOptimalImageDimensions(style);
+      
+      // Don't optimize SVGs, just return as is
+      if (uri.endsWith('.svg')) {
+        return source;
+      }
+      
+      // Apply dimension optimization to remote URLs
+      const optimizedUri = optimizeImageUri(uri, dimensions);
+      
+      return {
+        ...source,
+        uri: optimizedUri
+      };
+    }
 
     // Handle string URI
     if (typeof source === 'string') {
+      // Check if string is valid
+      if (!source || 
+          source === '' || 
+          source === 'null' || 
+          source === 'undefined') {
+        // Return null to trigger immediate fallback
+        return null;
+      }
+      
+      // Get optimal dimensions based on style
+      const dimensions = getOptimalImageDimensions(style);
+      
       // Don't optimize SVGs, just return as is
       if (source.endsWith('.svg')) {
         return source;
@@ -234,28 +269,7 @@ export default function OptimizedImage({
       
       // Apply dimension optimization to remote URLs
       const optimizedUri = optimizeImageUri(source, dimensions);
-      
       return optimizedUri;
-    }
-
-    // Handle Source object
-    if (typeof source === 'object' && source !== null && 'uri' in source && source.uri) {
-      const uri = source.uri;
-      
-      // Don't optimize SVGs, just return as is
-      if (uri && uri.endsWith('.svg')) {
-        return source;
-      }
-      
-      // Apply dimension optimization to remote URLs
-      const optimizedUri = uri ? optimizeImageUri(uri, dimensions) : null;
-      
-      if (!optimizedUri) return source;
-      
-      return {
-        ...source,
-        uri: optimizedUri
-      };
     }
 
     // Fallback to the original source
@@ -265,46 +279,22 @@ export default function OptimizedImage({
   // Extract dimensions for estimation
   const dimensions = useMemo(() => getOptimalImageDimensions(style), [style]);
 
-  // Check if the image is in the cache
-  useEffect(() => {
-    const checkCache = async () => {
-      try {
-        let uri: string | null = null;
-        
-        if (typeof processedSource === 'object' && processedSource !== null && 'uri' in processedSource) {
-          uri = processedSource.uri;
-        } else if (typeof processedSource === 'string') {
-          uri = processedSource;
-        } else if (typeof processedSource === 'number') {
-          // Local assets are always considered cached
-          setIsCached(true);
-          setLoading(false);
-          return;
-        }
-        
-        if (uri) {
-          // SVGs should always be considered cached since they're preloaded at app start
-          if (uri.endsWith('.svg')) {
-            setIsCached(true);
-            setLoading(false);
-            return;
-          }
-          
-          const cached = await isImageCached(uri);
-          setIsCached(cached);
-          
-          // If already cached, no need to show loading
-          if (cached) {
-            setLoading(false);
-          }
-        }
-      } catch (err) {
-        setIsCached(false);
-      }
-    };
+  // Synchronously check cache status to prevent flickering
+  const isCached = useMemo(() => {
+    // For local assets, always consider cached
+    if (typeof processedSource === 'number') {
+      return true;
+    }
     
-    checkCache();
-  }, [processedSource]);
+    // For SVGs, always consider cached
+    if (isSvg) {
+      return true;
+    }
+    
+    // For remote images, we'll let the Image component handle caching
+    // This prevents async state updates that cause flickering
+    return false;
+  }, [processedSource, isSvg]);
 
   // Mark as important if needed
   useEffect(() => {
@@ -317,26 +307,19 @@ export default function OptimizedImage({
     }
   }, [isImportant, processedSource]);
 
-  // Handle load start
+  // Handle load start - simplified to reduce state changes
   const handleLoadStart = () => {
-    // Skip for local assets
-    if (typeof source === 'number') {
-      if (isMounted.current) {
-        setLoading(false);
-      }
+    // Skip for local assets and SVGs
+    if (typeof source === 'number' || isSvg) {
       if (onLoadStart) {
         onLoadStart();
       }
       return;
     }
     
-    if (isMounted.current) {
-      setTiming(prev => ({
-        ...prev,
-        loadStart: Date.now(),
-      }));
-      
-      setLoading(true);
+    // Only show loading for remote images if explicitly requested
+    if (isMounted.current && showLoader && !isCached) {
+      setIsLoading(true);
     }
     
     if (onLoadStart) {
@@ -344,51 +327,32 @@ export default function OptimizedImage({
     }
   };
 
-  // Handle load end
+  // Handle load end - simplified
   const handleLoadEnd = () => {
-    // Add to the cache for future reference
-    if (processedSource) {
+    // Add to cache for future reference
+    if (processedSource && isMounted.current) {
       try {
-        // Handle string source
+        let uri: string | null = null;
+        
         if (typeof processedSource === 'string') {
-          const uri = processedSource;
+          uri = processedSource;
+        } else if (typeof processedSource === 'object' && processedSource !== null && 'uri' in processedSource) {
+          uri = processedSource.uri;
+        }
+        
+        if (uri) {
           const size = estimatedSize || calculateEstimatedSize(uri, dimensions);
           addImageToCache(uri, size);
         }
-        // Handle object source with uri
-        else if (typeof processedSource === 'object' && processedSource !== null && 'uri' in processedSource) {
-          const uri = processedSource.uri;
-          if (uri) {
-            const size = estimatedSize || calculateEstimatedSize(uri, dimensions);
-            addImageToCache(uri, size);
-          }
-        }
       } catch (e) {
         // Ignore cache errors
-        if (DEBUG_OPTIMIZED_IMAGE) {
-          console.warn(`🖼️ [OptimizedImage] Cache error for ${debugLabel || 'image'}:`, e);
-        }
       }
     }
     
-    // Only update state if component is still mounted
+    // Clear loading state
     if (isMounted.current) {
-      setLoading(false);
-      setError(false);
-      
-      const endTime = Date.now();
-      const startTime = timing.loadStart;
-      const duration = startTime ? endTime - startTime : null;
-      
-      setTiming(prev => ({
-        ...prev,
-        loadEnd: endTime,
-        loadDuration: duration,
-      }));
-      
-      if (DEBUG_OPTIMIZED_IMAGE && duration) {
-        console.log(`🖼️ [OptimizedImage] ${debugLabel || 'Image'} loaded in ${duration}ms`);
-      }
+      setIsLoading(false);
+      setHasError(false);
     }
     
     if (onLoadEnd) {
@@ -399,12 +363,11 @@ export default function OptimizedImage({
     imageRenderCount++;
   };
 
-  // Handle errors
+  // Handle errors - simplified
   const handleError = (event: any) => {
-    // Only update state if component is still mounted
     if (isMounted.current) {
-      setLoading(false);
-      setError(true);
+      setIsLoading(false);
+      setHasError(true);
       
       if (DEBUG_OPTIMIZED_IMAGE) {
         console.error(`🖼️ [OptimizedImage] ${debugLabel || 'Image'} error:`, event);
@@ -412,7 +375,6 @@ export default function OptimizedImage({
     }
     
     if (onError) {
-      // Convert to Error object for backwards compatibility with consumer code
       const errorObj = new Error('Image loading failed');
       onError(errorObj);
     }
@@ -437,43 +399,51 @@ export default function OptimizedImage({
   // Set up cleanup when component unmounts
   useEffect(() => {
     return () => {
-      // Mark component as unmounted to prevent state updates
       isMounted.current = false;
     };
   }, []);
 
-  // Render component
+  // Determine what to show
+  const shouldShowFallback = (hasError || processedSource === null) && fallback;
+  const shouldShowLoader = isLoading && showLoader && !isCached && !isSvg && processedSource !== null;
+  const shouldShowMainImage = processedSource !== null && !shouldShowFallback;
+
+  // Render component with stable structure to prevent flickering
   return (
     <View style={[styles.container, containerStyle]}>
-      {/* Main Image */}
-      <Image
-        source={processedSource}
-        style={[styles.image, style]}
-        contentFit={getContentFit(resizeMode)}
-        cachePolicy="memory-disk"
-        priority={priority}
-        onLoadStart={handleLoadStart}
-        onLoad={handleLoadEnd}
-        onError={handleError}
-        testID={testID}
-      />
+      {/* Main Image - only rendered if we have a valid source */}
+      {shouldShowMainImage && (
+        <Image
+          source={processedSource}
+          style={[styles.image, style]}
+          contentFit={getContentFit(resizeMode)}
+          cachePolicy="memory-disk"
+          priority={priority}
+          onLoadStart={handleLoadStart}
+          onLoad={handleLoadEnd}
+          onError={handleError}
+          testID={testID}
+        />
+      )}
       
-      {/* Fallback Image (if error) */}
-      {error && fallback && (
+      {/* Fallback Image - shown immediately for invalid sources or on error */}
+      {shouldShowFallback && (
         <Image
           source={fallback}
           style={[styles.fallbackImage, style]}
           contentFit={getContentFit(resizeMode)}
+          cachePolicy="memory-disk"
         />
       )}
       
-      {/* Loading Indicator - hidden for SVGs and cached images */}
-      {loading && showLoader && !isSvg && !isCached && (
-        <ActivityIndicator
-          style={styles.loader}
-          color={loaderColor}
-          size={loaderSize}
-        />
+      {/* Loading Indicator - minimal usage to prevent flickering */}
+      {shouldShowLoader && (
+        <View style={styles.loaderContainer}>
+          <ActivityIndicator
+            color={loaderColor}
+            size={loaderSize}
+          />
+        </View>
       )}
     </View>
   );
@@ -488,6 +458,9 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  hiddenImage: {
+    opacity: 0,
+  },
   fallbackImage: {
     position: 'absolute',
     top: 0,
@@ -497,7 +470,7 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  loader: {
+  loaderContainer: {
     position: 'absolute',
     top: 0,
     left: 0,
@@ -505,5 +478,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-  }
+    backgroundColor: 'rgba(0, 0, 0, 0.1)',
+  },
 }); 

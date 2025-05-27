@@ -41,6 +41,23 @@ export default function CustomizeExerciseModal({
   onExerciseChange
 }: CustomizeExerciseModalProps) {
   const insets = useSafeAreaInsets();
+
+  // Helper function to determine the image source safely
+  const getImageSource = (exerciseData: Exercise | null) => {
+    // Check if we have a valid image URL
+    const hasValidImageUrl = exerciseData?.image_url && 
+                             exerciseData.image_url.trim() !== '' && 
+                             exerciseData.image_url !== 'null' && 
+                             exerciseData.image_url !== 'undefined';
+    
+    if (hasValidImageUrl) {
+      return { uri: exerciseData.image_url };
+    } else {
+      // Use placeholder directly for local assets to prevent any loading attempts
+      return require('../../assets/exercises/placeholder.jpg');
+    }
+  };
+
   const [sets, setSets] = useState(exercise?.sets || 4);
   const [repsMin, setRepsMin] = useState(() => {
     if (!exercise?.reps_range) return 8;
@@ -236,10 +253,7 @@ export default function CustomizeExerciseModal({
               <View style={styles.exerciseCard}>
                 <View style={styles.exerciseImageContainer}>
                   <OptimizedImage
-                    source={exercise.image_url ? 
-                      { uri: exercise.image_url } : 
-                      require('../../assets/exercises/placeholder.jpg')
-                    }
+                    source={getImageSource(exercise)}
                     style={styles.exerciseImage}
                     fallback={require('../../assets/exercises/placeholder.jpg')}
                     resizeMode="cover"

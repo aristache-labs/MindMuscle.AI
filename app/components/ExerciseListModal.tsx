@@ -170,6 +170,22 @@ export default function ExerciseListModal({
     return lastValue && lastValue !== '-' && lastValue !== '0' ? lastValue : '--';
   };
 
+  // Helper function to determine the image source safely
+  const getImageSource = (exercise: Exercise) => {
+    // Check if we have a valid image URL
+    const hasValidImageUrl = exercise?.image_url && 
+                             exercise.image_url.trim() !== '' && 
+                             exercise.image_url !== 'null' && 
+                             exercise.image_url !== 'undefined';
+    
+    if (hasValidImageUrl) {
+      return { uri: exercise.image_url };
+    } else {
+      // Use placeholder directly for local assets to prevent any loading attempts
+      return require('../../assets/exercises/placeholder.jpg');
+    }
+  };
+
   return (
     <Modal
       visible={visible}
@@ -232,10 +248,7 @@ export default function ExerciseListModal({
                     >
                       <View style={styles.exerciseImageContainer}>
                         <OptimizedImage
-                          source={exercises[currentExerciseIndex].image_url ? 
-                            { uri: exercises[currentExerciseIndex].image_url } : 
-                            require('../../assets/exercises/placeholder.jpg')
-                          }
+                          source={getImageSource(exercises[currentExerciseIndex])}
                           style={styles.exerciseImage}
                           fallback={require('../../assets/exercises/placeholder.jpg')}
                           resizeMode="cover"
@@ -293,10 +306,7 @@ export default function ExerciseListModal({
                         >
                           <View style={styles.exerciseImageContainer}>
                             <OptimizedImage
-                              source={exercise.image_url ? 
-                                { uri: exercise.image_url } : 
-                                require('../../assets/exercises/placeholder.jpg')
-                              }
+                              source={getImageSource(exercise)}
                               style={[
                                 styles.exerciseImage,
                                 (isCompleted || isPast) && styles.completedExerciseImage
@@ -363,10 +373,7 @@ export default function ExerciseListModal({
                     <View style={styles.detailHeader}>
                       <View style={styles.detailImageContainer}>
                         <OptimizedImage
-                          source={exercises[selectedExerciseIndex].image_url ? 
-                            { uri: exercises[selectedExerciseIndex].image_url } : 
-                            require('../../assets/exercises/placeholder.jpg')
-                          }
+                          source={getImageSource(exercises[selectedExerciseIndex])}
                           style={styles.detailImage}
                           fallback={require('../../assets/exercises/placeholder.jpg')}
                           resizeMode="cover"

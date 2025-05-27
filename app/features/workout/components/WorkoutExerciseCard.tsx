@@ -24,6 +24,23 @@ export default function WorkoutExerciseCard({
   absoluteMaxWeight,
   onExerciseNamePress,
 }: WorkoutExerciseCardProps) {
+  // Helper function to determine the image source
+  const getImageSource = () => {
+    // Check if we have a valid image URL
+    // This prevents flickering by avoiding invalid URI loading attempts
+    const hasValidImageUrl = exercise?.image_url && 
+                             exercise.image_url.trim() !== '' && 
+                             exercise.image_url !== 'null' && 
+                             exercise.image_url !== 'undefined';
+    
+    if (hasValidImageUrl) {
+      return { uri: exercise.image_url };
+    } else {
+      // Use placeholder directly for local assets to prevent any loading attempts
+      return require('../../../../assets/exercises/placeholder.jpg');
+    }
+  };
+
   return (
     <>
       {/* Exercise Card */}
@@ -31,11 +48,15 @@ export default function WorkoutExerciseCard({
         <View style={styles.exerciseRow}>
           <View style={styles.exerciseImageContainer}>
             <OptimizedImage
-              source={exercise?.image_url ? { uri: exercise.image_url } : require('../../../../assets/exercises/placeholder.jpg')}
+              source={getImageSource()}
               style={styles.exerciseImage}
               fallback={require('../../../../assets/exercises/placeholder.jpg')}
               resizeMode="cover"
               cachePolicy="immutable"
+              showLoader={false}
+              isImportant={true}
+              priority="high"
+              debugLabel={`Exercise-${exercise?.name || 'Unknown'}`}
             />
           </View>
           <View style={styles.exerciseInfo}>

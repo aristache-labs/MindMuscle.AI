@@ -2008,6 +2008,9 @@ export default function WorkoutSessionScreen() {
                     fallback={require('../../../../assets/exercises/placeholder.jpg')}
                     resizeMode="cover"
                     cachePolicy="immutable"
+                    showLoader={false}
+                    priority="normal"
+                    debugLabel={`NextExercise-${exercises[currentExerciseIndex + 1]?.name || 'Unknown'}`}
                   />
                 ) : (
                   <View style={styles.nextExercisePlaceholder}>

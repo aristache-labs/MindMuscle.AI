@@ -79,6 +79,8 @@ export default function WorkoutSessionScreen() {
   const [recommendations, setRecommendations] = useState<Record<string, any>>({});
   const [focusedInputs, setFocusedInputs] = useState<Record<string, boolean>>({});
   const [lastExerciseValues, setLastExerciseValues] = useState<Record<string, Record<number, { weight: string, reps: string }>>>({});
+  const [userEnteredValues, setUserEnteredValues] = useState<Record<string, boolean>>({});
+  const [exerciseCustomized, setExerciseCustomized] = useState<Record<string, boolean>>({});
   const [cycleWeekInfo, setCycleWeekInfo] = useState<{
     weekNumber: number;
     weekName: string;
@@ -120,6 +122,9 @@ export default function WorkoutSessionScreen() {
   
   // State for customize exercise modal
   const [showCustomizeExerciseModal, setShowCustomizeExerciseModal] = useState(false);
+  
+  // State to force TextInput re-render when exercise is customized
+  const [textInputRefreshKey, setTextInputRefreshKey] = useState(0);
   
   // State for keyboard handling
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -410,8 +415,11 @@ export default function WorkoutSessionScreen() {
       return;
     }
 
+    console.log('🔄 PRE-FILL WITH SUGGESTED VALUES TRIGGERED');
+
     setExerciseSets(prev => {
       const updatedSets = { ...prev };
+      let hasChanges = false;
       
       exercises.forEach(exercise => {
         const exerciseRecommendation = recommendations[exercise.id];
@@ -423,27 +431,47 @@ export default function WorkoutSessionScreen() {
               if (exercise.requires_weight !== false) {
                 // Use recommended weight from database
                 if (exerciseRecommendation.recommended_weight && (set.weight === '' || set.weight === '-')) {
+                  console.log(`💉 PRE-FILLING WEIGHT for ${exercise.name} set ${index + 1}: ${exerciseRecommendation.recommended_weight}`);
                   updatedSets[exercise.id][index].weight = exerciseRecommendation.recommended_weight.toString();
+                  hasChanges = true;
                 }
-                // Use recommended reps from database, fallback to last reps
+                // Use recommended reps from database, fallback to last reps (but not for customized exercises)
                 if (exerciseRecommendation.recommended_reps && (set.reps === '' || set.reps === '-')) {
+                  console.log(`💉 PRE-FILLING REPS (recommended) for ${exercise.name} set ${index + 1}: ${exerciseRecommendation.recommended_reps}`);
                   updatedSets[exercise.id][index].reps = exerciseRecommendation.recommended_reps.toString();
+                  hasChanges = true;
                 } else {
-                  const lastReps = lastExerciseValues[exercise.exercise_id]?.[index + 1]?.reps;
-                  if (lastReps && lastReps !== '-' && lastReps !== '0' && (set.reps === '' || set.reps === '-')) {
-                    updatedSets[exercise.id][index].reps = lastReps;
+                  // Don't pre-fill with last values if exercise was customized
+                  const isCustomized = exerciseCustomized[exercise.id];
+                  if (!isCustomized) {
+                    const lastReps = lastExerciseValues[exercise.exercise_id]?.[index + 1]?.reps;
+                    if (lastReps && lastReps !== '-' && lastReps !== '0' && (set.reps === '' || set.reps === '-')) {
+                      console.log(`💉 PRE-FILLING REPS (last value) for ${exercise.name} set ${index + 1}: ${lastReps}`);
+                      updatedSets[exercise.id][index].reps = lastReps;
+                      hasChanges = true;
+                    }
+                  } else {
+                    console.log(`⏭️ SKIPPING PRE-FILL for customized exercise ${exercise.name} set ${index + 1}`);
                   }
                 }
               } else {
                 // For bodyweight exercises, use recommended reps from database
                 if (exerciseRecommendation.recommended_reps && (set.reps === '' || set.reps === '-')) {
+                  console.log(`💉 PRE-FILLING REPS (bodyweight) for ${exercise.name} set ${index + 1}: ${exerciseRecommendation.recommended_reps}`);
                   updatedSets[exercise.id][index].reps = exerciseRecommendation.recommended_reps.toString();
+                  hasChanges = true;
                 }
               }
             }
           });
         }
       });
+      
+      if (hasChanges) {
+        console.log('✅ PRE-FILL COMPLETED WITH CHANGES');
+      } else {
+        console.log('⏭️ PRE-FILL COMPLETED WITHOUT CHANGES');
+      }
       
       return updatedSets;
     });
@@ -541,6 +569,8 @@ export default function WorkoutSessionScreen() {
   // Additional effect to pre-fill with last values when they become available (for cycle week 1 or when no suggested values)
   useEffect(() => {
     if (Object.keys(lastExerciseValues).length > 0 && exercises.length > 0) {
+      console.log('🔄 PRE-FILL WITH LAST VALUES EFFECT TRIGGERED');
+      
       setExerciseSets(prev => {
         const updatedSets = { ...prev };
         let hasChanges = false;
@@ -554,6 +584,7 @@ export default function WorkoutSessionScreen() {
               if (!set.isCompleted && exercise.requires_weight !== false) {
                 const lastReps = lastExerciseValues[exercise.exercise_id]?.[setNumber]?.reps;
                 if (lastReps && lastReps !== '-' && lastReps !== '0') {
+                  console.log(`💉 PRE-FILLING LAST REPS for ${exercise.name} set ${setNumber}: "${set.reps}" -> "${lastReps}"`);
                   updatedSets[exercise.id][index].reps = lastReps;
                   hasChanges = true;
                 }
@@ -561,6 +592,12 @@ export default function WorkoutSessionScreen() {
             });
           }
         });
+        
+        if (hasChanges) {
+          console.log('✅ LAST VALUES PRE-FILL COMPLETED WITH CHANGES');
+        } else {
+          console.log('⏭️ LAST VALUES PRE-FILL COMPLETED WITHOUT CHANGES');
+        }
         
         return hasChanges ? updatedSets : prev;
       });
@@ -1056,87 +1093,113 @@ export default function WorkoutSessionScreen() {
   };
 
   const handleCustomizeExerciseSave = (updatedExercise: { sets: number; reps_range: string }) => {
-    // console.log('🚀 handleCustomizeExerciseSave called with:', updatedExercise);
+    console.log('🚀 CUSTOMIZE SAVE START:', {
+      updatedExercise,
+      currentExerciseIndex,
+      exerciseName: exercises[currentExerciseIndex]?.name
+    });
     
     // Get the exercise that's currently being customized
     const exerciseToUpdate = exercises[currentExerciseIndex];
     if (!exerciseToUpdate) {
-      // console.log('❌ No exercise to update found at index:', currentExerciseIndex);
+      console.log('❌ No exercise to update found');
       return;
     }
     
-    // console.log('🎯 Exercise to update:', {
-    //   name: exerciseToUpdate.name,
-    //   id: exerciseToUpdate.id,
-    //   currentSets: exerciseToUpdate.sets,
-    //   currentRepsRange: exerciseToUpdate.reps_range
-    // });
+    console.log('📊 BEFORE CUSTOMIZE - Current state:', {
+      exerciseId: exerciseToUpdate.id,
+      currentRepsRange: exerciseToUpdate.reps_range,
+      newRepsRange: updatedExercise.reps_range,
+      currentSets: exerciseSets[exerciseToUpdate.id]?.map(set => ({
+        setNumber: set.setNumber,
+        reps: set.reps,
+        isCompleted: set.isCompleted
+      })),
+      userEnteredValues: Object.keys(userEnteredValues).filter(key => key.includes(exerciseToUpdate.id)),
+      exerciseCustomized: exerciseCustomized[exerciseToUpdate.id]
+    });
     
-    const oldRepsRange = exerciseToUpdate.reps_range;
-    // console.log('📊 Old reps range:', oldRepsRange, '-> New reps range:', updatedExercise.reps_range);
-    
-    // Clear recommendations for this exercise so new reps_range takes precedence in placeholder
-    // Keep lastExerciseValues for display under inputs, only clear recommendations
+    // Always clear reps recommendations when customizing exercise, keep weight recommendations
     setRecommendations(prev => {
-      // console.log('🧹 Clearing recommendations for exercise ID:', exerciseToUpdate.id);
       const updated = { ...prev };
-      delete updated[exerciseToUpdate.id];
-      // console.log('📋 Remaining recommendations:', Object.keys(updated));
+      if (updated[exerciseToUpdate.id]) {
+        // Keep weight recommendations, only clear reps recommendations
+        updated[exerciseToUpdate.id] = {
+          ...updated[exerciseToUpdate.id],
+          recommended_reps: null
+        };
+      }
+      console.log('🔄 RECOMMENDATIONS CLEARED for exercise:', exerciseToUpdate.id);
+      return updated;
+    });
+    
+    // Clear user-entered flags for all reps inputs of this exercise FIRST
+    setUserEnteredValues(prev => {
+      const updated = { ...prev };
+      const currentSets = exerciseSets[exerciseToUpdate.id] || [];
+      const clearedKeys: string[] = [];
+      
+      currentSets.forEach((set, index) => {
+        const repsInputKey = `${exerciseToUpdate.id}-${index}-reps`;
+        if (updated[repsInputKey]) {
+          delete updated[repsInputKey];
+          clearedKeys.push(repsInputKey);
+        }
+      });
+      
+      console.log('🧹 USER ENTERED VALUES CLEARED:', clearedKeys);
+      console.log('🧹 Remaining user entered values:', Object.keys(updated).filter(key => key.includes(exerciseToUpdate.id)));
       return updated;
     });
     
     // Update the exercise with new sets and reps range
     setExercises(prev => {
-      // console.log('🔄 Updating exercises state...');
       const updatedExercises = [...prev];
       const exerciseIndex = updatedExercises.findIndex(ex => ex.id === exerciseToUpdate.id);
-      // console.log('📍 Found exercise at index:', exerciseIndex);
       
       if (exerciseIndex !== -1) {
-        const oldExercise = updatedExercises[exerciseIndex];
+        const oldRepsRange = updatedExercises[exerciseIndex].reps_range;
         updatedExercises[exerciseIndex] = {
           ...updatedExercises[exerciseIndex],
           sets: updatedExercise.sets,
           reps_range: updatedExercise.reps_range
         };
-        // console.log('✅ Exercise updated:', {
-        //   name: oldExercise.name,
-        //   oldSets: oldExercise.sets,
-        //   newSets: updatedExercise.sets,
-        //   oldRepsRange: oldExercise.reps_range,
-        //   newRepsRange: updatedExercise.reps_range
-        // });
+        console.log('🔄 EXERCISE UPDATED:', {
+          exerciseId: exerciseToUpdate.id,
+          oldRepsRange,
+          newRepsRange: updatedExercise.reps_range
+        });
       }
       return updatedExercises;
     });
 
-    // Update exercise sets to match the new number of sets and reps range
+    // Update exercise sets to match the new number of sets and clear reps values
     setExerciseSets(prev => {
-      // console.log('🔄 Updating exercise sets...');
       const currentSets = prev[exerciseToUpdate.id] || [];
       const newSetsCount = updatedExercise.sets;
-      // console.log('📊 Current sets count:', currentSets.length, '-> New sets count:', newSetsCount);
-      // console.log('📋 Current sets data:', currentSets.map(set => ({
-      //   setNumber: set.setNumber,
-      //   reps: set.reps,
-      //   isCompleted: set.isCompleted
-      // })));
+      
+      console.log('🔄 UPDATING EXERCISE SETS:', {
+        currentSetsCount: currentSets.length,
+        newSetsCount,
+        currentSetsData: currentSets.map(set => ({
+          setNumber: set.setNumber,
+          reps: set.reps,
+          isCompleted: set.isCompleted
+        }))
+      });
       
       let updatedSets = [...currentSets];
       
       // Clear ALL reps values for incomplete sets when customizing exercise
-      // This ensures the new reps_range placeholder will show for all sets
-      // Customize exercise is the "last action" that overrides any manual entries
       updatedSets = updatedSets.map((set, index) => {
         if (!set.isCompleted) {
-          // console.log(`🧹 Clearing reps for incomplete set ${set.setNumber}: "${set.reps}" -> ""`);
-          // Clear all reps values for incomplete sets to show new reps range
+          console.log(`🧹 CLEARING REPS for set ${set.setNumber}: "${set.reps}" -> ""`);
           return {
             ...set,
             reps: '' // Clear to show new placeholder with updated reps_range
           };
         }
-        // console.log(`✅ Keeping completed set ${set.setNumber} reps: "${set.reps}"`);
+        console.log(`✅ KEEPING COMPLETED set ${set.setNumber} reps: "${set.reps}"`);
         return set;
       });
       
@@ -1150,11 +1213,12 @@ export default function WorkoutSessionScreen() {
             reps: '',
             isCompleted: false
           });
+          console.log(`➕ ADDED NEW SET ${i + 1}`);
         }
       } else if (currentSets.length > newSetsCount) {
-        // Remove excess sets (keep only the first newSetsCount sets)
-        // But first, update totals by subtracting any completed sets that will be removed
+        // Remove excess sets and update totals
         const setsToRemove = updatedSets.slice(newSetsCount);
+        console.log('➖ REMOVING SETS:', setsToRemove.map(s => s.setNumber));
         setsToRemove.forEach(set => {
           if (set.isCompleted) {
             const weight = exerciseToUpdate.requires_weight !== false ? 
@@ -1173,11 +1237,11 @@ export default function WorkoutSessionScreen() {
         updatedSets = updatedSets.slice(0, newSetsCount);
       }
       
-      // console.log('📋 Final updated sets:', updatedSets.map(set => ({
-      //   setNumber: set.setNumber,
-      //   reps: set.reps,
-      //   isCompleted: set.isCompleted
-      // })));
+      console.log('📋 FINAL UPDATED SETS:', updatedSets.map(set => ({
+        setNumber: set.setNumber,
+        reps: set.reps,
+        isCompleted: set.isCompleted
+      })));
       
       return {
         ...prev,
@@ -1185,7 +1249,24 @@ export default function WorkoutSessionScreen() {
       };
     });
     
-    // console.log('🏁 handleCustomizeExerciseSave completed');
+    // Mark this exercise as customized
+    setExerciseCustomized(prev => {
+      const updated = {
+        ...prev,
+        [exerciseToUpdate.id]: true
+      };
+      console.log('✅ EXERCISE MARKED AS CUSTOMIZED:', exerciseToUpdate.id);
+      return updated;
+    });
+    
+    // Force TextInput re-render by updating refresh key
+    setTextInputRefreshKey(prev => {
+      const newKey = prev + 1;
+      console.log('🔄 TEXTINPUT REFRESH KEY UPDATED:', prev, '->', newKey);
+      return newKey;
+    });
+    
+    console.log('✅ CUSTOMIZE SAVE COMPLETE');
     
     // Close the modal
     setShowCustomizeExerciseModal(false);
@@ -1309,14 +1390,47 @@ export default function WorkoutSessionScreen() {
         let weight = requiresWeight ? (currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight)) : 0;
         let reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
         
-        // If reps is empty or 0, try to use the highest value from reps_range
-        if (reps === 0 && currentExercise?.reps_range) {
-          const maxReps = getHighestRepsFromRange(currentExercise.reps_range);
-          reps = maxReps;
-          // Update the set with the highest reps value
+        // Check if reps field contains a range format (e.g., "8-10") or is empty/0
+        const repsContainsRange = currentSet.reps && typeof currentSet.reps === 'string' && currentSet.reps.includes('-');
+        const userEnteredRepsKey = `${exerciseId}-${setIndex}-reps`;
+        const isUserEnteredValue = userEnteredValues[userEnteredRepsKey];
+        
+        // Use placeholder values if:
+        // 1. Reps is empty, 0, or contains a range format, OR
+        // 2. The value is not user-entered (meaning it's from placeholder/auto-fill)
+        const shouldUsePlaceholderValue = reps === 0 || repsContainsRange || isNaN(reps) || !isUserEnteredValue;
+        
+        // If we should use placeholder value, prioritize based on whether exercise was customized
+        if (shouldUsePlaceholderValue && currentExercise) {
+          // Priority: 1. Recommended reps from database, 2. Last workout values (if not customized), 3. Exercise reps range (if customized)
+          const recommendedReps = recommendations[exerciseId]?.recommended_reps;
+          const lastReps = lastExerciseValues[currentExercise!.exercise_id]?.[setIndex + 1]?.reps;
+          const isCustomized = exerciseCustomized[exerciseId];
+          
+          let finalReps = reps;
+          if (recommendedReps) {
+            finalReps = recommendedReps;
+          } else if (isCustomized) {
+            // Exercise was customized, prioritize reps_range over last values
+            if (currentExercise.reps_range) {
+              finalReps = getHighestRepsFromRange(currentExercise.reps_range);
+            } else if (lastReps && lastReps !== '-' && lastReps !== '0') {
+              finalReps = parseInt(lastReps, 10);
+            }
+          } else {
+            // Exercise not customized, prioritize last values over reps_range
+            if (lastReps && lastReps !== '-' && lastReps !== '0') {
+              finalReps = parseInt(lastReps, 10);
+            } else if (currentExercise.reps_range) {
+              finalReps = getHighestRepsFromRange(currentExercise.reps_range);
+            }
+          }
+          
+          reps = finalReps;
+          // Update the set with the determined reps value
           updatedSets[setIndex] = {
             ...currentSet,
-            reps: maxReps.toString(),
+            reps: finalReps.toString(),
             isCompleted: newCompletedState
           };
         } else {
@@ -1408,7 +1522,19 @@ export default function WorkoutSessionScreen() {
               
               // Calculate the latest volume and reps including the last set
               const weight = requiresWeight ? (currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight)) : 0;
-              const reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
+              let reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
+              
+              // Check if reps field contains a range format and use max value if so
+              const repsContainsRange = currentSet.reps && typeof currentSet.reps === 'string' && currentSet.reps.includes('-');
+              const userEnteredRepsKey = `${exerciseId}-${setIndex}-reps`;
+              const isUserEnteredValue = userEnteredValues[userEnteredRepsKey];
+              
+              if (repsContainsRange || isNaN(reps) || !isUserEnteredValue) {
+                if (currentExercise?.reps_range) {
+                  reps = getHighestRepsFromRange(currentExercise.reps_range);
+                }
+              }
+              
               const setVolume = requiresWeight ? parseFloat((weight * reps).toFixed(1)) : 0;
               
               // Calculate the new totals including this last set
@@ -1447,6 +1573,16 @@ export default function WorkoutSessionScreen() {
   };
 
   const handleRedoSet = (exerciseId: string, setIndex: number) => {
+    // Reset user-entered flags for this set when redoing
+    const weightInputKey = `${exerciseId}-${setIndex}-weight`;
+    const repsInputKey = `${exerciseId}-${setIndex}-reps`;
+    setUserEnteredValues(prev => {
+      const updated = { ...prev };
+      delete updated[weightInputKey];
+      delete updated[repsInputKey];
+      return updated;
+    });
+    
     // Mark the set as not completed and update volume/reps totals
     setExerciseSets(prev => {
       const updatedSets = [...prev[exerciseId]];
@@ -1459,7 +1595,19 @@ export default function WorkoutSessionScreen() {
       // If the set was completed, subtract its volume and reps from totals
       if (currentSet.isCompleted) {
         const weight = requiresWeight ? (currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight)) : 0;
-        const reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
+        let reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
+        
+        // Check if reps field contains a range format and use max value if so
+        const repsContainsRange = currentSet.reps && typeof currentSet.reps === 'string' && currentSet.reps.includes('-');
+        const userEnteredRepsKey = `${exerciseId}-${setIndex}-reps`;
+        const isUserEnteredValue = userEnteredValues[userEnteredRepsKey];
+        
+        if (repsContainsRange || isNaN(reps) || !isUserEnteredValue) {
+          if (currentExercise?.reps_range) {
+            reps = getHighestRepsFromRange(currentExercise.reps_range);
+          }
+        }
+        
         const setVolume = requiresWeight ? parseFloat((weight * reps).toFixed(1)) : 0;
         
         if (requiresWeight) {
@@ -1470,7 +1618,8 @@ export default function WorkoutSessionScreen() {
       
       updatedSets[setIndex] = {
         ...currentSet,
-        isCompleted: false
+        isCompleted: false,
+        reps: ''    // Clear reps value so placeholder will show (weight should remain)
       };
       
       return { ...prev, [exerciseId]: updatedSets };
@@ -1502,8 +1651,9 @@ export default function WorkoutSessionScreen() {
             };
           }
           
-          // Fill empty reps with highest value from range or 0
-          if (set.reps === '' || set.reps === '-') {
+          // Fill empty reps or reps with range format with highest value from range or 0
+          const repsContainsRange = set.reps && typeof set.reps === 'string' && set.reps.includes('-');
+          if (set.reps === '' || set.reps === '-' || repsContainsRange) {
             let repsValue = '0';
             if (currentExercise?.reps_range) {
               const maxReps = getHighestRepsFromRange(currentExercise.reps_range);
@@ -1552,7 +1702,19 @@ export default function WorkoutSessionScreen() {
               // Update volume and reps for the last set
               const lastSet = updatedSets[setIndex];
               const weight = requiresWeight ? (lastSet.weight === '-' || lastSet.weight === '' ? 0 : parseFloat(lastSet.weight)) : 0;
-              const reps = lastSet.reps === '-' || lastSet.reps === '' ? 0 : parseFloat(lastSet.reps);
+              let reps = lastSet.reps === '-' || lastSet.reps === '' ? 0 : parseFloat(lastSet.reps);
+              
+              // Check if reps field contains a range format and use max value if so
+              const repsContainsRange = lastSet.reps && typeof lastSet.reps === 'string' && lastSet.reps.includes('-');
+              const userEnteredRepsKey = `${exerciseId}-${setIndex}-reps`;
+              const isUserEnteredValue = userEnteredValues[userEnteredRepsKey];
+              
+              if (repsContainsRange || isNaN(reps) || !isUserEnteredValue) {
+                if (currentExercise?.reps_range) {
+                  reps = getHighestRepsFromRange(currentExercise.reps_range);
+                }
+              }
+              
               const setVolume = requiresWeight ? parseFloat((weight * reps).toFixed(1)) : 0;
               
               if (requiresWeight) {
@@ -1651,6 +1813,13 @@ export default function WorkoutSessionScreen() {
       }
     }
     
+    // Mark this input as user-entered
+    const inputKey = `${exerciseId}-${setIndex}-weight`;
+    setUserEnteredValues(prev => ({
+      ...prev,
+      [inputKey]: true
+    }));
+    
     setExerciseSets(prev => {
       const updatedSets = { ...prev };
       if (updatedSets[exerciseId]) {
@@ -1661,6 +1830,13 @@ export default function WorkoutSessionScreen() {
   };
 
   const handleRepsChange = (exerciseId: string, setIndex: number, value: string) => {
+    console.log(`📝 REPS CHANGE:`, {
+      exerciseId,
+      setIndex,
+      value,
+      exerciseName: exercises.find(ex => ex.id === exerciseId)?.name
+    });
+    
     // Validate and transform the input value
     let processedValue = value === '-' ? value : value.replace(/^0+(?=\d)/, ''); // Keep '-' as is but remove leading zeros
     
@@ -1672,10 +1848,25 @@ export default function WorkoutSessionScreen() {
       }
     }
     
+    // Mark this input as user-entered
+    const inputKey = `${exerciseId}-${setIndex}-reps`;
+    console.log(`✅ MARKING AS USER ENTERED:`, inputKey);
+    setUserEnteredValues(prev => ({
+      ...prev,
+      [inputKey]: true
+    }));
+    
     setExerciseSets(prev => {
       const updatedSets = { ...prev };
       if (updatedSets[exerciseId]) {
+        const oldValue = updatedSets[exerciseId][setIndex].reps;
         updatedSets[exerciseId][setIndex].reps = processedValue;
+        console.log(`🔄 REPS VALUE UPDATED:`, {
+          exerciseId,
+          setIndex,
+          oldValue,
+          newValue: processedValue
+        });
       }
       return updatedSets;
     });
@@ -1811,6 +2002,8 @@ export default function WorkoutSessionScreen() {
     setTotalVolume(0);
     setTotalReps(0);
     setCurrentExerciseIndex(0);
+    setUserEnteredValues({});
+    setExerciseCustomized({});
     
     // Reset all sets to not completed
     setExerciseSets(prev => {
@@ -1830,7 +2023,42 @@ export default function WorkoutSessionScreen() {
     // This prevents the values from disappearing during state updates
     setLastExerciseValues(currentLastValues);
     
-    // Also fetch fresh data after a delay to ensure we have the latest records
+    // Fetch fresh workout data to reset exercises to their original state
+    // This ensures that any customizations from previous sessions are cleared
+    try {
+      setIsLoading(true);
+      
+      // Use the service function to fetch fresh workout data
+      const { exercises: freshExercises, exerciseSets: freshSets, recommendations: freshRecommendations } = 
+        await workoutPlanService.fetchWorkoutData(planId, workoutDay, user?.id || '', cycleWeek);
+      
+      // Update exercises with fresh data (this resets any customizations)
+      setExercises(freshExercises);
+      
+      // Update exercise sets with fresh data but keep them as not completed
+      setExerciseSets(prev => {
+        const resetSets = { ...freshSets };
+        Object.keys(resetSets).forEach(exerciseId => {
+          resetSets[exerciseId] = resetSets[exerciseId].map(set => ({
+            ...set,
+            isCompleted: false,
+            weight: '',
+            reps: ''
+          }));
+        });
+        return resetSets;
+      });
+      
+      // Update recommendations with fresh data
+      setRecommendations(freshRecommendations);
+      
+      setIsLoading(false);
+    } catch (error) {
+      console.error('Error fetching fresh workout data for redo:', error);
+      setIsLoading(false);
+    }
+    
+    // Also fetch fresh last exercise records after a delay to ensure we have the latest records
     setTimeout(async () => {
       await fetchLastExerciseRecords();
     }, 1000); // Longer delay to ensure all state updates have completed
@@ -2004,62 +2232,36 @@ export default function WorkoutSessionScreen() {
                         <View style={styles.leftColumn}>
                           {/* Weight and Reps Cell - both inputs in same cell */}
                           <View style={styles.weightRepsCell}>
-                                                    {/* Suggested text row for weeks 2-5 */}
-                        {cycleWeek > 1 && (
-                          (currentExercise?.requires_weight !== false && getSuggestedValue(currentExercise.exercise_id, index + 1, 'weight')) ||
-                          (currentExercise?.requires_weight === false && getSuggestedValue(currentExercise.exercise_id, index + 1, 'reps'))
-                        ) && (
-                          <View style={styles.suggestedRow}>
-                            {/* Show weight suggestion only for exercises that require weight */}
-                            {currentExercise?.requires_weight !== false && (
-                              <View style={styles.suggestedContainer}>
-                                {getSuggestedValue(currentExercise.exercise_id, index + 1, 'weight') && (
-                                  <Text style={styles.suggestedLabelWeightActive}>
-                                    Suggested
-                                  </Text>
-                                )}
-                              </View>
-                            )}
-                            
-                            {currentExercise?.requires_weight !== false && (
-                              <View style={styles.suggestedSpacer} />
-                            )}
-                            
-                            {/* Show reps suggestion only for bodyweight exercises */}
-                            {currentExercise?.requires_weight === false && (
-                              <View style={styles.suggestedContainer}>
-                                {getSuggestedValue(currentExercise.exercise_id, index + 1, 'reps') && (
-                                  <Text style={styles.suggestedLabel}>
-                                    Suggested
-                                  </Text>
-                                )}
-                              </View>
-                            )}
-                          </View>
-                        )}
-
                             <View style={styles.inputRow}>
                               {/* Only show weight input if exercise requires weight */}
                               {currentExercise?.requires_weight !== false && (
                                 <>
                                   <View style={styles.inputContainer}>
-                                    <TextInput
-                                      style={styles.inputField}
-                                      value={set.weight}
-                                      onChangeText={(value) => handleWeightChange(currentExercise.id, index, value)}
-                                      keyboardType="decimal-pad"
-                                      placeholder={focusedInputs[`${currentExercise.id}-${index}-weight`] ? '' : (
-                                        // Use recommended weight from database if available, otherwise fall back to suggested value
-                                        currentRecommendation?.recommended_weight?.toString() || 
-                                        getSuggestedValue(currentExercise.exercise_id, index + 1, 'weight') || '-'
-                                      )}
-                                      placeholderTextColor="rgba(255,255,255,0.5)"
-                                      selectTextOnFocus={true}
-                                      onFocus={(event) => handleInputFocus(`${currentExercise.id}-${index}-weight`, event)}
-                                      onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-weight`)}
-                                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                                    />
-                                    <Text style={styles.activeSetValueUnit}>kg</Text>
+                                    {/* Suggested label above weight input - hide when user has manually entered a value, on redo workouts, or completed sets */}
+                                    {cycleWeek > 1 && getSuggestedValue(currentExercise.exercise_id, index + 1, 'weight') && !userEnteredValues[`${currentExercise.id}-${index}-weight`] && !originalCycleWeek && !set.isCompleted && (
+                                      <Text style={styles.suggestedLabelWeightActive}>
+                                        Suggested
+                                      </Text>
+                                    )}
+                                    <View style={styles.inputFieldContainer}>
+                                      <TextInput
+                                        style={styles.inputField}
+                                        value={set.weight}
+                                        onChangeText={(value) => handleWeightChange(currentExercise.id, index, value)}
+                                        keyboardType="decimal-pad"
+                                        placeholder={focusedInputs[`${currentExercise.id}-${index}-weight`] ? '' : (
+                                          // Use recommended weight from database if available, otherwise fall back to suggested value
+                                          currentRecommendation?.recommended_weight?.toString() || 
+                                          getSuggestedValue(currentExercise.exercise_id, index + 1, 'weight') || '-'
+                                        )}
+                                        placeholderTextColor="rgba(255,255,255,0.5)"
+                                        selectTextOnFocus={true}
+                                        onFocus={(event) => handleInputFocus(`${currentExercise.id}-${index}-weight`, event)}
+                                        onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-weight`)}
+                                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                      />
+                                      <Text style={styles.activeSetValueUnit}>kg</Text>
+                                    </View>
                                   </View>
                                   
                                   <View style={styles.inputDivider} />
@@ -2067,44 +2269,73 @@ export default function WorkoutSessionScreen() {
                               )}
                               
                               <View style={styles.inputContainer}>
-                                <TextInput
-                                  style={styles.inputField}
-                                  value={set.reps === '' ? undefined : set.reps}
-                                  onChangeText={(value) => handleRepsChange(currentExercise.id, index, value)}
-                                  keyboardType="numeric"
-                                  placeholder={focusedInputs[`${currentExercise.id}-${index}-reps`] ? '' : (() => {
-                                    // Use recommended reps from database if available, otherwise fall back to updated reps range or last values
-                                    const recommendedReps = currentRecommendation?.recommended_reps?.toString();
-                                    const exerciseRepsRange = currentExercise.reps_range;
-                                    const lastReps = lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps;
-                                    
-                                    const finalPlaceholder = recommendedReps || exerciseRepsRange || lastReps || '-';
-                                    
-                                                                    // console.log(`🎯 ACTIVE Placeholder for ${currentExercise.name} set ${index + 1}:`, {
-                                //   recommendedReps,
-                                //   exerciseRepsRange,
-                                //   lastReps,
-                                //   finalPlaceholder
-                                // });
-                                    
-                                    return finalPlaceholder;
-                                  })()}
-                                  placeholderTextColor="rgba(255,255,255,0.5)"
-                                  selectTextOnFocus={true}
-                                  onFocus={(event) => handleInputFocus(`${currentExercise.id}-${index}-reps`, event)}
-                                  onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-reps`)}
-                                />
-                                <Text style={styles.activeSetValueUnit}>reps</Text>
+                                {/* Suggested label above reps input for bodyweight exercises */}
+                                {currentExercise?.requires_weight === false && cycleWeek > 1 && getSuggestedValue(currentExercise.exercise_id, index + 1, 'reps') && (
+                                  <Text style={styles.suggestedLabel}>
+                                    Suggested
+                                  </Text>
+                                )}
+                                <View style={styles.inputFieldContainer}>
+                                  <TextInput
+                                    key={`${currentExercise.id}-${index}-reps-${currentExercise.reps_range}-${exerciseCustomized[currentExercise.id] ? 'customized' : 'default'}-${textInputRefreshKey}`}
+                                    style={styles.inputField}
+                                    value={set.reps === '' ? undefined : set.reps}
+                                    onChangeText={(value) => handleRepsChange(currentExercise.id, index, value)}
+                                    keyboardType="numeric"
+                                    placeholder={focusedInputs[`${currentExercise.id}-${index}-reps`] ? '' : (() => {
+                                      // Priority: 1. Recommended reps from database, 2. Last workout values (if not customized), 3. Exercise reps range (if customized)
+                                      const recommendedReps = currentRecommendation?.recommended_reps?.toString();
+                                      const lastReps = lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps;
+                                      const exerciseRepsRange = currentExercise.reps_range;
+                                      const isCustomized = exerciseCustomized[currentExercise.id];
+                                      
+                                      // If exercise was customized, prioritize the reps_range over last values
+                                      const finalPlaceholder = recommendedReps || 
+                                        (isCustomized ? exerciseRepsRange : lastReps) || 
+                                        (isCustomized ? lastReps : exerciseRepsRange) || '-';
+                                      
+                                      // Only log when placeholder actually changes (include currentValue and isUserEntered in key)
+                                      const logKey = `active-${currentExercise.id}-${index}-${finalPlaceholder}-${set.reps}-${userEnteredValues[`${currentExercise.id}-${index}-reps`]}-${textInputRefreshKey}`;
+                                      if (!(global as any).lastActivePlaceholderLogs) {
+                                        (global as any).lastActivePlaceholderLogs = {};
+                                      }
+                                      if ((global as any).lastActivePlaceholderLogs[`${currentExercise.id}-${index}`] !== logKey) {
+                                        (global as any).lastActivePlaceholderLogs[`${currentExercise.id}-${index}`] = logKey;
+                                        console.log(`🎯 ACTIVE REPS PLACEHOLDER for set ${index + 1}:`, {
+                                          exerciseId: currentExercise.id,
+                                          exerciseName: currentExercise.name,
+                                          setNumber: index + 1,
+                                          currentValue: set.reps,
+                                          recommendedReps,
+                                          lastReps,
+                                          exerciseRepsRange,
+                                          isCustomized,
+                                          finalPlaceholder,
+                                          userEnteredKey: `${currentExercise.id}-${index}-reps`,
+                                          isUserEntered: userEnteredValues[`${currentExercise.id}-${index}-reps`],
+                                          textInputRefreshKey
+                                        });
+                                      }
+                                      
+                                      return finalPlaceholder;
+                                    })()}
+                                    placeholderTextColor="rgba(255,255,255,0.5)"
+                                    selectTextOnFocus={true}
+                                    onFocus={(event) => handleInputFocus(`${currentExercise.id}-${index}-reps`, event)}
+                                    onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-reps`)}
+                                  />
+                                  <Text style={styles.activeSetValueUnit}>reps</Text>
+                                </View>
                               </View>
                             </View>
                             
                             {/* Last values row - split under each input - only show for incomplete sets */}
                             {!set.isCompleted && (lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.weight || 
                               lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps) && (
-                              <View style={styles.lastValuesRow}>
+                              <View style={styles.lastValuesRowActive}>
                                 {/* Only show weight last value if exercise requires weight */}
                                 {currentExercise?.requires_weight !== false && (
-                                  <View style={styles.lastValueContainer}>
+                                  <View style={styles.lastValueContainerActive}>
                                     {lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.weight && (
                                       <Text style={styles.activeSetSubValue}>
                                         ( Last {lastExerciseValues[currentExercise.exercise_id][index + 1]?.weight} )
@@ -2117,7 +2348,7 @@ export default function WorkoutSessionScreen() {
                                   <View style={styles.lastValueSpacer} />
                                 )}
                                 
-                                <View style={styles.lastValueContainer}>
+                                <View style={styles.lastValueContainerActive}>
                                   {lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps && (
                                     <Text style={styles.activeSetSubValue}>
                                       ( Last {lastExerciseValues[currentExercise.exercise_id][index + 1]?.reps} )
@@ -2159,62 +2390,36 @@ export default function WorkoutSessionScreen() {
                     <View style={styles.inactiveSetCardContent}>
                       {/* Left Cell: Weight and Reps inputs */}
                       <View style={styles.inactiveLeftCell}>
-                        {/* Suggested text row for weeks 2-5 */}
-                        {cycleWeek > 1 && (
-                          (currentExercise?.requires_weight !== false && getSuggestedValue(currentExercise.exercise_id, index + 1, 'weight')) ||
-                          (currentExercise?.requires_weight === false && getSuggestedValue(currentExercise.exercise_id, index + 1, 'reps'))
-                        ) && (
-                          <View style={styles.suggestedRowInactive}>
-                            {/* Show weight suggestion only for exercises that require weight */}
-                            {currentExercise?.requires_weight !== false && (
-                              <View style={styles.suggestedContainerWeight}>
-                                {getSuggestedValue(currentExercise.exercise_id, index + 1, 'weight') && (
-                                  <Text style={styles.suggestedLabelWeight}>
-                                    Suggested
-                                  </Text>
-                                )}
-                              </View>
-                            )}
-                            
-                            {currentExercise?.requires_weight !== false && (
-                              <View style={styles.suggestedSpacer} />
-                            )}
-                            
-                            {/* Show reps suggestion only for bodyweight exercises */}
-                            {currentExercise?.requires_weight === false && (
-                              <View style={styles.suggestedContainer}>
-                                {getSuggestedValue(currentExercise.exercise_id, index + 1, 'reps') && (
-                                  <Text style={styles.suggestedLabel}>
-                                    Suggested
-                                  </Text>
-                                )}
-                              </View>
-                            )}
-                          </View>
-                        )}
-
                         <View style={styles.inactiveInputRow}>
                           {/* Only show weight input if exercise requires weight */}
                           {currentExercise?.requires_weight !== false && (
                             <>
                               <View style={styles.inputContainer}>
-                                <TextInput
-                                  style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
-                                  value={set.weight}
-                                  onChangeText={(value) => handleWeightChange(currentExercise.id, index, value)}
-                                  keyboardType="decimal-pad"
-                                  placeholder={focusedInputs[`${currentExercise.id}-${index}-weight`] ? '' : (
-                                    // Use recommended weight from database if available, otherwise fall back to suggested value
-                                    currentRecommendation?.recommended_weight?.toString() || 
-                                    getSuggestedValue(currentExercise.exercise_id, index + 1, 'weight') || '-'
-                                  )}
-                                  placeholderTextColor="rgba(255,255,255,0.5)"
-                                  selectTextOnFocus={true}
-                                  onFocus={(event) => handleInputFocus(`${currentExercise.id}-${index}-weight`, event)}
-                                  onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-weight`)}
-                                  editable={!isCompleted}
-                                />
-                                <Text style={styles.activeSetValueUnit}>kg</Text>
+                                {/* Suggested label above weight input - hide for completed sets */}
+                                {cycleWeek > 1 && getSuggestedValue(currentExercise.exercise_id, index + 1, 'weight') && !set.isCompleted && (
+                                  <Text style={styles.suggestedLabelWeight}>
+                                    Suggested
+                                  </Text>
+                                )}
+                                <View style={styles.inputFieldContainer}>
+                                  <TextInput
+                                    style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
+                                    value={set.weight}
+                                    onChangeText={(value) => handleWeightChange(currentExercise.id, index, value)}
+                                    keyboardType="decimal-pad"
+                                    placeholder={focusedInputs[`${currentExercise.id}-${index}-weight`] ? '' : (
+                                      // Use recommended weight from database if available, otherwise fall back to suggested value
+                                      currentRecommendation?.recommended_weight?.toString() || 
+                                      getSuggestedValue(currentExercise.exercise_id, index + 1, 'weight') || '-'
+                                    )}
+                                    placeholderTextColor="rgba(255,255,255,0.5)"
+                                    selectTextOnFocus={true}
+                                    onFocus={(event) => handleInputFocus(`${currentExercise.id}-${index}-weight`, event)}
+                                    onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-weight`)}
+                                    editable={!isCompleted}
+                                  />
+                                  <Text style={styles.activeSetValueUnit}>kg</Text>
+                                </View>
                               </View>
                               
                               <View style={styles.inactiveInputDivider} />
@@ -2222,45 +2427,75 @@ export default function WorkoutSessionScreen() {
                           )}
                           
                           <View style={styles.inputContainer}>
-                            <TextInput
-                              style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
-                              value={set.reps === '' ? undefined : set.reps}
-                              onChangeText={(value) => handleRepsChange(currentExercise.id, index, value)}
-                              keyboardType="numeric"
-                              placeholder={focusedInputs[`${currentExercise.id}-${index}-reps`] ? '' : (() => {
-                                // Use recommended reps from database if available, otherwise fall back to updated reps range or last values
-                                const recommendedReps = currentRecommendation?.recommended_reps?.toString();
-                                const exerciseRepsRange = currentExercise.reps_range;
-                                const lastReps = lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps;
-                                
-                                const finalPlaceholder = recommendedReps || exerciseRepsRange || lastReps || '-';
-                                
-                                // console.log(`🎯 Placeholder for ${currentExercise.name} set ${index + 1}:`, {
-                                //   recommendedReps,
-                                //   exerciseRepsRange,
-                                //   lastReps,
-                                //   finalPlaceholder
-                                // });
-                                
-                                return finalPlaceholder;
-                              })()}
-                              placeholderTextColor="rgba(255,255,255,0.5)"
-                              selectTextOnFocus={true}
-                              onFocus={(event) => handleInputFocus(`${currentExercise.id}-${index}-reps`, event)}
-                              onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-reps`)}
-                              editable={!isCompleted}
-                            />
-                            <Text style={styles.activeSetValueUnit}>reps</Text>
+                            {/* Suggested label above reps input for bodyweight exercises - hide for completed sets */}
+                            {currentExercise?.requires_weight === false && cycleWeek > 1 && getSuggestedValue(currentExercise.exercise_id, index + 1, 'reps') && !set.isCompleted && (
+                              <Text style={styles.suggestedLabel}>
+                                Suggested
+                              </Text>
+                            )}
+                            <View style={styles.inputFieldContainer}>
+                              <TextInput
+                                key={`${currentExercise.id}-${index}-reps-${currentExercise.reps_range}-${exerciseCustomized[currentExercise.id] ? 'customized' : 'default'}-${textInputRefreshKey}`}
+                                style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
+                                value={set.reps === '' ? undefined : set.reps}
+                                onChangeText={(value) => handleRepsChange(currentExercise.id, index, value)}
+                                keyboardType="numeric"
+                                                                    placeholder={focusedInputs[`${currentExercise.id}-${index}-reps`] ? '' : (() => {
+                                      // Priority: 1. Recommended reps from database, 2. Last workout values (if not customized), 3. Exercise reps range (if customized)
+                                      const recommendedReps = currentRecommendation?.recommended_reps?.toString();
+                                      const lastReps = lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps;
+                                      const exerciseRepsRange = currentExercise.reps_range;
+                                      const isCustomized = exerciseCustomized[currentExercise.id];
+                                      
+                                      // If exercise was customized, prioritize the reps_range over last values
+                                      const finalPlaceholder = recommendedReps || 
+                                        (isCustomized ? exerciseRepsRange : lastReps) || 
+                                        (isCustomized ? lastReps : exerciseRepsRange) || '-';
+                                      
+                                      // Only log when placeholder actually changes (include currentValue and isUserEntered in key)
+                                      const logKey = `inactive-${currentExercise.id}-${index}-${finalPlaceholder}-${set.reps}-${userEnteredValues[`${currentExercise.id}-${index}-reps`]}-${textInputRefreshKey}`;
+                                      if (!(global as any).lastInactivePlaceholderLogs) {
+                                        (global as any).lastInactivePlaceholderLogs = {};
+                                      }
+                                      if ((global as any).lastInactivePlaceholderLogs[`${currentExercise.id}-${index}`] !== logKey) {
+                                        (global as any).lastInactivePlaceholderLogs[`${currentExercise.id}-${index}`] = logKey;
+                                        console.log(`🎯 INACTIVE REPS PLACEHOLDER for set ${index + 1}:`, {
+                                          exerciseId: currentExercise.id,
+                                          exerciseName: currentExercise.name,
+                                          setNumber: index + 1,
+                                          currentValue: set.reps,
+                                          recommendedReps,
+                                          lastReps,
+                                          exerciseRepsRange,
+                                          isCustomized,
+                                          finalPlaceholder,
+                                          userEnteredKey: `${currentExercise.id}-${index}-reps`,
+                                          isUserEntered: userEnteredValues[`${currentExercise.id}-${index}-reps`],
+                                          textInputRefreshKey,
+                                          isCompleted: set.isCompleted
+                                        });
+                                      }
+                                      
+                                      return finalPlaceholder;
+                                    })()}
+                                placeholderTextColor="rgba(255,255,255,0.5)"
+                                selectTextOnFocus={true}
+                                onFocus={(event) => handleInputFocus(`${currentExercise.id}-${index}-reps`, event)}
+                                onBlur={() => handleInputBlur(`${currentExercise.id}-${index}-reps`)}
+                                editable={!isCompleted}
+                              />
+                              <Text style={styles.activeSetValueUnit}>reps</Text>
+                            </View>
                           </View>
                         </View>
                         
                         {/* Last values row for inactive cards - only show for incomplete sets */}
                         {!set.isCompleted && (lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.weight || 
                           lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps) && (
-                          <View style={styles.lastValuesRow}>
+                          <View style={styles.lastValuesRowInactive}>
                             {/* Only show weight last value if exercise requires weight */}
                             {currentExercise?.requires_weight !== false && (
-                              <View style={styles.lastValueContainer}>
+                              <View style={styles.lastValueContainerInactive}>
                                 {lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.weight && (
                                   <Text style={styles.activeSetSubValue}>
                                     ( Last {lastExerciseValues[currentExercise.exercise_id][index + 1]?.weight} )
@@ -2273,7 +2508,7 @@ export default function WorkoutSessionScreen() {
                               <View style={styles.lastValueSpacer} />
                             )}
                             
-                            <View style={styles.lastValueContainer}>
+                            <View style={styles.lastValueContainerInactive}>
                               {lastExerciseValues[currentExercise.exercise_id]?.[index + 1]?.reps && (
                                 <Text style={styles.activeSetSubValue}>
                                   ( Last {lastExerciseValues[currentExercise.exercise_id][index + 1]?.reps} )
@@ -2913,13 +3148,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   inputContainer: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
     minWidth: 80,
     minHeight: 44,
     columnGap: 0,
     flex: 1,
+  },
+  inputFieldContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   inputField: {
     color: COLORS.text,
@@ -2952,7 +3192,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     marginTop: 10,
-    marginLeft: 2,
+    marginLeft: 4,
     color: 'rgba(255, 255, 255, 0.52)',
     textAlign: 'center',
     alignSelf: 'center',
@@ -2961,7 +3201,7 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 12,
     opacity: 0.8,
-    marginTop: 2,
+    marginTop: -10,
     textAlign: 'center',
   },
   activeSetLabel: {
@@ -2970,7 +3210,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '500',
     marginTop: 0,
-    marginLeft: 0,
+    marginLeft: -125,
     paddingHorizontal: SPACING.sm,
   },
   didItTextSet: {
@@ -3300,9 +3540,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  lastValuesRowActive: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginTop: 0,
   },
+  lastValuesRowInactive: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
   lastValueContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lastValueContainerActive: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lastValueContainerInactive: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -3369,8 +3630,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
-    paddingHorizontal: 4,
+    marginBottom: 0,
+    paddingHorizontal: 0,
   },
   suggestedRowInactive: {
     flexDirection: 'row',
@@ -3385,11 +3646,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   suggestedLabel: {
-    color: 'rgba(255, 255, 255, 0.61)',
     fontSize: 14,
     fontWeight: '600',
     textAlign: 'center',
     marginLeft: 0,
+    marginBottom: 0,
   },
   suggestedSpacer: {
     width: SPACING.xs,
@@ -3400,7 +3661,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
     marginLeft: 0,
-    marginBottom: 8,
+    marginBottom: 0,
   },
   suggestedLabelWeightActive: {
     color: 'rgba(255, 255, 255, 0.61)',
@@ -3408,6 +3669,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
     marginLeft: 0,
+    marginBottom: 0,
   },
   suggestedContainerWeight: {
     flex: 1,

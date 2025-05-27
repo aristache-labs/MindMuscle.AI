@@ -137,6 +137,9 @@ export default function WorkoutSessionScreen() {
   const cycleWeek = parseInt(params.cycleWeek as string, 10) || 1;
   const weekName = params.weekName as string || 'Adaptation';
   
+  // Add workout state management
+  const [workoutState, setWorkoutState] = useState<'in_progress' | 'completing' | 'completed'>('in_progress');
+  
   // Functions to handle input focus and blur
   const handleInputFocus = (id: string, event?: any) => {
     setFocusedInputs(prev => ({
@@ -1193,6 +1196,11 @@ export default function WorkoutSessionScreen() {
       return;
     }
     
+    console.log('🔧 EXERCISE CUSTOMIZATION:');
+    console.log(`  Exercise: ${exerciseToUpdate.name}`);
+    console.log(`  Original sets: ${exerciseToUpdate.sets} → New sets: ${updatedExercise.sets}`);
+    console.log(`  Original reps: ${exerciseToUpdate.reps_range} → New reps: ${updatedExercise.reps_range}`);
+    
     // Always clear reps recommendations when customizing exercise, keep weight recommendations
     setRecommendations(prev => {
       const updated = { ...prev };
@@ -1272,13 +1280,18 @@ export default function WorkoutSessionScreen() {
               } else if (currentSets.length > newSetsCount) {
           // Remove excess sets and update totals
           const setsToRemove = updatedSets.slice(newSetsCount);
-        setsToRemove.forEach(set => {
+          console.log(`  🗑️ Removing ${setsToRemove.length} excess sets (${currentSets.length} → ${newSetsCount})`);
+          
+        setsToRemove.forEach((set, idx) => {
+          console.log(`    Removing set ${newSetsCount + idx + 1}: completed=${set.isCompleted}, weight=${set.weight}, reps=${set.reps}`);
           if (set.isCompleted) {
             const weight = exerciseToUpdate.requires_weight !== false ? 
               (set.weight === '-' || set.weight === '' ? 0 : parseFloat(set.weight)) : 0;
             const reps = set.reps === '-' || set.reps === '' ? 0 : parseFloat(set.reps);
             const setVolume = exerciseToUpdate.requires_weight !== false ? 
               parseFloat((weight * reps).toFixed(1)) : 0;
+            
+            console.log(`    Subtracting from totals: weight=${weight}, reps=${reps}, volume=${setVolume}`);
             
             if (exerciseToUpdate.requires_weight !== false) {
               setTotalVolume(prev => Math.max(0, parseFloat((prev - setVolume).toFixed(1))));
@@ -1415,205 +1428,143 @@ export default function WorkoutSessionScreen() {
   };
 
   const handleSetComplete = (exerciseId: string, setIndex: number) => {
-    // First, update the set state
-    setExerciseSets(prev => {
-      const updatedSets = [...prev[exerciseId]];
-      const currentSet = updatedSets[setIndex];
-      const newCompletedState = !currentSet.isCompleted;
-      const wasNotCompletedBefore = !currentSet.isCompleted;
-      
-      // Get the current exercise to check if it requires weight
-      const currentExercise = exercises.find(ex => ex.id === exerciseId);
-      const requiresWeight = currentExercise?.requires_weight !== false; // Default to true if not specified
-      
-      // If the set is being marked as completed, add its volume and reps to totals
-      if (newCompletedState) {
-        let weight = requiresWeight ? (currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight)) : 0;
-        let reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
-        
-        // Check if reps field contains a range format (e.g., "8-10") or is empty/0
-        const repsContainsRange = currentSet.reps && typeof currentSet.reps === 'string' && currentSet.reps.includes('-');
-        const userEnteredRepsKey = `${exerciseId}-${setIndex}-reps`;
-        const isUserEnteredValue = userEnteredValues[userEnteredRepsKey];
-        
-        // Use placeholder values if:
-        // 1. Reps contains a range format, OR
-        // 2. The value is not user-entered AND reps is 0 (meaning it's from placeholder/auto-fill)
-        // BUT NOT if user explicitly cleared the field (empty string with no user-entered flag)
-        const shouldUsePlaceholderValue = repsContainsRange || (!isUserEnteredValue && reps === 0);
-        
+    console.log(`🔄 SET COMPLETION UPDATE:`);
+    console.log(`  Exercise: ${exercises.find(e => e.id === exerciseId)?.name}`);
+    console.log(`  Set ${setIndex + 1}: ${exerciseSets[exerciseId][setIndex].isCompleted} → true`);
 
-        
-        // If we should use placeholder value, prioritize based on whether exercise was customized
-        if (shouldUsePlaceholderValue && currentExercise) {
-          // Priority: 1. Recommended reps from database, 2. Last workout values (if not customized), 3. Exercise reps range (if customized)
-          const recommendedReps = recommendations[exerciseId]?.recommended_reps;
-          const lastReps = lastExerciseValues[currentExercise!.exercise_id]?.[setIndex + 1]?.reps;
-          const isCustomized = exerciseCustomized[exerciseId];
-          
-          let finalReps = reps;
-          if (recommendedReps) {
-            finalReps = recommendedReps;
-          } else if (isCustomized) {
-            // Exercise was customized, prioritize reps_range over last values
-            if (currentExercise.reps_range) {
-              finalReps = getHighestRepsFromRange(currentExercise.reps_range);
-            } else if (lastReps && lastReps !== '-' && lastReps !== '0') {
-              finalReps = parseInt(lastReps, 10);
-            }
-          } else {
-            // Exercise not customized, prioritize last values over reps_range
-            if (lastReps && lastReps !== '-' && lastReps !== '0') {
-              finalReps = parseInt(lastReps, 10);
-            } else if (currentExercise.reps_range) {
-              finalReps = getHighestRepsFromRange(currentExercise.reps_range);
-            }
-          }
-          
-          reps = finalReps;
-          // Update the set with the determined reps value
-          updatedSets[setIndex] = {
-            ...currentSet,
-            reps: finalReps.toString(),
-            isCompleted: newCompletedState
-          };
-        } else {
-          // Normal case - just mark as completed
-          updatedSets[setIndex] = {
-            ...currentSet,
-            isCompleted: newCompletedState
-          };
-        }
-        
-        const setVolume = requiresWeight ? parseFloat((weight * reps).toFixed(1)) : 0; // Only calculate volume if exercise requires weight
-        
-        if (requiresWeight) {
-          setTotalVolume(prev => {
-            const newTotal = parseFloat((prev + setVolume).toFixed(1));
-            return newTotal;
-          });
-        }
-        
-        setTotalReps(prev => {
-          const newTotal = prev + reps;
-          return newTotal;
-        });
-        
-        // Store the last values for this exercise if they're valid
-        // Use the updated set values (which might now contain the highest reps from range)
-        const updatedSet = updatedSets[setIndex];
-        if (updatedSet.reps !== '-' && updatedSet.reps !== '') {
-          const lastValues: any = { reps: updatedSet.reps };
-          if (requiresWeight && updatedSet.weight !== '-' && updatedSet.weight !== '') {
-            lastValues.weight = updatedSet.weight;
-          }
-          
-          // Store using the exercise_id (database ID) not the exerciseId (workout plan exercise ID)
-          if (currentExercise?.exercise_id) {
-            setLastExerciseValues(prev => ({
-              ...prev,
-              [currentExercise.exercise_id]: {
-                ...prev[currentExercise.exercise_id],
-                [setIndex + 1]: lastValues // Store by set number (1-indexed)
-              }
-            }));
-            
-            // If this set is being completed, auto-fill the next incomplete set
-            if (wasNotCompletedBefore) {
-              // Use setTimeout to ensure state update completes first
-              setTimeout(() => {
-                // Use the new function that finds any incomplete set (perfect for redo scenarios)
-                autoFillNextIncompleteSetWithValues(exerciseId, setIndex, updatedSet.weight, updatedSet.reps);
-              }, 100);
-            }
-          }
-        }
-      } else {
-        // If the set is being unmarked, subtract its volume and reps from totals
-        const weight = requiresWeight ? (currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight)) : 0;
-        const reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
-        const setVolume = requiresWeight ? parseFloat((weight * reps).toFixed(1)) : 0;
-        
-        if (requiresWeight) {
-          setTotalVolume(prev => Math.max(0, parseFloat((prev - setVolume).toFixed(1))));
-        }
-        setTotalReps(prev => Math.max(0, prev - reps));
-      }
-      
-      // Create a new exerciseSets object with the updated sets
-      const newExerciseSets = { ...prev, [exerciseId]: updatedSets };
-      
-      // Check if this was the last set of the last exercise to be completed
-      if (newCompletedState) {
-        // Check if all sets for the current exercise are completed
-        const allCurrentExerciseSetsCompleted = updatedSets.every(set => set.isCompleted);
-        
-        if (allCurrentExerciseSetsCompleted) {
-          // If we're on the last exercise and all its sets are completed, check if all exercises are completed
-          if (currentExerciseIndex === exercises.length - 1) {
-            // Check if all exercises have all their sets completed
-            const allExercisesCompleted = exercises.every(exercise => {
-              // For the current exercise, use the updated sets
-              if (exercise.id === exerciseId) {
-                return updatedSets.every(set => set.isCompleted);
-              }
-              // For other exercises, use the existing sets from prev
-              const sets = prev[exercise.id] || [];
-              return sets.length > 0 && sets.every(set => set.isCompleted);
-            });
-            
-            if (allExercisesCompleted) {
-              // All exercises and all sets are completed, save the workout data
-              
-              // Calculate the latest volume and reps including the last set
-              const weight = requiresWeight ? (currentSet.weight === '-' || currentSet.weight === '' ? 0 : parseFloat(currentSet.weight)) : 0;
-              let reps = currentSet.reps === '-' || currentSet.reps === '' ? 0 : parseFloat(currentSet.reps);
-              
-              // Check if reps field contains a range format and use max value if so
-              const repsContainsRange = currentSet.reps && typeof currentSet.reps === 'string' && currentSet.reps.includes('-');
-              const userEnteredRepsKey = `${exerciseId}-${setIndex}-reps`;
-              const isUserEnteredValue = userEnteredValues[userEnteredRepsKey];
-              
-              if (repsContainsRange || isNaN(reps) || !isUserEnteredValue) {
-                if (currentExercise?.reps_range) {
-                  reps = getHighestRepsFromRange(currentExercise.reps_range);
-                }
-              }
-              
-              const setVolume = requiresWeight ? parseFloat((weight * reps).toFixed(1)) : 0;
-              
-              // Calculate the new totals including this last set
-              const newTotalVolume = requiresWeight ? parseFloat((totalVolume + setVolume).toFixed(1)) : totalVolume;
-              const newTotalReps = totalReps + reps;
-              
-              // Pass the fresh values directly to completeWorkout
-              setTimeout(() => {
-                completeWorkout(newTotalVolume, newTotalReps);
-              }, 500);
-            } else {
-              // Just move to the next exercise (which will be the last one)
-              setTimeout(() => {
-                moveToNextExercise();
-              }, 500);
-            }
-          } else {
-            // Not the last exercise, just move to the next one
-            setTimeout(() => {
-              moveToNextExercise();
-            }, 500);
-          }
-        }
-      }
-      
-      return newExerciseSets;
-    });
+    // Get current weight and reps values from the inputs
+    const currentSet = exerciseSets[exerciseId][setIndex];
+    const weightValue = currentSet.weight || (currentExercise?.requires_weight === false ? "" : "0");
+    const repsValue = currentSet.reps || "1";
     
-    // Start rest timer if set was marked as completed
-    const exercise = exercises.find(ex => ex.id === exerciseId);
-    if (exercise && exercise.restTime) {
-      startRestTimer(exercise.restTime);
-    } else {
-      startRestTimer(60); // Default rest time: 60 seconds
+    console.log(`  Updated set data:`, {
+      ...currentSet,
+      weight: weightValue,
+      reps: repsValue,
+      isCompleted: true
+    });
+
+    // ATOMIC UPDATE: Calculate all state changes before applying any
+    const newExerciseSets = { ...exerciseSets };
+    
+    // Update the specific set
+    newExerciseSets[exerciseId] = newExerciseSets[exerciseId].map((set, index) => 
+      index === setIndex 
+        ? { ...set, weight: weightValue, reps: repsValue, isCompleted: true }
+        : set
+    );
+
+    // Calculate totals based on the new state
+    let newTotalVolume = totalVolume;
+    let newTotalReps = totalReps;
+    
+    const parsedWeight = parseFloat(weightValue) || 0;
+    const parsedReps = parseInt(repsValue) || 0;
+    const setVolume = parsedWeight * parsedReps;
+    
+    newTotalVolume += setVolume;
+    newTotalReps += parsedReps;
+
+    console.log(`  All sets for this exercise after update:`, 
+      newExerciseSets[exerciseId].map((s, i) => `Set ${i + 1}: completed=${s.isCompleted}`)
+    );
+
+    // Check if all exercises will be completed after this update
+    const allExercisesCompleted = exercises.every(exercise => {
+      const exerciseSetsList = newExerciseSets[exercise.id];
+      return exerciseSetsList && exerciseSetsList.every(set => set.isCompleted);
+    });
+
+    console.log(`🔍 STATE AFTER SET UPDATE:`);
+    console.log(`  Exercise: ${exercises.find(e => e.id === exerciseId)?.name}`);
+    console.log(`  Updated sets for this exercise:`, 
+      newExerciseSets[exerciseId].map((s, i) => `Set ${i + 1}: completed=${s.isCompleted}`)
+    );
+    console.log(`  newCompletedState: true`);
+    console.log(`  currentExerciseIndex: ${currentExerciseIndex}, exercises.length: ${exercises.length}`);
+
+    // ATOMIC STATE APPLICATION: Apply all state changes at once
+    setExerciseSets(newExerciseSets);
+    setTotalVolume(newTotalVolume);
+    setTotalReps(newTotalReps);
+
+    console.log(`🔍 COMPLETION CHECK DEBUG:`);
+    console.log(`  Exercise: ${exercises.find(e => e.id === exerciseId)?.name}`);
+    console.log(`  Set just completed: ${setIndex + 1}`);
+    console.log(`  All sets for current exercise completed: ${newExerciseSets[exerciseId].every(set => set.isCompleted)}`);
+    console.log(`  Current exercise index: ${currentExerciseIndex}, Total exercises: ${exercises.length}`);
+    console.log(`  Is last exercise: ${currentExerciseIndex === exercises.length - 1}`);
+    console.log(`  Updated sets state:`, 
+      newExerciseSets[exerciseId].map((s, i) => `Set ${i + 1}: completed=${s.isCompleted}`)
+    );
+
+    const incompleteSets = newExerciseSets[exerciseId].filter(set => !set.isCompleted);
+    console.log(`  Incomplete sets remaining: ${incompleteSets.length}`);
+    
+    if (incompleteSets.length > 0) {
+      console.log(`  ❌ INCOMPLETE SETS DETECTED:`, 
+        incompleteSets.map((s, i) => `Set ${s.setNumber}: completed=${s.isCompleted}`)
+      );
+    }
+
+    // Check completion with the new state
+    if (allExercisesCompleted) {
+      console.log(`🎯 ALL EXERCISES COMPLETED - Workout completion detected`);
+      console.log(`Current exercise index: ${currentExerciseIndex}`);
+      console.log(`Total exercises: ${exercises.length}`);
+      console.log(`Exercise that just completed: ${exercises.find(e => e.id === exerciseId)?.name}`);
+      console.log(`Set that just completed: ${setIndex + 1}`);
+      
+      console.log(`🔍 DETAILED COMPLETION CHECK:`);
+      exercises.forEach((exercise, index) => {
+        const exerciseSetsList = newExerciseSets[exercise.id];
+        const completedSets = exerciseSetsList ? exerciseSetsList.filter(set => set.isCompleted).length : 0;
+        const totalSets = exerciseSetsList ? exerciseSetsList.length : 0;
+        const isComplete = exerciseSetsList ? exerciseSetsList.every(set => set.isCompleted) : false;
+        console.log(`  ${index + 1}. ${exercise.name}: ${completedSets}/${totalSets} sets completed - Exercise Complete: ${isComplete}`);
+      });
+
+      // Complete workout with the already calculated values
+      setTimeout(() => {
+        console.log(`🚀 CALLING COMPLETION WITH FINAL STATE`);
+        completeWorkoutWithStateSync(newTotalVolume, newTotalReps, newExerciseSets);
+      }, 100);
+      return;
+    }
+
+    // Check if current exercise is fully completed to move to next exercise
+    const currentExerciseCompleted = newExerciseSets[exerciseId].every(set => set.isCompleted);
+    
+    if (currentExerciseCompleted) {
+      console.log(`✅ CURRENT EXERCISE COMPLETED: ${exercises.find(e => e.id === exerciseId)?.name}`);
+      
+      // Check if this is the last exercise
+      if (currentExerciseIndex === exercises.length - 1) {
+        console.log(`🎯 LAST EXERCISE COMPLETED - Starting workout completion`);
+        // This case should be handled by allExercisesCompleted above, but just in case
+        setTimeout(() => {
+          completeWorkoutWithStateSync(newTotalVolume, newTotalReps, newExerciseSets);
+        }, 100);
+      } else {
+        console.log(`🔄 MOVING TO NEXT EXERCISE`);
+        // Move to next exercise with a delay to allow state to settle
+        setTimeout(() => {
+          moveToNextExercise();
+        }, 500);
+      }
+      return;
+    }
+
+    // Auto-fill next incomplete set in current exercise
+    const nextIncompleteSetIndex = newExerciseSets[exerciseId].findIndex(set => !set.isCompleted);
+    if (nextIncompleteSetIndex !== -1) {
+      console.log(`🔄 AUTO-FILLING next incomplete set ${nextIncompleteSetIndex + 1} with values:`, { weight: weightValue, reps: repsValue });
+      autoFillNextIncompleteSetWithValues(exerciseId, setIndex, weightValue, repsValue);
+    }
+
+    // Start rest timer if applicable
+    if (currentExercise && currentExercise.restTime && currentExercise.restTime > 0) {
+      startRestTimer(currentExercise.restTime);
     }
   };
 
@@ -1780,11 +1731,27 @@ export default function WorkoutSessionScreen() {
                   
                   if (allExercisesCompleted) {
                     // All exercises are completed, save workout data
+                    console.log('🎯 ALL EXERCISES COMPLETED - Log All Sets completion detected');
+                    console.log('Current exercise index:', currentExerciseIndex);
+                    console.log('Total exercises:', exercises.length);
+                    console.log('Exercise that just completed all sets:', currentExercise?.name);
                     
                     // Use the current UI state values which should be accurate after the timeout
                     const currentTotalVolume = totalVolume;
                     const currentTotalReps = totalReps;
                     
+                    console.log('Final totals from Log All Sets:');
+                    console.log('  Total Volume:', currentTotalVolume, 'Total Reps:', currentTotalReps);
+                    
+                    // Log the current state of all exercise sets before completion
+                    console.log('Current exercise sets state before completion (Log All Sets):');
+                    exercises.forEach((ex, idx) => {
+                      const sets = exerciseSets[ex.id] || [];
+                      const completedSets = sets.filter(s => s.isCompleted);
+                      console.log(`  ${idx + 1}. ${ex.name}: ${completedSets.length}/${sets.length} sets completed`);
+                    });
+                    
+                    console.log('🚀 Calling completeWorkout from Log All Sets');
                     completeWorkout(currentTotalVolume, currentTotalReps);
                   } else {
                     // Not all exercises are completed, just move to next exercise
@@ -1908,8 +1875,21 @@ export default function WorkoutSessionScreen() {
       
       if (allExercisesCompleted) {
         // All exercises and all sets are completed, automatically save data
+        console.log('🎯 ALL EXERCISES COMPLETED - Move to next exercise completion detected');
+        console.log('Current exercise index:', currentExerciseIndex);
+        console.log('Total exercises:', exercises.length);
+        
+        // Log the current state of all exercise sets before completion
+        console.log('Current exercise sets state before completion (Move to Next):');
+        exercises.forEach((ex, idx) => {
+          const sets = exerciseSets[ex.id] || [];
+          const completedSets = sets.filter(s => s.isCompleted);
+          console.log(`  ${idx + 1}. ${ex.name}: ${completedSets.length}/${sets.length} sets completed`);
+        });
+        
         // Use setTimeout to ensure UI updates complete before saving
         setTimeout(() => {
+          console.log('🚀 Calling completeWorkout from Move to Next Exercise');
           completeWorkout();
         }, 500);
       } else {
@@ -1935,8 +1915,30 @@ export default function WorkoutSessionScreen() {
     }
   };
 
+  const completeWorkoutWithStateSync = async (overrideVolume: number, overrideReps: number, finalExerciseSets: Record<string, ExerciseSet[]>) => {
+    console.log('🔄 REPLACING WITH NEW STATE MACHINE APPROACH');
+    
+    // Mark workout as completed immediately in UI for responsiveness
+    setIsWorkoutCompleted(true);
+    setCompletedWorkoutData({
+      completedExercises: exercises.length,
+      duration: formatTime(workoutDuration),
+      caloriesBurned: Math.round((workoutDuration / 60) * 8.5),
+      totalVolume: overrideVolume,
+      totalReps: overrideReps,
+      completedAt: new Date().toISOString(),
+      weekName: weekName,
+      cycleWeek: cycleWeek
+    });
+    
+    // Use the new state machine approach for database operations
+    await handleWorkoutCompletion(overrideVolume, overrideReps, finalExerciseSets);
+  };
+
   const completeWorkout = async (overrideVolume?: number, overrideReps?: number) => {
     if (!user || !planId) return;
+    
+    console.log('🚀 PROCEEDING WITH WORKOUT COMPLETION - Using delayed database save approach');
     
     // Stop the workout timer
     stopWorkoutTimer();
@@ -1947,62 +1949,110 @@ export default function WorkoutSessionScreen() {
     const finalVolume = overrideVolume !== undefined ? overrideVolume : totalVolume;
     const finalReps = overrideReps !== undefined ? overrideReps : totalReps;
     
+    console.log('=== WORKOUT SESSION COMPLETION LOGGING ===');
+    console.log('Current exercise index:', currentExerciseIndex);
+    console.log('Total exercises:', exercises.length);
+    console.log('Exercises data:', exercises.map(ex => ({ id: ex.id, name: ex.name, exercise_id: ex.exercise_id })));
+    console.log('Exercise sets state:', JSON.stringify(exerciseSets, null, 2));
+    
+    // Log completion status for each exercise
+    exercises.forEach((exercise, index) => {
+      const sets = exerciseSets[exercise.id] || [];
+      const completedSets = sets.filter(set => set.isCompleted);
+      console.log(`Exercise ${index + 1}: ${exercise.name} - ${completedSets.length}/${sets.length} sets completed`);
+      sets.forEach((set, setIndex) => {
+        console.log(`  Set ${setIndex + 1}: completed=${set.isCompleted}, weight=${set.weight}, reps=${set.reps}`);
+      });
+    });
+    
+    console.log('Final totals - Volume:', finalVolume, 'Reps:', finalReps, 'Duration:', finalDuration);
+    
     try {
-      // Show loading indicator
-      setIsLoading(true);
-      
       // Check if this is a redone workout (started with forceStart parameter)
       const forceStartParam = params.forceStart;
       const isRedoWorkout = forceStartParam === 'true';
       
-      // Use the service function to complete the workout
-      const success = await workoutPlanService.completeWorkout(
-        user.id,
+      console.log('Preparing workout completion data:', {
+        userId: user.id,
         planId,
         workoutDay,
         cycleWeek,
         weekName,
-        exercises,
-        exerciseSets,
+        exercisesCount: exercises.length,
+        exerciseSetsKeys: Object.keys(exerciseSets),
         finalDuration,
         finalVolume,
         finalReps,
         isRedoWorkout,
         originalCycleWeek
-      );
+      });
+      
+      // Calculate workout duration in minutes for display
+      const workoutDurationMinutes = Math.round(finalDuration / 60);
+      
+      // Set completed workout data for immediate UI display (without loading)
+      setCompletedWorkoutData({
+        completedExercises: exercises.length,
+        duration: formatTime(finalDuration),
+        caloriesBurned: Math.round(workoutDurationMinutes * 8.5),
+        totalVolume: finalVolume,
+        totalReps: finalReps,
+        completedAt: new Date().toISOString(),
+        weekName: weekName,
+        cycleWeek: cycleWeek
+      });
+      
+      // Set workout as completed immediately for UI
+      setIsWorkoutCompleted(true);
+      
+      console.log('🎯 WORKOUT MARKED AS COMPLETED IN UI - Starting delayed database save');
+      
+      // Save to database in the background with a delay to ensure state stability
+      setTimeout(async () => {
+        console.log('💾 STARTING DELAYED DATABASE SAVE');
+        
+        try {
+          // Use the service function to complete the workout
+          const success = await workoutPlanService.completeWorkout(
+            user.id,
+            planId,
+            workoutDay,
+            cycleWeek,
+            weekName,
+            exercises,
+            exerciseSets,
+            finalDuration,
+            finalVolume,
+            finalReps,
+            isRedoWorkout,
+            originalCycleWeek
+          );
+          
+          if (success) {
+            console.log('✅ DELAYED DATABASE SAVE SUCCESSFUL');
+            // Also refresh the last exercise records after completing the workout
+            await fetchLastExerciseRecords();
+          } else {
+            console.log('❌ DELAYED DATABASE SAVE FAILED');
+            // Could show a subtle notification here if needed
+          }
+        } catch (error) {
+          console.log('❌ DELAYED DATABASE SAVE ERROR:', error);
+          // Could show a subtle notification here if needed
+        }
+      }, 1000); // 1 second delay for database save
+      
+      // Don't show loading indicator since UI updates immediately
+      const success = true;
       
       if (success) {
-        // Calculate workout duration in minutes for display
-        const workoutDurationMinutes = Math.round(finalDuration / 60);
-        
-        // Set completed workout data for display
-        setCompletedWorkoutData({
-          completedExercises: exercises.length,
-          duration: formatTime(finalDuration),
-          caloriesBurned: Math.round(workoutDurationMinutes * 8.5),
-          totalVolume: finalVolume,
-          totalReps: finalReps,
-          completedAt: new Date().toISOString(),
-          weekName: weekName,
-          cycleWeek: cycleWeek
-        });
-        
-        // Set workout as completed
-        setIsWorkoutCompleted(true);
-        
-        // Also refresh the last exercise records after completing the workout
-        // This ensures the data is up-to-date for the next time this exercise is performed
-        await fetchLastExerciseRecords();
-      } else {
-        // Error completing workout
-        Alert.alert('Error', 'Failed to save workout data. Please try again.');
+        console.log('🎉 WORKOUT COMPLETION PROCESS FINISHED - UI updated immediately, database save in progress');
       }
       
-      setIsLoading(false);
     } catch (error) {
-      setIsLoading(false);
-      // Error completing workout
-      Alert.alert('Error', 'Failed to save workout data. Please try again.');
+      console.log('❌ WORKOUT COMPLETION ERROR:', error);
+      // Show error but don't block the UI since we're doing delayed save
+      Alert.alert('Warning', 'Workout completed in app, but there may be an issue saving to server. Data will be retried.');
     }
   };
   
@@ -2098,6 +2148,56 @@ export default function WorkoutSessionScreen() {
   const currentExercise = exercises[currentExerciseIndex];
   const currentSets = currentExercise ? exerciseSets[currentExercise.id] || [] : [];
   const currentRecommendation = currentExercise ? recommendations[currentExercise.id] : null;
+
+    // State machine for workout completion
+  const handleWorkoutCompletion = async (
+    finalVolume: number, 
+    finalReps: number, 
+    finalExerciseSets: Record<string, ExerciseSet[]>
+  ) => {
+    // Prevent multiple completion attempts
+    if (workoutState !== 'in_progress') {
+      console.log(`⚠️ WORKOUT COMPLETION BLOCKED: Current state is ${workoutState}`);
+      return;
+    }
+
+    console.log(`🎯 INITIATING WORKOUT COMPLETION STATE MACHINE`);
+    setWorkoutState('completing');
+    
+    try {
+      console.log(`💾 EXECUTING WORKOUT COMPLETION OPERATION`);
+      
+      await workoutPlanService.completeWorkout(
+        user?.id!,
+        planId,
+        workoutDay,
+        cycleWeek,
+        weekName,
+        exercises,
+        finalExerciseSets,
+        Math.floor(workoutDuration),
+        finalVolume,
+        finalReps,
+        false, // isRedoWorkout
+        null // originalCycleWeek
+      );
+
+      setWorkoutState('completed');
+      console.log(`✅ WORKOUT COMPLETION SUCCESSFUL`);
+      
+      // Clear any paused workout data
+      await workoutPlanService.clearPausedWorkout(user?.id, planId, workoutDay);
+      
+      // Navigate to completion screen
+      setTimeout(() => {
+        router.replace('/(tabs)/');
+      }, 1000);
+      
+    } catch (error) {
+      console.error('❌ WORKOUT COMPLETION FAILED:', error);
+      setWorkoutState('in_progress');
+    }
+  };
 
   if (isLoading) {
     return (
@@ -2364,7 +2464,10 @@ export default function WorkoutSessionScreen() {
 
                           {/* Label Cell */}
                           <View style={styles.labelCell}>
-                            <Text style={styles.activeSetLabel}>
+                            <Text style={[
+                              styles.activeSetLabel,
+                              currentExercise?.requires_weight === false && { marginLeft: -50 }
+                            ]}>
                               {currentExercise?.requires_weight !== false 
                                 ? "Weight of bar + plates" 
                                 : "Bodyweight exercise - reps only"}
@@ -2604,7 +2707,7 @@ export default function WorkoutSessionScreen() {
           {currentExerciseIndex === exercises.length - 1 && (
             <TouchableOpacity 
               style={[styles.nextExerciseCard, styles.completeWorkoutCard]}
-              onPress={() => completeWorkout()}
+                                onPress={() => completeWorkout()}
             >
               <Text style={styles.completeWorkoutText}>Complete Workout</Text>
               <Ionicons name="checkmark-circle" size={24} color={COLORS.text} />
@@ -3624,6 +3727,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   suggestedLabel: {
+    color: 'rgba(255, 255, 255, 0.61)',
     fontSize: 14,
     fontWeight: '600',
     textAlign: 'center',

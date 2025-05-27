@@ -826,16 +826,52 @@ export const completeWorkout = async (
     // 2. Insert exercise records
     const exerciseRecords = [];
     
+    console.log('=== WORKOUT COMPLETION LOGGING ===');
+    console.log('Total exercises in workout:', exercises.length);
+    console.log('Exercise sets data:', JSON.stringify(exerciseSets, null, 2));
+    
+    // DETAILED ANALYSIS: Check for incomplete sets before processing
+    console.log('\n🔍 PRE-PROCESSING ANALYSIS:');
+    let hasIncompleteExercises = false;
+    exercises.forEach((exercise, idx) => {
+      const sets = exerciseSets[exercise.id] || [];
+      const completedSets = sets.filter(s => s.isCompleted);
+      const isExerciseComplete = sets.length > 0 && sets.every(s => s.isCompleted);
+      
+      console.log(`${idx + 1}. ${exercise.name}: ${completedSets.length}/${sets.length} sets completed - Complete: ${isExerciseComplete}`);
+      
+      if (!isExerciseComplete) {
+        hasIncompleteExercises = true;
+        console.log(`  ⚠️  INCOMPLETE EXERCISE DETECTED: ${exercise.name}`);
+        sets.forEach((set, setIdx) => {
+          if (!set.isCompleted) {
+            console.log(`    ❌ Set ${setIdx + 1}: completed=${set.isCompleted}, weight="${set.weight}", reps="${set.reps}"`);
+          }
+        });
+      }
+    });
+    
+    if (hasIncompleteExercises) {
+      console.log('⚠️  WARNING: Workout has incomplete exercises but completion was triggered!');
+    }
+    
     for (const exercise of exercises) {
       const sets = exerciseSets[exercise.id] || [];
+      console.log(`\n--- Exercise: ${exercise.name} (ID: ${exercise.id}) ---`);
+      console.log(`Exercise sets for ${exercise.name}:`, sets);
+      console.log(`Number of sets for ${exercise.name}:`, sets.length);
       
+      let completedSetsCount = 0;
       for (const set of sets) {
+        console.log(`Set ${set.setNumber}: completed=${set.isCompleted}, weight=${set.weight}, reps=${set.reps}`);
+        
         if (set.isCompleted) { // Only save completed sets
+          completedSetsCount++;
           // Transform '-' to '0' when saving to database
           const weight = set.weight === '-' || set.weight === '' ? '0' : set.weight;
           const reps = set.reps === '-' || set.reps === '' ? '0' : set.reps;
           
-          exerciseRecords.push({
+          const record = {
             workout_history_id: workoutHistoryId,
             exercise_id: exercise.exercise_id,
             workout_plan_exercise_id: exercise.id,
@@ -843,10 +879,21 @@ export const completeWorkout = async (
             weight: weight ? parseFloat(weight) : 0,
             reps: reps ? parseInt(reps, 10) : 0,
             completed: set.isCompleted
-          });
+          };
+          
+          console.log(`Adding record for ${exercise.name} set ${set.setNumber}:`, record);
+          exerciseRecords.push(record);
+        } else {
+          console.log(`❌ SKIPPING incomplete set ${set.setNumber} for ${exercise.name}`);
         }
       }
+      
+      console.log(`Total completed sets for ${exercise.name}: ${completedSetsCount}/${sets.length}`);
     }
+    
+    console.log('\n=== FINAL EXERCISE RECORDS TO INSERT ===');
+    console.log('Total records to insert:', exerciseRecords.length);
+    console.log('Records:', JSON.stringify(exerciseRecords, null, 2));
     
     if (exerciseRecords.length > 0) {
       const { error: recordsError } = await supabase
@@ -854,9 +901,13 @@ export const completeWorkout = async (
         .insert(exerciseRecords);
         
       if (recordsError) {
-        // Error saving exercise records
+        console.error('Error saving exercise records:', recordsError);
         throw recordsError;
+      } else {
+        console.log('✅ Successfully inserted', exerciseRecords.length, 'exercise records');
       }
+    } else {
+      console.log('⚠️ No exercise records to insert - no completed sets found!');
     }
     
     // 3. Update user active plan

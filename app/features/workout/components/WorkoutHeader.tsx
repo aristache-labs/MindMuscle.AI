@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Divider } from 'react-native-paper';
-import { COLORS, SPACING } from '../constants/theme';
+import { COLORS, SPACING } from '../../../constants/theme';
 
 interface WorkoutHeaderProps {
   insets: {

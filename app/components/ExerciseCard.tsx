@@ -1,18 +1,23 @@
 import React, { memo, useEffect, useMemo } from 'react';
 import { StyleSheet, View, TouchableOpacity, Dimensions, ViewStyle, TextStyle, ImageStyle, Image } from 'react-native';
 import { Text, Surface } from 'react-native-paper';
-import { COLORS, BORDER_RADIUS } from '../constants/theme';
+import { COLORS, BORDER_RADIUS, SPACING } from '../constants/theme';
 import { MaterialIcons } from '@expo/vector-icons';
 import OptimizedImage from './OptimizedImage';
+import ExerciseMaxWeightGraph from './ExerciseMaxWeightGraph';
 
 interface ExerciseCardProps {
-  id: string;
-  name: string;
-  image: any;
-  isFavorite?: boolean;
-  onPress: (id: string) => void;
-  onToggleFavorite?: (id: string) => void;
-  useOptimizedImage?: boolean;
+  exercise: {
+    id: string;
+    exercise_id: string;
+    name: string;
+    image_url?: string;
+    primary_muscles?: string[];
+    requires_weight?: boolean;
+  };
+  maxWeightData: Array<{ date: string; value: number }>;
+  absoluteMaxWeight: { weight: number; reps: number; date: string } | null;
+  onExerciseNamePress: () => void;
 }
 
 const { width } = Dimensions.get('window');
@@ -21,12 +26,13 @@ const CARD_WIDTH = (width - 28) / 2; // Reduced spacing (from 36 to 28) to make 
 // Create a proper comparison function for memo
 const arePropsEqual = (prevProps: ExerciseCardProps, nextProps: ExerciseCardProps) => {
   return (
-    prevProps.id === nextProps.id &&
-    prevProps.name === nextProps.name &&
-    prevProps.isFavorite === nextProps.isFavorite &&
+    prevProps.exercise.id === nextProps.exercise.id &&
+    prevProps.exercise.name === nextProps.exercise.name &&
+    prevProps.maxWeightData === nextProps.maxWeightData &&
+    prevProps.absoluteMaxWeight === nextProps.absoluteMaxWeight &&
     // Compare image objects or URIs
-    ((prevProps.image && nextProps.image && prevProps.image.uri === nextProps.image.uri) || 
-     prevProps.image === nextProps.image) &&
+    ((prevProps.exercise.image_url && nextProps.exercise.image_url && prevProps.exercise.image_url === nextProps.exercise.image_url) || 
+     prevProps.exercise.image_url === nextProps.exercise.image_url) &&
     // Functions can't be directly compared, so we skip them
     // They should be wrapped in useCallback in the parent component
     true
@@ -34,148 +40,139 @@ const arePropsEqual = (prevProps: ExerciseCardProps, nextProps: ExerciseCardProp
 };
 
 const ExerciseCard = memo(({ 
-  id,
-  name,
-  image,
-  isFavorite = false,
-  onPress,
-  onToggleFavorite,
-  useOptimizedImage = false
+  exercise,
+  maxWeightData,
+  absoluteMaxWeight,
+  onExerciseNamePress,
 }: ExerciseCardProps) => {
   // Create a unique debug label using exercise id or name
-  const debugLabel = `exercise-card-${id || name.toLowerCase().replace(/\s+/g, '_').substring(0, 20)}`;
+  const debugLabel = `exercise-card-${exercise.id || exercise.name.toLowerCase().replace(/\s+/g, '_').substring(0, 20)}`;
 
   // Memoize the image source to prevent unnecessary re-renders
   const imageSource = useMemo(() => {
     // Check if this is a placeholder image with a stable reference
-    if (typeof image === 'object' && image !== null && 
-        'testUri' in image && image.testUri && 
-        (!image.uri || image.uri === null)) {
+    if (typeof exercise.image_url === 'string' && exercise.image_url && 
+        (!exercise.image_url || exercise.image_url === null)) {
       // Use the globally cached placeholder image if available
       return (global as any).placeholderImages?.exercise || require('../../assets/exercises/placeholder.jpg');
     }
-    return image;
-  }, [image]);
+    return exercise.image_url;
+  }, [exercise.image_url]);
 
   // Only log on dev builds and when needed for debugging
   if (__DEV__) {
     useEffect(() => {
-      // console.log(`[ExerciseCard ${debugLabel}] mounted or props changed. Name: ${name}, Favorite: ${isFavorite}`);
-      // console.log(`[ExerciseCard ${debugLabel}] Image prop:`, image);
-    }, [id, name, isFavorite, image, debugLabel]);
+      // console.log(`[ExerciseCard ${debugLabel}] mounted or props changed. Name: ${exercise.name}, Favorite: ${exercise.requires_weight}`);
+      // console.log(`[ExerciseCard ${debugLabel}] Image prop:`, exercise.image_url);
+    }, [exercise.id, exercise.name, exercise.requires_weight, exercise.image_url, debugLabel]);
   }
 
   return (
-    <TouchableOpacity
-      style={styles.container}
-      onPress={() => onPress(id)}
-      testID={`exercise-card-${id}`}
-    >
-      <Surface style={styles.card}>
-        <View style={styles.cardContentWrapper}>
-          <View style={styles.imageContainer}>
-            {useOptimizedImage ? (
-              <OptimizedImage
-                source={imageSource}
-                style={styles.image}
-                resizeMode="cover"
-                priority="high"
-                testID={debugLabel}
-                isImportant={true}
-                showLoader={false}
-              />
-            ) : (
-              <Image 
-                source={imageSource} 
-                style={styles.image} 
-                resizeMode="cover"
-              />
-            )}
-            {onToggleFavorite && (
-              <TouchableOpacity
-                style={styles.favoriteButton}
-                onPress={() => onToggleFavorite(id)}
-                hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
-              >
-                <MaterialIcons
-                  name={isFavorite ? "star" : "star-outline"}
-                  size={24}
-                  color={isFavorite ? "#FFD700" : "#757575"}
-                />
-              </TouchableOpacity>
-            )}
+    <>
+      {/* Exercise Card */}
+      <View style={styles.exerciseCard}>
+        <View style={styles.exerciseRow}>
+          <View style={styles.exerciseImageContainer}>
+            <OptimizedImage
+              source={imageSource ? { uri: imageSource } : require('../../assets/exercises/placeholder.jpg')}
+              style={styles.exerciseImage}
+              fallback={require('../../assets/exercises/placeholder.jpg')}
+              resizeMode="cover"
+              cachePolicy="immutable"
+              testID={debugLabel}
+              isImportant={true}
+              showLoader={false}
+            />
           </View>
-          <View style={styles.textContainer}>
-            <Text 
-              style={styles.name} 
-              numberOfLines={2} 
-              ellipsizeMode="tail"
-              adjustsFontSizeToFit={false}
-            >
-              {name}
-            </Text>
+          <View style={styles.exerciseInfo}>
+            <TouchableOpacity onPress={onExerciseNamePress} activeOpacity={0.7}>
+              <Text style={styles.exerciseName}>
+                {exercise?.name || 'Unknown Exercise'}
+              </Text>
+            </TouchableOpacity>
+            {exercise?.primary_muscles && exercise.primary_muscles.length > 0 && (
+              <View style={styles.muscleTag}>
+                <Text style={styles.muscleTagText}>{exercise.primary_muscles[0]}</Text>
+              </View>
+            )}
           </View>
         </View>
-      </Surface>
-    </TouchableOpacity>
+      </View>
+      
+      {/* Max Weight Progress Graph - separate container with small spacing */}
+      {exercise && exercise.requires_weight !== false && (
+        <View style={styles.maxWeightGraphContainer}>
+          <ExerciseMaxWeightGraph
+            data={maxWeightData || []}
+            exerciseName={exercise.name}
+            absoluteMaxWeight={absoluteMaxWeight || null}
+          />
+        </View>
+      )}
+    </>
   );
 }, arePropsEqual);
 
 interface Styles {
-  container: ViewStyle;
-  card: ViewStyle;
-  cardContentWrapper: ViewStyle;
-  imageContainer: ViewStyle;
-  image: ImageStyle;
-  favoriteButton: ViewStyle;
-  textContainer: ViewStyle;
-  name: TextStyle;
+  exerciseCard: ViewStyle;
+  exerciseRow: ViewStyle;
+  exerciseImageContainer: ViewStyle;
+  exerciseImage: ImageStyle;
+  exerciseInfo: ViewStyle;
+  exerciseName: TextStyle;
+  muscleTag: ViewStyle;
+  muscleTagText: TextStyle;
+  maxWeightGraphContainer: ViewStyle;
 }
 
 const styles = StyleSheet.create<Styles>({
-  container: {
-    width: CARD_WIDTH,
-    marginBottom: 10,
+  exerciseCard: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: BORDER_RADIUS.sm,
+    marginTop: SPACING.md,
+    marginLeft: SPACING.md,
+    marginRight: SPACING.md,
+    marginBottom: 0,
   },
-  card: {
-    borderRadius: BORDER_RADIUS.md,
-    backgroundColor: COLORS.background,
-    elevation: 3,
-    height: 220,
+  exerciseRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
   },
-  cardContentWrapper: {
-    borderRadius: BORDER_RADIUS.md,
-    overflow: 'hidden',
-    height: '100%',
-    display: 'flex',
-    flexDirection: 'column',
+  exerciseImageContainer: {
+    marginRight: SPACING.md,
   },
-  imageContainer: {
-    position: 'relative',
-    width: '100%',
-    height: 160,
+  exerciseImage: {
+    width: 80,
+    height: 80,
+    borderRadius: BORDER_RADIUS.sm,
+    backgroundColor: COLORS.surface,
   },
-  image: {
-    width: '100%',
-    height: '100%',
+  exerciseInfo: {
+    flex: 1,
+    justifyContent: 'center' as const,
   },
-  favoriteButton: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    zIndex: 10,
-  },
-  textContainer: {
-    padding: 12,
-    height: 60,
-    justifyContent: 'center',
-  },
-  name: {
-    fontSize: 15,
-    fontWeight: '500',
+  exerciseName: {
     color: COLORS.text,
-    textAlign: 'center',
-    lineHeight: 18,
+    fontSize: 18,
+    fontWeight: 'bold' as const,
+    marginBottom: SPACING.xs,
+  },
+  muscleTag: {
+    backgroundColor: '#FFD700',
+    paddingHorizontal: SPACING.xs,
+    paddingVertical: 2,
+    borderRadius: 12,
+    alignSelf: 'flex-start' as const,
+  },
+  muscleTagText: {
+    color: COLORS.background,
+    fontSize: 12,
+    fontWeight: 'bold' as const,
+  },
+  maxWeightGraphContainer: {
+    marginTop: 0,
+    marginBottom: 0,
   },
 });
 

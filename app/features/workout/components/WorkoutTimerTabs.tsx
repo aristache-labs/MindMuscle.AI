@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text } from 'react-native';
-import { COLORS, SPACING } from '../constants/theme';
+import { COLORS, SPACING } from '../../../constants/theme';
 
 interface WorkoutTimerTabsProps {
   workoutDuration: number;

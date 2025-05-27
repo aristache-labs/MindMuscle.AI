@@ -1,28 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Alert } from 'react-native';
-
-// Types (matching the main component)
-export interface ExerciseData {
-  id: string;
-  exercise_id: string;
-  name: string;
-  sets: number;
-  reps_range: string;
-  image_url?: string;
-  primary_muscles?: string[];
-  restTime?: number;
-  order: number;
-  workout_day: number;
-  requires_weight?: boolean;
-}
-
-export interface ExerciseSet {
-  id: string;
-  setNumber: number;
-  weight: string;
-  reps: string;
-  isCompleted: boolean;
-}
+import type { ExerciseData, ExerciseSet } from '../types';
 
 export interface UseExerciseSetsParams {
   exercises: ExerciseData[];

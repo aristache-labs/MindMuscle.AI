@@ -13,6 +13,8 @@ import ExerciseMaxWeightGraph from '../components/ExerciseMaxWeightGraph';
 import ExerciseDetailsModal from '../components/ExerciseDetailsModal';
 import ExerciseListModal from '../components/ExerciseListModal';
 import CustomizeExerciseModal from '../components/CustomizeExerciseModal';
+import WorkoutHeader from '../components/WorkoutHeader';
+import WorkoutTimerTabs from '../components/WorkoutTimerTabs';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { useWorkoutTimer } from '../hooks/useWorkoutTimer';
@@ -1515,43 +1517,22 @@ export default function WorkoutSessionScreen() {
     <View style={styles.container}>
       <StatusBar style="light" />
       
-      {/* Header */}
-      <View style={[styles.headerContainer, { marginTop: insets.top }]}>
-        <TouchableOpacity onPress={handleBackPress} style={styles.headerButton}>
-          <Text style={styles.headerButtonText}>Exit</Text>
-        </TouchableOpacity>
-        
-        <View style={styles.headerTitleContainer}>
-          <Text style={styles.headerTitle}>
-            EXERCISE {currentExerciseIndex + 1}/{exercises.length}
-          </Text>
-          <Text style={styles.weekIndicator}>
-            Week {cycleWeek}: {weekName}
-          </Text>
-        </View>
-        
-        <TouchableOpacity style={styles.headerButton} onPress={handleExerciseListPress}>
-          <Text style={styles.headerButtonText}>Exercises</Text>
-        </TouchableOpacity>
-      </View>
+      <WorkoutHeader
+        insets={insets}
+        currentExerciseIndex={currentExerciseIndex}
+        totalExercises={exercises.length}
+        cycleWeek={cycleWeek}
+        weekName={weekName}
+        onBackPress={handleBackPress}
+        onExerciseListPress={handleExerciseListPress}
+      />
       
-      <Divider style={styles.divider} />
-      
-      {/* Timer Tabs */}
-      <View style={styles.tabContainer}>
-        <View style={styles.tabItem}>
-          <Text style={styles.tabText}>Time</Text>
-          <Text style={styles.tabValueText}>{formatTime(workoutDuration)}</Text>
-        </View>
-        <View style={styles.tabItem}>
-          <Text style={styles.tabText}>Volume</Text>
-          <Text style={styles.tabValueText}>{totalVolume.toFixed(1)} kg</Text>
-        </View>
-        <View style={styles.tabItem}>
-          <Text style={styles.tabText}>Reps</Text>
-          <Text style={styles.tabValueText}>{totalReps}</Text>
-        </View>
-      </View>
+      <WorkoutTimerTabs
+        workoutDuration={workoutDuration}
+        totalVolume={totalVolume}
+        totalReps={totalReps}
+        formatTime={formatTime}
+      />
       
       {/* Main Content */}
       <KeyboardAvoidingView 
@@ -2246,160 +2227,99 @@ const styles = StyleSheet.create({
   backButtonContainer: {
     padding: SPACING.xs,
   },
-  headerTitle: {
-    color: COLORS.text,
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginLeft: SPACING.sm,
-  },
-  weekIndicator: {
-    color: COLORS.primary,
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: 2,
-    textAlign: 'center',
-  },
-  calendarContainer: {
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
-    alignItems: 'center',
-  },
-  weekText: {
-    color: COLORS.text,
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  completedBanner: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
-  },
-  completedText: {
-    color: COLORS.primary,
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  shareButtonContainer: {
-    padding: SPACING.xs,
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.lg,
-  },
-  statItem: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: SPACING.sm,
-  },
-  statValue: {
-    color: COLORS.primary,
-    fontSize: 32,
-    fontWeight: 'bold',
-  },
-  statLabel: {
-    color: COLORS.text,
-    fontSize: 14,
-    textAlign: 'center',
-    marginTop: SPACING.xs,
-  },
-  summaryContainer: {
-    padding: SPACING.md,
-    marginHorizontal: SPACING.md,
-    marginVertical: SPACING.lg,
-    backgroundColor: COLORS.surface,
-    borderRadius: BORDER_RADIUS.md,
-  },
-  summaryTitle: {
-    color: COLORS.text,
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: SPACING.md,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: SPACING.xs,
-  },
-  summaryLabel: {
-    color: COLORS.text,
-    fontSize: 16,
-  },
-  summaryValue: {
-    color: COLORS.text,
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  redoButton: {
-    backgroundColor: COLORS.primary,
-    marginHorizontal: SPACING.md,
-    marginVertical: SPACING.lg,
-    paddingVertical: SPACING.md,
-    borderRadius: BORDER_RADIUS.md,
-    alignItems: 'center',
-  },
-  redoButtonText: {
-    color: COLORS.background,
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  loadingContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: SPACING.md,
-    height: 50,
-    backgroundColor: COLORS.background,
-  },
-  headerButton: {
-    padding: SPACING.xs,
-  },
-  headerButtonText: {
-    color: COLORS.text,
-    fontSize: 16,
-  },
-  headerTitleContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingLeft: SPACING.xl,
-  },
-  divider: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    height: 1,
-  },
-  tabContainer: {
-    flexDirection: 'row',
-    backgroundColor: COLORS.background,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
-  },
-  tabItem: {
-    flex: 1,
-    paddingVertical: SPACING.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRightWidth: 1,
-    borderRightColor: 'rgba(255,255,255,0.1)',
-  },
-  tabText: {
-    color: COLORS.secondary,
-    fontSize: 14,
-    marginBottom: 4,
-  },
-  tabValueText: {
-    color: COLORS.text,
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
+  
+    calendarContainer: {
+      paddingHorizontal: SPACING.md,
+      paddingVertical: SPACING.sm,
+      alignItems: 'center',
+    },
+    weekText: {
+      color: COLORS.text,
+      fontSize: 16,
+      fontWeight: 'bold',
+    },
+    completedBanner: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: SPACING.md,
+      paddingVertical: SPACING.sm,
+    },
+    completedText: {
+      color: COLORS.primary,
+      fontSize: 24,
+      fontWeight: 'bold',
+    },
+    shareButtonContainer: {
+      padding: SPACING.xs,
+    },
+    statsGrid: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      paddingHorizontal: SPACING.md,
+      paddingVertical: SPACING.lg,
+    },
+    statItem: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: SPACING.sm,
+    },
+    statValue: {
+      color: COLORS.primary,
+      fontSize: 32,
+      fontWeight: 'bold',
+    },
+    statLabel: {
+      color: COLORS.text,
+      fontSize: 14,
+      textAlign: 'center',
+      marginTop: SPACING.xs,
+    },
+    summaryContainer: {
+      padding: SPACING.md,
+      marginHorizontal: SPACING.md,
+      marginVertical: SPACING.lg,
+      backgroundColor: COLORS.surface,
+      borderRadius: BORDER_RADIUS.md,
+    },
+    summaryTitle: {
+      color: COLORS.text,
+      fontSize: 18,
+      fontWeight: 'bold',
+      marginBottom: SPACING.md,
+    },
+    summaryRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      paddingVertical: SPACING.xs,
+    },
+    summaryLabel: {
+      color: COLORS.text,
+      fontSize: 16,
+    },
+    summaryValue: {
+      color: COLORS.text,
+      fontSize: 16,
+      fontWeight: 'bold',
+    },
+    redoButton: {
+      backgroundColor: COLORS.primary,
+      marginHorizontal: SPACING.md,
+      marginVertical: SPACING.lg,
+      paddingVertical: SPACING.md,
+      borderRadius: BORDER_RADIUS.md,
+      alignItems: 'center',
+    },
+    redoButtonText: {
+      color: COLORS.background,
+      fontSize: 16,
+      fontWeight: 'bold',
+    },
+    loadingContainer: {
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
   scrollView: {
     flex: 1,
   },

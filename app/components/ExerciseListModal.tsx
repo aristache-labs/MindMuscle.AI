@@ -1,9 +1,9 @@
-import React, { useState, useRef, useEffect, useMemo, Component } from 'react';
+import React, { useState, useRef, useEffect, useMemo, Component, useCallback } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Dimensions, Platform, Animated, LayoutAnimation, UIManager, GestureResponderEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import DraggableFlatList, { ScaleDecorator, OpacityDecorator, ShadowDecorator } from 'react-native-draggable-flatlist';
+import DraggableFlatList, { ScaleDecorator, OpacityDecorator, ShadowDecorator, RenderItemParams } from 'react-native-draggable-flatlist';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import OptimizedImage from './OptimizedImage';
 import ExerciseMaxWeightGraph from './ExerciseMaxWeightGraph';
@@ -11,15 +11,20 @@ import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
+// Disable Android's layout-animation API entirely - placed at the very top
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(false);
+}
+// No one can call LayoutAnimation.configureNext in here any more
+LayoutAnimation.configureNext = () => {};
+
 const EXERCISE_CARD_HEIGHT = 76; // Actual height of each exercise card (from styles)
 const EXERCISE_CARD_SPACING = 8; // Bottom margin from exerciseCardWrapper (SPACING.sm)
 const TOTAL_CARD_HEIGHT = EXERCISE_CARD_HEIGHT + EXERCISE_CARD_SPACING; // Total space each card takes
 const DRAG_THRESHOLD = 10; // Pixels to move before starting drag
 
-// Enable layout animation only on iOS or enable experimental support on Android
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
+// Global flag to track if we're in the middle of a drag operation
+let isInDragOperation = false;
 
 // Enhanced Exercise Card Component for DraggableFlatList
 interface EnhancedExerciseCardProps {
@@ -46,19 +51,26 @@ const EnhancedExerciseCard: React.FC<EnhancedExerciseCardProps> = ({
   drag,
   isActive,
 }) => {
-  const getCompletedSets = (exerciseId: string): number => {
+  // Log only active state changes for debugging drag operations
+  useEffect(() => {
+    if (isActive) {
+      console.log(`[ACTIVE] Card index=${index} isActive=${isActive}`);
+    }
+  }, [isActive, index]);
+
+  const getCompletedSets = useCallback((exerciseId: string): number => {
     if (!exerciseId) return 0;
     const sets = exerciseSets[exerciseId] || [];
     return sets.filter(set => set.isCompleted).length;
-  };
+  }, [exerciseSets]);
 
-  const getTotalSets = (exerciseId: string): number => {
+  const getTotalSets = useCallback((exerciseId: string): number => {
     if (!exerciseId) return 0;
     const sets = exerciseSets[exerciseId] || [];
     return sets.length;
-  };
+  }, [exerciseSets]);
 
-  const getImageSource = () => {
+  const getImageSource = useCallback(() => {
     if (!exercise) return require('../../assets/exercises/placeholder.jpg');
     
     const hasValidImageUrl = exercise?.image_url && 
@@ -71,15 +83,29 @@ const EnhancedExerciseCard: React.FC<EnhancedExerciseCardProps> = ({
     } else {
       return require('../../assets/exercises/placeholder.jpg');
     }
-  };
+  }, [exercise?.image_url]);
+
+  // Memoize computed state values
+  const cardState = useMemo(() => {
+    if (!exercise) return { isCompleted: false, isPast: false, isCurrent: false };
+    
+    const completed = getCompletedSets(exercise.id);
+    const total = getTotalSets(exercise.id);
+    
+    return {
+      isCompleted: completed === total && total > 0,
+      isPast: index < currentExerciseIndex,
+      isCurrent: index === currentExerciseIndex,
+      completedSets: completed,
+      totalSets: total,
+    };
+  }, [exercise?.id, index, currentExerciseIndex, getCompletedSets, getTotalSets]);
 
   if (!exercise) {
     return null; // Don't render if exercise is null/undefined
   }
 
-  const isCompleted = getCompletedSets(exercise.id) === getTotalSets(exercise.id) && getTotalSets(exercise.id) > 0;
-  const isPast = index < currentExerciseIndex;
-  const isCurrent = index === currentExerciseIndex;
+  const { isCompleted, isPast, isCurrent, completedSets, totalSets } = cardState;
 
   return (
     <View style={[
@@ -144,7 +170,7 @@ const EnhancedExerciseCard: React.FC<EnhancedExerciseCardProps> = ({
                 styles.exerciseDetails,
                 (isCompleted || isPast) && styles.completedExerciseDetails
               ]}>
-                {getCompletedSets(exercise.id)}/{getTotalSets(exercise.id)} sets x {exercise?.reps_range || '0'} reps
+                {completedSets}/{totalSets} sets x {exercise?.reps_range || '0'} reps
               </Text>
             </View>
           </TouchableOpacity>
@@ -192,7 +218,7 @@ const EnhancedExerciseCard: React.FC<EnhancedExerciseCardProps> = ({
                 styles.exerciseDetails,
                 (isCompleted || isPast) && styles.completedExerciseDetails
               ]}>
-                {getCompletedSets(exercise.id)}/{getTotalSets(exercise.id)} sets x {exercise?.reps_range || '0'} reps
+                {completedSets}/{totalSets} sets x {exercise?.reps_range || '0'} reps
               </Text>
             </View>
             
@@ -208,8 +234,8 @@ const EnhancedExerciseCard: React.FC<EnhancedExerciseCardProps> = ({
                 style={[styles.dragIndicator, { backgroundColor: isActive ? 'rgba(139, 92, 246, 0.3)' : 'rgba(0, 0, 0, 0.2)' }]}
                 onPressIn={() => {
                   console.log('[DRAG] Drag handle pressed');
-                  // Call drag with a small delay to ensure it works properly
-                  setTimeout(() => drag(), 10);
+                  // Call drag immediately for better responsiveness
+                  drag();
                 }}
                 activeOpacity={0.7}
               >
@@ -223,8 +249,55 @@ const EnhancedExerciseCard: React.FC<EnhancedExerciseCardProps> = ({
   );
 };
 
+// Custom comparison function for React.memo that only cares about the bits that matter
+const areEqual = (
+  prev: EnhancedExerciseCardProps,
+  next: EnhancedExerciseCardProps
+) => {
+  // Fast path: if both items are the same reference, they're equal
+  if (prev === next) return true;
+  
+  // During drag operations, minimize re-renders for non-active items
+  if (isInDragOperation) {
+    // Only re-render if the active state changed or it's a different exercise
+    if (prev.isActive !== next.isActive) return false;
+    if (prev.exercise?.id !== next.exercise?.id) return false;
+    // For active items, allow updates; for others, prevent unnecessary renders
+    return !next.isActive;
+  }
+  
+  // Primary checks - most likely to change
+  if (prev.exercise?.id !== next.exercise?.id) return false;
+  if (prev.index !== next.index) return false;
+  if (prev.isActive !== next.isActive) return false;
+  
+  // Secondary checks - important state changes
+  if (prev.currentExerciseIndex !== next.currentExerciseIndex) return false;
+  if (prev.isCustomizeMode !== next.isCustomizeMode) return false;
+  
+  // Exercise content checks
+  if (prev.exercise?.name !== next.exercise?.name) return false;
+  
+  // Performance optimization: only check exercise sets if we have an exercise ID
+  if (prev.exercise?.id && next.exercise?.id && prev.exercise.id === next.exercise.id) {
+    const prevSets = prev.exerciseSets[prev.exercise.id] || [];
+    const nextSets = next.exerciseSets[next.exercise.id] || [];
+    
+    // Quick length check first
+    if (prevSets.length !== nextSets.length) return false;
+    
+    // Only check completion count - most relevant for UI
+    const prevCompleted = prevSets.filter(set => set.isCompleted).length;
+    const nextCompleted = nextSets.filter(set => set.isCompleted).length;
+    
+    if (prevCompleted !== nextCompleted) return false;
+  }
+  
+  return true;
+};
+
 // Create a memoized version of EnhancedExerciseCard to prevent unnecessary re-renders
-const MemoizedExerciseCard = React.memo(EnhancedExerciseCard);
+const MemoizedExerciseCard = React.memo(EnhancedExerciseCard, areEqual);
 
 interface Exercise {
   id: string;
@@ -315,29 +388,28 @@ export default function ExerciseListModal({
   const [selectedExerciseIndex, setSelectedExerciseIndex] = useState<number | null>(null);
   const [isCustomizeMode, setIsCustomizeMode] = useState(false);
   const [showBottomMenu, setShowBottomMenu] = useState(false);
-  // Guaranteed to be an array from the very first render
-  const [localExercises, setLocalExercises] = useState<Exercise[]>(
-    () => Array.isArray(exercises) ? [...exercises] : []
-  );
+  // State to track exercises for this modal instance - single source of truth
+  const [exList, setExList] = useState<Exercise[]>(exercises || []);
+  
+  // Update exercises when props change
+  useEffect(() => {
+    if (exercises && exercises.length > 0) {
+      setExList(exercises);
+    }
+  }, [exercises]);
+
   const [isDragging, setIsDragging] = useState(false);
   const [activeDragIndex, setActiveDragIndex] = useState<number | null>(null);
   const [isScrollEnabled, setIsScrollEnabled] = useState(true);
   const [showToast, setShowToast] = useState(false);
   const [sectionHeadersVisible, setSectionHeadersVisible] = useState(true);
+  const [isStabilizing, setIsStabilizing] = useState(false); // Add stabilization flag
+  const [dragTransitionLock, setDragTransitionLock] = useState(false); // New: prevent renders during critical transitions
   const originalScrollEnabledRef = useRef(true);
   const slideAnim = useRef(new Animated.Value(screenWidth)).current;
   const bottomMenuAnim = useRef(new Animated.Value(100)).current;
   const toastAnim = useRef(new Animated.Value(-100)).current;
-
-// ...
-  // Sync local exercises with props, always coalescing to ensure we never set null
-  useEffect(() => {
-    // Only update if not currently dragging to prevent state conflicts
-    if (!isDragging) {
-      setLocalExercises(Array.isArray(exercises) ? [...exercises] : []);
-    }
-  }, [exercises, isDragging]);
-
+  
   // Handle initial selected exercise when modal becomes visible
   useEffect(() => {
     if (visible && initialSelectedExerciseIndex !== null) {
@@ -351,14 +423,20 @@ export default function ExerciseListModal({
     }
   }, [visible, initialSelectedExerciseIndex]);
 
-  const handleExercisePress = (index: number) => {
+  // Memoize handler functions to prevent recreating them on each render
+  const handleExercisePressStable = useCallback((index: number) => {
     setSelectedExerciseIndex(index);
     Animated.timing(slideAnim, {
       toValue: 0,
       duration: 300,
       useNativeDriver: true,
     }).start();
-  };
+  }, [slideAnim]);
+  
+  const handleRemoveExerciseStable = useCallback((index: number) => {
+    if (!isCustomizeMode || !onRemoveExercise) return;
+    onRemoveExercise(index);
+  }, [isCustomizeMode, onRemoveExercise]);
 
   const resetModal = () => {
     setSelectedExerciseIndex(null);
@@ -398,22 +476,11 @@ export default function ExerciseListModal({
       });
     }
     
-    if (!newCustomizeMode) {
-      if (onReorderExercises && JSON.stringify(localExercises) !== JSON.stringify(exercises)) {
-        onReorderExercises(localExercises);
-      }
-    }
-    
     Animated.timing(bottomMenuAnim, {
       toValue: newCustomizeMode ? 0 : 100,
       duration: 300,
       useNativeDriver: true,
     }).start();
-  };
-
-  const handleRemoveExercise = (index: number) => {
-    if (!isCustomizeMode || !onRemoveExercise) return;
-    onRemoveExercise(index);
   };
 
   const handleBackToList = () => {
@@ -427,7 +494,7 @@ export default function ExerciseListModal({
   };
 
   const handleStartExercise = () => {
-    if (selectedExerciseIndex !== null && localExercises[selectedExerciseIndex]) {
+    if (selectedExerciseIndex !== null && exList[selectedExerciseIndex]) {
       onExerciseSelect(selectedExerciseIndex);
       if (onStartExercise) {
         onStartExercise(selectedExerciseIndex);
@@ -437,26 +504,8 @@ export default function ExerciseListModal({
     }
   };
   
-  // Simple memoization of draggable data - now always an array
-  const draggableData = useMemo(() => {
-    try {
-      // Ensure we always return a valid array, even if localExercises somehow becomes null
-      if (!Array.isArray(localExercises) || localExercises.length === 0) {
-        return [];
-      }
-      // Filter out any null or undefined items for extra safety
-      // Create a deep copy with JSON parse/stringify to break references that might cause issues
-      return JSON.parse(JSON.stringify(
-        localExercises.filter(exercise => exercise != null)
-      ));
-    } catch (error) {
-      console.log('Error in draggableData memo:', error);
-      return [];
-    }
-  }, [localExercises]);
-
   // Render animated placeholder to prevent layout jumps during dragging
-  const renderPlaceholder = () => {
+  const renderPlaceholder = useCallback(() => {
     return (
       <View style={[
         styles.exerciseCardWrapper,
@@ -500,13 +549,16 @@ export default function ExerciseListModal({
         </View>
       </View>
     );
-  };
+  }, []);
 
+  // Create a ref for the DraggableFlatList
+  const flatListRef = useRef<any>(null);
+  
   // Safely render the draggable list
   const renderDraggableList = () => {
     try {
       // Always ensure we have a valid array
-      const safeData = Array.isArray(draggableData) ? draggableData : [];
+      const safeData = Array.isArray(exList) ? exList : [];
       
       if (safeData.length === 0) {
         return (
@@ -518,192 +570,198 @@ export default function ExerciseListModal({
         );
       }
 
-      // Create a stable key based on the data to force re-mount if needed
-      const listKey = `draggable-${safeData.length}-${isCustomizeMode}`;
+      // Stable style objects
+      const draggableListStyle = useMemo(() => styles.draggableList, []);
+      const draggableListContentStyle = useMemo(() => styles.draggableListContent, []);
+      
+      // Stable drag hit slop
+      const dragHitSlop = useMemo(() => ({ top: 0, bottom: 0, left: 0, right: 0 }), []);
+      
+      // Stable key extractor
+      const keyExtractor = useCallback((item: Exercise) => item.id, []);
+      
+      // Stable list header component
+      const ListHeaderComponent = useCallback(() => (
+        <View style={styles.sectionHeaderContainer}>
+          <Text style={styles.sectionTitle}>EXERCISES ({safeData.length})</Text>
+        </View>
+      ), [safeData.length]);
+      
+      // Memoized renderItem callback with stable dependencies
+      const renderItem = useCallback(
+        (params: RenderItemParams<Exercise>) => {
+          const { item, drag, isActive, getIndex } = params;
+          
+          if (!item) return null;
+          
+          const idx = typeof getIndex === 'function' ? getIndex() ?? 0 : 0;
+          
+          return (
+            <View 
+              style={[
+                styles.exerciseItemContainer,
+                // Add stabilization overlay to prevent visual jumps
+                (isStabilizing || dragTransitionLock) && { opacity: 0.99 }
+              ]}
+              onLayout={e => {
+                // Skip layout calculations during transition locks
+                if (dragTransitionLock) return;
+                
+                const { y } = e.nativeEvent.layout;
+                // Reduced logging to minimize performance impact
+                if (isActive && isDragging) {
+                  console.log(`[DRAG-LAYOUT] index=${idx} y=${y} active=${isActive}`);
+                }
+              }}
+            >
+              <MemoizedExerciseCard
+                exercise={item}
+                index={idx}
+                currentExerciseIndex={currentExerciseIndex}
+                isCustomizeMode={isCustomizeMode}
+                exerciseSets={exerciseSets}
+                onPress={() => handleExercisePressStable(idx)}
+                onRemove={() => handleRemoveExerciseStable(idx)}
+                drag={drag}
+                isActive={isActive}
+              />
+            </View>
+          );
+        },
+        [
+          currentExerciseIndex, 
+          isCustomizeMode, 
+          exerciseSets, // Keep the full object since our areEqual function handles the comparison
+          handleExercisePressStable, 
+          handleRemoveExerciseStable,
+          isStabilizing, // Add stabilization state to dependencies
+          dragTransitionLock, // Add transition lock to dependencies
+          isDragging, // Add for layout logging condition
+        ]
+      );
 
       return (
         <DraggableFlatList
-          key={listKey}
-          data={safeData}
+          ref={flatListRef}
+          data={exList}
           onDragBegin={(index) => {
             console.log(`[DRAG] onDragBegin - index: ${index}`);
-            // Safely set active drag index and mark as dragging
-            setIsDragging(true);
-            if (index !== undefined && index !== null) {
+            
+            // Set transition lock to prevent renders during setup
+            setDragTransitionLock(true);
+            
+            // Use requestAnimationFrame for smoother state updates
+            requestAnimationFrame(() => {
+              isInDragOperation = true;
+              setIsDragging(true);
               setActiveDragIndex(index);
-              console.log(`[DRAG] Setting activeDragIndex to ${index}`);
-            }
-            // Prevent any layout animations during drag
-            if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-              UIManager.setLayoutAnimationEnabledExperimental(false);
-              console.log('[DRAG] Disabled layout animations');
-            }
-            
-            // Disable scrolling during drag to avoid unwanted movement
-            originalScrollEnabledRef.current = isScrollEnabled;
-            setIsScrollEnabled(false);
-            console.log('[DRAG] Disabled scrolling');
-            
-            // No need to hide section headers anymore since we've fixed the root cause
-            // by removing getItemLayout
+              
+              originalScrollEnabledRef.current = isScrollEnabled;
+              setIsScrollEnabled(false);
+              
+              // Release transition lock after setup is complete
+              requestAnimationFrame(() => {
+                setDragTransitionLock(false);
+              });
+            });
           }}
           onDragEnd={({ data, from, to }) => {
-            try {
-              console.log(`[DRAG] onDragEnd - from: ${from}, to: ${to}`);
-              // Clear dragging states immediately
+            console.log(`[DRAG] onDragEnd - from: ${from}, to: ${to}`);
+            
+            // Lock transitions during critical end phase
+            setDragTransitionLock(true);
+            
+            // Use requestAnimationFrame for smoother state coordination
+            requestAnimationFrame(() => {
+              // Immediate state update to prevent visual lag
               setIsDragging(false);
               setActiveDragIndex(null);
-              console.log('[DRAG] Cleared dragging states');
               
-              // Re-enable layout animations after drag
-              if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-                UIManager.setLayoutAnimationEnabledExperimental(true);
-                console.log('[DRAG] Re-enabled layout animations');
-              }
+              // Set stabilizing flag to prevent immediate re-renders
+              setIsStabilizing(true);
               
-              // Restore original scroll state
+              // Reset scroll state immediately
               setIsScrollEnabled(originalScrollEnabledRef.current);
-              console.log('[DRAG] Restored scroll state');
               
-              // No need to restore section headers visibility anymore
-              // since we've fixed the root cause by removing getItemLayout
-
-              // Safety check for data
-              if (!Array.isArray(data) || data.length === 0) {
+              if (from === to) {
+                // No reordering needed, just cleanup
+                requestAnimationFrame(() => {
+                  isInDragOperation = false;
+                  setIsStabilizing(false);
+                  setDragTransitionLock(false);
+                });
                 return;
               }
               
-              // Filter out any null/undefined items that might have been introduced
-              const validData = data.filter(item => item != null);
+              // Update the list data immediately for visual consistency
+              setExList(data);
               
-              // Update local state immediately
-              setLocalExercises([...validData]);
-              
-              // Get current exercise ID before update
-              const currentExerciseId = exercises?.[currentExerciseIndex]?.id;
-
-              // Update parent directly with the new data - no need for setTimeout
-              if (onReorderExercises) {
-                onReorderExercises(validData);
-              }
-              
-              // If the current exercise moved, update parent
-              if (currentExerciseId && onCurrentExerciseIndexChange) {
-                const newCurrentIndex = validData.findIndex(ex => ex?.id === currentExerciseId);
-                if (newCurrentIndex !== -1 && newCurrentIndex !== currentExerciseIndex) {
-                  onCurrentExerciseIndexChange(newCurrentIndex);
-                }
-              }
-            } catch (error) {
-              console.log('Error in onDragEnd:', error);
-              setIsDragging(false);
-              setActiveDragIndex(null);
-            }
+              // Batch the remaining updates with requestAnimationFrame
+              requestAnimationFrame(() => {
+                isInDragOperation = false;
+                
+                // Notify parent components of the changes
+                onReorderExercises?.(data);
+                onCurrentExerciseIndexChange?.(
+                  data.findIndex((ex) => ex.id === data[to].id)
+                );
+                
+                // Clear stabilization and transition lock after all updates
+                requestAnimationFrame(() => {
+                  setIsStabilizing(false);
+                  setDragTransitionLock(false);
+                });
+              });
+            });
           }}
-          keyExtractor={(item, index) => {
-            // Fallback to index if item or id is null
-            return item?.id || `exercise-${index}`;
+          onRelease={() => {
+            // Handle the release to ensure smooth transition
+            console.log('[DRAG] Item released');
           }}
-          // Removed getItemLayout to allow the library to measure real row heights on the fly
-          // This fixes the issue where the card jumps above your finger during drag
+          keyExtractor={keyExtractor}
           removeClippedSubviews={false}
-          renderPlaceholder={({ index: placeholderIndex }) => {
-            try {
-              // Safety check for placeholderIndex
-              if (placeholderIndex === null || placeholderIndex === undefined) {
-                return null;
-              }
-              return placeholderIndex === activeDragIndex ? renderPlaceholder() : null;
-            } catch (error) {
-              console.log('Error in renderPlaceholder:', error);
-              return null;
-            }
-          }}
-          dragItemOverflow={false}
-          activationDistance={10} // Small activation distance to ensure drag works properly
+          renderPlaceholder={renderPlaceholder}
+          dragItemOverflow={true}
+          activationDistance={10}
           autoscrollThreshold={0}
           autoscrollSpeed={0}
-          dragHitSlop={{ top: 0, bottom: 0, left: 0, right: 0 }}
-          animationConfig={{
-            damping: 20,
-            mass: 0.3,
-            stiffness: 100,
-            overshootClamping: true,
-            restSpeedThreshold: 0.1,
-            restDisplacementThreshold: 0.1,
-          }}
+          dragHitSlop={dragHitSlop}
           onPlaceholderIndexChange={(index: number) => {
             console.log(`[DRAG] Placeholder index changed to ${index}`);
           }}
           keyboardDismissMode="none"
           keyboardShouldPersistTaps="always"
           debug={false}
-          containerStyle={styles.draggableList}
-          contentContainerStyle={styles.draggableListContent}
+          containerStyle={draggableListStyle}
+          contentContainerStyle={draggableListContentStyle}
           showsVerticalScrollIndicator={false}
           scrollEnabled={isScrollEnabled && (!isCustomizeMode || !isDragging)}
-          ListHeaderComponent={() => (
-            <View style={styles.sectionHeaderContainer}>
-              <Text style={styles.sectionTitle}>EXERCISES ({safeData.length})</Text>
-            </View>
-          )}
-          renderItem={({ item, drag, isActive, getIndex }) => {
-            try {
-              // Safety check for null items
-              if (!item) {
-                return null;
-              }
-              
-              // Safety check for getIndex
-              const index = typeof getIndex === 'function' ? getIndex() ?? 0 : 0;
-              const isCurrentExercise = index === currentExerciseIndex;
-              const isUpcomingExercise = index > currentExerciseIndex;
-              const isPastExercise = index < currentExerciseIndex;
-              
-              if (isActive) {
-                console.log(`[DRAG] Item ${index} is active, name: ${item.name}`);
-              }
-              
-              return (
-                <View style={styles.exerciseItemContainer}>
-                    
-                    {/* Exercise Card */}
-                    <View
-                      style={[
-                        styles.exerciseCardWrapper,
-                        {
-                          zIndex: isActive ? 999 : index,
-                          elevation: isActive ? 10 : 1,
-                          position: 'relative',
-                          overflow: 'visible',
-                          // Stable opacity to prevent flicker
-                          opacity: 1,
-                          // Use consistent shadow values to prevent layout recalculations
-                          shadowOpacity: isActive ? 0.3 : 0.15,
-                          shadowRadius: isActive ? 12 : 8,
-                          shadowOffset: { width: 0, height: isActive ? 6 : 2 },
-                        }
-                      ]}
-                    >
-                      <MemoizedExerciseCard
-                        exercise={item}
-                        index={index}
-                        currentExerciseIndex={currentExerciseIndex}
-                        isCustomizeMode={isCustomizeMode}
-                        exerciseSets={exerciseSets}
-                        onPress={() => handleExercisePress(index)}
-                        onRemove={() => handleRemoveExercise(index)}
-                        drag={typeof drag === 'function' ? drag : () => {}}
-                        isActive={isActive}
-                      />
-                    </View>
-                  </View>
-              );
-            } catch (error) {
-              console.log('Error in renderItem:', error);
-              return null;
-            }
+          ListHeaderComponent={ListHeaderComponent}
+          renderItem={renderItem}
+          // Additional props to improve stability and reduce flickering
+          initialNumToRender={12}
+          maxToRenderPerBatch={8}
+          windowSize={12}
+          updateCellsBatchingPeriod={50}
+          getItemLayout={(data, index) => ({
+            length: TOTAL_CARD_HEIGHT,
+            offset: TOTAL_CARD_HEIGHT * index + 60, // Account for header
+            index,
+          })}
+          // Optimized animation config for minimal jitter
+          animationConfig={{
+            damping: 35,
+            mass: 0.7,
+            stiffness: 120,
+            restSpeedThreshold: 0.01,
+            restDisplacementThreshold: 0.01,
           }}
+          // Reduce layout calculation frequency
+          simultaneousHandlers={[]}
+          enableLayoutAnimationExperimental={false}
+          // Additional stabilization props
+          nestedScrollEnabled={false}
+          bounces={false}
         />
       );
     } catch (error) {
@@ -875,7 +933,7 @@ export default function ExerciseListModal({
                     <View style={styles.detailHeader}>
                       <View style={styles.detailImageContainer}>
                         <OptimizedImage
-                          source={getImageSource(localExercises[selectedExerciseIndex])}
+                          source={getImageSource(exList[selectedExerciseIndex])}
                           style={styles.detailImage}
                           fallback={require('../../assets/exercises/placeholder.jpg')}
                           resizeMode="cover"
@@ -885,18 +943,18 @@ export default function ExerciseListModal({
                       
                       <View style={styles.detailInfo}>
                         <Text style={styles.detailExerciseName}>
-                          {localExercises[selectedExerciseIndex]?.name || 'Exercise'}
+                          {exList[selectedExerciseIndex]?.name || 'Exercise'}
                         </Text>
-                        {localExercises[selectedExerciseIndex]?.primary_muscles && 
-                         Array.isArray(localExercises[selectedExerciseIndex]?.primary_muscles) &&
-                         localExercises[selectedExerciseIndex]?.primary_muscles.length > 0 && (
+                        {exList[selectedExerciseIndex]?.primary_muscles && 
+                         Array.isArray(exList[selectedExerciseIndex]?.primary_muscles) &&
+                         exList[selectedExerciseIndex]?.primary_muscles.length > 0 && (
                           <View style={styles.detailMuscleContainer}>
                             <View style={[
                               styles.detailMuscleTag, 
-                              { backgroundColor: getMuscleTagColor(localExercises[selectedExerciseIndex].primary_muscles[0]) }
+                              { backgroundColor: getMuscleTagColor(exList[selectedExerciseIndex].primary_muscles[0]) }
                             ]}>
                               <Text style={styles.detailMuscleText}>
-                                {localExercises[selectedExerciseIndex].primary_muscles[0]}
+                                {exList[selectedExerciseIndex].primary_muscles[0]}
                               </Text>
                             </View>
                           </View>
@@ -906,23 +964,23 @@ export default function ExerciseListModal({
 
                     {/* Max Weight Graph Section */}
                     {selectedExerciseIndex !== null && 
-                     localExercises[selectedExerciseIndex] && 
-                     localExercises[selectedExerciseIndex].requires_weight !== false && (
+                     exList[selectedExerciseIndex] && 
+                     exList[selectedExerciseIndex].requires_weight !== false && (
                       <View style={styles.maxWeightGraphContainer}>
                         <ExerciseMaxWeightGraph
-                          data={maxWeightData[localExercises[selectedExerciseIndex]?.exercise_id] || []}
-                          exerciseName={localExercises[selectedExerciseIndex]?.name || 'Exercise'}
-                          absoluteMaxWeight={absoluteMaxWeightData[localExercises[selectedExerciseIndex]?.exercise_id] || null}
+                          data={maxWeightData[exList[selectedExerciseIndex]?.exercise_id] || []}
+                          exerciseName={exList[selectedExerciseIndex]?.name || 'Exercise'}
+                          absoluteMaxWeight={absoluteMaxWeightData[exList[selectedExerciseIndex]?.exercise_id] || null}
                         />
                       </View>
                     )}
 
                     {/* Sets Section */}
                     <View style={styles.setsSection}>
-                      {selectedExerciseIndex !== null && localExercises[selectedExerciseIndex] && 
-                        Array.from({ length: localExercises[selectedExerciseIndex]?.sets || 4 }).map((_, index) => {
+                      {selectedExerciseIndex !== null && exList[selectedExerciseIndex] && 
+                        Array.from({ length: exList[selectedExerciseIndex]?.sets || 4 }).map((_, index) => {
                         const setNumber = index + 1;
-                        const exercise = localExercises[selectedExerciseIndex];
+                        const exercise = exList[selectedExerciseIndex];
                         
                         if (!exercise) return null;
                         
@@ -1643,7 +1701,13 @@ const styles = StyleSheet.create({
     elevation: 15,
     borderWidth: 1,
     borderColor: 'rgba(139, 92, 246, 0.7)',
-    // Removed scale transform to prevent the card from changing size during drag
+    // Improved stability during drag
+    shadowColor: '#8B5CF6',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    transform: [{ scale: 1.02 }],
+    zIndex: 999,
   },
   imageShadowOverlay: {
     position: 'absolute',

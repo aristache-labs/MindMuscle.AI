@@ -1,21 +1,84 @@
 {
-    "version": "0.2.0",
-    "configurations": [
-        
-      {
-        "name": "Debug Android (Expo)",
-        "type": "expo",
-        "request": "launch",
-        "platform": "android",
-
-      },
-      {
-        "name": "Debug iOS (Expo)",
-        "type": "expo",
-        "request": "launch",
-        "platform": "ios",
-
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug iOS Hermes (Bridgeless)",
+      "request": "attach",
+      "type": "reactnativedirect",
+      "cwd": "${workspaceFolder}",
+      "platform": "ios"
+    },
+    {
+      "name": "Debug Android Hermes (Bridgeless)",
+      "request": "attach",
+      "type": "reactnativedirect",
+      "cwd": "${workspaceFolder}",
+      "platform": "android"
+    },
+    {
+      "name": "Attach to Hermes Inspector",
+      "request": "attach",
+      "type": "reactnativedirect",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Debug Android (Expo)",
+      "type": "reactnative",
+      "request": "launch",
+      "platform": "android",
+      "cwd": "${workspaceFolder}",
+      "enableDebug": true,
+      "sourceMaps": true,
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    },
+    {
+      "name": "Debug iOS (Expo)",
+      "type": "reactnative",
+      "request": "launch",
+      "platform": "ios",
+      "cwd": "${workspaceFolder}",
+      "enableDebug": true,
+      "sourceMaps": true,
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    },
+    {
+      "name": "Debug Web (Expo)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:8081",
+      "webRoot": "${workspaceFolder}",
+      "sourceMaps": true,
+      "sourceMapPathOverrides": {
+        "webpack:///./~/*": "${webRoot}/node_modules/*",
+        "webpack://?:*/*": "${webRoot}/*"
       }
-    ]
-  }
-  
+    },
+    {
+      "name": "Chrome DevTools (Alternative)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "chrome://inspect",
+      "webRoot": "${workspaceFolder}",
+      "sourceMaps": true
+    },
+    {
+      "name": "Attach to Metro (Legacy)",
+      "type": "reactnative",
+      "request": "attach",
+      "cwd": "${workspaceFolder}",
+      "port": 8081,
+      "sourceMaps": true,
+      "address": "localhost",
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "${workspaceFolder}",
+      "skipFiles": [
+        "<node_internals>/**",
+        "node_modules/**"
+      ]
+    }
+  ]
+}

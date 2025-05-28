@@ -98,6 +98,8 @@
     },
     "updates": {
       "url": "https://u.expo.dev/9858a5f6-fb78-441d-a3f8-baf6348ed857"
-    }
-  }
+    },
+    "entryPoint": ".vscode\\exponentIndex.js"
+  },
+  "name": "mindmuscle-ai"
 }

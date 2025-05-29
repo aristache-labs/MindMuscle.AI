@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { View, StyleSheet, Animated, Easing, Dimensions } from 'react-native';
+import { View, StyleSheet, Animated, Easing } from 'react-native';
 import { Text, ProgressBar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -99,7 +99,7 @@ export default function InitialLoadingScreen({
             easing: Easing.linear,
             useNativeDriver: true,
           }),
-          { iterations: -1 }
+          { iterations: -1 },
         ),
         // Inner circle
         Animated.loop(
@@ -109,7 +109,7 @@ export default function InitialLoadingScreen({
             easing: Easing.linear,
             useNativeDriver: true,
           }),
-          { iterations: -1 }
+          { iterations: -1 },
         ),
         // Dumbbell
         Animated.loop(
@@ -119,7 +119,7 @@ export default function InitialLoadingScreen({
             easing: Easing.linear,
             useNativeDriver: true,
           }),
-          { iterations: -1 }
+          { iterations: -1 },
         ),
       ]).start();
     };
@@ -142,9 +142,10 @@ export default function InitialLoadingScreen({
             const currentIndex = LOADING_MESSAGES.ROTATION.indexOf(prev);
             const nextIndex = (currentIndex + 1) % LOADING_MESSAGES.ROTATION.length;
             // If current message not found in rotation, start from beginning
-            const nextMessage = currentIndex === -1 
-              ? LOADING_MESSAGES.ROTATION[0] 
-              : LOADING_MESSAGES.ROTATION[nextIndex];
+            const nextMessage =
+              currentIndex === -1
+                ? LOADING_MESSAGES.ROTATION[0]
+                : LOADING_MESSAGES.ROTATION[nextIndex];
             animateText();
             return nextMessage;
           });
@@ -179,7 +180,7 @@ export default function InitialLoadingScreen({
           if (onFinish) onFinish();
         });
       }, 1000); // Wait a bit longer to show 100% completion
-      
+
       return () => clearTimeout(finishTimeout);
     }
   }, [duration, message, onFinish, showProgress, progressValue]);
@@ -208,25 +209,33 @@ export default function InitialLoadingScreen({
       <Animated.View style={[styles.content, { opacity: fadeValue }]}>
         <View style={styles.loaderContainer}>
           {/* Outer spinning circle */}
-          <Animated.View style={[styles.spinningCircle, styles.outerCircle, { transform: [{ rotate: outerSpin }] }]}>
+          <Animated.View
+            style={[
+              styles.spinningCircle,
+              styles.outerCircle,
+              { transform: [{ rotate: outerSpin }] },
+            ]}
+          >
             <View style={[styles.circleAccent, styles.outerAccent]} />
           </Animated.View>
 
           {/* Inner spinning circle */}
-          <Animated.View style={[styles.spinningCircle, styles.innerCircle, { transform: [{ rotate: innerSpin }] }]}>
+          <Animated.View
+            style={[
+              styles.spinningCircle,
+              styles.innerCircle,
+              { transform: [{ rotate: innerSpin }] },
+            ]}
+          >
             <View style={[styles.circleAccent, styles.innerAccent]} />
           </Animated.View>
 
           {/* Center dumbbell */}
           <Animated.View style={[styles.iconContainer, { transform: [{ rotate: dumbbellSpin }] }]}>
-            <MaterialCommunityIcons
-              name="dumbbell"
-              size={40}
-              color="#ffffff"
-            />
+            <MaterialCommunityIcons name="dumbbell" size={40} color="#ffffff" />
           </Animated.View>
         </View>
-        
+
         <Animated.View
           style={[
             styles.textContainer,
@@ -236,10 +245,7 @@ export default function InitialLoadingScreen({
             },
           ]}
         >
-          <Text
-            variant="headlineMedium"
-            style={styles.text}
-          >
+          <Text variant="headlineMedium" style={styles.text}>
             {loadingMessage}
           </Text>
           <LinearGradient
@@ -249,17 +255,11 @@ export default function InitialLoadingScreen({
             end={{ x: 1, y: 0.5 }}
           />
         </Animated.View>
-        
+
         {showProgress && (
           <View style={styles.progressContainer}>
-            <ProgressBar 
-              progress={progress}
-              color="#00FF62"
-              style={styles.progressBar}
-            />
-            <Text style={styles.progressText}>
-              {Math.round(progress * 100)}%
-            </Text>
+            <ProgressBar progress={progress} color="#00FF62" style={styles.progressBar} />
+            <Text style={styles.progressText}>{Math.round(progress * 100)}%</Text>
           </View>
         )}
       </Animated.View>
@@ -350,4 +350,4 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 12,
   },
-}); 
+});

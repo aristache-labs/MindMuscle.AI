@@ -76,4 +76,4 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
 export const useProfile = () => useContext(ProfileContext);
 
-export default ProfileProvider; 
+export default ProfileProvider;

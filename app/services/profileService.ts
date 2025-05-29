@@ -11,11 +11,7 @@ export interface Profile {
 
 const profileService = {
   async getProfile(userId: string): Promise<Profile | null> {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
+    const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
 
     if (error) {
       console.error('Error fetching profile:', error);
@@ -49,7 +45,7 @@ const profileService = {
           id: user.id,
           email: user.email,
           name: user.user_metadata?.name || '',
-        }
+        },
       ])
       .select()
       .single();
@@ -60,7 +56,7 @@ const profileService = {
     }
 
     return data;
-  }
+  },
 };
 
-export default profileService; 
+export default profileService;

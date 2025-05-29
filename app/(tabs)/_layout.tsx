@@ -1,12 +1,12 @@
 import { Tabs } from 'expo-router';
-import { useColorScheme, View, Platform, Pressable, Text, Dimensions } from 'react-native';
+import { View, Pressable, Text } from 'react-native';
 import { useAuth } from '../store/AuthContext';
 import { useRouter, usePathname } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { logger } from '../utils/logger';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { 
-  useAnimatedStyle, 
+import Animated, {
+  useAnimatedStyle,
   withSpring,
   useSharedValue,
   withTiming,
@@ -14,20 +14,23 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TabBarBackground, CircleBackground } from '../components/NavigationBackgrounds';
-import { HomeIcon, SearchIcon, DumbbellIcon, InsightsIcon, ProfileIcon } from '../components/NavigationIcons';
+import {
+  HomeIcon,
+  SearchIcon,
+  DumbbellIcon,
+  InsightsIcon,
+  ProfileIcon,
+} from '../components/NavigationIcons';
 import { COLORS } from '../constants/theme';
-import { Ionicons } from '@expo/vector-icons';
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const TAB_BAR_HEIGHT = 75;
-const PADDING = 16;
+import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 
 // List of screens that should hide the tab bar
 const HIDE_TAB_BAR_SCREENS = [
   '/plans',
-  '/plan-details', 
-  '/exercises-list', 
+  '/plan-details',
+  '/exercises-list',
   '/exercise-details',
-  '/exercises-single-group'
+  '/exercises-single-group',
 ];
 
 interface TabBarButtonProps {
@@ -111,29 +114,27 @@ const TabBarButton = ({ isFocused, onPress, icon, label }: TabBarButtonProps) =>
   );
 };
 
-const FloatingTabBar = ({ state, navigation, descriptors }: any) => {
+const FloatingTabBar = ({ state, navigation, descriptors }: BottomTabBarProps) => {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
-  
+
   // Check if current path should hide the tab bar
-  const shouldHideTabBar = HIDE_TAB_BAR_SCREENS.some(screen => 
-    pathname.includes(screen)
-  );
-  
+  const shouldHideTabBar = HIDE_TAB_BAR_SCREENS.some((screen) => pathname.includes(screen));
+
   // Don't render the tab bar if it should be hidden
   if (shouldHideTabBar) {
     return null;
   }
-  
+
   // Define tab configurations
   const tabConfig = [
     { routeName: 'index', icon: 'home', label: 'Home' },
     { routeName: 'discover', icon: 'search', label: 'Discover' },
     { routeName: 'exercises', icon: 'barbell', label: 'Exercises', isCenterButton: true },
     { routeName: 'insights', icon: 'stats-chart', label: 'Insight' },
-    { routeName: 'profile', icon: 'person', label: 'Profile' }
+    { routeName: 'profile', icon: 'person', label: 'Profile' },
   ];
-  
+
   return (
     <View
       style={{
@@ -146,22 +147,24 @@ const FloatingTabBar = ({ state, navigation, descriptors }: any) => {
       }}
     >
       <TabBarBackground />
-      
-      <View style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 10,
-        height: '120%',
-      }}>
+
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingHorizontal: 10,
+          height: '120%',
+        }}
+      >
         <View style={{ flexDirection: 'row', width: '38%', justifyContent: 'space-between' }}>
-          {tabConfig.slice(0, 2).map((tab, index) => {
-            const route = state.routes.find((r: any) => r.name === tab.routeName);
+          {tabConfig.slice(0, 2).map((tab, _index) => {
+            const route = state.routes.find((r) => r.name === tab.routeName);
             if (!route) return null;
-            
-            const { options } = descriptors[route.key];
+
+            const { options: _options } = descriptors[route.key];
             const isFocused = state.index === state.routes.indexOf(route);
-            
+
             return (
               <TabBarButton
                 key={route.key}
@@ -176,7 +179,7 @@ const FloatingTabBar = ({ state, navigation, descriptors }: any) => {
                     navigation.navigate(route.name);
                   }
                 }}
-                icon={tab.icon as any}
+                icon={tab.icon as 'home' | 'search' | 'barbell' | 'stats-chart' | 'person'}
                 label={tab.label}
               />
             );
@@ -185,11 +188,11 @@ const FloatingTabBar = ({ state, navigation, descriptors }: any) => {
 
         <View style={{ flexDirection: 'row', width: '38%', justifyContent: 'space-between' }}>
           {tabConfig.slice(3, 5).map((tab) => {
-            const route = state.routes.find((r: any) => r.name === tab.routeName);
+            const route = state.routes.find((r) => r.name === tab.routeName);
             if (!route) return null;
-            
+
             const isFocused = state.index === state.routes.indexOf(route);
-            
+
             return (
               <TabBarButton
                 key={route.key}
@@ -204,7 +207,7 @@ const FloatingTabBar = ({ state, navigation, descriptors }: any) => {
                     navigation.navigate(route.name);
                   }
                 }}
-                icon={tab.icon as any}
+                icon={tab.icon as 'home' | 'search' | 'barbell' | 'stats-chart' | 'person'}
                 label={tab.label}
               />
             );
@@ -213,13 +216,13 @@ const FloatingTabBar = ({ state, navigation, descriptors }: any) => {
 
         {tabConfig.map((tab) => {
           if (tab.isCenterButton) {
-            const route = state.routes.find((r: any) => r.name === tab.routeName);
+            const route = state.routes.find((r) => r.name === tab.routeName);
             if (!route) return null;
-            
+
             const isFocused = state.index === state.routes.indexOf(route);
-            
+
             return (
-              <View 
+              <View
                 key={route.key}
                 style={{
                   width: 90,
@@ -234,7 +237,7 @@ const FloatingTabBar = ({ state, navigation, descriptors }: any) => {
                 }}
               >
                 <CircleBackground />
-                <Pressable 
+                <Pressable
                   onPress={() => {
                     const event = navigation.emit({
                       type: 'tabPress',
@@ -245,7 +248,7 @@ const FloatingTabBar = ({ state, navigation, descriptors }: any) => {
                       navigation.navigate(route.name);
                     }
                   }}
-                  style={{ 
+                  style={{
                     alignItems: 'center',
                     justifyContent: 'center',
                     width: '100%',
@@ -281,15 +284,21 @@ const FloatingTabBar = ({ state, navigation, descriptors }: any) => {
                           justifyContent: 'center',
                         }}
                       >
-                        <DumbbellIcon size={36} color={isFocused ? '#FFFFFF' : COLORS.secondary} focused={isFocused} />
-                        <Text style={{
-                          fontSize: 12,
-                          left: 1,
-                          fontWeight: isFocused ? '600' : '500',
-                          color: isFocused ? '#FFFFFF' : COLORS.secondary,
-                          opacity: 1,
-                          marginTop: 0,
-                        }}>
+                        <DumbbellIcon
+                          size={36}
+                          color={isFocused ? '#FFFFFF' : COLORS.secondary}
+                          focused={isFocused}
+                        />
+                        <Text
+                          style={{
+                            fontSize: 12,
+                            left: 1,
+                            fontWeight: isFocused ? '600' : '500',
+                            color: isFocused ? '#FFFFFF' : COLORS.secondary,
+                            opacity: 1,
+                            marginTop: 0,
+                          }}
+                        >
                           {tab.label}
                         </Text>
                       </View>
@@ -307,29 +316,25 @@ const FloatingTabBar = ({ state, navigation, descriptors }: any) => {
 };
 
 export default function TabsLayout() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
   const router = useRouter();
   const { session, loading } = useAuth();
   const [navigated, setNavigated] = useState(false);
   const pathname = usePathname();
-  
+
   // Check if current path should hide the tab bar
-  const shouldHideTabBar = HIDE_TAB_BAR_SCREENS.some(screen => 
-    pathname.includes(screen)
-  );
+  const shouldHideTabBar = HIDE_TAB_BAR_SCREENS.some((screen) => pathname.includes(screen));
 
   // Check authentication and navigate if needed
   useEffect(() => {
     if (!loading && !session && !navigated) {
       logger.info('User not authenticated in tabs layout, redirecting to login');
-      
+
       // Add a short delay to ensure layout mounting is complete
       const timer = setTimeout(() => {
         setNavigated(true);
         router.replace('/(auth)/login');
       }, 100);
-      
+
       return () => clearTimeout(timer);
     }
   }, [loading, session, router, navigated]);
@@ -347,7 +352,7 @@ export default function TabsLayout() {
           display: 'none',
         },
       }}
-      tabBar={(props) => shouldHideTabBar ? null : <FloatingTabBar {...props} />}
+      tabBar={(props) => (shouldHideTabBar ? null : <FloatingTabBar {...props} />)}
     >
       <Tabs.Screen
         name="index"
@@ -381,4 +386,4 @@ export default function TabsLayout() {
       />
     </Tabs>
   );
-} 
+}

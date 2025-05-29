@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import OptimizedImage from './OptimizedImage';
 import ChangeExerciseModal from './ChangeExerciseModal';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
-
-const { width: screenWidth } = Dimensions.get('window');
 
 interface Exercise {
   id: string;
@@ -20,6 +18,27 @@ interface Exercise {
   order: number;
   workout_day: number;
   requires_weight?: boolean;
+  isChangedExercise?: boolean;
+}
+
+interface ExerciseAlternative {
+  id: string;
+  exercise_id?: string;
+  name: string;
+  primary_muscles: string[];
+  secondary_muscles: string[];
+  difficulty: string;
+  equipment: string;
+  requires_weight: boolean;
+  muscle_group: string;
+  image_url?: string;
+  sets: number;
+  reps_range: string;
+  rest_time: number;
+  order: number;
+  workout_day: number;
+  recommendation_type: 'recommended' | 'other';
+  similarity_score: number;
   isChangedExercise?: boolean;
 }
 
@@ -38,18 +57,19 @@ export default function CustomizeExerciseModal({
   exercise,
   onSave,
   availableExercises = [],
-  onExerciseChange
+  onExerciseChange,
 }: CustomizeExerciseModalProps) {
   const insets = useSafeAreaInsets();
 
   // Helper function to determine the image source safely
   const getImageSource = (exerciseData: Exercise | null) => {
     // Check if we have a valid image URL
-    const hasValidImageUrl = exerciseData?.image_url && 
-                             exerciseData.image_url.trim() !== '' && 
-                             exerciseData.image_url !== 'null' && 
-                             exerciseData.image_url !== 'undefined';
-    
+    const hasValidImageUrl =
+      exerciseData?.image_url &&
+      exerciseData.image_url.trim() !== '' &&
+      exerciseData.image_url !== 'null' &&
+      exerciseData.image_url !== 'undefined';
+
     if (hasValidImageUrl) {
       return { uri: exerciseData.image_url };
     } else {
@@ -102,9 +122,9 @@ export default function CustomizeExerciseModal({
     setShowChangeExerciseModal(true);
   };
 
-  const handleExerciseSelect = (selectedExercise: any) => {
+  const handleExerciseSelect = (selectedExercise: ExerciseAlternative) => {
     console.log('CustomizeExerciseModal: Received exercise selection:', selectedExercise);
-    
+
     if (onExerciseChange) {
       try {
         // Convert ExerciseAlternative to Exercise format
@@ -120,18 +140,17 @@ export default function CustomizeExerciseModal({
           workout_day: selectedExercise.workout_day,
           requires_weight: selectedExercise.requires_weight,
           // Pass along the isChangedExercise flag if it exists
-          isChangedExercise: selectedExercise.isChangedExercise || false
+          isChangedExercise: selectedExercise.isChangedExercise || false,
         };
-        
+
         console.log('CustomizeExerciseModal: Calling onExerciseChange with:', newExercise);
         onExerciseChange(newExercise);
-        
+
         // Close modals after successful exercise change
         setTimeout(() => {
           setShowChangeExerciseModal(false);
           onClose();
         }, 100); // Small delay to ensure state updates complete
-        
       } catch (error) {
         console.error('Error in handleExerciseSelect:', error);
         // Still close modals even if there's an error
@@ -146,7 +165,7 @@ export default function CustomizeExerciseModal({
   };
 
   const adjustSets = (increment: boolean) => {
-    setSets(prev => {
+    setSets((prev) => {
       const newValue = increment ? prev + 1 : prev - 1;
       return Math.max(1, Math.min(10, newValue)); // Limit between 1-10
     });
@@ -163,14 +182,14 @@ export default function CustomizeExerciseModal({
     { min: 12, max: 15 },
     { min: 15, max: 20 },
     { min: 20, max: 25 },
-    { min: 25, max: 30 }
+    { min: 25, max: 30 },
   ];
 
   const adjustReps = (increment: boolean) => {
-    const currentRangeIndex = repRanges.findIndex(range => 
-      range.min === repsMin && range.max === repsMax
+    const currentRangeIndex = repRanges.findIndex(
+      (range) => range.min === repsMin && range.max === repsMax,
     );
-    
+
     if (currentRangeIndex !== -1) {
       // Current values match a predefined range
       if (increment && currentRangeIndex < repRanges.length - 1) {
@@ -187,7 +206,7 @@ export default function CustomizeExerciseModal({
       const currentAvg = (repsMin + repsMax) / 2;
       let closestIndex = 0;
       let closestDiff = Math.abs((repRanges[0].min + repRanges[0].max) / 2 - currentAvg);
-      
+
       for (let i = 1; i < repRanges.length; i++) {
         const rangeAvg = (repRanges[i].min + repRanges[i].max) / 2;
         const diff = Math.abs(rangeAvg - currentAvg);
@@ -196,7 +215,7 @@ export default function CustomizeExerciseModal({
           closestIndex = i;
         }
       }
-      
+
       // Move to next or previous range from closest match
       if (increment && closestIndex < repRanges.length - 1) {
         const nextRange = repRanges[closestIndex + 1];
@@ -218,31 +237,26 @@ export default function CustomizeExerciseModal({
   if (!exercise) return null;
 
   return (
-    <Modal
-      visible={visible}
-      transparent={true}
-      animationType="slide"
-      onRequestClose={onClose}
-    >
+    <Modal visible={visible} transparent={true} animationType="slide" onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <View style={[styles.modalContainer, { paddingTop: insets.top }]}>
-                      <LinearGradient
-              colors={['#121418', '#0A0C10']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.modalGradient}
-            >
-              {/* Adding glowing corners */}
-              <View style={styles.topGlowLeft} />
-              <View style={styles.topGlowRight} />
+          <LinearGradient
+            colors={['#121418', '#0A0C10']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.modalGradient}
+          >
+            {/* Adding glowing corners */}
+            <View style={styles.topGlowLeft} />
+            <View style={styles.topGlowRight} />
             {/* Header */}
             <View style={styles.header}>
               <TouchableOpacity onPress={handleDiscard} style={styles.headerButton}>
                 <Text style={styles.discardButtonText}>Discard</Text>
               </TouchableOpacity>
-              
+
               <Text style={styles.headerTitle}>CUSTOMIZE EXERCISE</Text>
-              
+
               <TouchableOpacity onPress={handleSave} style={styles.headerButton}>
                 <Text style={styles.doneButtonText}>Done</Text>
               </TouchableOpacity>
@@ -260,24 +274,23 @@ export default function CustomizeExerciseModal({
                     cachePolicy="immutable"
                   />
                 </View>
-                
+
                 <View style={styles.exerciseInfo}>
                   <Text style={styles.exerciseName}>{exercise.name}</Text>
                   {exercise.primary_muscles && exercise.primary_muscles.length > 0 && (
                     <Text style={styles.exerciseMuscle}>{exercise.primary_muscles[0]}</Text>
                   )}
                 </View>
-                
+
                 {/* Change Exercise Button */}
                 {availableExercises.length > 0 && onExerciseChange && (
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={styles.changeExerciseButton}
                     onPress={handleChangeExercise}
                   >
                     <Ionicons name="swap-horizontal" size={20} color={COLORS.text} />
                   </TouchableOpacity>
                 )}
-
               </View>
             </View>
 
@@ -288,21 +301,18 @@ export default function CustomizeExerciseModal({
                 {/* Sets Control */}
                 <View style={styles.controlColumn}>
                   <View style={styles.controlContainer}>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.controlButton}
                       onPress={() => adjustSets(false)}
                     >
                       <Text style={styles.controlButtonText}>−</Text>
                     </TouchableOpacity>
-                    
+
                     <View style={styles.valueContainer}>
                       <Text style={styles.valueText}>{sets}</Text>
                     </View>
-                    
-                    <TouchableOpacity 
-                      style={styles.controlButton}
-                      onPress={() => adjustSets(true)}
-                    >
+
+                    <TouchableOpacity style={styles.controlButton} onPress={() => adjustSets(true)}>
                       <Text style={styles.controlButtonText}>+</Text>
                     </TouchableOpacity>
                   </View>
@@ -312,23 +322,20 @@ export default function CustomizeExerciseModal({
                 {/* Reps Control */}
                 <View style={styles.controlColumn}>
                   <View style={styles.controlContainer}>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.controlButton}
                       onPress={() => adjustReps(false)}
                     >
                       <Text style={styles.controlButtonText}>−</Text>
                     </TouchableOpacity>
-                    
+
                     <View style={styles.valueContainer}>
                       <Text style={styles.valueText}>
                         {repsMin === repsMax ? repsMin : `${repsMin}-${repsMax}`}
                       </Text>
                     </View>
-                    
-                    <TouchableOpacity 
-                      style={styles.controlButton}
-                      onPress={() => adjustReps(true)}
-                    >
+
+                    <TouchableOpacity style={styles.controlButton} onPress={() => adjustReps(true)}>
                       <Text style={styles.controlButtonText}>+</Text>
                     </TouchableOpacity>
                   </View>
@@ -339,7 +346,7 @@ export default function CustomizeExerciseModal({
           </LinearGradient>
         </View>
       </View>
-      
+
       {/* Change Exercise Modal */}
       <ChangeExerciseModal
         visible={showChangeExerciseModal}
@@ -532,4 +539,4 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
   },
-}); 
+});

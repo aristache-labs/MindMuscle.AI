@@ -1,33 +1,35 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TextInput, 
-  ScrollView, 
-  Pressable, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  ScrollView,
+  Pressable,
   Dimensions,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Keyboard,
   BackHandler,
-  Image,
   Modal,
-  TouchableWithoutFeedback
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { IconButton, Divider, Surface } from 'react-native-paper';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PanGestureHandler, GestureHandlerRootView, ScrollView as GHScrollView, NativeViewGestureHandler } from 'react-native-gesture-handler';
-import Animated, { 
-  useSharedValue, 
-  useAnimatedStyle, 
+import {
+  PanGestureHandler,
+  GestureHandlerRootView,
+  ScrollView as GHScrollView,
+} from 'react-native-gesture-handler';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
   useAnimatedGestureHandler,
   withTiming,
   runOnJS,
-  Easing
+  Easing,
 } from 'react-native-reanimated';
 import * as FileSystem from 'expo-file-system';
 import { Asset } from 'expo-asset';
@@ -42,16 +44,16 @@ import OptimizedImage from './OptimizedImage';
 const { width, height } = Dimensions.get('window');
 
 // Load and cache SVG assets once at module level
-let svgCache = {
+const svgCache = {
   frontBody: null as string | null,
-  backBody: null as string | null
+  backBody: null as string | null,
 };
 
 // Safely load an SVG asset
 const safeLoadSvg = async (assetType: 'front' | 'back'): Promise<string | null> => {
   try {
     // Use static requires to avoid dynamic require errors
-    let assetModule; 
+    let assetModule;
     if (assetType === 'front') {
       assetModule = require('../../assets/exercises/body_front.svg');
     } else if (assetType === 'back') {
@@ -60,12 +62,12 @@ const safeLoadSvg = async (assetType: 'front' | 'back'): Promise<string | null> 
       console.warn(`Unsupported SVG asset type: ${assetType}`);
       return null;
     }
-    
+
     if (!assetModule) return null;
-    
+
     const asset = Asset.fromModule(assetModule);
     await asset.downloadAsync();
-    
+
     if (asset.localUri) {
       return await FileSystem.readAsStringAsync(asset.localUri);
     }
@@ -83,7 +85,7 @@ const safeLoadSvg = async (assetType: 'front' | 'back'): Promise<string | null> 
     if (!svgCache.frontBody) {
       svgCache.frontBody = await safeLoadSvg('front');
     }
-    
+
     if (!svgCache.backBody) {
       svgCache.backBody = await safeLoadSvg('back');
     }
@@ -103,83 +105,236 @@ interface ExerciseDetailsModalProps {
   secondary_muscles?: string[];
 }
 
-export default function ExerciseDetailsModal({ 
-  visible,
-  onClose,
-  exerciseId,
-  exerciseName,
-  exerciseImage,
-  primary_muscles,
-  secondary_muscles
-}: ExerciseDetailsModalProps) {
-  const insets = useSafeAreaInsets();
-  // Animation for modal slide up - calculate position based on 80% height
+// Custom hook for modal animation
+const useModalAnimation = (visible: boolean, onClose: () => void) => {
   const translateY = useSharedValue(height);
-  
-  // State for internal visibility to manage animation before unmounting
   const [internalVisible, setInternalVisible] = useState(false);
   const isClosing = useRef(false);
-  
-  // State management
-  const [activeSection, setActiveSection] = useState<'muscles' | 'instructions'>('muscles');
-  const [notes, setNotes] = useState('');
+
+  const handleInternalClose = () => {
+    try {
+      setInternalVisible(false);
+      isClosing.current = false;
+      onClose();
+    } catch (error) {
+      console.error('Error closing modal:', error);
+      // Ensure we still clean up state even if onClose fails
+      setInternalVisible(false);
+      isClosing.current = false;
+    }
+  };
+
+  const performClose = () => {
+    if (isClosing.current) return;
+
+    isClosing.current = true;
+    translateY.value = withTiming(
+      height,
+      {
+        duration: 400,
+        easing: Easing.bezierFn(0.16, 1, 0.3, 1),
+      },
+      (finished) => {
+        if (finished) {
+          runOnJS(handleInternalClose)();
+        }
+      },
+    );
+  };
+
+  const handleClose = () => {
+    if (!isClosing.current) {
+      performClose();
+    }
+  };
+
+  useEffect(() => {
+    if (visible && !isClosing.current) {
+      setInternalVisible(true);
+      isClosing.current = false;
+      translateY.value = height;
+
+      // Use requestAnimationFrame instead of setTimeout for better performance
+      const animateIn = () => {
+        translateY.value = withTiming(0, {
+          duration: 400,
+          easing: Easing.bezierFn(0.16, 1, 0.3, 1),
+        });
+      };
+
+      requestAnimationFrame(animateIn);
+    } else if (!visible && !isClosing.current) {
+      // If visible becomes false externally, just hide immediately
+      setInternalVisible(false);
+    }
+  }, [visible, translateY]);
+
+  const animatedModalStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  return {
+    internalVisible,
+    handleClose,
+    animatedModalStyle,
+    isClosing: isClosing.current,
+  };
+};
+
+// Custom hook for exercise data management
+const useExerciseData = (
+  exerciseId: string,
+  visible: boolean,
+  primary_muscles?: string[],
+  secondary_muscles?: string[],
+) => {
   const [loading, setLoading] = useState(true);
   const [exerciseData, setExerciseData] = useState<{
     instructions: string[] | string;
     primaryMuscles: string[];
     secondaryMuscles: string[];
   } | null>(null);
-  const [frontBodySvg, setFrontBodySvg] = useState<string | null>(svgCache.frontBody);
-  const [backBodySvg, setBackBodySvg] = useState<string | null>(svgCache.backBody);
-  
-  // Animation for swipeable sections
-  const translateX = useSharedValue(0);
-  const sectionWidth = width - (SPACING.md * 2); // Account for padding
 
-  // State for notes
+  const fetchExerciseData = async (exerciseId: string) => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('exercises')
+        .select('instructions, primary_muscles, secondary_muscles')
+        .eq('id', exerciseId)
+        .maybeSingle();
+
+      if (error) return;
+
+      if (data) {
+        const exerciseInfo = {
+          instructions: data.instructions || [],
+          primaryMuscles:
+            Array.isArray(primary_muscles) && primary_muscles.length > 0
+              ? primary_muscles
+              : Array.isArray(data.primary_muscles)
+                ? data.primary_muscles
+                : [],
+          secondaryMuscles:
+            Array.isArray(secondary_muscles) && secondary_muscles.length > 0
+              ? secondary_muscles
+              : Array.isArray(data.secondary_muscles)
+                ? data.secondary_muscles
+                : [],
+        };
+        setExerciseData(exerciseInfo);
+      } else {
+        setExerciseData({
+          instructions: 'No instructions available for this exercise.',
+          primaryMuscles: [],
+          secondaryMuscles: [],
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching exercise details:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (visible && exerciseId) {
+      fetchExerciseData(exerciseId);
+    }
+  }, [exerciseId, visible]);
+
+  return { loading, exerciseData };
+};
+
+// Custom hook for exercise notes
+const useExerciseNotes = (exerciseId: string, visible: boolean) => {
+  const [notes, setNotes] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  
-  // Debounce notes changes to avoid too many database calls
   const debouncedNotes = useDebounce(notes, 1000);
 
-  const scrollViewRef = useRef<ScrollView>(null);
-  const textInputRef = useRef<TextInput>(null);
-  const panHandlerRef = useRef(null);
-  const nativeScrollRef = useRef(null);
-  
-  // Run animation when visibility changes
-  useEffect(() => {
-    if (visible) {
-      setInternalVisible(true);
-      isClosing.current = false;
-      
-      // Reset scroll position when opening
-      if (scrollViewRef.current) {
-        scrollViewRef.current.scrollTo({ x: 0, y: 0, animated: false });
+  const fetchExerciseNotes = async (exerciseId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('exercise_notes')
+        .select('note_content')
+        .eq('exercise_id', exerciseId)
+        .maybeSingle();
+
+      if (error) {
+        console.warn('Failed to fetch exercise notes:', error);
+        return;
       }
-      
-      // Start from bottom of screen (like when closing)
-      translateY.value = height;
-      
-      // Animate the modal sliding up with a smoother easing curve
-      setTimeout(() => {
-        translateY.value = withTiming(0, { // Position at top
-          duration: 400, 
-          easing: Easing.bezierFn(0.16, 1, 0.3, 1) // Custom easing for a more natural feel
-        });
-      }, 10); // Small delay to ensure starting position is set
-    } else if (!isClosing.current) {
-      // Don't do anything if we're not visible and not in closing state
-      return;
+
+      setNotes(data?.note_content || '');
+    } catch (error) {
+      console.warn('Failed to fetch exercise notes:', error);
     }
-  }, [visible, translateY]);
-  
-  // Try to load SVGs if not already in cache
+  };
+
+  const saveExerciseNotes = async (exerciseId: string, noteContent: string) => {
+    if (!noteContent.trim()) return;
+
+    setIsSaving(true);
+    setSaveError(null);
+
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        setSaveError('Failed to authenticate user');
+        return;
+      }
+
+      const { error } = await supabase.from('exercise_notes').upsert(
+        {
+          exercise_id: exerciseId,
+          note_content: noteContent,
+          user_id: user.id,
+          updated_at: new Date().toISOString(),
+        },
+        {
+          onConflict: 'user_id,exercise_id',
+        },
+      );
+
+      if (error) {
+        setSaveError('Failed to save notes');
+      }
+    } catch (error) {
+      console.warn('Failed to save exercise notes:', error);
+      setSaveError('Failed to save notes');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    if (visible && exerciseId) {
+      fetchExerciseNotes(exerciseId);
+    }
+  }, [exerciseId, visible]);
+
+  useEffect(() => {
+    if (exerciseId && debouncedNotes !== undefined) {
+      saveExerciseNotes(exerciseId, debouncedNotes);
+    }
+  }, [debouncedNotes, exerciseId]);
+
+  return { notes, setNotes, isSaving, saveError };
+};
+
+// Custom hook for SVG management
+const useSvgAssets = (visible: boolean) => {
+  const [frontBodySvg, setFrontBodySvg] = useState<string | null>(svgCache.frontBody);
+  const [backBodySvg, setBackBodySvg] = useState<string | null>(svgCache.backBody);
+
   useEffect(() => {
     const loadSvgs = async () => {
       try {
-        // Only load if not already cached
         if (!frontBodySvg && !svgCache.frontBody) {
           const content = await safeLoadSvg('front');
           if (content) {
@@ -189,7 +344,7 @@ export default function ExerciseDetailsModal({
         } else if (!frontBodySvg && svgCache.frontBody) {
           setFrontBodySvg(svgCache.frontBody);
         }
-        
+
         if (!backBodySvg && !svgCache.backBody) {
           const content = await safeLoadSvg('back');
           if (content) {
@@ -201,252 +356,52 @@ export default function ExerciseDetailsModal({
         }
       } catch (error) {
         console.warn('Error loading SVGs in component:', error);
-        // Silent fail - the diagram component will handle this
       }
     };
-    
+
     if (visible) {
       loadSvgs();
     }
   }, [visible, frontBodySvg, backBodySvg]);
-  
-  // Handle the actual closing of the modal
-  const performClose = () => {
-    isClosing.current = true;
-    
-    // Animate the modal sliding down with matching easing as opening
-    translateY.value = withTiming(height, { 
-      duration: 400,
-      easing: Easing.bezierFn(0.16, 1, 0.3, 1) // Use same easing as opening for consistency
-    }, () => {
-      // After animation completes, notify parent component
-      runOnJS(completeClose)();
-    });
-  };
-  
-  // Complete the closing process
-  const completeClose = () => {
-    setInternalVisible(false);
-    isClosing.current = false;
-    onClose();
-  };
-  
-  // Override the close handler to perform animation first
-  const handleClose = () => {
-    if (!isClosing.current) {
-      performClose();
-    }
-  };
-  
-  // Fetch exercise data from Supabase and SVG files
-  useEffect(() => {
-    if (visible && exerciseId) {
-      // Fetch exercise data
-      fetchExerciseData(exerciseId);
-      
-      // Fetch existing notes
-      fetchExerciseNotes(exerciseId);
-    }
-  }, [exerciseId, visible]);
 
-  // Save notes when they change (debounced)
-  useEffect(() => {
-    if (exerciseId && debouncedNotes !== undefined) {
-      saveExerciseNotes(exerciseId, debouncedNotes);
-    }
-  }, [debouncedNotes, exerciseId]);
+  return { frontBodySvg, backBodySvg };
+};
 
-  // Handle keyboard show event
-  useEffect(() => {
-    const keyboardDidShowListener = Keyboard.addListener(
-      'keyboardDidShow',
-      () => {
-        // Wait a bit for the keyboard animation to finish
-        setTimeout(() => {
-          scrollViewRef.current?.scrollToEnd({ animated: true });
-        }, 100);
-      }
-    );
+// Custom hook for section swiping
+const useSectionSwipe = () => {
+  const [activeSection, setActiveSection] = useState<'muscles' | 'instructions'>('muscles');
+  const translateX = useSharedValue(0);
+  const sectionWidth = width - SPACING.md * 2;
 
-    return () => {
-      keyboardDidShowListener.remove();
-    };
-  }, []);
-
-  // Handle back button press to dismiss modal or keyboard
-  useEffect(() => {
-    const handleBackButtonPress = () => {
-      if (visible) {
-        if (textInputRef.current && Keyboard.isVisible()) {
-          textInputRef.current.blur();
-          return true; // Prevent default back action while keyboard is visible
-        } else {
-          handleClose(); // Use our custom close handler for smooth animation
-          return true; // Prevent default back action
-        }
-      }
-      return false; // Allow default back action when modal is not visible
-    };
-
-    // Add back button handler
-    const backHandler = BackHandler.addEventListener(
-      'hardwareBackPress',
-      handleBackButtonPress
-    );
-
-    // Clean up on unmount
-    return () => {
-      backHandler.remove();
-    };
-  }, [visible]);
-
-  const fetchExerciseData = async (exerciseId: string) => {
-    try {
-      setLoading(true);
-      
-      // Fetch exercise data from Supabase
-      const { data, error } = await supabase
-        .from('exercises')
-        .select('instructions, primary_muscles, secondary_muscles')
-        .eq('id', exerciseId)
-        .maybeSingle(); // Use maybeSingle() instead of single() to avoid errors when no rows are found
-      
-      if (error) {
-        return;
-      }
-      
-      if (data) {
-        const exerciseInfo = {
-          instructions: data.instructions || [],
-          // Use provided props if available, otherwise use fetched data
-          primaryMuscles: Array.isArray(primary_muscles) && primary_muscles.length > 0 
-                         ? primary_muscles 
-                         : (Array.isArray(data.primary_muscles) ? data.primary_muscles : []),
-          secondaryMuscles: Array.isArray(secondary_muscles) && secondary_muscles.length > 0
-                           ? secondary_muscles
-                           : (Array.isArray(data.secondary_muscles) ? data.secondary_muscles : [])
-        };
-        
-        
-        
-        setExerciseData(exerciseInfo);
-      } else {
-        // Handle case when exercise is not found
-        setExerciseData({
-          instructions: 'No instructions available for this exercise.',
-          primaryMuscles: [],
-          secondaryMuscles: []
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching exercise details:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Function to fetch exercise notes
-  const fetchExerciseNotes = async (exerciseId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('exercise_notes')
-        .select('note_content')
-        .eq('exercise_id', exerciseId)
-        .maybeSingle();
-      if (error) {
-        return;
-      }
-
-      if (data) {
-        setNotes(data.note_content);
-      } else {
-        setNotes('');
-      }
-    } catch (error) {
-    }
-  };
-
-  // Function to save exercise notes
-  const saveExerciseNotes = async (exerciseId: string, noteContent: string) => {
-    if (!noteContent.trim()) return; // Don't save empty notes
-    
-    setIsSaving(true);
-    setSaveError(null);
-    
-    try {
-      // Get current user ID
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      
-      if (userError || !user) {
-        setSaveError('Failed to authenticate user');
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from('exercise_notes')
-        .upsert(
-          {
-            exercise_id: exerciseId,
-            note_content: noteContent,
-            user_id: user.id,
-            updated_at: new Date().toISOString()
-          },
-          {
-            onConflict: 'user_id,exercise_id'
-          }
-        );
-
-      if (error) {
-        setSaveError('Failed to save notes');
-      }
-    } catch (error) {
-      setSaveError('Failed to save notes');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  // Function to manually change active section (for tab buttons)
   const changeSection = (section: 'muscles' | 'instructions') => {
     setActiveSection(section);
-    translateX.value = withTiming(
-      section === 'muscles' ? 0 : -sectionWidth, 
-      { duration: 300 }
-    );
+    translateX.value = withTiming(section === 'muscles' ? 0 : -sectionWidth, { duration: 300 });
   };
 
-  // Animation for swiping between muscles and instructions sections
   const gestureHandler = useAnimatedGestureHandler({
-    onStart: (_, ctx: any) => {
+    onStart: (_, ctx: { startX: number }) => {
       ctx.startX = translateX.value;
     },
     onActive: (event, ctx) => {
-      // Calculate absolute values for horizontal and vertical movement
       const absX = Math.abs(event.translationX);
       const absY = Math.abs(event.translationY);
-      
-      // Only process horizontal gestures when the horizontal movement is significantly more than vertical
-      // This helps differentiate between scrolling up/down vs. swiping left/right
+
       if (absX > absY * 2) {
-        // Calculate new position with boundaries
         let newPosition = ctx.startX + event.translationX;
-        
-        // Limit to only swipe between the two sections
         if (newPosition > 0) newPosition = 0;
         if (newPosition < -sectionWidth) newPosition = -sectionWidth;
-        
         translateX.value = newPosition;
       }
     },
     onEnd: (event) => {
-      // Only process horizontal gestures 
       const absX = Math.abs(event.velocityX);
       const absY = Math.abs(event.velocityY);
-      
-      // Only handle the end of gesture if it was primarily horizontal
+
       if (absX > absY) {
-        // Determine which section to snap to based on velocity and position
-        if (event.velocityX < -500 || (translateX.value < -sectionWidth / 2 && event.velocityX < 0)) {
+        if (
+          event.velocityX < -500 ||
+          (translateX.value < -sectionWidth / 2 && event.velocityX < 0)
+        ) {
           translateX.value = withTiming(-sectionWidth, { duration: 300 });
           runOnJS(setActiveSection)('instructions');
         } else {
@@ -457,24 +412,266 @@ export default function ExerciseDetailsModal({
     },
   });
 
-  // Animated styles for the modal container
-  const animatedModalStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ translateY: translateY.value }],
-    };
-  });
+  const animatedSectionsStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
 
-  // Animated styles for the sections container
-  const animatedSectionsStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ translateX: translateX.value }],
-    };
-  });
+  return {
+    activeSection,
+    changeSection,
+    gestureHandler,
+    animatedSectionsStyle,
+  };
+};
 
-  // Use directly passed muscle data if available, fallback to fetched data
+// Helper function to get image source
+const getImageSource = (exerciseImage?: string) => {
+  if (!exerciseImage) {
+    return require('../../assets/exercises/placeholder.jpg');
+  }
+
+  if (exerciseImage.toString().startsWith('http')) {
+    return { uri: exerciseImage.toString() };
+  }
+
+  switch (exerciseImage.toString()) {
+    case 'placeholder_pushup':
+      return require('../../assets/exercises/pushup.jpg');
+    case 'placeholder_squat':
+      return require('../../assets/exercises/squat.jpg');
+    case 'placeholder_dumbbell':
+      return require('../../assets/exercises/dumbbell.jpg');
+    case 'placeholder_default':
+    default:
+      return require('../../assets/exercises/placeholder.jpg');
+  }
+};
+
+// Helper function to determine if exercise is cardio
+const isCardioExercise = (primaryMuscles: string[], secondaryMuscles: string[]) => {
+  const hasCardio = primaryMuscles.some((muscle) => muscle?.toLowerCase().includes('cardio'));
+  const backMuscles = ['lats', 'traps', 'lower back', 'lowerback', 'erector'];
+  const hasBackMuscles = [...primaryMuscles, ...secondaryMuscles].some((muscle) =>
+    backMuscles.some((backMuscle) => muscle?.toLowerCase().includes(backMuscle)),
+  );
+  return hasCardio && !hasBackMuscles;
+};
+
+// Modal Header Component
+const ModalHeader = ({ exerciseName, onClose }: { exerciseName: string; onClose: () => void }) => {
+  const [isClosing, setIsClosing] = useState(false);
+
+  const handleClose = () => {
+    if (isClosing) return;
+    setIsClosing(true);
+    onClose();
+    // Reset after a short delay to prevent issues if modal doesn't close
+    setTimeout(() => setIsClosing(false), 1000);
+  };
+
+  return (
+    <>
+      <View style={styles.topGlowLeft} />
+      <View style={styles.topGlowRight} />
+      <View style={styles.header}>
+        <IconButton
+          icon="close"
+          size={24}
+          iconColor="#fff"
+          onPress={handleClose}
+          style={styles.closeButton}
+          disabled={isClosing}
+        />
+        <Text style={styles.headerTitle}>{exerciseName}</Text>
+      </View>
+      <Divider style={styles.divider} />
+    </>
+  );
+};
+
+// Exercise Media Component
+const ExerciseMedia = ({ exerciseImage }: { exerciseImage?: string }) => (
+  <Pressable style={styles.mediaContainer} onPress={() => {}}>
+    <OptimizedImage
+      source={getImageSource(exerciseImage)}
+      style={styles.mediaImage}
+      resizeMode="cover"
+      cachePolicy="immutable"
+      fallback={require('../../assets/exercises/placeholder.jpg')}
+      isImportant={true}
+    />
+    <View style={styles.playButtonOverlay}>
+      <MaterialIcons name="play-circle-filled" size={60} color="rgba(255,255,255,0.8)" />
+    </View>
+  </Pressable>
+);
+
+// Tab Navigation Component
+const TabNavigation = ({
+  activeSection,
+  onChangeSection,
+}: {
+  activeSection: 'muscles' | 'instructions';
+  onChangeSection: (section: 'muscles' | 'instructions') => void;
+}) => (
+  <View style={styles.tabButtons}>
+    <Pressable
+      style={[styles.tabButton, activeSection === 'muscles' && styles.activeTabButton]}
+      onPress={() => onChangeSection('muscles')}
+    >
+      <Text
+        style={[styles.tabButtonText, activeSection === 'muscles' && styles.activeTabButtonText]}
+      >
+        Muscles
+      </Text>
+    </Pressable>
+    <Pressable
+      style={[styles.tabButton, activeSection === 'instructions' && styles.activeTabButton]}
+      onPress={() => onChangeSection('instructions')}
+    >
+      <Text
+        style={[
+          styles.tabButtonText,
+          activeSection === 'instructions' && styles.activeTabButtonText,
+        ]}
+      >
+        Instructions
+      </Text>
+    </Pressable>
+  </View>
+);
+
+// Muscles Section Component
+const MusclesSection = ({
+  loading,
+  effectivePrimaryMuscles,
+  effectiveSecondaryMuscles,
+  hasSecondaryMuscles,
+  frontBodySvg,
+  backBodySvg,
+  cardioExercise,
+}: {
+  loading: boolean;
+  effectivePrimaryMuscles: string[];
+  effectiveSecondaryMuscles: string[];
+  hasSecondaryMuscles: boolean;
+  frontBodySvg: string | null;
+  backBodySvg: string | null;
+  cardioExercise: boolean;
+}) => (
+  <Surface style={styles.sectionContent}>
+    <Text style={styles.sectionTitle}>Muscles Worked</Text>
+    {loading ? (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </View>
+    ) : (
+      <>
+        <View style={styles.muscleLabelsContainer}>
+          <Text style={[styles.primaryLabel, hasSecondaryMuscles ? {} : { flex: 2 }]}>
+            Primary:
+          </Text>
+          {hasSecondaryMuscles && <Text style={styles.secondaryLabel}>Secondary:</Text>}
+        </View>
+        <View style={styles.muscleGroupsContainer}>
+          <View style={[styles.primaryMuscleContainer, hasSecondaryMuscles ? {} : { flex: 2 }]}>
+            <MuscleTags muscles={effectivePrimaryMuscles} isPrimary={true} />
+          </View>
+          {hasSecondaryMuscles && (
+            <View style={styles.secondaryMuscleContainer}>
+              <MuscleTags muscles={effectiveSecondaryMuscles} isPrimary={false} />
+            </View>
+          )}
+        </View>
+      </>
+    )}
+    <MuscleDiagram
+      frontBodySvg={frontBodySvg}
+      backBodySvg={backBodySvg}
+      primaryMuscles={effectivePrimaryMuscles}
+      secondaryMuscles={effectiveSecondaryMuscles}
+      loading={loading}
+      isCardioExercise={cardioExercise}
+      debugMode={false}
+    />
+  </Surface>
+);
+
+// Exercise Notes Component
+const ExerciseNotes = ({
+  notes,
+  onNotesChange,
+  isSaving,
+  saveError,
+  textInputRef,
+  scrollViewRef,
+}: {
+  notes: string;
+  onNotesChange: (text: string) => void;
+  isSaving: boolean;
+  saveError: string | null;
+  textInputRef: React.RefObject<TextInput | null>;
+  scrollViewRef: React.RefObject<ScrollView | null>;
+}) => (
+  <Surface style={styles.notesContainer}>
+    <View style={styles.notesTitleContainer}>
+      <Text style={styles.notesSectionTitle}>Exercise Notes</Text>
+      {isSaving && (
+        <ActivityIndicator size="small" color={COLORS.primary} style={styles.savingIndicator} />
+      )}
+      {saveError && <Text style={styles.errorText}>{saveError}</Text>}
+    </View>
+    <TextInput
+      style={styles.notesInput}
+      placeholder="Type your notes here"
+      placeholderTextColor="rgba(255,255,255,0.5)"
+      value={notes}
+      onChangeText={onNotesChange}
+      multiline
+      textAlignVertical="top"
+      autoFocus={false}
+      onFocus={() => {
+        setTimeout(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      }}
+      ref={textInputRef}
+    />
+  </Surface>
+);
+
+export default function ExerciseDetailsModal({
+  visible,
+  onClose,
+  exerciseId,
+  exerciseName,
+  exerciseImage,
+  primary_muscles,
+  secondary_muscles,
+}: ExerciseDetailsModalProps) {
+  const { internalVisible, handleClose, animatedModalStyle, isClosing } = useModalAnimation(
+    visible,
+    onClose,
+  );
+  const { loading, exerciseData } = useExerciseData(
+    exerciseId,
+    visible,
+    primary_muscles,
+    secondary_muscles,
+  );
+  const { notes, setNotes, isSaving, saveError } = useExerciseNotes(exerciseId, visible);
+  const { frontBodySvg, backBodySvg } = useSvgAssets(visible);
+  const { activeSection, changeSection, gestureHandler, animatedSectionsStyle } = useSectionSwipe();
+
+  const scrollViewRef = useRef<ScrollView>(null);
+  const textInputRef = useRef<TextInput>(null);
+  const panHandlerRef = useRef(null);
+  const nativeScrollRef = useRef(null);
+
+  // Effective muscle data with memoization
   const effectivePrimaryMuscles = useMemo(() => {
     return primary_muscles && primary_muscles.length > 0
-      ? primary_muscles 
+      ? primary_muscles
       : exerciseData?.primaryMuscles || [];
   }, [primary_muscles, exerciseData?.primaryMuscles]);
 
@@ -484,106 +681,75 @@ export default function ExerciseDetailsModal({
       : exerciseData?.secondaryMuscles || [];
   }, [secondary_muscles, exerciseData?.secondaryMuscles]);
 
-  // Check if secondary muscles exist
   const hasSecondaryMuscles = useMemo(() => {
-    return (effectiveSecondaryMuscles && effectiveSecondaryMuscles.length > 0);
+    return effectiveSecondaryMuscles && effectiveSecondaryMuscles.length > 0;
   }, [effectiveSecondaryMuscles]);
-  
-  // Check if the exercise is cardio-focused
-  const isCardioExercise = useMemo(() => {
-    // Consider it a cardio exercise if:
-    // 1. "Cardio" is in the primary muscles
-    // 2. There are no back muscles in primary or secondary muscles
-    
-    const primaryMuscles = effectivePrimaryMuscles || [];
-    const secondaryMuscles = effectiveSecondaryMuscles || [];
-    
-    // Check if cardio is in primary muscles
-    const hasCardio = primaryMuscles.some(
-      muscle => muscle?.toLowerCase().includes('cardio')
-    );
-    
-    // List of back-specific muscles
-    const backMuscles = ['lats', 'traps', 'lower back', 'lowerback', 'erector'];
-    
-    // Check if any back muscles are in primary or secondary
-    const hasBackMuscles = [...primaryMuscles, ...secondaryMuscles].some(
-      muscle => backMuscles.some(backMuscle => 
-        muscle?.toLowerCase().includes(backMuscle)
-      )
-    );
-    
-    return hasCardio && !hasBackMuscles;
-  }, [effectivePrimaryMuscles, effectiveSecondaryMuscles]);
-  
-  // Helper function to get the correct image source
-  const getImageSource = () => {
-    if (!exerciseImage) {
-      return require('../../assets/exercises/placeholder.jpg');
-    }
-    
-    // If it's a URL, use it directly
-    if (exerciseImage.toString().startsWith('http')) {
-      return { uri: exerciseImage.toString() };
-    }
-    
-    // Handle placeholder identifiers
-    switch(exerciseImage.toString()) {
-      case 'placeholder_pushup':
-        return require('../../assets/exercises/pushup.jpg');
-      case 'placeholder_squat':
-        return require('../../assets/exercises/squat.jpg');
-      case 'placeholder_dumbbell':
-        return require('../../assets/exercises/dumbbell.jpg');
-      case 'placeholder_default':
-      default:
-        return require('../../assets/exercises/placeholder.jpg');
-    }
-  };
 
-  // Early return now depends on internalVisible
+  const cardioExercise = useMemo(() => {
+    return isCardioExercise(effectivePrimaryMuscles, effectiveSecondaryMuscles);
+  }, [effectivePrimaryMuscles, effectiveSecondaryMuscles]);
+
+  // Keyboard and back button handling
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () => {
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    });
+
+    return () => {
+      keyboardDidShowListener.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleBackButtonPress = () => {
+      if (visible && !isClosing) {
+        if (textInputRef.current && Keyboard.isVisible()) {
+          textInputRef.current.blur();
+          return true;
+        } else {
+          handleClose();
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', handleBackButtonPress);
+    return () => {
+      backHandler.remove();
+    };
+  }, [visible, handleClose, isClosing]);
+
   if (!internalVisible) return null;
 
   return (
     <Modal
-      visible={visible || isClosing.current}
+      visible={internalVisible && !isClosing}
       transparent={true}
       animationType="none"
       onRequestClose={handleClose}
       statusBarTranslucent
+      supportedOrientations={['portrait']}
+      hardwareAccelerated={true}
     >
       <TouchableWithoutFeedback onPress={handleClose}>
         <View style={[styles.modalOverlay, { zIndex: 9999 }]}>
-          <TouchableWithoutFeedback onPress={e => e.stopPropagation()}>
+          <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
             <Animated.View style={[styles.modalContainer, animatedModalStyle, { zIndex: 10000 }]}>
               <GestureHandlerRootView style={{ flex: 1 }}>
-                <KeyboardAvoidingView 
-                  style={{ flex: 1 }} 
+                <KeyboardAvoidingView
+                  style={{ flex: 1 }}
                   behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                   keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 25}
                 >
                   <View style={styles.container}>
                     <StatusBar style="light" />
-                    
-                    {/* Adding glowing corners */}
-                    <View style={styles.topGlowLeft} />
-                    <View style={styles.topGlowRight} />
-                    
-                    {/* Header */}
-                    <View style={[styles.header]}>
-                      <IconButton
-                        icon="close"
-                        size={24}
-                        iconColor="#fff"
-                        onPress={handleClose}
-                        style={styles.closeButton}
-                      />
-                      <Text style={styles.headerTitle}>{exerciseName}</Text>
-                    </View>
-                    <Divider style={styles.divider} />
-                    
-                    <GHScrollView 
-                      style={styles.scrollView} 
+                    <ModalHeader exerciseName={exerciseName} onClose={handleClose} />
+
+                    <GHScrollView
+                      style={styles.scrollView}
                       contentContainerStyle={styles.contentContainer}
                       ref={nativeScrollRef}
                       keyboardShouldPersistTaps="handled"
@@ -593,109 +759,32 @@ export default function ExerciseDetailsModal({
                       decelerationRate="fast"
                       overScrollMode="never"
                     >
-                      {/* Exercise Image/Video */}
-                      <Pressable style={styles.mediaContainer} onPress={() => {}}>
-                        <OptimizedImage 
-                          source={getImageSource()} 
-                          style={styles.mediaImage}
-                          resizeMode="cover"
-                          cachePolicy="immutable"
-                          fallback={require('../../assets/exercises/placeholder.jpg')}
-                          isImportant={true}
-                        />
-                        <View style={styles.playButtonOverlay}>
-                          <MaterialIcons name="play-circle-filled" size={60} color="rgba(255,255,255,0.8)" />
-                        </View>
-                      </Pressable>
+                      <ExerciseMedia exerciseImage={exerciseImage} />
+                      <TabNavigation
+                        activeSection={activeSection}
+                        onChangeSection={changeSection}
+                      />
 
-                      {/* Tab buttons for switching between sections */}
-                      <View style={styles.tabButtons}>
-                        <Pressable
-                          style={[
-                            styles.tabButton,
-                            activeSection === 'muscles' && styles.activeTabButton
-                          ]}
-                          onPress={() => changeSection('muscles')}
-                        >
-                          <Text style={[
-                            styles.tabButtonText,
-                            activeSection === 'muscles' && styles.activeTabButtonText
-                          ]}>Muscles</Text>
-                        </Pressable>
-                        <Pressable
-                          style={[
-                            styles.tabButton,
-                            activeSection === 'instructions' && styles.activeTabButton
-                          ]}
-                          onPress={() => changeSection('instructions')}
-                        >
-                          <Text style={[
-                            styles.tabButtonText,
-                            activeSection === 'instructions' && styles.activeTabButtonText
-                          ]}>Instructions</Text>
-                        </Pressable>
-                      </View>
-
-                      {/* Swipeable Sections */}
                       <View style={styles.sectionsWrapper}>
-                        <PanGestureHandler 
+                        <PanGestureHandler
                           onGestureEvent={gestureHandler}
                           ref={panHandlerRef}
                           simultaneousHandlers={nativeScrollRef}
-                          activeOffsetX={[-20, 20]} // Only activate for significant horizontal movements
-                          failOffsetY={[-10, 10]} // Fail if primarily vertical
+                          activeOffsetX={[-20, 20]}
+                          failOffsetY={[-10, 10]}
                         >
                           <Animated.View style={[styles.sectionsContainer, animatedSectionsStyle]}>
-                            {/* Muscles Worked Section */}
+                            <MusclesSection
+                              loading={loading}
+                              effectivePrimaryMuscles={effectivePrimaryMuscles}
+                              effectiveSecondaryMuscles={effectiveSecondaryMuscles}
+                              hasSecondaryMuscles={hasSecondaryMuscles}
+                              frontBodySvg={frontBodySvg}
+                              backBodySvg={backBodySvg}
+                              cardioExercise={cardioExercise}
+                            />
                             <Surface style={styles.sectionContent}>
-                              <Text style={styles.sectionTitle}>Muscles Worked</Text>
-                              
-                              {loading ? (
-                                <View style={styles.loadingContainer}>
-                                  <ActivityIndicator size="large" color={COLORS.primary} />
-                                </View>
-                              ) : (
-                                <>
-                                  {/* Primary and Secondary muscle labels side by side */}
-                                  <View style={styles.muscleLabelsContainer}>
-                                    <Text style={[styles.primaryLabel, hasSecondaryMuscles ? {} : { flex: 2 }]}>Primary:</Text>
-                                    {hasSecondaryMuscles && <Text style={styles.secondaryLabel}>Secondary:</Text>}
-                                  </View>
-                                  
-                                  {/* Primary and Secondary muscle groups */}
-                                  <View style={styles.muscleGroupsContainer}>
-                                    <View style={[styles.primaryMuscleContainer, hasSecondaryMuscles ? {} : { flex: 2 }]}>
-                                      <MuscleTags 
-                                        muscles={effectivePrimaryMuscles} 
-                                        isPrimary={true} 
-                                      />
-                                    </View>
-                                    {hasSecondaryMuscles && (
-                                      <View style={styles.secondaryMuscleContainer}>
-                                        <MuscleTags 
-                                          muscles={effectiveSecondaryMuscles} 
-                                          isPrimary={false} 
-                                        />
-                                      </View>
-                                    )}
-                                  </View>
-                                </>
-                              )}
-                              
-                              <MuscleDiagram 
-                                frontBodySvg={frontBodySvg}
-                                backBodySvg={backBodySvg}
-                                primaryMuscles={effectivePrimaryMuscles}
-                                secondaryMuscles={effectiveSecondaryMuscles}
-                                loading={loading}
-                                isCardioExercise={isCardioExercise}
-                                debugMode={false}
-                              />
-                            </Surface>
-
-                            {/* Instructions Section */}
-                            <Surface style={styles.sectionContent}>
-                              <ExerciseInstructions 
+                              <ExerciseInstructions
                                 instructions={exerciseData?.instructions || null}
                                 loading={loading}
                               />
@@ -704,37 +793,15 @@ export default function ExerciseDetailsModal({
                         </PanGestureHandler>
                       </View>
 
-                      {/* Exercise Notes */}
-                      <Surface style={styles.notesContainer}>
-                        <View style={styles.notesTitleContainer}>
-                          <Text style={styles.notesSectionTitle}>Exercise Notes</Text>
-                          {isSaving && (
-                            <ActivityIndicator size="small" color={COLORS.primary} style={styles.savingIndicator} />
-                          )}
-                          {saveError && (
-                            <Text style={styles.errorText}>{saveError}</Text>
-                          )}
-                        </View>
-                        <TextInput
-                          style={styles.notesInput}
-                          placeholder="Type your notes here"
-                          placeholderTextColor="rgba(255,255,255,0.5)"
-                          value={notes}
-                          onChangeText={setNotes}
-                          multiline
-                          textAlignVertical="top"
-                          autoFocus={false}
-                          onFocus={() => {
-                            // Scroll to the input when it receives focus
-                            setTimeout(() => {
-                              scrollViewRef.current?.scrollToEnd({ animated: true });
-                            }, 100);
-                          }}
-                          ref={textInputRef}
-                        />
-                      </Surface>
-                      
-                      {/* Add some padding at the bottom for keyboard */}
+                      <ExerciseNotes
+                        notes={notes}
+                        onNotesChange={setNotes}
+                        isSaving={isSaving}
+                        saveError={saveError}
+                        textInputRef={textInputRef}
+                        scrollViewRef={scrollViewRef}
+                      />
+
                       <View style={styles.keyboardSpacer} />
                     </GHScrollView>
                   </View>
@@ -787,8 +854,8 @@ const styles = StyleSheet.create({
     ...Platform.select({
       ios: {
         shadowColor: COLORS.primary,
-        shadowOffset: { 
-          width: 10, 
+        shadowOffset: {
+          width: 10,
           height: 0,
         },
         shadowOpacity: 1,
@@ -1018,4 +1085,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginVertical: SPACING.sm,
   },
-}); 
+});

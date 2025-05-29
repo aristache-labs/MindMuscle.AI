@@ -28,11 +28,12 @@ export default function WorkoutExerciseCard({
   const getImageSource = () => {
     // Check if we have a valid image URL
     // This prevents flickering by avoiding invalid URI loading attempts
-    const hasValidImageUrl = exercise?.image_url && 
-                             exercise.image_url.trim() !== '' && 
-                             exercise.image_url !== 'null' && 
-                             exercise.image_url !== 'undefined';
-    
+    const hasValidImageUrl =
+      exercise?.image_url &&
+      exercise.image_url.trim() !== '' &&
+      exercise.image_url !== 'null' &&
+      exercise.image_url !== 'undefined';
+
     if (hasValidImageUrl) {
       return { uri: exercise.image_url };
     } else {
@@ -61,9 +62,7 @@ export default function WorkoutExerciseCard({
           </View>
           <View style={styles.exerciseInfo}>
             <TouchableOpacity onPress={onExerciseNamePress} activeOpacity={0.7}>
-              <Text style={styles.exerciseName}>
-                {exercise?.name || 'Unknown Exercise'}
-              </Text>
+              <Text style={styles.exerciseName}>{exercise?.name || 'Unknown Exercise'}</Text>
             </TouchableOpacity>
             {exercise?.primary_muscles && exercise.primary_muscles.length > 0 && (
               <View style={styles.muscleTag}>
@@ -73,7 +72,7 @@ export default function WorkoutExerciseCard({
           </View>
         </View>
       </View>
-      
+
       {/* Max Weight Progress Graph - separate container with small spacing */}
       {exercise && exercise.requires_weight !== false && (
         <View style={styles.maxWeightGraphContainer}>
@@ -137,4 +136,4 @@ const styles = {
     marginTop: 0,
     marginBottom: 0,
   },
-}; 
+};

@@ -17,9 +17,10 @@ class Logger {
   private constructor() {
     this.isProduction = !__DEV__;
     if (this.isProduction) {
-      Object.keys(this.debugFlags).forEach(key => {
-        (this.debugFlags as any)[key] = false;
-      });
+      this.debugFlags = Object.keys(this.debugFlags).reduce((acc, key) => {
+        acc[key as keyof DebugFlags] = false;
+        return acc;
+      }, {} as DebugFlags);
     }
   }
 
@@ -36,11 +37,11 @@ class Logger {
 
   public isDebugging(component?: keyof DebugFlags): boolean {
     if (this.debugFlags.GLOBAL) return true;
-    
+
     if (component && component in this.debugFlags) {
       return this.debugFlags[component];
     }
-    
+
     return false;
   }
 
@@ -89,7 +90,11 @@ class Logger {
     }
   }
 
-  public debugComponent(component: keyof DebugFlags, message: string, options?: LoggerOptions): void {
+  public debugComponent(
+    component: keyof DebugFlags,
+    message: string,
+    options?: LoggerOptions,
+  ): void {
     if (this.isDebugging(component)) {
       this.log('debug', `[${component}] ${message}`, options);
     }
@@ -135,4 +140,4 @@ if (!__DEV__) {
   });
 }
 
-export default logger; 
+export default logger;

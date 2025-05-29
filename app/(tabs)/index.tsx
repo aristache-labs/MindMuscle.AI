@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Image, Dimensions, TouchableOpacity, Pressable } from 'react-native';
-import { Text, Card, Button, IconButton, useTheme, Chip } from 'react-native-paper';
+import { StyleSheet, View, ScrollView, Dimensions } from 'react-native';
+import { Text, Button, useTheme } from 'react-native-paper';
 import { useAuth } from '../store/AuthContext';
-import { COLORS, SPACING, BORDER_RADIUS, HEADER_HEIGHT } from '../constants/theme';
+import { COLORS, HEADER_HEIGHT } from '../constants/theme';
 import { router, useLocalSearchParams } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
-import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { MenuHeader } from '../components/MenuHeader';
 
 // Import content components
@@ -14,14 +13,14 @@ import SingleWorkoutScreen from '../(stack)/single-workout';
 import AiCoachingScreen from '../(stack)/ai-coaching';
 import CustomScreen from '../(stack)/custom';
 
-const { width } = Dimensions.get('window');
+const { width: _width } = Dimensions.get('window');
 
 export default function HomeScreen() {
   const { user, isLoading, signOut } = useAuth();
   const [selectedOption, setSelectedOption] = useState('My Plan');
   const params = useLocalSearchParams();
-  const theme = useTheme();
-  
+  const _theme = useTheme();
+
   // Set My Plan as default option, and handle navigation with params
   useEffect(() => {
     // Check if selectedOption is passed in params
@@ -31,13 +30,13 @@ export default function HomeScreen() {
       setSelectedOption('My Plan');
     }
   }, [params]);
-  
-  const fullName = React.useMemo(() => {
+
+  const _fullName = React.useMemo(() => {
     if (isLoading) return '...';
-    return user?.user_metadata?.name  || 'User';
+    return user?.user_metadata?.name || 'User';
   }, [user, isLoading]);
 
-  const handleLogout = async () => {
+  const _handleLogout = async () => {
     try {
       await signOut();
       router.replace('(auth)/login');
@@ -48,7 +47,7 @@ export default function HomeScreen() {
 
   // Function to render the appropriate content based on the selected option
   const renderContent = () => {
-    switch(selectedOption) {
+    switch (selectedOption) {
       case 'My Plan':
         return <MyPlanScreen embedded={true} />;
       case 'Single Workout':
@@ -64,13 +63,13 @@ export default function HomeScreen() {
 
   // Home content component
   const renderHomeContent = () => (
-    <ScrollView 
-      style={styles.scrollView} 
+    <ScrollView
+      style={styles.scrollView}
       showsVerticalScrollIndicator={false}
       contentContainerStyle={[styles.scrollViewContent, { paddingTop: HEADER_HEIGHT }]}
     >
       <View style={styles.headerSpacer} />
-      
+
       <View style={styles.infoCard}>
         <Text style={styles.infoTitle}>Welcome to MindMuscle.AI</Text>
         <Text style={styles.infoText}>
@@ -98,7 +97,8 @@ export default function HomeScreen() {
           mode="contained"
           style={styles.startButton}
           labelStyle={styles.startButtonLabel}
-          onPress={() => setSelectedOption('My Plan')}>
+          onPress={() => setSelectedOption('My Plan')}
+        >
           START MY PLAN
         </Button>
       </View>
@@ -107,9 +107,9 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      <MenuHeader 
-        currentOption={selectedOption} 
-        onOptionSelect={(option) => setSelectedOption(option)} 
+      <MenuHeader
+        currentOption={selectedOption}
+        onOptionSelect={(option) => setSelectedOption(option)}
       />
       {renderContent()}
     </View>
@@ -122,7 +122,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   headerSpacer: {
-    height: 30, 
+    height: 30,
   },
   scrollView: {
     flex: 1,
@@ -182,4 +182,4 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-}); 
+});

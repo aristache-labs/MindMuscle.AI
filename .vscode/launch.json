@@ -1,84 +1,166 @@
 {
   "version": "0.2.0",
   "configurations": [
+    
     {
-      "name": "Debug iOS Hermes (Bridgeless)",
-      "request": "attach",
-      "type": "reactnativedirect",
-      "cwd": "${workspaceFolder}",
-      "platform": "ios"
-    },
-    {
-      "name": "Debug Android Hermes (Bridgeless)",
-      "request": "attach",
-      "type": "reactnativedirect",
-      "cwd": "${workspaceFolder}",
-      "platform": "android"
-    },
-    {
-      "name": "Attach to Hermes Inspector",
-      "request": "attach",
-      "type": "reactnativedirect",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Debug Android (Expo)",
-      "type": "reactnative",
+      "name": "Debug Android Hermes",
       "request": "launch",
+      "type": "reactnativedirect",
+      "cwd": "${workspaceFolder}",
       "platform": "android",
-      "cwd": "${workspaceFolder}",
+      "trace": "log",
       "enableDebug": true,
       "sourceMaps": true,
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
-    },
-    {
-      "name": "Debug iOS (Expo)",
-      "type": "reactnative",
-      "request": "launch",
-      "platform": "ios",
-      "cwd": "${workspaceFolder}",
-      "enableDebug": true,
-      "sourceMaps": true,
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
-    },
-    {
-      "name": "Debug Web (Expo)",
-      "type": "chrome",
-      "request": "launch",
-      "url": "http://localhost:8081",
-      "webRoot": "${workspaceFolder}",
-      "sourceMaps": true,
-      "sourceMapPathOverrides": {
-        "webpack:///./~/*": "${webRoot}/node_modules/*",
-        "webpack://?:*/*": "${webRoot}/*"
-      }
-    },
-    {
-      "name": "Chrome DevTools (Alternative)",
-      "type": "chrome",
-      "request": "launch",
-      "url": "chrome://inspect",
-      "webRoot": "${workspaceFolder}",
-      "sourceMaps": true
-    },
-    {
-      "name": "Attach to Metro (Legacy)",
-      "type": "reactnative",
-      "request": "attach",
-      "cwd": "${workspaceFolder}",
-      "port": 8081,
-      "sourceMaps": true,
-      "address": "localhost",
-      "localRoot": "${workspaceFolder}",
-      "remoteRoot": "${workspaceFolder}",
+      "sourceMapRenames": false,
       "skipFiles": [
         "<node_internals>/**",
         "node_modules/**"
       ]
+    },
+    {
+      "name": "Debug iOS Hermes (Network)",
+      "request": "launch",
+      "type": "reactnativedirect",
+      "cwd": "${workspaceFolder}",
+      "platform": "ios",
+      "target": "device",
+      "trace": "log",
+      "enableDebug": true,
+      "sourceMaps": true,
+      "sourceMapRenames": false,
+      "address": "localhost",
+      "port": 8081,
+      "skipFiles": [
+        "<node_internals>/**",
+        "node_modules/**"
+      ]
+    },
+    {
+      "name": "Debug iOS Simulator (Windows Remote)",
+      "request": "attach",
+      "type": "reactnativedirect",
+      "cwd": "${workspaceFolder}",
+      "platform": "ios",
+      "trace": "log",
+      "sourceMaps": true,
+      "sourceMapRenames": false,
+      "address": "${input:remoteHost}",
+      "port": 8081,
+      "skipFiles": [
+        "<node_internals>/**",
+        "node_modules/**"
+      ]
+    },
+    {
+      "name": "Debug Windows Hermes",
+      "request": "launch",
+      "type": "reactnativedirect",
+      "cwd": "${workspaceFolder}",
+      "platform": "windows",
+      "trace": "log",
+      "enableDebug": true,
+      "sourceMaps": true,
+      "sourceMapRenames": false,
+      "skipFiles": [
+        "<node_internals>/**",
+        "node_modules/**"
+      ]
+    },
+    {
+      "name": "Attach to Hermes Application",
+      "request": "attach",
+      "type": "reactnativedirect",
+      "cwd": "${workspaceFolder}",
+      "trace": "log",
+      "sourceMaps": true,
+      "sourceMapRenames": false,
+      "skipFiles": [
+        "<node_internals>/**",
+        "node_modules/**"
+      ]
+    },
+    {
+      "name": "Debug Expo iOS (Network)",
+      "request": "launch",
+      "type": "reactnativedirect",
+      "cwd": "${workspaceFolder}",
+      "platform": "exponent",
+      "expoHostType": "tunnel",
+      "trace": "log",
+      "enableDebug": true,
+      "sourceMaps": true,
+      "sourceMapRenames": false,
+      "skipFiles": [
+        "<node_internals>/**",
+        "node_modules/**"
+      ]
+    },
+    {
+      "name": "Debug Expo Web",
+      "request": "launch",
+      "type": "reactnativedirect",
+      "cwd": "${workspaceFolder}",
+      "platform": "expoweb",
+      "browserTarget": "chrome",
+      "url": "http://localhost:8081",
+      "trace": "log",
+      "sourceMaps": true,
+      "sourceMapRenames": false,
+      "skipFiles": [
+        "<node_internals>/**",
+        "node_modules/**"
+      ]
+    },
+    {
+      "name": "Debug iOS via Chrome DevTools",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:8081/debugger-ui/",
+      "webRoot": "${workspaceFolder}",
+      "sourceMaps": true,
+      "sourceMapPathOverrides": {
+        "webpack:///./~/*": "${webRoot}/node_modules/*",
+        "webpack:///./*": "${webRoot}/*",
+        "webpack:///*": "*",
+        "webpack:///src/*": "${webRoot}/*"
+      },
+      "skipFiles": [
+        "<node_internals>/**",
+        "node_modules/**"
+      ]
+    },
+    {
+      "name": "Debug React Native (Legacy Metro)",
+      "type": "reactnative",
+      "request": "attach",
+      "cwd": "${workspaceFolder}",
+      "port": 8081,
+      "address": "localhost",
+      "sourceMaps": true,
+      "skipFiles": [
+        "<node_internals>/**",
+        "node_modules/**"
+      ]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "remoteHost",
+      "description": "Enter the IP address of the Mac running iOS Simulator",
+      "default": "192.168.1.100",
+      "type": "promptString"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Debug Android + Chrome DevTools",
+      "configurations": ["Debug Android Hermes", "Debug iOS via Chrome DevTools"],
+      "stopAll": true
+    },
+    {
+      "name": "Debug iOS Network + Chrome DevTools",
+      "configurations": ["Debug iOS Hermes (Network)", "Debug iOS via Chrome DevTools"],
+      "stopAll": true
     }
   ]
 }

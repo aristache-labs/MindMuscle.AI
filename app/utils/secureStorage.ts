@@ -45,9 +45,11 @@ class SecureStorageUtility {
           console.log('SecureStore native module is available - using secure storage');
         } catch (testError: any) {
           // Check if it's a native module error
-          if (testError.message?.includes('Cannot find native module') || 
-              testError.message?.includes('ExpoSecureStore') ||
-              testError.message?.includes('is not a function')) {
+          if (
+            testError.message?.includes('Cannot find native module') ||
+            testError.message?.includes('ExpoSecureStore') ||
+            testError.message?.includes('is not a function')
+          ) {
             console.warn('SecureStore native module not available, falling back to AsyncStorage');
             this.isSecureStoreAvailable = false;
             this.secureStore = null;
@@ -64,7 +66,10 @@ class SecureStorageUtility {
         this.secureStore = null;
       }
     } catch (initError: any) {
-      console.warn('SecureStore initialization failed, falling back to AsyncStorage:', initError.message);
+      console.warn(
+        'SecureStore initialization failed, falling back to AsyncStorage:',
+        initError.message,
+      );
       this.isSecureStoreAvailable = false;
       this.secureStore = null;
     } finally {
@@ -80,7 +85,7 @@ class SecureStorageUtility {
 
   async setItemAsync(key: string, value: string): Promise<void> {
     await this.ensureInitialized();
-    
+
     if (this.isSecureStoreAvailable && this.secureStore) {
       try {
         return await this.secureStore.setItemAsync(key, value);
@@ -95,7 +100,7 @@ class SecureStorageUtility {
 
   async getItemAsync(key: string): Promise<string | null> {
     await this.ensureInitialized();
-    
+
     if (this.isSecureStoreAvailable && this.secureStore) {
       try {
         return await this.secureStore.getItemAsync(key);
@@ -110,7 +115,7 @@ class SecureStorageUtility {
 
   async deleteItemAsync(key: string): Promise<void> {
     await this.ensureInitialized();
-    
+
     if (this.isSecureStoreAvailable && this.secureStore) {
       try {
         return await this.secureStore.deleteItemAsync(key);
@@ -131,4 +136,4 @@ class SecureStorageUtility {
 
 // Export a singleton instance
 export const secureStorage = new SecureStorageUtility();
-export default secureStorage; 
+export default secureStorage;

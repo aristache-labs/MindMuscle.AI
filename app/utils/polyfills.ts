@@ -1,6 +1,6 @@
 /**
  * MindMuscle.AI Polyfills
- * 
+ *
  * This file imports all polyfills needed for the application.
  * Import this file at the entry point of your app.
  */
@@ -30,4 +30,4 @@ export const polyfillsLoaded = true;
 // Default export to satisfy Expo Router
 export default function Polyfills() {
   return null;
-} 
+}

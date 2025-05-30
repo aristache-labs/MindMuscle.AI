@@ -1,7 +1,18 @@
 import React from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  NativeSyntheticEvent,
+  TextInputFocusEventData,
+  ViewStyle,
+  TextStyle,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, BORDER_RADIUS } from '../../../constants/theme';
+import type { RecommendationData } from '../hooks/useExerciseSets';
 
 interface ExerciseSet {
   id: string;
@@ -20,6 +31,11 @@ interface ExerciseData {
   requires_weight?: boolean;
 }
 
+// Define the styles type using React Native style types
+type WorkoutExerciseSetRowStyles = {
+  [key: string]: ViewStyle | TextStyle;
+};
+
 interface WorkoutExerciseSetRowProps {
   set: ExerciseSet;
   setIndex: number;
@@ -29,22 +45,394 @@ interface WorkoutExerciseSetRowProps {
   focusedInputs: Record<string, boolean>;
   userEnteredValues: Record<string, boolean>;
   exerciseCustomized: Record<string, boolean>;
-  lastExerciseValues: Record<string, Record<number, { weight: string, reps: string }>>;
-  currentRecommendation: any;
+  lastExerciseValues: Record<string, Record<number, { weight: string; reps: string }>>;
+  currentRecommendation: RecommendationData | null;
   textInputRefreshKey: number;
-  
+
   // Event handlers
   onWeightChange: (exerciseId: string, setIndex: number, value: string) => void;
   onRepsChange: (exerciseId: string, setIndex: number, value: string) => void;
   onSetComplete: (exerciseId: string, setIndex: number) => void;
   onRedoSet: (exerciseId: string, setIndex: number) => void;
-  onInputFocus: (id: string, event?: any) => void;
+  onInputFocus: (id: string, event?: NativeSyntheticEvent<TextInputFocusEventData>) => void;
   onInputBlur: (id: string) => void;
-  
+
   // Utility functions
-  getSuggestedValue: (exerciseId: string, setNumber: number, type: 'weight' | 'reps') => string | null;
+  getSuggestedValue: (
+    exerciseId: string,
+    setNumber: number,
+    type: 'weight' | 'reps',
+  ) => string | null;
 }
 
+// Helper component for placeholder logic
+const usePlaceholderLogic = (
+  exercise: ExerciseData,
+  set: ExerciseSet,
+  setIndex: number,
+  state: {
+    focusedInputs: Record<string, boolean>;
+    lastExerciseValues: Record<string, Record<number, { weight: string; reps: string }>>;
+    exerciseCustomized: Record<string, boolean>;
+  },
+  currentRecommendation: RecommendationData | null,
+  getSuggestedValue: (
+    exerciseId: string,
+    setNumber: number,
+    type: 'weight' | 'reps',
+  ) => string | null,
+) => {
+  const getWeightPlaceholder = () => {
+    const inputId = `${exercise.id}-${setIndex}-weight`;
+    const isFocused = state.focusedInputs[inputId] || false;
+    const hasCompletedSet = set.isCompleted || false;
+    const _hasValue = set.weight && set.weight !== '' && set.weight !== '-';
+
+    const recommendedWeight = currentRecommendation?.recommended_weight?.toString();
+    const suggestedValue = getSuggestedValue(exercise.exercise_id, setIndex + 1, 'weight');
+    const lastWeight = state.lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight;
+
+    if (isFocused || hasCompletedSet) {
+      return '';
+    }
+
+    if (lastWeight) {
+      return lastWeight;
+    }
+
+    let placeholder = '--';
+    if (recommendedWeight) {
+      placeholder = recommendedWeight;
+    } else if (suggestedValue) {
+      placeholder = suggestedValue;
+    }
+
+    return placeholder;
+  };
+
+  const getRepsPlaceholder = () => {
+    const inputId = `${exercise.id}-${setIndex}-reps`;
+    const isFocused = state.focusedInputs[inputId] || false;
+    const hasCompletedSet = set.isCompleted || false;
+    const _hasValue = set.reps && set.reps !== '' && set.reps !== '-';
+
+    const recommendedReps = currentRecommendation?.recommended_reps?.toString();
+    const lastReps = state.lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.reps;
+    const exerciseRepsRange = exercise.reps_range;
+    const _isCustomized = state.exerciseCustomized[exercise.id];
+
+    if (isFocused || hasCompletedSet) {
+      return '';
+    }
+
+    if (lastReps) {
+      return lastReps;
+    }
+
+    let placeholder = '--';
+
+    if (recommendedReps) {
+      placeholder = recommendedReps;
+    } else if (exerciseRepsRange) {
+      placeholder = exerciseRepsRange;
+    }
+
+    return placeholder;
+  };
+
+  return { getWeightPlaceholder, getRepsPlaceholder };
+};
+
+// Helper component for weight input
+interface WeightInputProps {
+  exercise: ExerciseData;
+  set: ExerciseSet;
+  setIndex: number;
+  textInputRefreshKey: number;
+  userEnteredValues: Record<string, boolean>;
+  getWeightPlaceholder: () => string;
+  getSuggestedValue: (
+    exerciseId: string,
+    setNumber: number,
+    type: 'weight' | 'reps',
+  ) => string | null;
+  onWeightChange: (exerciseId: string, setIndex: number, value: string) => void;
+  onInputFocus: (id: string, event?: NativeSyntheticEvent<TextInputFocusEventData>) => void;
+  onInputBlur: (id: string) => void;
+  styles: WorkoutExerciseSetRowStyles;
+}
+
+const WeightInput: React.FC<WeightInputProps> = ({
+  exercise,
+  set,
+  setIndex,
+  textInputRefreshKey,
+  userEnteredValues,
+  getWeightPlaceholder,
+  getSuggestedValue,
+  onWeightChange,
+  onInputFocus,
+  onInputBlur,
+  styles,
+}) => {
+  if (exercise?.requires_weight === false) return null;
+
+  return (
+    <>
+      <View style={styles.inputContainer}>
+        {getSuggestedValue(exercise.exercise_id, setIndex + 1, 'weight') &&
+          !userEnteredValues[`${exercise.id}-${setIndex}-weight`] && (
+            <Text style={styles.suggestedLabelWeightActive}>Suggested</Text>
+          )}
+        <View style={styles.inputFieldContainer}>
+          <TextInput
+            key={`${exercise.exercise_id}-${exercise.id}-${setIndex}-weight-${exercise.requires_weight}-${textInputRefreshKey}`}
+            style={styles.inputField}
+            value={set.weight}
+            onChangeText={(value) => onWeightChange(exercise.id, setIndex, value)}
+            keyboardType="decimal-pad"
+            placeholder={getWeightPlaceholder()}
+            placeholderTextColor="rgba(255,255,255,0.5)"
+            selectTextOnFocus={true}
+            onFocus={(event) => onInputFocus(`${exercise.id}-${setIndex}-weight`, event)}
+            onBlur={() => onInputBlur(`${exercise.id}-${setIndex}-weight`)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          />
+          <Text style={styles.activeSetValueUnit}>kg</Text>
+        </View>
+      </View>
+      <View style={styles.inputDivider} />
+    </>
+  );
+};
+
+// Helper component for reps input
+interface RepsInputProps {
+  exercise: ExerciseData;
+  set: ExerciseSet;
+  setIndex: number;
+  textInputRefreshKey: number;
+  exerciseCustomized: Record<string, boolean>;
+  getRepsPlaceholder: () => string;
+  getSuggestedValue: (
+    exerciseId: string,
+    setNumber: number,
+    type: 'weight' | 'reps',
+  ) => string | null;
+  onRepsChange: (exerciseId: string, setIndex: number, value: string) => void;
+  onInputFocus: (id: string, event?: NativeSyntheticEvent<TextInputFocusEventData>) => void;
+  onInputBlur: (id: string) => void;
+  styles: WorkoutExerciseSetRowStyles;
+}
+
+const RepsInput: React.FC<RepsInputProps> = ({
+  exercise,
+  set,
+  setIndex,
+  textInputRefreshKey,
+  exerciseCustomized,
+  getRepsPlaceholder,
+  getSuggestedValue,
+  onRepsChange,
+  onInputFocus,
+  onInputBlur,
+  styles,
+}) => (
+  <View style={styles.inputContainer}>
+    {exercise?.requires_weight === false &&
+      getSuggestedValue(exercise.exercise_id, setIndex + 1, 'reps') && (
+        <Text style={styles.suggestedLabel}>Suggested</Text>
+      )}
+    <View style={styles.inputFieldContainer}>
+      <TextInput
+        key={`${exercise.exercise_id}-${exercise.id}-${setIndex}-reps-${exercise.reps_range}-${exercise.requires_weight}-${exerciseCustomized[exercise.id] ? 'customized' : 'default'}-${textInputRefreshKey}`}
+        style={styles.inputField}
+        value={set.reps}
+        onChangeText={(value) => onRepsChange(exercise.id, setIndex, value)}
+        keyboardType="numeric"
+        placeholder={getRepsPlaceholder()}
+        placeholderTextColor="rgba(255,255,255,0.5)"
+        selectTextOnFocus={true}
+        onFocus={(event) => onInputFocus(`${exercise.id}-${setIndex}-reps`, event)}
+        onBlur={() => onInputBlur(`${exercise.id}-${setIndex}-reps`)}
+      />
+      <Text style={styles.activeSetValueUnit}>reps</Text>
+    </View>
+  </View>
+);
+
+// Helper component for last values display
+interface LastValuesRowProps {
+  exercise: ExerciseData;
+  set: ExerciseSet;
+  setIndex: number;
+  lastExerciseValues: Record<string, Record<number, { weight: string; reps: string }>>;
+  styles: WorkoutExerciseSetRowStyles;
+  isActive?: boolean;
+}
+
+const LastValuesRow: React.FC<LastValuesRowProps> = ({
+  exercise,
+  set,
+  setIndex,
+  lastExerciseValues,
+  styles,
+  isActive = false,
+}) => {
+  if (set.isCompleted) return null;
+
+  const hasLastValues =
+    lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight ||
+    lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.reps;
+
+  if (!hasLastValues) return null;
+
+  const lastWeight = lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight;
+  const lastReps = lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.reps;
+  const requiresWeight = exercise?.requires_weight !== false;
+
+  const rowStyle = isActive ? styles.lastValuesRowActive : styles.lastValuesRowInactive;
+  const containerStyle = isActive
+    ? styles.lastValueContainerActive
+    : styles.lastValueContainerInactive;
+
+  return (
+    <View style={rowStyle}>
+      {requiresWeight && (
+        <View style={containerStyle}>
+          {lastWeight && <Text style={styles.activeSetSubValue}>( Last {lastWeight} )</Text>}
+        </View>
+      )}
+
+      {requiresWeight && <View style={styles.lastValueSpacer} />}
+
+      <View style={containerStyle}>
+        {lastReps && <Text style={styles.activeSetSubValue}>( Last {lastReps} )</Text>}
+      </View>
+    </View>
+  );
+};
+
+// Helper component for inactive weight input
+interface InactiveWeightInputProps {
+  exercise: ExerciseData;
+  set: ExerciseSet;
+  setIndex: number;
+  isCompleted: boolean;
+  textInputRefreshKey: number;
+  getWeightPlaceholder: () => string;
+  getSuggestedValue: (
+    exerciseId: string,
+    setNumber: number,
+    type: 'weight' | 'reps',
+  ) => string | null;
+  onWeightChange: (exerciseId: string, setIndex: number, value: string) => void;
+  onInputFocus: (id: string, event?: NativeSyntheticEvent<TextInputFocusEventData>) => void;
+  onInputBlur: (id: string) => void;
+  styles: WorkoutExerciseSetRowStyles;
+}
+
+const InactiveWeightInput: React.FC<InactiveWeightInputProps> = ({
+  exercise,
+  set,
+  setIndex,
+  isCompleted,
+  textInputRefreshKey,
+  getWeightPlaceholder,
+  getSuggestedValue,
+  onWeightChange,
+  onInputFocus,
+  onInputBlur,
+  styles,
+}) => {
+  if (exercise?.requires_weight === false) return null;
+
+  return (
+    <>
+      <View style={styles.inputContainer}>
+        {getSuggestedValue(exercise.exercise_id, setIndex + 1, 'weight') && !set.isCompleted && (
+          <Text style={styles.suggestedLabelWeight}>Suggested</Text>
+        )}
+        <View style={styles.inputFieldContainer}>
+          <TextInput
+            key={`${exercise.exercise_id}-${exercise.id}-${setIndex}-weight-${exercise.requires_weight}-${textInputRefreshKey}`}
+            style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
+            value={set.weight}
+            onChangeText={(value) => onWeightChange(exercise.id, setIndex, value)}
+            keyboardType="decimal-pad"
+            placeholder={getWeightPlaceholder()}
+            placeholderTextColor="rgba(255,255,255,0.5)"
+            selectTextOnFocus={true}
+            onFocus={(event) => onInputFocus(`${exercise.id}-${setIndex}-weight`, event)}
+            onBlur={() => onInputBlur(`${exercise.id}-${setIndex}-weight`)}
+            editable={!isCompleted}
+          />
+          <Text style={styles.activeSetValueUnit}>kg</Text>
+        </View>
+      </View>
+      <View style={styles.inactiveInputDivider} />
+    </>
+  );
+};
+
+// Helper component for inactive reps input
+interface InactiveRepsInputProps {
+  exercise: ExerciseData;
+  set: ExerciseSet;
+  setIndex: number;
+  isCompleted: boolean;
+  textInputRefreshKey: number;
+  exerciseCustomized: Record<string, boolean>;
+  getRepsPlaceholder: () => string;
+  getSuggestedValue: (
+    exerciseId: string,
+    setNumber: number,
+    type: 'weight' | 'reps',
+  ) => string | null;
+  onRepsChange: (exerciseId: string, setIndex: number, value: string) => void;
+  onInputFocus: (id: string, event?: NativeSyntheticEvent<TextInputFocusEventData>) => void;
+  onInputBlur: (id: string) => void;
+  styles: WorkoutExerciseSetRowStyles;
+}
+
+const InactiveRepsInput: React.FC<InactiveRepsInputProps> = ({
+  exercise,
+  set,
+  setIndex,
+  isCompleted,
+  textInputRefreshKey,
+  exerciseCustomized,
+  getRepsPlaceholder,
+  getSuggestedValue,
+  onRepsChange,
+  onInputFocus,
+  onInputBlur,
+  styles,
+}) => (
+  <View style={styles.inputContainer}>
+    {exercise?.requires_weight === false &&
+      getSuggestedValue(exercise.exercise_id, setIndex + 1, 'reps') &&
+      !set.isCompleted && <Text style={styles.suggestedLabel}>Suggested</Text>}
+    <View style={styles.inputFieldContainer}>
+      <TextInput
+        key={`${exercise.exercise_id}-${exercise.id}-${setIndex}-reps-${exercise.reps_range}-${exercise.requires_weight}-${exerciseCustomized[exercise.id] ? 'customized' : 'default'}-${textInputRefreshKey}`}
+        style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
+        value={set.reps}
+        onChangeText={(value) => onRepsChange(exercise.id, setIndex, value)}
+        keyboardType="numeric"
+        placeholder={getRepsPlaceholder()}
+        placeholderTextColor="rgba(255,255,255,0.5)"
+        selectTextOnFocus={true}
+        onFocus={(event) => onInputFocus(`${exercise.id}-${setIndex}-reps`, event)}
+        onBlur={() => onInputBlur(`${exercise.id}-${setIndex}-reps`)}
+        editable={!isCompleted}
+      />
+      <Text style={styles.activeSetValueUnit}>reps</Text>
+    </View>
+  </View>
+);
+
+// Main component with reduced complexity
 export default function WorkoutExerciseSetRow({
   set,
   setIndex,
@@ -65,76 +453,14 @@ export default function WorkoutExerciseSetRow({
   onInputBlur,
   getSuggestedValue,
 }: WorkoutExerciseSetRowProps) {
-  
-
-  
-  // Helper function to get placeholder text for weight input
-  const getWeightPlaceholder = () => {
-    const inputId = `${exercise.id}-${setIndex}-weight`;
-    const isFocused = focusedInputs[inputId] || false;
-    const hasCompletedSet = set.isCompleted || false;
-    const hasValue = set.weight && set.weight !== '' && set.weight !== '-';
-    
-    const recommendedWeight = currentRecommendation?.recommended_weight?.toString();
-    const suggestedValue = getSuggestedValue(exercise.exercise_id, setIndex + 1, 'weight');
-    const lastWeight = lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight;
-    
-    // Only return empty if the input is focused OR the set is completed
-    if (isFocused || hasCompletedSet) {
-      return '';
-    }
-    
-    // CRITICAL CHANGE: Always show the lastWeight as a placeholder, even if the field has a value
-    // This way users can always see their previous weight
-    if (lastWeight) {
-      return lastWeight;
-    }
-    
-    // Fall back to other options
-    let placeholder = '--';
-    if (recommendedWeight) {
-      placeholder = recommendedWeight;
-    } else if (suggestedValue) {
-      placeholder = suggestedValue;
-    }
-    
-    return placeholder;
-  };
-
-  // Helper function to get placeholder text for reps input
-  const getRepsPlaceholder = () => {
-    const inputId = `${exercise.id}-${setIndex}-reps`;
-    const isFocused = focusedInputs[inputId] || false;
-    const hasCompletedSet = set.isCompleted || false;
-    const hasValue = set.reps && set.reps !== '' && set.reps !== '-';
-    
-    const recommendedReps = currentRecommendation?.recommended_reps?.toString();
-    const lastReps = lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.reps;
-    const exerciseRepsRange = exercise.reps_range;
-    const isCustomized = exerciseCustomized[exercise.id];
-    
-    // Only return empty if the input is focused OR the set is completed
-    if (isFocused || hasCompletedSet) {
-      return '';
-    }
-    
-    // CRITICAL CHANGE: Always show the lastReps as a placeholder, even if the field has a value
-    // This way users can always see their previous reps
-    if (lastReps) {
-      return lastReps;
-    }
-    
-    // Fall back to other options if no last reps found
-    let placeholder = '--';
-    
-    if (recommendedReps) {
-      placeholder = recommendedReps;
-    } else if (exerciseRepsRange) {
-      placeholder = exerciseRepsRange;
-    }
-    
-    return placeholder;
-  };
+  const { getWeightPlaceholder, getRepsPlaceholder } = usePlaceholderLogic(
+    exercise,
+    set,
+    setIndex,
+    { focusedInputs, lastExerciseValues, exerciseCustomized },
+    currentRecommendation,
+    getSuggestedValue,
+  );
 
   // Render active set card
   if (isActive && !isCompleted) {
@@ -143,122 +469,69 @@ export default function WorkoutExerciseSetRow({
         <View style={styles.setCardContent}>
           <View style={styles.activeSetCardContainer}>
             <View style={styles.tableLayout}>
-              {/* Left Column: Weight and Reps stacked vertically */}
               <View style={styles.leftColumn}>
-                {/* Weight and Reps Cell - both inputs in same cell */}
                 <View style={styles.weightRepsCell}>
                   <View style={styles.inputRow}>
-                    {/* Only show weight input if exercise requires weight */}
-                    {exercise?.requires_weight !== false && (
-                      <>
-                        <View style={styles.inputContainer}>
-                          {/* Suggested label above weight input */}
-                          {getSuggestedValue(exercise.exercise_id, setIndex + 1, 'weight') && 
-                           !userEnteredValues[`${exercise.id}-${setIndex}-weight`] && (
-                            <Text style={styles.suggestedLabelWeightActive}>
-                              Suggested
-                            </Text>
-                          )}
-                          <View style={styles.inputFieldContainer}>
-                            <TextInput
-                              key={`${exercise.exercise_id}-${exercise.id}-${setIndex}-weight-${exercise.requires_weight}-${textInputRefreshKey}`}
-                              style={styles.inputField}
-                              value={set.weight}
-                              onChangeText={(value) => onWeightChange(exercise.id, setIndex, value)}
-                              keyboardType="decimal-pad"
-                              placeholder={getWeightPlaceholder()}
-                              placeholderTextColor="rgba(255,255,255,0.5)"
-                              selectTextOnFocus={true}
-                              onFocus={(event) => onInputFocus(`${exercise.id}-${setIndex}-weight`, event)}
-                              onBlur={() => onInputBlur(`${exercise.id}-${setIndex}-weight`)}
-                              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                            />
-                            <Text style={styles.activeSetValueUnit}>kg</Text>
-                          </View>
-                        </View>
-                        
-                        <View style={styles.inputDivider} />
-                      </>
-                    )}
-                    
-                    <View style={styles.inputContainer}>
-                      {/* Suggested label above reps input for bodyweight exercises */}
-                      {exercise?.requires_weight === false && getSuggestedValue(exercise.exercise_id, setIndex + 1, 'reps') && (
-                        <Text style={styles.suggestedLabel}>
-                          Suggested
-                        </Text>
-                      )}
-                      <View style={styles.inputFieldContainer}>
-                        <TextInput
-                          key={`${exercise.exercise_id}-${exercise.id}-${setIndex}-reps-${exercise.reps_range}-${exercise.requires_weight}-${exerciseCustomized[exercise.id] ? 'customized' : 'default'}-${textInputRefreshKey}`}
-                          style={styles.inputField}
-                          value={set.reps}
-                          onChangeText={(value) => onRepsChange(exercise.id, setIndex, value)}
-                          keyboardType="numeric"
-                          placeholder={getRepsPlaceholder()}
-                          placeholderTextColor="rgba(255,255,255,0.5)"
-                          selectTextOnFocus={true}
-                          onFocus={(event) => onInputFocus(`${exercise.id}-${setIndex}-reps`, event)}
-                          onBlur={() => onInputBlur(`${exercise.id}-${setIndex}-reps`)}
-                        />
-                        <Text style={styles.activeSetValueUnit}>reps</Text>
-                      </View>
-                    </View>
+                    <WeightInput
+                      exercise={exercise}
+                      set={set}
+                      setIndex={setIndex}
+                      textInputRefreshKey={textInputRefreshKey}
+                      userEnteredValues={userEnteredValues}
+                      getWeightPlaceholder={getWeightPlaceholder}
+                      getSuggestedValue={getSuggestedValue}
+                      onWeightChange={onWeightChange}
+                      onInputFocus={onInputFocus}
+                      onInputBlur={onInputBlur}
+                      styles={styles}
+                    />
+
+                    <RepsInput
+                      exercise={exercise}
+                      set={set}
+                      setIndex={setIndex}
+                      textInputRefreshKey={textInputRefreshKey}
+                      exerciseCustomized={exerciseCustomized}
+                      getRepsPlaceholder={getRepsPlaceholder}
+                      getSuggestedValue={getSuggestedValue}
+                      onRepsChange={onRepsChange}
+                      onInputFocus={onInputFocus}
+                      onInputBlur={onInputBlur}
+                      styles={styles}
+                    />
                   </View>
-                  
-                  {/* Last values row - split under each input - only show for incomplete sets */}
-                  {!set.isCompleted && (lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight || 
-                    lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.reps) && (
-                    <View style={styles.lastValuesRowActive}>
-                      {/* Only show weight last value if exercise requires weight */}
-                      {exercise?.requires_weight !== false && (
-                        <View style={styles.lastValueContainerActive}>
-                          {lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight && (
-                            <Text style={styles.activeSetSubValue}>
-                              ( Last {lastExerciseValues[exercise.exercise_id][setIndex + 1]?.weight} )
-                            </Text>
-                          )}
-                        </View>
-                      )}
-                      
-                      {exercise?.requires_weight !== false && (
-                        <View style={styles.lastValueSpacer} />
-                      )}
-                      
-                      <View style={styles.lastValueContainerActive}>
-                        {lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.reps && (
-                          <Text style={styles.activeSetSubValue}>
-                            ( Last {lastExerciseValues[exercise.exercise_id][setIndex + 1]?.reps} )
-                          </Text>
-                        )}
-                      </View>
-                    </View>
-                  )}
+
+                  <LastValuesRow
+                    exercise={exercise}
+                    set={set}
+                    setIndex={setIndex}
+                    lastExerciseValues={lastExerciseValues}
+                    styles={styles}
+                    isActive={true}
+                  />
                 </View>
 
-                {/* Horizontal Divider */}
                 <View style={styles.horizontalDivider} />
 
-                {/* Label Cell */}
                 <View style={styles.labelCell}>
-                  <Text style={[
-                    styles.activeSetLabel,
-                    exercise?.requires_weight === false && { marginLeft: -50 }
-                  ]}>
-                    {exercise?.requires_weight !== false 
-                      ? "Weight of bar + plates" 
-                      : "Bodyweight exercise - reps only"}
+                  <Text
+                    style={[
+                      styles.activeSetLabel,
+                      exercise?.requires_weight === false && { marginLeft: -50 },
+                    ]}
+                  >
+                    {exercise?.requires_weight !== false
+                      ? 'Weight of bar + plates'
+                      : 'Bodyweight exercise - reps only'}
                   </Text>
                 </View>
               </View>
 
-              {/* Vertical Divider */}
               <View style={styles.mainVerticalDivider} />
 
-              {/* Button Cell - spans full height */}
               <View style={styles.didItButtonCell}>
-                <TouchableOpacity 
-                  style={{flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center'}}
+                <TouchableOpacity
+                  style={{ flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' }}
                   onPress={() => onSetComplete(exercise.id, setIndex)}
                 >
                   <Text style={styles.didItTextSet}>Did It</Text>
@@ -273,108 +546,53 @@ export default function WorkoutExerciseSetRow({
 
   // Render inactive/completed set card
   return (
-    <View style={[
-      styles.setCard,
-      styles.inactiveSetCard,
-      isCompleted && styles.completedSetCard
-    ]}>
+    <View style={[styles.setCard, styles.inactiveSetCard, isCompleted && styles.completedSetCard]}>
       <View style={styles.setCardContent}>
         <View style={styles.inactiveSetCardContent}>
-          {/* Left Cell: Weight and Reps inputs */}
           <View style={styles.inactiveLeftCell}>
             <View style={styles.inactiveInputRow}>
-              {/* Only show weight input if exercise requires weight */}
-              {exercise?.requires_weight !== false && (
-                <>
-                  <View style={styles.inputContainer}>
-                    {/* Suggested label above weight input - hide for completed sets */}
-                    {getSuggestedValue(exercise.exercise_id, setIndex + 1, 'weight') && !set.isCompleted && (
-                      <Text style={styles.suggestedLabelWeight}>
-                        Suggested
-                      </Text>
-                    )}
-                    <View style={styles.inputFieldContainer}>
-                      <TextInput
-                        key={`${exercise.exercise_id}-${exercise.id}-${setIndex}-weight-${exercise.requires_weight}-${textInputRefreshKey}`}
-                        style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
-                        value={set.weight}
-                        onChangeText={(value) => onWeightChange(exercise.id, setIndex, value)}
-                        keyboardType="decimal-pad"
-                        placeholder={getWeightPlaceholder()}
-                        placeholderTextColor="rgba(255,255,255,0.5)"
-                        selectTextOnFocus={true}
-                        onFocus={(event) => onInputFocus(`${exercise.id}-${setIndex}-weight`, event)}
-                        onBlur={() => onInputBlur(`${exercise.id}-${setIndex}-weight`)}
-                        editable={!isCompleted}
-                      />
-                      <Text style={styles.activeSetValueUnit}>kg</Text>
-                    </View>
-                  </View>
-                  
-                  <View style={styles.inactiveInputDivider} />
-                </>
-              )}
-              
-              <View style={styles.inputContainer}>
-                {/* Suggested label above reps input for bodyweight exercises - hide for completed sets */}
-                {exercise?.requires_weight === false && getSuggestedValue(exercise.exercise_id, setIndex + 1, 'reps') && !set.isCompleted && (
-                  <Text style={styles.suggestedLabel}>
-                    Suggested
-                  </Text>
-                )}
-                <View style={styles.inputFieldContainer}>
-                  <TextInput
-                    key={`${exercise.exercise_id}-${exercise.id}-${setIndex}-reps-${exercise.reps_range}-${exercise.requires_weight}-${exerciseCustomized[exercise.id] ? 'customized' : 'default'}-${textInputRefreshKey}`}
-                    style={[styles.inactiveInputField, isCompleted && styles.completedInputField]}
-                    value={set.reps}
-                    onChangeText={(value) => onRepsChange(exercise.id, setIndex, value)}
-                    keyboardType="numeric"
-                    placeholder={getRepsPlaceholder()}
-                    placeholderTextColor="rgba(255,255,255,0.5)"
-                    selectTextOnFocus={true}
-                    onFocus={(event) => onInputFocus(`${exercise.id}-${setIndex}-reps`, event)}
-                    onBlur={() => onInputBlur(`${exercise.id}-${setIndex}-reps`)}
-                    editable={!isCompleted}
-                  />
-                  <Text style={styles.activeSetValueUnit}>reps</Text>
-                </View>
-              </View>
+              <InactiveWeightInput
+                exercise={exercise}
+                set={set}
+                setIndex={setIndex}
+                isCompleted={isCompleted}
+                textInputRefreshKey={textInputRefreshKey}
+                getWeightPlaceholder={getWeightPlaceholder}
+                getSuggestedValue={getSuggestedValue}
+                onWeightChange={onWeightChange}
+                onInputFocus={onInputFocus}
+                onInputBlur={onInputBlur}
+                styles={styles}
+              />
+
+              <InactiveRepsInput
+                exercise={exercise}
+                set={set}
+                setIndex={setIndex}
+                isCompleted={isCompleted}
+                textInputRefreshKey={textInputRefreshKey}
+                exerciseCustomized={exerciseCustomized}
+                getRepsPlaceholder={getRepsPlaceholder}
+                getSuggestedValue={getSuggestedValue}
+                onRepsChange={onRepsChange}
+                onInputFocus={onInputFocus}
+                onInputBlur={onInputBlur}
+                styles={styles}
+              />
             </View>
-            
-            {/* Last values row for inactive cards - only show for incomplete sets */}
-            {!set.isCompleted && (lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight || 
-              lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.reps) && (
-              <View style={styles.lastValuesRowInactive}>
-                {/* Only show weight last value if exercise requires weight */}
-                {exercise?.requires_weight !== false && (
-                  <View style={styles.lastValueContainerInactive}>
-                    {lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight && (
-                      <Text style={styles.activeSetSubValue}>
-                        ( Last {lastExerciseValues[exercise.exercise_id][setIndex + 1]?.weight} )
-                      </Text>
-                    )}
-                  </View>
-                )}
-                
-                {exercise?.requires_weight !== false && (
-                  <View style={styles.lastValueSpacer} />
-                )}
-                
-                <View style={styles.lastValueContainerInactive}>
-                  {lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.reps && (
-                    <Text style={styles.activeSetSubValue}>
-                      ( Last {lastExerciseValues[exercise.exercise_id][setIndex + 1]?.reps} )
-                    </Text>
-                  )}
-                </View>
-              </View>
-            )}
+
+            <LastValuesRow
+              exercise={exercise}
+              set={set}
+              setIndex={setIndex}
+              lastExerciseValues={lastExerciseValues}
+              styles={styles}
+              isActive={false}
+            />
           </View>
-          
-          {/* Vertical Divider */}
+
           <View style={styles.inactiveVerticalDivider} />
-          
-          {/* Right Cell: Button */}
+
           <View style={styles.inactiveButtonCell}>
             <TouchableOpacity
               style={[styles.playButtonSet, isCompleted && styles.redoButtonSet]}
@@ -387,11 +605,7 @@ export default function WorkoutExerciseSetRow({
               }}
               disabled={!isCompleted && !isActive}
             >
-              <Ionicons 
-                name={isCompleted ? "reload" : "play"} 
-                size={20} 
-                color={COLORS.text} 
-              />
+              <Ionicons name={isCompleted ? 'reload' : 'play'} size={20} color={COLORS.text} />
             </TouchableOpacity>
           </View>
         </View>
@@ -472,7 +686,7 @@ const styles = StyleSheet.create({
   },
   didItButtonCell: {
     width: 80,
-    backgroundColor: COLORS.primary, 
+    backgroundColor: COLORS.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -644,4 +858,23 @@ const styles = StyleSheet.create({
     marginLeft: 0,
     marginBottom: 0,
   },
-}); 
+  rightColumn: {
+    width: 80,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.sm,
+  },
+  activeSetNumberText: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: SPACING.sm,
+  },
+  completeButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
+
+export { styles };

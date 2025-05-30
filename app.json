@@ -9,6 +9,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "jsEngine": "hermes",
     "assetBundlePatterns": [
       "**/*",
       "assets/measurements/instructions/*"
@@ -81,6 +82,7 @@
       "expo-splash-screen",
       "expo-asset",
       "expo-font",
+      "expo-dev-client",
       "expo-web-browser",
       "expo-secure-store"
     ],
@@ -98,8 +100,7 @@
     },
     "updates": {
       "url": "https://u.expo.dev/9858a5f6-fb78-441d-a3f8-baf6348ed857"
-    },
-    "entryPoint": ".vscode\\exponentIndex.js"
+    }
   },
   "name": "mindmuscle-ai"
 }

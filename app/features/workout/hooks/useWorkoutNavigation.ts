@@ -1,129 +1,107 @@
-import { useCallback } from 'react';
+import React from 'react';
 import { Alert } from 'react-native';
-import type { ExerciseData, ExerciseSet } from '../types';
+import { ExerciseData, ExerciseSet } from '../types';
 
-export interface UseWorkoutNavigationParams {
+interface UseWorkoutNavigationParams {
   exercises: ExerciseData[];
+  exerciseSets: Record<string, ExerciseSet[]>;
   currentExerciseIndex: number;
   setCurrentExerciseIndex: React.Dispatch<React.SetStateAction<number>>;
-  exerciseSets: Record<string, ExerciseSet[]>;
-  onWorkoutComplete: () => void;
+  onCompleteWorkout: () => void;
 }
 
-export interface UseWorkoutNavigationReturn {
-  moveToNextExercise: () => void;
-  moveToPreviousExercise: () => void;
-  moveToExercise: (index: number) => void;
-  moveCurrentExerciseToEnd: () => void;
-  canMovePrevious: boolean;
-  canMoveNext: boolean;
-  isLastExercise: boolean;
-  getWorkoutProgress: () => { completed: number; total: number; percentage: number };
-}
-
-export const useWorkoutNavigation = (params: UseWorkoutNavigationParams): UseWorkoutNavigationReturn => {
-  const {
-    exercises,
-    currentExerciseIndex,
-    setCurrentExerciseIndex,
-    exerciseSets,
-    onWorkoutComplete
-  } = params;
-
-  const canMovePrevious = currentExerciseIndex > 0;
-  const canMoveNext = currentExerciseIndex < exercises.length - 1;
-  const isLastExercise = currentExerciseIndex === exercises.length - 1;
-
-  const getWorkoutProgress = useCallback(() => {
-    const totalExercises = exercises.length;
-    const completedExercises = exercises.filter(exercise => {
-      const sets = exerciseSets[exercise.id] || [];
-      return sets.length > 0 && sets.every(set => set.isCompleted);
-    }).length;
-
-    return {
-      completed: completedExercises,
-      total: totalExercises,
-      percentage: totalExercises > 0 ? (completedExercises / totalExercises) * 100 : 0
-    };
-  }, [exercises, exerciseSets]);
-
-  const moveToNextExercise = useCallback(() => {
+export const useWorkoutNavigation = ({
+  exercises,
+  exerciseSets,
+  currentExerciseIndex,
+  setCurrentExerciseIndex,
+  onCompleteWorkout,
+}: UseWorkoutNavigationParams) => {
+  /**
+   * Move to the next exercise in the workout
+   */
+  const moveToNextExercise = () => {
     if (currentExerciseIndex < exercises.length - 1) {
-      setCurrentExerciseIndex(prevIndex => prevIndex + 1);
+      // Use a function to update state to avoid closure issues
+      setCurrentExerciseIndex((prevIndex) => prevIndex + 1);
+
+      // No notification when moving to next exercise for better UX flow
     } else {
       // Check if all exercises have all their sets completed
-      const allExercisesCompleted = exercises.every(exercise => {
+      const allExercisesCompleted = exercises.every((exercise) => {
         const sets = exerciseSets[exercise.id] || [];
-        return sets.length > 0 && sets.every(set => set.isCompleted);
+        return sets.length > 0 && sets.every((set) => set.isCompleted);
       });
 
       if (allExercisesCompleted) {
-        // All exercises and all sets are completed, automatically complete workout
+        // All exercises and all sets are completed, automatically save data
+        // Use setTimeout to ensure UI updates complete before saving
         setTimeout(() => {
-          onWorkoutComplete();
+          onCompleteWorkout();
         }, 500);
       } else {
-        // Not all sets are completed, show completion alert
-        Alert.alert(
-          'Workout Complete',
-          'You have reached the end of your workout!',
-          [{ 
-            text: 'Complete Workout', 
+        // Not all sets are completed, show regular completion alert
+        Alert.alert('Workout Complete', 'You have reached the end of your workout!', [
+          {
+            text: 'Complete Workout',
             onPress: () => {
-              // Allow manual completion even if not all sets are done
-              onWorkoutComplete();
-            }
-          }]
-        );
+              // Allow the user to manually complete the workout even if not all sets are done
+              onCompleteWorkout();
+            },
+          },
+        ]);
       }
     }
-  }, [currentExerciseIndex, exercises, exerciseSets, setCurrentExerciseIndex, onWorkoutComplete]);
+  };
 
-  const moveToPreviousExercise = useCallback(() => {
+  /**
+   * Move to the previous exercise in the workout
+   */
+  const moveToPreviousExercise = () => {
     if (currentExerciseIndex > 0) {
-      setCurrentExerciseIndex(prev => prev - 1);
+      setCurrentExerciseIndex((prev) => prev - 1);
     }
-  }, [currentExerciseIndex, setCurrentExerciseIndex]);
+  };
 
-  const moveToExercise = useCallback((index: number) => {
-    if (index >= 0 && index < exercises.length) {
-      setCurrentExerciseIndex(index);
+  /**
+   * Move current exercise to the end of the workout
+   */
+  const moveCurrentExerciseToEnd = () => {
+    if (currentExerciseIndex >= 0 && currentExerciseIndex < exercises.length - 1) {
+      const currentExercise = exercises[currentExerciseIndex];
+
+      // Create new exercises array with current exercise moved to end
+      const newExercises = [...exercises];
+      newExercises.splice(currentExerciseIndex, 1); // Remove current exercise
+      newExercises.push(currentExercise); // Add it to the end
+
+      return newExercises;
     }
-  }, [exercises.length, setCurrentExerciseIndex]);
+    return exercises;
+  };
 
-  const moveCurrentExerciseToEnd = useCallback(() => {
-    if (exercises.length <= 1) return;
+  /**
+   * Get the current exercise data
+   */
+  const getCurrentExercise = (): ExerciseData | undefined => {
+    return exercises[currentExerciseIndex];
+  };
 
-    const currentExercise = exercises[currentExerciseIndex];
-    const newExercises = [...exercises];
-    
-    // Remove current exercise from its position
-    newExercises.splice(currentExerciseIndex, 1);
-    // Add it to the end
-    newExercises.push(currentExercise);
-
-    // Update exercises order (this would need to be passed back to parent)
-    // For now, we'll keep the current exercise index the same if possible
-    if (currentExerciseIndex < newExercises.length - 1) {
-      // Stay on the same index (which now has the next exercise)
-      // No need to change currentExerciseIndex
-    } else {
-      // We were at the end, move to the previous exercise
-      setCurrentExerciseIndex(prev => Math.max(0, prev - 1));
-    }
-
-    return newExercises;
-  }, [exercises, currentExerciseIndex, setCurrentExerciseIndex]);
+  /**
+   * Get the sets for the current exercise
+   */
+  const getCurrentSets = (): ExerciseSet[] => {
+    const currentExercise = getCurrentExercise();
+    return currentExercise ? exerciseSets[currentExercise.id] || [] : [];
+  };
 
   return {
+    currentExerciseIndex,
+    setCurrentExerciseIndex,
     moveToNextExercise,
     moveToPreviousExercise,
-    moveToExercise,
     moveCurrentExerciseToEnd,
-    canMovePrevious,
-    canMoveNext,
-    isLastExercise,
-    getWorkoutProgress,
+    getCurrentExercise,
+    getCurrentSets,
   };
-}; 
+};

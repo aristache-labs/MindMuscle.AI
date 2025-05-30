@@ -39,7 +39,9 @@ export const measurementService = {
   },
 
   // Get latest measurements for each category
-  async getLatestMeasurements(userId: string): Promise<Record<MeasurementCategory, Measurement | null>> {
+  async getLatestMeasurements(
+    userId: string,
+  ): Promise<Record<MeasurementCategory, Measurement | null>> {
     const { data, error } = await supabase
       .from('measurements')
       .select('*')
@@ -50,9 +52,9 @@ export const measurementService = {
 
     const latest: Partial<Record<MeasurementCategory, Measurement>> = {};
     const secondLatest: Partial<Record<MeasurementCategory, Measurement>> = {};
-    
+
     // Group by category and get the latest and second latest for each
-    data.forEach(measurement => {
+    data.forEach((measurement) => {
       const category = measurement.category as MeasurementCategory;
       if (!latest[category]) {
         latest[category] = measurement;
@@ -62,25 +64,31 @@ export const measurementService = {
     });
 
     // Add previous_value to each latest measurement
-    Object.keys(latest).forEach(category => {
+    Object.keys(latest).forEach((category) => {
       const categoryKey = category as MeasurementCategory;
       if (latest[categoryKey] && secondLatest[categoryKey]) {
         latest[categoryKey] = {
           ...latest[categoryKey]!,
-          previous_value: secondLatest[categoryKey]!.value
+          previous_value: secondLatest[categoryKey]!.value,
         };
       }
     });
 
     // Ensure all categories have a value (null if no measurement exists)
-    return Object.keys(MEASUREMENT_CATEGORIES).reduce((acc, category) => {
-      acc[category as MeasurementCategory] = latest[category as MeasurementCategory] || null;
-      return acc;
-    }, {} as Record<MeasurementCategory, Measurement | null>);
+    return Object.keys(MEASUREMENT_CATEGORIES).reduce(
+      (acc, category) => {
+        acc[category as MeasurementCategory] = latest[category as MeasurementCategory] || null;
+        return acc;
+      },
+      {} as Record<MeasurementCategory, Measurement | null>,
+    );
   },
 
   // Get measurement history for a category
-  async getMeasurementHistory(userId: string, category: MeasurementCategory): Promise<Measurement[]> {
+  async getMeasurementHistory(
+    userId: string,
+    category: MeasurementCategory,
+  ): Promise<Measurement[]> {
     const { data, error } = await supabase
       .from('measurements')
       .select('*')
@@ -89,12 +97,12 @@ export const measurementService = {
       .order('measured_at', { ascending: false });
 
     if (error) throw error;
-    
+
     // Process measurements to ensure proper sorting and arrow calculation
     // The measurements are already sorted by date in descending order (newest first)
     // We need to reverse the order to show oldest first in the UI
     const sortedMeasurements = [...data].reverse();
-    
+
     return sortedMeasurements;
   },
 
@@ -104,7 +112,7 @@ export const measurementService = {
     category: MeasurementCategory,
     value: number,
     unit: string,
-    measured_at?: string
+    measured_at?: string,
   ): Promise<Measurement> {
     // First, get all measurements for this category
     const { data: existingMeasurements, error: fetchError } = await supabase
@@ -119,13 +127,15 @@ export const measurementService = {
     // Add the new measurement
     const { data: newMeasurement, error: insertError } = await supabase
       .from('measurements')
-      .insert([{
-        user_id: userId,
-        category,
-        value,
-        unit,
-        measured_at: measured_at || new Date().toISOString()
-      }])
+      .insert([
+        {
+          user_id: userId,
+          category,
+          value,
+          unit,
+          measured_at: measured_at || new Date().toISOString(),
+        },
+      ])
       .select()
       .single();
 
@@ -134,12 +144,11 @@ export const measurementService = {
     // If we have more than 3 measurements (first + last 2), delete the extras
     if (existingMeasurements && existingMeasurements.length > 2) {
       // Keep the first measurement
-      const firstMeasurement = existingMeasurements[0];
-      
+
       // Get IDs of measurements to delete (excluding first measurement and last measurement)
       const measurementsToDelete = existingMeasurements
         .slice(1, -1) // Exclude first and last measurement
-        .map(m => m.id);
+        .map((m) => m.id);
 
       if (measurementsToDelete.length > 0) {
         const { error: deleteError } = await supabase
@@ -157,7 +166,7 @@ export const measurementService = {
   // Update a measurement
   async updateMeasurement(
     measurementId: string,
-    updates: Partial<Measurement>
+    updates: Partial<Measurement>,
   ): Promise<Measurement> {
     const { data, error } = await supabase
       .from('measurements')
@@ -172,13 +181,10 @@ export const measurementService = {
 
   // Delete a measurement
   async deleteMeasurement(measurementId: string): Promise<void> {
-    const { error } = await supabase
-      .from('measurements')
-      .delete()
-      .eq('id', measurementId);
+    const { error } = await supabase.from('measurements').delete().eq('id', measurementId);
 
     if (error) throw error;
-  }
+  },
 };
 
-export default measurementService; 
+export default measurementService;

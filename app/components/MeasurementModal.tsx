@@ -1,17 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  Modal, 
-  Pressable, 
-  Dimensions, 
+import {
+  StyleSheet,
+  View,
+  Modal,
+  Pressable,
   TextInput,
   TouchableWithoutFeedback,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
   Image,
-  ImageSourcePropType
+  ImageSourcePropType,
 } from 'react-native';
 import { Text, IconButton, Portal, Provider } from 'react-native-paper';
 import Slider from '@react-native-community/slider';
@@ -41,47 +40,47 @@ interface CategoryIcon {
 const CATEGORY_ICONS: Record<MeasurementCategory, CategoryIcon> = {
   WEIGHT: {
     type: 'image',
-    source: require('../../assets/measurements/instructions/weight-instruction.png')
+    source: require('../../assets/measurements/instructions/weight-instruction.png'),
   },
   BICEPS: {
     type: 'image',
-    source: require('../../assets/measurements/instructions/biceps-instruction.png')
+    source: require('../../assets/measurements/instructions/biceps-instruction.png'),
   },
   ABS: {
     type: 'image',
-    source: require('../../assets/measurements/instructions/abs-instruction.png')
+    source: require('../../assets/measurements/instructions/abs-instruction.png'),
   },
   WAIST: {
     type: 'image',
-    source: require('../../assets/measurements/instructions/waist-instruction.png')
+    source: require('../../assets/measurements/instructions/waist-instruction.png'),
   },
   CHEST: {
     type: 'image',
-    source: require('../../assets/measurements/instructions/chest-instruction.png')
+    source: require('../../assets/measurements/instructions/chest-instruction.png'),
   },
   SHLDRS: {
     type: 'image',
-    source: require('../../assets/measurements/instructions/shoulders-instruction.png')
+    source: require('../../assets/measurements/instructions/shoulders-instruction.png'),
   },
   THIGH: {
     type: 'image',
-    source: require('../../assets/measurements/instructions/thigh-instruction.png')
+    source: require('../../assets/measurements/instructions/thigh-instruction.png'),
   },
   CALF: {
     type: 'image',
-    source: require('../../assets/measurements/instructions/calf-instruction.png')
-  }
+    source: require('../../assets/measurements/instructions/calf-instruction.png'),
+  },
 };
 
-export default function MeasurementModal({ 
-  visible, 
-  category, 
-  lastValue, 
-  measurements: initialMeasurements, 
-  onClose, 
+export default function MeasurementModal({
+  visible,
+  category,
+  lastValue,
+  measurements: initialMeasurements,
+  onClose,
   onSave,
   userId,
-  onMeasurementsChange
+  onMeasurementsChange,
 }: Props) {
   const [showInput, setShowInput] = useState(false);
   const [value, setValue] = useState(lastValue?.toString() || MIN_VALUE.toString());
@@ -171,7 +170,7 @@ export default function MeasurementModal({
   };
 
   const handleSliderChange = (newValue: number) => {
-    let clampedValue = Math.max(MIN_VALUE, Math.min(MAX_VALUE, newValue));
+    const clampedValue = Math.max(MIN_VALUE, Math.min(MAX_VALUE, newValue));
     const formattedValue = clampedValue.toFixed(1);
     setValue(formattedValue);
     setSliderValue(clampedValue);
@@ -179,7 +178,7 @@ export default function MeasurementModal({
 
   const adjustValue = (increment: boolean) => {
     const current = parseFloat(value) || MIN_VALUE;
-    let newValue = increment 
+    const newValue = increment
       ? Math.min(MAX_VALUE, current + STEP)
       : Math.max(MIN_VALUE, current - STEP);
     setValue(newValue.toFixed(1));
@@ -203,8 +202,8 @@ export default function MeasurementModal({
           statusBarTranslucent={true}
         >
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <KeyboardAvoidingView 
-              behavior={Platform.OS === "ios" ? "padding" : "height"}
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
               style={styles.overlay}
             >
               <View style={styles.modalContainer}>
@@ -232,23 +231,17 @@ export default function MeasurementModal({
                             resizeMode="contain"
                           />
                         </View>
-                        
+
                         <Text style={styles.lastMeasurement}>
-                          Last: {lastValue?.toFixed(1) || MIN_VALUE.toString()} {category === 'WEIGHT' ? 'kg' : 'cm'}
+                          Last: {lastValue?.toFixed(1) || MIN_VALUE.toString()}{' '}
+                          {category === 'WEIGHT' ? 'kg' : 'cm'}
                         </Text>
 
                         <View style={styles.inputRow}>
-                          <Pressable 
-                            style={styles.adjustButton} 
-                            onPress={() => adjustValue(false)}
-                          >
-                            <IconButton
-                              icon="minus"
-                              size={24}
-                              iconColor={COLORS.text}
-                            />
+                          <Pressable style={styles.adjustButton} onPress={() => adjustValue(false)}>
+                            <IconButton icon="minus" size={24} iconColor={COLORS.text} />
                           </Pressable>
-                          
+
                           <View style={styles.valueContainer}>
                             <TextInput
                               style={styles.valueInput}
@@ -265,15 +258,8 @@ export default function MeasurementModal({
                             <Text style={styles.unit}>{category === 'WEIGHT' ? 'kg' : 'cm'}</Text>
                           </View>
 
-                          <Pressable 
-                            style={styles.adjustButton} 
-                            onPress={() => adjustValue(true)}
-                          >
-                            <IconButton
-                              icon="plus"
-                              size={24}
-                              iconColor={COLORS.text}
-                            />
+                          <Pressable style={styles.adjustButton} onPress={() => adjustValue(true)}>
+                            <IconButton icon="plus" size={24} iconColor={COLORS.text} />
                           </Pressable>
                         </View>
 
@@ -302,10 +288,7 @@ export default function MeasurementModal({
                           <Text style={styles.saveButtonText}>Save Measurement</Text>
                         </Pressable>
 
-                        <Pressable
-                          style={styles.historyButton}
-                          onPress={() => setShowInput(false)}
-                        >
+                        <Pressable style={styles.historyButton} onPress={() => setShowInput(false)}>
                           <Text style={styles.historyButtonText}>Measurement History</Text>
                         </Pressable>
                       </View>
@@ -328,8 +311,6 @@ export default function MeasurementModal({
     </Provider>
   );
 }
-
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   overlay: {
@@ -363,8 +344,8 @@ const styles = StyleSheet.create({
     ...Platform.select({
       ios: {
         shadowColor: COLORS.primary,
-        shadowOffset: { 
-          width: 10, 
+        shadowOffset: {
+          width: 10,
           height: 0,
         },
         shadowOpacity: 1,
@@ -524,4 +505,4 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     textDecorationLine: 'underline',
   },
-}); 
+});

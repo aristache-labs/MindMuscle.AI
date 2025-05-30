@@ -1,138 +1,116 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, KeyboardAvoidingView, Platform, Pressable, TouchableWithoutFeedback, Keyboard, ActivityIndicator } from 'react-native';
-import { TextInput, Text, Checkbox, HelperText } from 'react-native-paper';
-import { Link, router } from 'expo-router';
+import {
+  StyleSheet,
+  View,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  TouchableWithoutFeedback,
+  Keyboard,
+  ActivityIndicator,
+  TextInput as RNTextInput,
+} from 'react-native';
+import { TextInput, Text, HelperText } from 'react-native-paper';
+import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import secureStorage from '../utils/secureStorage';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { useAuth } from '../store/AuthContext';
+import { useNavigationDebounce } from '../hooks/useDebounce';
 
 // Keys for secure storage
 const SAVED_EMAIL_KEY = 'mindmuscle_saved_email';
 const SAVED_PASSWORD_KEY = 'mindmuscle_saved_password';
 const REMEMBER_ME_KEY = 'mindmuscle_remember_me';
 
-export default function LoginScreen() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [focusedInput, setFocusedInput] = useState('');
-  const [validationError, setValidationError] = useState('');
-  const [isLoadingCredentials, setIsLoadingCredentials] = useState(true);
-  
-  const passwordInputRef = useRef<any>(null);
-  const { signIn, isLoading, error, clearError, session } = useAuth();
+// Custom hook for credential management
+function useCredentialManagement() {
+  const [isLoadingCredentials, setIsLoadingCredentials] = useState(false);
 
-  // Load saved credentials on component mount
-  useEffect(() => {
-    loadSavedCredentials();
-  }, []);
-
-  // Clear any errors when inputs change
-  useEffect(() => {
-    if (error) {
-      clearError();
-    }
-    setValidationError('');
-  }, [email, password]);
-
-  // Note: AuthGuard handles authenticated user redirects
-  // Removed redirect logic to prevent double navigation
-
-  // Function to load saved credentials from secure store
-  const loadSavedCredentials = async () => {
+  const loadSavedCredentials = async (
+    setEmail: (email: string) => void,
+    setPassword: (password: string) => void,
+    setRememberMe: (remember: boolean) => void,
+  ) => {
+    // Prevent multiple simultaneous loads
+    if (isLoadingCredentials) return;
     try {
       setIsLoadingCredentials(true);
-      
-      // Add timeout to prevent hanging
+
       const credentialsPromise = (async () => {
-        // Load remember me preference first
         const savedRememberMe = await secureStorage.getItemAsync(REMEMBER_ME_KEY);
         const shouldRemember = savedRememberMe === 'true';
         setRememberMe(shouldRemember);
-        
+
         if (shouldRemember) {
-          // Load saved credentials if remember me is enabled
           const [savedEmail, savedPassword] = await Promise.all([
             secureStorage.getItemAsync(SAVED_EMAIL_KEY),
-            secureStorage.getItemAsync(SAVED_PASSWORD_KEY)
+            secureStorage.getItemAsync(SAVED_PASSWORD_KEY),
           ]);
-          
-          if (savedEmail) {
-            setEmail(savedEmail);
-          }
-          if (savedPassword) {
-            setPassword(savedPassword);
-          }
+
+          if (savedEmail) setEmail(savedEmail);
+          if (savedPassword) setPassword(savedPassword);
         }
       })();
 
-      // Race against timeout
       await Promise.race([
         credentialsPromise,
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Credential loading timeout')), 3000)
-        )
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Credential loading timeout')), 2000),
+        ),
       ]);
-      
     } catch (error) {
       console.error('Error loading saved credentials:', error);
-      // Continue without saved credentials if there's an error
     } finally {
       setIsLoadingCredentials(false);
     }
   };
 
-  // Function to save credentials securely
   const saveCredentials = async (email: string, password: string, remember: boolean) => {
     try {
-      // Always save the remember me preference
       await secureStorage.setItemAsync(REMEMBER_ME_KEY, remember.toString());
-      
+
       if (remember) {
-        // Save credentials if remember me is checked
         await Promise.all([
           secureStorage.setItemAsync(SAVED_EMAIL_KEY, email),
-          secureStorage.setItemAsync(SAVED_PASSWORD_KEY, password)
+          secureStorage.setItemAsync(SAVED_PASSWORD_KEY, password),
         ]);
       } else {
-        // Clear saved credentials if remember me is unchecked
         await Promise.all([
-          secureStorage.deleteItemAsync(SAVED_EMAIL_KEY).catch(() => {}), // Ignore errors if keys don't exist
-          secureStorage.deleteItemAsync(SAVED_PASSWORD_KEY).catch(() => {})
+          secureStorage.deleteItemAsync(SAVED_EMAIL_KEY).catch(() => {}),
+          secureStorage.deleteItemAsync(SAVED_PASSWORD_KEY).catch(() => {}),
         ]);
       }
     } catch (error) {
       console.error('Error saving credentials:', error);
-      // Continue with login even if saving fails
     }
   };
 
-  // Function to clear saved credentials
   const clearSavedCredentials = async () => {
     try {
       await Promise.all([
         secureStorage.deleteItemAsync(SAVED_EMAIL_KEY).catch(() => {}),
         secureStorage.deleteItemAsync(SAVED_PASSWORD_KEY).catch(() => {}),
-        secureStorage.deleteItemAsync(REMEMBER_ME_KEY).catch(() => {})
+        secureStorage.deleteItemAsync(REMEMBER_ME_KEY).catch(() => {}),
       ]);
     } catch (error) {
       console.error('Error clearing saved credentials:', error);
     }
   };
 
-  // Handle remember me checkbox change
-  const handleRememberMeChange = async (checked: boolean) => {
-    setRememberMe(checked);
-    
-    if (!checked) {
-      // If unchecking remember me, clear saved credentials immediately
-      await clearSavedCredentials();
-    }
+  return {
+    isLoadingCredentials,
+    loadSavedCredentials,
+    saveCredentials,
+    clearSavedCredentials,
   };
+}
 
-  const validateInputs = () => {
+// Custom hook for form validation
+function useFormValidation() {
+  const [validationError, setValidationError] = useState('');
+
+  const validateInputs = (email: string, password: string) => {
     if (!email.trim()) {
       setValidationError('Email is required');
       return false;
@@ -148,36 +126,275 @@ export default function LoginScreen() {
     return true;
   };
 
-  const handleLogin = async () => {
-    if (!validateInputs()) return;
+  const clearValidationError = () => setValidationError('');
 
-    try {
-      // Save credentials based on remember me preference
-      await saveCredentials(email, password, rememberMe);
-      
-      // Attempt to sign in
-      const result = await signIn(email, password, rememberMe);
-      
-      // If sign in failed, don't keep incorrect credentials
-      if (result.error) {
-        await clearSavedCredentials();
+  return { validationError, validateInputs, clearValidationError };
+}
+
+// Custom hook for UI state
+function useUIState() {
+  const [showPassword, setShowPassword] = useState(false);
+  const [focusedInput, setFocusedInput] = useState('');
+
+  return {
+    showPassword,
+    setShowPassword,
+    focusedInput,
+    setFocusedInput,
+  };
+}
+
+// Email Input Component
+function EmailInput({
+  email,
+  setEmail,
+  focusedInput,
+  setFocusedInput,
+  hasError,
+  isLoading,
+  onSubmitEditing,
+}: {
+  email: string;
+  setEmail: (email: string) => void;
+  focusedInput: string;
+  setFocusedInput: (input: string) => void;
+  hasError: boolean;
+  isLoading: boolean;
+  onSubmitEditing: () => void;
+}) {
+  return (
+    <View style={[styles.inputContainer, focusedInput === 'email' && styles.inputContainerFocused]}>
+      <TextInput
+        mode="flat"
+        placeholder="Email"
+        value={email}
+        onChangeText={setEmail}
+        keyboardType="email-address"
+        autoCapitalize="none"
+        autoComplete="username"
+        textContentType="username"
+        importantForAutofill="yes"
+        autoCorrect={false}
+        spellCheck={false}
+        enablesReturnKeyAutomatically={true}
+        returnKeyType="next"
+        style={styles.input}
+        placeholderTextColor={focusedInput === 'email' ? COLORS.primary : '#fff'}
+        textColor={focusedInput === 'email' ? '#fff' : '#666'}
+        cursorColor={COLORS.primary}
+        underlineColor="transparent"
+        activeUnderlineColor={COLORS.primary}
+        selectionColor="rgba(108, 71, 255, 0.3)"
+        left={
+          <TextInput.Icon icon="email" color={focusedInput === 'email' ? COLORS.primary : '#fff'} />
+        }
+        theme={{
+          colors: {
+            background: '#1A1A1A',
+            primary: COLORS.primary,
+          },
+        }}
+        onFocus={() => setFocusedInput('email')}
+        onBlur={() => setFocusedInput('')}
+        error={hasError}
+        disabled={isLoading}
+        onSubmitEditing={onSubmitEditing}
+      />
+    </View>
+  );
+}
+
+// Password Input Component
+function PasswordInput({
+  password,
+  setPassword,
+  showPassword,
+  setShowPassword,
+  focusedInput,
+  setFocusedInput,
+  hasError,
+  isLoading,
+  onSubmitEditing,
+  inputRef,
+}: {
+  password: string;
+  setPassword: (password: string) => void;
+  showPassword: boolean;
+  setShowPassword: (show: boolean) => void;
+  focusedInput: string;
+  setFocusedInput: (input: string) => void;
+  hasError: boolean;
+  isLoading: boolean;
+  onSubmitEditing: () => void;
+  inputRef: React.RefObject<RNTextInput | null>;
+}) {
+  return (
+    <View
+      style={[styles.inputContainer, focusedInput === 'password' && styles.inputContainerFocused]}
+    >
+      <TextInput
+        ref={inputRef}
+        mode="flat"
+        placeholder="Password"
+        value={password}
+        onChangeText={setPassword}
+        secureTextEntry={!showPassword}
+        autoComplete="current-password"
+        textContentType="password"
+        importantForAutofill="yes"
+        autoCapitalize="none"
+        autoCorrect={false}
+        spellCheck={false}
+        enablesReturnKeyAutomatically={true}
+        returnKeyType="done"
+        passwordRules="minlength: 8;"
+        style={styles.input}
+        placeholderTextColor={focusedInput === 'password' ? COLORS.primary : '#fff'}
+        textColor={focusedInput === 'password' ? '#fff' : '#666'}
+        cursorColor={COLORS.primary}
+        underlineColor="transparent"
+        activeUnderlineColor={COLORS.primary}
+        selectionColor="rgba(108, 71, 255, 0.3)"
+        left={
+          <TextInput.Icon
+            icon="lock"
+            color={focusedInput === 'password' ? COLORS.primary : '#fff'}
+          />
+        }
+        right={
+          <TextInput.Icon
+            icon={showPassword ? 'eye-off' : 'eye'}
+            color={focusedInput === 'password' ? COLORS.primary : '#fff'}
+            onPress={() => setShowPassword(!showPassword)}
+          />
+        }
+        theme={{
+          colors: {
+            background: '#1A1A1A',
+            primary: COLORS.primary,
+          },
+        }}
+        onFocus={() => setFocusedInput('password')}
+        onBlur={() => setFocusedInput('')}
+        error={hasError}
+        disabled={isLoading}
+        onSubmitEditing={onSubmitEditing}
+      />
+    </View>
+  );
+}
+
+// Remember Me Component
+function RememberMeCheckbox({
+  rememberMe,
+  onToggle,
+  isLoading,
+}: {
+  rememberMe: boolean;
+  onToggle: (checked: boolean) => void;
+  isLoading: boolean;
+}) {
+  return (
+    <View style={styles.rememberContainer}>
+      <Pressable
+        style={styles.checkboxContainer}
+        onPress={() => onToggle(!rememberMe)}
+        disabled={isLoading}
+      >
+        <View
+          style={[
+            styles.customCheckbox,
+            rememberMe && styles.customCheckboxChecked,
+            isLoading && styles.customCheckboxDisabled,
+          ]}
+        >
+          {rememberMe && <Ionicons name="checkmark" size={16} color="#fff" />}
+        </View>
+        <Text style={styles.rememberText}>Remember me</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+export default function LoginScreen() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
+  const [hasLoadedCredentials, setHasLoadedCredentials] = useState(false);
+
+  const passwordInputRef = useRef<RNTextInput | null>(null);
+  const isMountedRef = useRef(true);
+  const { signIn, isLoading, error, clearError } = useAuth();
+
+  const { isLoadingCredentials, loadSavedCredentials, saveCredentials, clearSavedCredentials } =
+    useCredentialManagement();
+  const { validationError, validateInputs, clearValidationError } = useFormValidation();
+  const { showPassword, setShowPassword, focusedInput, setFocusedInput } = useUIState();
+  const debouncedNavigate = useNavigationDebounce();
+
+  // Load saved credentials on component mount (only once)
+  useEffect(() => {
+    if (!hasLoadedCredentials && isMountedRef.current) {
+      setHasLoadedCredentials(true);
+      loadSavedCredentials(setEmail, setPassword, setRememberMe);
+    }
+
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, [hasLoadedCredentials, loadSavedCredentials]);
+
+  // Clear any errors when inputs change (debounced)
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (isMountedRef.current) {
+        if (error) clearError();
+        clearValidationError();
       }
-    } catch (err) {
-      // Error is handled by AuthContext
-      console.error('Login error:', err);
-      // Clear saved credentials on login error
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [email, password, error, clearError, clearValidationError]);
+
+  const handleRememberMeChange = async (checked: boolean) => {
+    setRememberMe(checked);
+    if (!checked) {
       await clearSavedCredentials();
     }
   };
 
-  // Helper function to get error message
+  const handleLogin = async () => {
+    if (!validateInputs(email, password)) return;
+
+    try {
+      await saveCredentials(email, password, rememberMe);
+      const result = await signIn(email, password, rememberMe);
+
+      if (result.error) {
+        await clearSavedCredentials();
+      }
+    } catch (err) {
+      console.error('Login error:', err);
+      await clearSavedCredentials();
+    }
+  };
+
+  const handleForgotPassword = () => {
+    debouncedNavigate(() => router.push('/(auth)/forgot-password'));
+  };
+
+  const handleSignUpNavigation = () => {
+    if (!isLoading && !isLoadingCredentials) {
+      debouncedNavigate(() => router.push('/(auth)/register'));
+    }
+  };
+
   const getErrorMessage = () => {
     if (validationError) return validationError;
     if (error?.message) return error.message;
     return '';
   };
 
-  // Show loading indicator while loading credentials
   if (isLoadingCredentials) {
     return (
       <View style={[styles.container, styles.loadingContainer]}>
@@ -200,88 +417,28 @@ export default function LoginScreen() {
           </Text>
 
           <View style={styles.form}>
-            <View style={[styles.inputContainer, focusedInput === 'email' && styles.inputContainerFocused]}>
-              <TextInput
-                mode="flat"
-                placeholder="Email"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="username"
-                textContentType="username"
-                importantForAutofill="yes"
-                autoCorrect={false}
-                spellCheck={false}
-                enablesReturnKeyAutomatically={true}
-                returnKeyType="next"
-                style={styles.input}
-                placeholderTextColor={focusedInput === 'email' ? COLORS.primary : '#fff'}
-                textColor={focusedInput === 'email' ? '#fff' : '#666'}
-                cursorColor={COLORS.primary}
-                underlineColor="transparent"
-                activeUnderlineColor={COLORS.primary}
-                selectionColor="rgba(108, 71, 255, 0.3)"
-                left={<TextInput.Icon icon="email" color={focusedInput === 'email' ? COLORS.primary : '#fff'} />}
-                theme={{
-                  colors: {
-                    background: '#1A1A1A',
-                    primary: COLORS.primary,
-                  },
-                }}
-                onFocus={() => setFocusedInput('email')}
-                onBlur={() => setFocusedInput('')}
-                error={!!error || !!validationError}
-                disabled={isLoading}
-                onSubmitEditing={() => passwordInputRef.current?.focus()}
-              />
-            </View>
+            <EmailInput
+              email={email}
+              setEmail={setEmail}
+              focusedInput={focusedInput}
+              setFocusedInput={setFocusedInput}
+              hasError={!!error || !!validationError}
+              isLoading={isLoading}
+              onSubmitEditing={() => passwordInputRef.current?.focus()}
+            />
 
-            <View style={[styles.inputContainer, focusedInput === 'password' && styles.inputContainerFocused]}>
-              <TextInput
-                ref={passwordInputRef}
-                mode="flat"
-                placeholder="Password"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-                autoComplete="current-password"
-                textContentType="password"
-                importantForAutofill="yes"
-                autoCapitalize="none"
-                autoCorrect={false}
-                spellCheck={false}
-                enablesReturnKeyAutomatically={true}
-                returnKeyType="done"
-                passwordRules="minlength: 8;"
-                style={styles.input}
-                placeholderTextColor={focusedInput === 'password' ? COLORS.primary : '#fff'}
-                textColor={focusedInput === 'password' ? '#fff' : '#666'}
-                cursorColor={COLORS.primary}
-                underlineColor="transparent"
-                activeUnderlineColor={COLORS.primary}
-                selectionColor="rgba(108, 71, 255, 0.3)"
-                left={<TextInput.Icon icon="lock" color={focusedInput === 'password' ? COLORS.primary : '#fff'} />}
-                right={
-                  <TextInput.Icon
-                    icon={showPassword ? 'eye-off' : 'eye'}
-                    color={focusedInput === 'password' ? COLORS.primary : '#fff'}
-                    onPress={() => setShowPassword(!showPassword)}
-                  />
-                }
-                theme={{
-                  colors: {
-                    background: '#1A1A1A',
-                    primary: COLORS.primary,
-                  },
-                }}
-                onFocus={() => setFocusedInput('password')}
-                onBlur={() => setFocusedInput('')}
-                error={!!error || !!validationError}
-                disabled={isLoading}
-                onSubmitEditing={handleLogin}
-              />
-            </View>
+            <PasswordInput
+              password={password}
+              setPassword={setPassword}
+              showPassword={showPassword}
+              setShowPassword={setShowPassword}
+              focusedInput={focusedInput}
+              setFocusedInput={setFocusedInput}
+              hasError={!!error || !!validationError}
+              isLoading={isLoading}
+              onSubmitEditing={handleLogin}
+              inputRef={passwordInputRef}
+            />
 
             {(error || validationError) && (
               <HelperText type="error" style={styles.errorText}>
@@ -289,28 +446,11 @@ export default function LoginScreen() {
               </HelperText>
             )}
 
-            <View style={styles.rememberContainer}>
-              <Pressable 
-                style={styles.checkboxContainer}
-                onPress={() => handleRememberMeChange(!rememberMe)}
-                disabled={isLoading}
-              >
-                <View style={[
-                  styles.customCheckbox,
-                  rememberMe && styles.customCheckboxChecked,
-                  isLoading && styles.customCheckboxDisabled
-                ]}>
-                  {rememberMe && (
-                    <Ionicons 
-                      name="checkmark" 
-                      size={16} 
-                      color="#fff" 
-                    />
-                  )}
-                </View>
-                <Text style={styles.rememberText}>Remember me</Text>
-              </Pressable>
-            </View>
+            <RememberMeCheckbox
+              rememberMe={rememberMe}
+              onToggle={handleRememberMeChange}
+              isLoading={isLoading}
+            />
 
             <Pressable
               style={[styles.signInButton, isLoading && styles.signInButtonDisabled]}
@@ -324,7 +464,7 @@ export default function LoginScreen() {
               )}
             </Pressable>
 
-            <Pressable onPress={() => router.push('/(auth)/forgot-password')} disabled={isLoading}>
+            <Pressable onPress={handleForgotPassword} disabled={isLoading}>
               <Text style={styles.forgotPassword}>Forgot the password?</Text>
             </Pressable>
 
@@ -348,11 +488,9 @@ export default function LoginScreen() {
 
             <View style={styles.footer}>
               <Text style={styles.footerText}>Don't have an account? </Text>
-              <Link href="/(auth)/register" asChild>
-                <Pressable disabled={isLoading}>
-                  <Text style={styles.signUpText}>Sign Up</Text>
-                </Pressable>
-              </Link>
+              <Pressable disabled={isLoading} onPress={handleSignUpNavigation}>
+                <Text style={styles.signUpText}>Sign Up</Text>
+              </Pressable>
             </View>
           </View>
         </View>
@@ -507,4 +645,4 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     fontWeight: '600',
   },
-}); 
+});

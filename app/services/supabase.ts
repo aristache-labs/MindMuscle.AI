@@ -15,4 +15,4 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
-export default supabase; 
+export default supabase;

@@ -1,7 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, ScrollView, Pressable, Modal, ActivityIndicator, Alert, Platform } from 'react-native';
+import {
+  StyleSheet,
+  View,
+  ScrollView,
+  Pressable,
+  Modal,
+  ActivityIndicator,
+  Alert,
+  Platform,
+} from 'react-native';
 import { Text, useTheme, IconButton, Button, Surface, Divider } from 'react-native-paper';
-import { Stack, router } from 'expo-router';
+import { router } from 'expo-router';
 import { COLORS } from '../constants/theme';
 import { format } from 'date-fns';
 import { achievementService, Achievement, UserAchievement } from '../services/achievements';
@@ -16,7 +25,7 @@ export default function Achievements() {
   const [loading, setLoading] = useState(true);
   const [showFullLoadingScreen, setShowFullLoadingScreen] = useState(false);
   const loadingTimerRef = useRef<number | null>(null);
-  
+
   // Simple function to handle back navigation
   const handleGoBack = () => {
     try {
@@ -45,15 +54,15 @@ export default function Achievements() {
 
   const loadAchievements = async () => {
     if (!user?.id) return;
-    
+
     try {
       setLoading(true);
-      
+
       // Only show the full loading screen if loading takes more than 500ms
       loadingTimerRef.current = window.setTimeout(() => {
         setShowFullLoadingScreen(true);
       }, 500);
-      
+
       const userAchievements = await achievementService.getUserAchievements(user.id);
       setAchievements(userAchievements);
     } catch (error) {
@@ -122,32 +131,41 @@ export default function Achievements() {
                 style={styles.achievementCard}
                 onPress={() => handleAchievementPress(userAchievement)}
               >
-                <Surface style={[
-                  styles.achievementSurface,
-                  !userAchievement.is_completed && styles.achievementLocked
-                ]} elevation={2}>
+                <Surface
+                  style={[
+                    styles.achievementSurface,
+                    !userAchievement.is_completed && styles.achievementLocked,
+                  ]}
+                  elevation={2}
+                >
                   <View style={styles.achievementOverflow}>
                     <View style={styles.achievementContent}>
-                      <View style={[
-                        styles.achievementIconContainer,
-                        !userAchievement.is_completed && styles.achievementIconLocked
-                      ]}>
+                      <View
+                        style={[
+                          styles.achievementIconContainer,
+                          !userAchievement.is_completed && styles.achievementIconLocked,
+                        ]}
+                      >
                         <IconButton
                           icon={userAchievement.achievement?.icon || 'trophy'}
                           size={28}
-                          iconColor={userAchievement.is_completed ? "#f9e009" : "#666"}
+                          iconColor={userAchievement.is_completed ? '#f9e009' : '#666'}
                         />
                       </View>
-                      <Text style={[
-                        styles.achievementTitle,
-                        !userAchievement.is_completed && styles.achievementTextLocked
-                      ]}>
+                      <Text
+                        style={[
+                          styles.achievementTitle,
+                          !userAchievement.is_completed && styles.achievementTextLocked,
+                        ]}
+                      >
                         {userAchievement.achievement?.title}
                       </Text>
-                      <Text style={[
-                        styles.achievementSubtitle,
-                        !userAchievement.is_completed && styles.achievementTextLocked
-                      ]}>
+                      <Text
+                        style={[
+                          styles.achievementSubtitle,
+                          !userAchievement.is_completed && styles.achievementTextLocked,
+                        ]}
+                      >
                         {userAchievement.achievement?.subtitle}
                       </Text>
                       {renderProgress(userAchievement)}
@@ -167,12 +185,9 @@ export default function Achievements() {
         animationType="fade"
         onRequestClose={() => setSelectedAchievement(null)}
       >
-        <Pressable 
-          style={styles.modalOverlay}
-          onPress={() => setSelectedAchievement(null)}
-        >
+        <Pressable style={styles.modalOverlay} onPress={() => setSelectedAchievement(null)}>
           <View style={styles.modalContainer}>
-            <Pressable style={styles.modalContent} onPress={e => e.stopPropagation()}>
+            <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
               <View style={styles.modalHeader}>
                 <IconButton
                   icon="close"
@@ -182,41 +197,59 @@ export default function Achievements() {
                   onPress={() => setSelectedAchievement(null)}
                 />
               </View>
-              
+
               {selectedAchievement && (
                 <View style={styles.achievementDetail}>
-                  <View style={[
-                    styles.achievementIconLarge,
-                    { backgroundColor: selectedAchievement.icon_background_color || '#f9e009' }
-                  ]}>
-                    <IconButton
-                      icon={selectedAchievement.icon}
-                      size={40}
-                      iconColor="#000"
-                    />
+                  <View
+                    style={[
+                      styles.achievementIconLarge,
+                      { backgroundColor: selectedAchievement.icon_background_color || '#f9e009' },
+                    ]}
+                  >
+                    <IconButton icon={selectedAchievement.icon} size={40} iconColor="#000" />
                   </View>
                   <Text style={styles.achievementDetailTitle}>{selectedAchievement.title}</Text>
-                  <Text style={styles.achievementDescription}>{selectedAchievement.description}</Text>
+                  <Text style={styles.achievementDescription}>
+                    {selectedAchievement.description}
+                  </Text>
                   {selectedAchievement.total_progress && (
                     <Text style={styles.achievementProgress}>
-                      Progress: {achievements.find(a => a.achievement?.id === selectedAchievement.id)?.current_progress || 0}/{selectedAchievement.total_progress}
+                      Progress:{' '}
+                      {achievements.find((a) => a.achievement?.id === selectedAchievement.id)
+                        ?.current_progress || 0}
+                      /{selectedAchievement.total_progress}
                     </Text>
                   )}
-                  {achievements.find(a => a.achievement?.id === selectedAchievement.id)?.completed_at && (
-                    <Text style={styles.achievementDate}>
-                      Completed on {format(new Date(achievements.find(a => a.achievement?.id === selectedAchievement.id)?.completed_at!), 'MMM dd, yyyy')}
-                    </Text>
-                  )}
-                  {achievements.find(a => a.achievement?.id === selectedAchievement.id)?.is_completed && (
-                    <Button
-                      mode="contained"
-                      style={styles.shareButton}
-                      labelStyle={styles.shareButtonLabel}
-                      onPress={() => {}}
-                    >
-                      Share
-                    </Button>
-                  )}
+                  {(() => {
+                    const foundAchievement = achievements.find(
+                      (a) => a.achievement?.id === selectedAchievement.id,
+                    );
+                    return (
+                      foundAchievement?.completed_at && (
+                        <Text style={styles.achievementDate}>
+                          Completed on{' '}
+                          {format(new Date(foundAchievement.completed_at), 'MMM dd, yyyy')}
+                        </Text>
+                      )
+                    );
+                  })()}
+                  {(() => {
+                    const foundAchievement = achievements.find(
+                      (a) => a.achievement?.id === selectedAchievement.id,
+                    );
+                    return (
+                      foundAchievement?.is_completed && (
+                        <Button
+                          mode="contained"
+                          style={styles.shareButton}
+                          labelStyle={styles.shareButtonLabel}
+                          onPress={() => {}}
+                        >
+                          Share
+                        </Button>
+                      )
+                    );
+                  })()}
                 </View>
               )}
             </Pressable>
@@ -437,4 +470,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 40,
   },
-}); 
+});

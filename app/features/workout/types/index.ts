@@ -7,10 +7,11 @@ export interface ExerciseData {
   reps_range: string;
   image_url?: string;
   primary_muscles?: string[];
+  requires_weight?: boolean;
   restTime?: number;
   order: number;
   workout_day: number;
-  requires_weight?: boolean;
+  isChangedExercise?: boolean;
 }
 
 export interface ExerciseSet {
@@ -56,4 +57,4 @@ export interface CycleWeekInfo {
   repsAdjustmentPercentage: number;
 }
 
-export type WorkoutState = 'in_progress' | 'completing' | 'completed'; 
+export type WorkoutState = 'in_progress' | 'completing' | 'completed';

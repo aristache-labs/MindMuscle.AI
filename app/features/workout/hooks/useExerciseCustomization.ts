@@ -23,7 +23,9 @@ export interface UseExerciseCustomizationReturn {
   shouldShowLastValues: (exerciseId: string) => boolean;
 }
 
-export const useExerciseCustomization = (params: UseExerciseCustomizationParams): UseExerciseCustomizationReturn => {
+export const useExerciseCustomization = (
+  params: UseExerciseCustomizationParams,
+): UseExerciseCustomizationReturn => {
   const {
     exercises,
     setExercises,
@@ -31,137 +33,167 @@ export const useExerciseCustomization = (params: UseExerciseCustomizationParams)
     setExerciseSets,
     exerciseCustomized,
     setExerciseCustomized,
-    userEnteredValues,
+    userEnteredValues: _userEnteredValues,
     setUserEnteredValues,
     textInputRefreshKey,
-    setTextInputRefreshKey
+    setTextInputRefreshKey,
   } = params;
 
   // New helper function to determine if we should show last values for an exercise
-  const shouldShowLastValues = useCallback((exerciseId: string) => {
-    // Only show last values if the exercise hasn't been customized
-    return !exerciseCustomized[exerciseId];
-  }, [exerciseCustomized]);
+  const shouldShowLastValues = useCallback(
+    (exerciseId: string) => {
+      // Only show last values if the exercise hasn't been customized
+      return !exerciseCustomized[exerciseId];
+    },
+    [exerciseCustomized],
+  );
 
-  const customizeExercise = useCallback((exerciseId: string, updates: { sets?: number; reps_range?: string }) => {
-    // Update the exercise
-    setExercises(prev => prev.map(exercise => {
-      if (exercise.id === exerciseId) {
-        return {
-          ...exercise,
-          sets: updates.sets !== undefined ? updates.sets : exercise.sets,
-          reps_range: updates.reps_range !== undefined ? updates.reps_range : exercise.reps_range
-        };
-      }
-      return exercise;
-    }));
-
-    // Mark exercise as customized
-    setExerciseCustomized(prev => ({
-      ...prev,
-      [exerciseId]: true
-    }));
-
-    // Update exercise sets if number of sets changed
-    if (updates.sets !== undefined) {
-      setExerciseSets(prev => {
-        const currentSets = prev[exerciseId] || [];
-        const targetSets = updates.sets!;
-        
-        if (currentSets.length === targetSets) {
-          // Same number of sets, just update reps_range if provided
-          if (updates.reps_range !== undefined) {
+  const customizeExercise = useCallback(
+    (exerciseId: string, updates: { sets?: number; reps_range?: string }) => {
+      // Update the exercise
+      setExercises((prev) =>
+        prev.map((exercise) => {
+          if (exercise.id === exerciseId) {
             return {
-              ...prev,
-              [exerciseId]: currentSets.map(set => ({
-                ...set,
-                reps: set.isCompleted ? set.reps : updates.reps_range!
-              }))
+              ...exercise,
+              sets: updates.sets !== undefined ? updates.sets : exercise.sets,
+              reps_range:
+                updates.reps_range !== undefined ? updates.reps_range : exercise.reps_range,
             };
           }
-          return prev;
-        }
+          return exercise;
+        }),
+      );
 
-        let newSets: ExerciseSet[];
-        
-        if (currentSets.length < targetSets) {
-          // Add more sets
-          const additionalSets = Array.from({ length: targetSets - currentSets.length }, (_, index) => ({
-            id: `${exerciseId}-set-${currentSets.length + index + 1}`,
-            setNumber: currentSets.length + index + 1,
-            weight: '',
-            reps: updates.reps_range || '',
-            isCompleted: false
-          }));
-          newSets = [...currentSets, ...additionalSets];
-        } else {
-          // Remove excess sets (keep only the first targetSets)
-          newSets = currentSets.slice(0, targetSets);
-        }
-
-        // Update reps_range for all uncompleted sets if provided
-        if (updates.reps_range !== undefined) {
-          newSets = newSets.map(set => ({
-            ...set,
-            reps: set.isCompleted ? set.reps : updates.reps_range!
-          }));
-        }
-
-        return {
-          ...prev,
-          [exerciseId]: newSets
-        };
-      });
-    } else if (updates.reps_range !== undefined) {
-      // Only reps_range changed, update uncompleted sets
-      setExerciseSets(prev => ({
+      // Mark exercise as customized
+      setExerciseCustomized((prev) => ({
         ...prev,
-        [exerciseId]: (prev[exerciseId] || []).map(set => ({
-          ...set,
-          reps: set.isCompleted ? set.reps : updates.reps_range!
-        }))
+        [exerciseId]: true,
       }));
-    }
 
-    // Clear user-entered flags for reps inputs of this exercise since customization overrides user input
-    setUserEnteredValues(prev => {
-      const updated = { ...prev };
-      const currentSets = exerciseSets[exerciseId] || [];
-      
-      currentSets.forEach((set, index) => {
-        const repsInputKey = `${exerciseId}-${index}-reps`;
-        if (updated[repsInputKey]) {
-          delete updated[repsInputKey];
-        }
+      // Update exercise sets if number of sets changed
+      if (updates.sets !== undefined) {
+        setExerciseSets((prev) => {
+          const currentSets = prev[exerciseId] || [];
+          const targetSets = updates.sets!;
+
+          if (currentSets.length === targetSets) {
+            // Same number of sets, just update reps_range if provided
+            if (updates.reps_range !== undefined) {
+              return {
+                ...prev,
+                [exerciseId]: currentSets.map((set) => ({
+                  ...set,
+                  reps: set.isCompleted ? set.reps : updates.reps_range!,
+                })),
+              };
+            }
+            return prev;
+          }
+
+          let newSets: ExerciseSet[];
+
+          if (currentSets.length < targetSets) {
+            // Add more sets
+            const additionalSets = Array.from(
+              { length: targetSets - currentSets.length },
+              (_, index) => ({
+                id: `${exerciseId}-set-${currentSets.length + index + 1}`,
+                setNumber: currentSets.length + index + 1,
+                weight: '',
+                reps: updates.reps_range || '',
+                isCompleted: false,
+              }),
+            );
+            newSets = [...currentSets, ...additionalSets];
+          } else {
+            // Remove excess sets (keep only the first targetSets)
+            newSets = currentSets.slice(0, targetSets);
+          }
+
+          // Update reps_range for all uncompleted sets if provided
+          if (updates.reps_range !== undefined) {
+            newSets = newSets.map((set) => ({
+              ...set,
+              reps: set.isCompleted ? set.reps : updates.reps_range!,
+            }));
+          }
+
+          return {
+            ...prev,
+            [exerciseId]: newSets,
+          };
+        });
+      } else if (updates.reps_range !== undefined) {
+        // Only reps_range changed, update uncompleted sets
+        setExerciseSets((prev) => ({
+          ...prev,
+          [exerciseId]: (prev[exerciseId] || []).map((set) => ({
+            ...set,
+            reps: set.isCompleted ? set.reps : updates.reps_range!,
+          })),
+        }));
+      }
+
+      // Clear user-entered flags for reps inputs of this exercise since customization overrides user input
+      setUserEnteredValues((prev) => {
+        const updated = { ...prev };
+        const currentSets = exerciseSets[exerciseId] || [];
+
+        currentSets.forEach((set, index) => {
+          const repsInputKey = `${exerciseId}-${index}-reps`;
+          if (updated[repsInputKey]) {
+            delete updated[repsInputKey];
+          }
+        });
+
+        return updated;
       });
-      
-      return updated;
-    });
 
-    // Force TextInput re-render to show updated values
-    setTextInputRefreshKey(textInputRefreshKey + 1);
-  }, [exercises, exerciseSets, setExercises, setExerciseSets, setExerciseCustomized, setUserEnteredValues, textInputRefreshKey, setTextInputRefreshKey]);
+      // Force TextInput re-render to show updated values
+      setTextInputRefreshKey(textInputRefreshKey + 1);
+    },
+    [
+      exercises,
+      exerciseSets,
+      setExercises,
+      setExerciseSets,
+      setExerciseCustomized,
+      setUserEnteredValues,
+      textInputRefreshKey,
+      setTextInputRefreshKey,
+    ],
+  );
 
-  const isExerciseCustomized = useCallback((exerciseId: string) => {
-    return exerciseCustomized[exerciseId] || false;
-  }, [exerciseCustomized]);
+  const isExerciseCustomized = useCallback(
+    (exerciseId: string) => {
+      return exerciseCustomized[exerciseId] || false;
+    },
+    [exerciseCustomized],
+  );
 
-  const getCustomizedExercise = useCallback((exerciseId: string) => {
-    return exercises.find(exercise => exercise.id === exerciseId);
-  }, [exercises]);
+  const getCustomizedExercise = useCallback(
+    (exerciseId: string) => {
+      return exercises.find((exercise) => exercise.id === exerciseId);
+    },
+    [exercises],
+  );
 
-  const resetExerciseCustomization = useCallback((exerciseId: string) => {
-    // Mark exercise as not customized
-    setExerciseCustomized(prev => {
-      const updated = { ...prev };
-      delete updated[exerciseId];
-      return updated;
-    });
+  const resetExerciseCustomization = useCallback(
+    (exerciseId: string) => {
+      // Mark exercise as not customized
+      setExerciseCustomized((prev) => {
+        const updated = { ...prev };
+        delete updated[exerciseId];
+        return updated;
+      });
 
-    // Note: This doesn't restore the original exercise data
-    // You would need to store original exercise data to fully reset
-    // For now, we just mark it as not customized
-  }, [setExerciseCustomized]);
+      // Note: This doesn't restore the original exercise data
+      // You would need to store original exercise data to fully reset
+      // For now, we just mark it as not customized
+    },
+    [setExerciseCustomized],
+  );
 
   const resetAllCustomizations = useCallback(() => {
     setExerciseCustomized({});
@@ -177,4 +209,4 @@ export const useExerciseCustomization = (params: UseExerciseCustomizationParams)
     resetAllCustomizations,
     shouldShowLastValues,
   };
-}; 
+};

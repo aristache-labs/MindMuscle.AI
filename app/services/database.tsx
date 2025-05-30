@@ -35,23 +35,19 @@ export const db = {
 
     // Create preferences if provided
     if (data.preferences) {
-      const { error: prefError } = await supabase
-        .from('user_preferences')
-        .insert({
-          user_id: userData.id,
-          goal: data.preferences.goal,
-          measurement_unit: data.preferences.measurementUnit,
-        });
+      const { error: prefError } = await supabase.from('user_preferences').insert({
+        user_id: userData.id,
+        goal: data.preferences.goal,
+        measurement_unit: data.preferences.measurementUnit,
+      });
 
       if (prefError) throw prefError;
     }
 
     // Create stats
-    const { error: statsError } = await supabase
-      .from('user_stats')
-      .insert({
-        user_id: userData.id,
-      });
+    const { error: statsError } = await supabase.from('user_stats').insert({
+      user_id: userData.id,
+    });
 
     if (statsError) throw statsError;
 
@@ -61,11 +57,13 @@ export const db = {
   getUserByEmail: async (email: string) => {
     const { data, error } = await supabase
       .from('users')
-      .select(`
+      .select(
+        `
         *,
         preferences:user_preferences(*),
         stats:user_stats(*)
-      `)
+      `,
+      )
       .eq('email', email)
       .single();
 
@@ -168,7 +166,7 @@ export const db = {
     if (error) throw error;
 
     // Add exercises to workout
-    const workoutExercises = data.exercises.map(ex => ({
+    const workoutExercises = data.exercises.map((ex) => ({
       workout_id: workout.id,
       exercise_id: ex.exerciseId,
       sets: ex.sets,
@@ -187,13 +185,15 @@ export const db = {
     // Return workout with exercises
     const { data: completeWorkout, error: fetchError } = await supabase
       .from('workouts')
-      .select(`
+      .select(
+        `
         *,
         exercises:workout_exercises(
           *,
           exercise:exercises(*)
         )
-      `)
+      `,
+      )
       .eq('id', workout.id)
       .single();
 
@@ -207,9 +207,7 @@ export const db = {
     isCustom?: boolean;
     createdBy?: string;
   }) => {
-    let query = supabase
-      .from('workouts')
-      .select(`
+    let query = supabase.from('workouts').select(`
         *,
         exercises:workout_exercises(
           *,
@@ -230,10 +228,7 @@ export const db = {
   },
 
   // Workout Progress operations
-  startWorkout: async (data: {
-    workoutId: string;
-    userId: string;
-  }) => {
+  startWorkout: async (data: { workoutId: string; userId: string }) => {
     const { data: progress, error } = await supabase
       .from('workout_progress')
       .insert({
@@ -242,7 +237,8 @@ export const db = {
         start_time: new Date().toISOString(),
         status: 'IN_PROGRESS',
       })
-      .select(`
+      .select(
+        `
         *,
         workout:workouts(
           *,
@@ -251,7 +247,8 @@ export const db = {
             exercise:exercises(*)
           )
         )
-      `)
+      `,
+      )
       .single();
 
     if (error) throw error;
@@ -299,13 +296,16 @@ export const db = {
   },
 
   // Stats operations
-  updateUserStats: async (userId: string, data: {
-    workoutsCompleted?: number;
-    totalWorkoutTime?: number;
-    streakDays?: number;
-    level?: number;
-    experience?: number;
-  }) => {
+  updateUserStats: async (
+    userId: string,
+    data: {
+      workoutsCompleted?: number;
+      totalWorkoutTime?: number;
+      streakDays?: number;
+      level?: number;
+      experience?: number;
+    },
+  ) => {
     const { data: stats, error } = await supabase
       .from('user_stats')
       .update({
@@ -329,11 +329,7 @@ type DatabaseContextType = typeof db;
 const DatabaseContext = createContext<DatabaseContextType | null>(null);
 
 export const DatabaseProvider = ({ children }: { children: React.ReactNode }) => {
-  return (
-    <DatabaseContext.Provider value={db}>
-      {children}
-    </DatabaseContext.Provider>
-  );
+  return <DatabaseContext.Provider value={db}>{children}</DatabaseContext.Provider>;
 };
 
 export const useDatabase = () => {
@@ -344,4 +340,4 @@ export const useDatabase = () => {
   return context;
 };
 
-export default DatabaseProvider; 
+export default DatabaseProvider;

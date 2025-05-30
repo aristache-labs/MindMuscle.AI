@@ -1,41 +1,37 @@
-import React, { useState } from 'react'
-import { 
-  Modal, View, Pressable, StyleSheet, Platform 
-} from 'react-native'
-import DateTimePicker, {
-  DateTimePickerEvent
-} from '@react-native-community/datetimepicker'
-import { IconButton } from 'react-native-paper'
-import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme'
+import React, { useState } from 'react';
+import { Modal, View, Pressable, StyleSheet, Platform } from 'react-native';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import { IconButton } from 'react-native-paper';
+import { SPACING, BORDER_RADIUS } from '../constants/theme';
 
 interface Props {
-  visible: boolean
-  date: Date
-  onCancel: () => void
-  onConfirm: (d: Date) => void
-  maximumDate?: Date
-  minimumDate?: Date
-  width?: number
+  visible: boolean;
+  date: Date;
+  onCancel: () => void;
+  onConfirm: (d: Date) => void;
+  maximumDate?: Date;
+  minimumDate?: Date;
+  width?: number;
 }
 
 export function ThemedDatePicker({
-  visible, 
-  date, 
-  onCancel, 
+  visible,
+  date,
+  onCancel,
   onConfirm,
   maximumDate,
   minimumDate,
-  width
+  width,
 }: Props) {
-  const [tempDate, setTempDate] = useState(date)
+  const [tempDate, setTempDate] = useState(date);
 
   const onChange = (_: DateTimePickerEvent, picked?: Date) => {
-    if (picked) setTempDate(picked)
+    if (picked) setTempDate(picked);
     // on Android we pick and immediately confirm:
     if (Platform.OS === 'android' && picked) {
-      onConfirm(picked)
+      onConfirm(picked);
     }
-  }
+  };
 
   return (
     <Modal
@@ -46,10 +42,7 @@ export function ThemedDatePicker({
       statusBarTranslucent
     >
       <Pressable style={styles.overlay} onPress={onCancel}>
-        <View style={[
-          styles.pickerBox,
-          width ? { width } : { width: '90%', maxWidth: 360 }
-        ]}>
+        <View style={[styles.pickerBox, width ? { width } : { width: '90%', maxWidth: 360 }]}>
           <DateTimePicker
             value={tempDate}
             mode="date"
@@ -80,7 +73,7 @@ export function ThemedDatePicker({
         </View>
       </Pressable>
     </Modal>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -124,6 +117,6 @@ const styles = StyleSheet.create({
   confirmButton: {
     backgroundColor: '#6c47ff',
   },
-})
+});
 
-export default ThemedDatePicker; 
+export default ThemedDatePicker;

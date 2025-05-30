@@ -18,12 +18,7 @@ export default function WorkoutWarmupModal({
   onSkip,
 }: WorkoutWarmupModalProps) {
   return (
-    <Modal
-      visible={visible}
-      transparent={true}
-      animationType="slide"
-      onRequestClose={() => {}}
-    >
+    <Modal visible={visible} transparent={true} animationType="slide" onRequestClose={() => {}}>
       <View style={styles.modalOverlay}>
         <View style={styles.modalContainer}>
           <LinearGradient
@@ -45,11 +40,11 @@ export default function WorkoutWarmupModal({
                   </Text>
                 </View>
               </View>
-              
+
               {/* Instructions */}
               <View style={styles.warmupInstructionsContainer}>
                 <Text style={styles.instructionsTitle}>Warmup Protocol:</Text>
-                
+
                 <View style={styles.instructionsList}>
                   <View style={styles.instructionItem}>
                     <View style={styles.instructionNumber}>
@@ -57,10 +52,12 @@ export default function WorkoutWarmupModal({
                     </View>
                     <View style={styles.instructionContent}>
                       <Text style={styles.instructionText}>5 reps with light weight</Text>
-                      <Text style={styles.instructionSubtext}>Focus on form and range of motion</Text>
+                      <Text style={styles.instructionSubtext}>
+                        Focus on form and range of motion
+                      </Text>
                     </View>
                   </View>
-                  
+
                   <View style={styles.instructionItem}>
                     <View style={styles.instructionNumber}>
                       <Text style={styles.instructionNumberText}>2</Text>
@@ -72,22 +69,21 @@ export default function WorkoutWarmupModal({
                   </View>
                 </View>
               </View>
-              
+
               {/* Action Buttons */}
               <View style={styles.modalActions}>
-                <TouchableOpacity 
-                  style={styles.skipButton}
-                  onPress={onSkip}
-                >
+                <TouchableOpacity style={styles.skipButton} onPress={onSkip}>
                   <Text style={styles.skipButtonText}>Skip</Text>
                 </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={styles.modalButton}
-                  onPress={onComplete}
-                >
+
+                <TouchableOpacity style={styles.modalButton} onPress={onComplete}>
                   <View style={styles.buttonContent}>
-                    <Ionicons name="checkmark" size={20} color={COLORS.primary} style={styles.buttonIcon} />
+                    <Ionicons
+                      name="checkmark"
+                      size={20}
+                      color={COLORS.primary}
+                      style={styles.buttonIcon}
+                    />
                     <Text style={styles.modalButtonText}>Complete</Text>
                   </View>
                 </TouchableOpacity>
@@ -252,4 +248,4 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
   },
-}); 
+});

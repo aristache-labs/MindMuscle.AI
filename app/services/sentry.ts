@@ -1,22 +1,42 @@
 import * as Sentry from '@sentry/react-native';
+import Constants from 'expo-constants';
 
 export function initializeSentry() {
   try {
+    // Get DSN from app.json
+    const sentryDsn = Constants.expoConfig?.extra?.sentryDsn || '';
+
+    if (!sentryDsn) {
+      console.warn('Sentry DSN is not configured');
+      return;
+    }
+
     Sentry.init({
-      dsn: 'https://95ca621b3a918874f6289b653a3e3f6a@o4509201331978240.ingest.de.sentry.io/4509201333092432',
-      // Adds more context data to events (IP address, cookies, user, etc.)
-      // For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/data-collected/
-      sendDefaultPii: true,
-      // Set tracesSampleRate to 1.0 to capture 100% of transactions for tracing.
-      // We recommend adjusting this value in production.
-      // Learn more at
-      // https://docs.sentry.io/platforms/react-native/configuration/options/#traces-sample-rate
+      dsn: sentryDsn,
+      debug: false, // Disable debug mode even in development
+      environment: Constants.expoConfig?.extra?.environment || 'development',
       tracesSampleRate: 1.0,
-      debug: __DEV__, // Enable debug mode in development
-      environment: __DEV__ ? 'development' : 'production',
+      sendDefaultPii: true,
+      // Disable user interaction tracing
+      integrations: (integrations) => {
+        return integrations.filter(
+          (integration) => integration.name !== 'UserInteractionIntegration',
+        );
+      },
+      // Silence Sentry logs
+      beforeBreadcrumb(breadcrumb) {
+        // Return null to drop the breadcrumb
+        return breadcrumb.category === 'console' ? null : breadcrumb;
+      },
     });
 
-    console.log('Sentry initialized successfully');
+    // Disable console logging from Sentry
+    Sentry.setTag('silent', 'true');
+
+    // Still log initialization success but only once
+    if (!__DEV__) {
+      console.log('Sentry initialized successfully');
+    }
   } catch (error) {
     console.warn('Sentry initialization failed:', error);
   }

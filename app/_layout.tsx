@@ -1,15 +1,6 @@
 // Initialize polyfills first
 import './utils/polyfills';
 
-// Initialize Reactotron for debugging in development
-if (__DEV__) {
-  import('../ReactotronConfig');
-  // Import error testing utilities for development
-  import('./utils/errorTestingUtils');
-  // Import advanced debugging utilities for development
-  import('./utils/debuggingUtils');
-}
-
 // Configure Reanimated logger to reduce warnings
 import { configureReanimatedLogger, ReanimatedLogLevel } from 'react-native-reanimated';
 

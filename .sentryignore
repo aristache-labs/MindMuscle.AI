@@ -1,0 +1,87 @@
+# Sentry Ignore File
+# Files and directories listed here will not be uploaded to Sentry
+# For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/debug-files/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Node modules
+node_modules/
+
+# Build artifacts
+dist/
+build/
+.expo/
+android/app/build/
+ios/build/
+
+# Development files
+.vscode/
+.cursor/
+.windsurf/
+
+# Logs
+*.log
+logs/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+.temp/
+
+# Cache directories
+.cache/
+.parcel-cache/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+*.swp
+*.swo
+*~
+
+# Backup files
+backup/
+*.backup
+*.bak
+
+# Test files (optional - remove if you want test coverage)
+__tests__/
+*.test.js
+*.test.ts
+*.test.tsx
+*.spec.js
+*.spec.ts
+*.spec.tsx
+
+# Documentation (optional - remove if you want docs in Sentry)
+docs/
+*.md
+!README.md
+
+# Config files with sensitive data
+firebase-setup.md
+GoogleService-Info.plist
+google-services.json
+
+# Prisma files
+prisma/dev.db
+prisma/migrations/
+
+# Supabase local files
+supabase/.temp/ 

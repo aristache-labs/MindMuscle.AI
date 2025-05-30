@@ -11,7 +11,16 @@
     "web": "expo start --web",
     "clean": "npx expo start --clear",
     "test": "jest",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "sentry:upload": "node scripts/sentry-debug-upload.js",
+    "sentry:upload:ios": "node scripts/sentry-debug-upload.js --platform ios",
+    "sentry:upload:android": "node scripts/sentry-debug-upload.js --platform android",
+    "sentry:upload:web": "node scripts/sentry-debug-upload.js --platform web",
+    "sentry:upload:staging": "node scripts/sentry-debug-upload.js --environment staging",
+    "sentry:upload:dev": "node scripts/sentry-debug-upload.js --environment development --skip-cleanup",
+    "sentry:validate": "npx @sentry/cli releases files $(node -p \"require('./package.json').version\") validate",
+    "sentry:info": "npx @sentry/cli info",
+    "build:release": "npx expo prebuild && npm run sentry:upload"
   },
   "dependencies": {
     "@expo/config-plugins": "~10.0.0",

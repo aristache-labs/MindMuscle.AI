@@ -189,7 +189,7 @@ export default function WorkoutSessionScreen() {
     handleExerciseListPress,
     handleExerciseListModalClose: _handleExerciseListModalClose,
     handleNextExercisePress,
-    handleExerciseSelect,
+    handleExerciseSelect: _handleExerciseSelect,
     handleCustomizeExercisePress,
     handleCustomizeExerciseFromList: _handleCustomizeExerciseFromList,
     handleCustomizeExerciseModalClose,

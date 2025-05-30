@@ -15,6 +15,12 @@ const config = getSentryExpoConfig(projectRoot);
 // Ensure Metro honors package.json exports (so RN-optimized bundles are picked)
 config.resolver.unstable_enablePackageExports = true;
 
+// Add WASM support for expo-sqlite web compatibility
+config.resolver.assetExts = [
+  ...config.resolver.assetExts,
+  'wasm'
+];
+
 // Block Prisma and other server-only modules
 config.resolver.blockList = [
   /\/node_modules\/prisma\//,

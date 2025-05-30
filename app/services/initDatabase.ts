@@ -1,11 +1,29 @@
-import * as SQLite from 'expo-sqlite';
+import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import { useState, useEffect } from 'react';
+
+// Platform-specific SQLite import
+let SQLite: any = null;
+
+// Only import SQLite on native platforms
+if (Platform.OS !== 'web') {
+  SQLite = require('expo-sqlite');
+}
 
 const DB_NAME = 'mindmuscle.db';
 const DB_DIRECTORY = FileSystem.documentDirectory + 'SQLite/';
 
 export const initDatabase = async () => {
+  // Skip database initialization on web
+  if (Platform.OS === 'web') {
+    console.log('Database initialization skipped on web platform');
+    return Promise.resolve();
+  }
+
+  if (!SQLite) {
+    throw new Error('SQLite not available on this platform');
+  }
+
   if (!(await FileSystem.getInfoAsync(DB_DIRECTORY)).exists) {
     await FileSystem.makeDirectoryAsync(DB_DIRECTORY);
   }
@@ -69,10 +87,23 @@ export const initDatabase = async () => {
 };
 
 export const getDatabase = () => {
+  if (Platform.OS === 'web') {
+    console.warn('Database not available on web platform');
+    return null;
+  }
+  
+  if (!SQLite) {
+    throw new Error('SQLite not available on this platform');
+  }
+  
   return SQLite.openDatabaseAsync(DB_DIRECTORY + DB_NAME);
 };
 
 export async function closeDatabase() {
+  if (Platform.OS === 'web' || !SQLite) {
+    return;
+  }
+  
   const db = await SQLite.openDatabaseAsync(DB_DIRECTORY + DB_NAME);
   await db.closeAsync();
 }

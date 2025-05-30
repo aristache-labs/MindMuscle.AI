@@ -1,16 +1,6 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
-import {
-  TextInput,
-  Button,
-  Card,
-  Text,
-  ActivityIndicator,
-  Chip,
-  Portal,
-  Modal,
-  TextInput as PaperTextInput,
-} from 'react-native-paper';
+import { TextInput, Button, Card, Text, ActivityIndicator, Chip, Portal, Modal, TextInput as PaperTextInput } from 'react-native-paper';
 import { useCoaching } from '../store/CoachingContext';
 import { format } from 'date-fns';
 import { Rating } from 'react-native-ratings';
@@ -24,15 +14,7 @@ const CoachingInterface: React.FC = () => {
   const [feedbackText, setFeedbackText] = useState('');
   const [rating, setRating] = useState(3);
   const [profileModalVisible, setProfileModalVisible] = useState(false);
-  const {
-    getCoachingResponse,
-    sessions,
-    isLoading,
-    error,
-    saveFeedback,
-    updateUserProfile,
-    context,
-  } = useCoaching();
+  const { getCoachingResponse, sessions, isLoading, error, saveFeedback, updateUserProfile, context } = useCoaching();
 
   const handleSubmit = async () => {
     if (!prompt.trim()) return;
@@ -64,7 +46,7 @@ const CoachingInterface: React.FC = () => {
         weight: Number(context.userProfile.weight),
         height: Number(context.userProfile.height),
         gender: context.userProfile.gender,
-        medicalConditions: context.userProfile.medicalConditions,
+        medicalConditions: context.userProfile.medicalConditions
       });
       setProfileModalVisible(false);
     } catch (err) {
@@ -316,4 +298,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default CoachingInterface;
+export default CoachingInterface; 

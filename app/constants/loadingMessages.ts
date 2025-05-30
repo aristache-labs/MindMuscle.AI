@@ -15,19 +15,19 @@ export const LOADING_MESSAGES = {
   READY: 'Ready!',
   COMPLETE: 'Setup complete!',
   LIMITED: 'Ready (with limited resources)',
-
+  
   // User-facing messages
   DEFAULT: 'Welcome to MindMuscle.AI',
   DEFAULT_WORKOUT: 'Preparing your workout...',
   AUTHENTICATED: 'Preparing your workout experience...',
   GETTING_READY: 'Getting things ready...',
-
+  
   // User-specific content loading
   USER_CONTENT: 'Loading your personal content...',
   PROGRESS_PHOTOS: 'Caching your progress photos...',
   FAVORITE_EXERCISES: 'Preparing your favorite exercises...',
   WORKOUT_HISTORY: 'Loading your workout history...',
-
+  
   // Rotating messages for loading screen
   ROTATION: [
     'Loading exercises...',
@@ -38,8 +38,8 @@ export const LOADING_MESSAGES = {
     'Almost there...',
     'Hold on tight...',
     'Finalizing...',
-  ],
+  ]
 };
 
 // Define a default export to satisfy Expo Router
-export default LOADING_MESSAGES;
+export default LOADING_MESSAGES; 

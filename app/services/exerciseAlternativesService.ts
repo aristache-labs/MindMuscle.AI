@@ -38,17 +38,12 @@ interface CurrentExercise {
   requires_weight?: boolean;
 }
 
-interface ExerciseCache {
-  all: Exercise[];
-  lastUpdated: number;
-}
-
 // Helper to get cached exercises (reuse existing cache system)
-const getCachedExercises = (): ExerciseCache | null => {
+const getCachedExercises = () => {
   try {
-    const cache = (global as { exercisesCache?: ExerciseCache }).exercisesCache;
+    const cache = (global as any).exercisesCache;
     if (!cache) return null;
-
+    
     // Check if cache is expired (30 minutes)
     const CACHE_EXPIRY = 30 * 60 * 1000;
     const now = Date.now();
@@ -56,7 +51,7 @@ const getCachedExercises = (): ExerciseCache | null => {
       console.log('Exercise cache expired, will refresh from API');
       return null;
     }
-
+    
     return cache;
   } catch (error) {
     console.warn('Error accessing exercise cache:', error);
@@ -71,12 +66,11 @@ const getExercisesForMuscleGroup = async (primaryMuscle: string): Promise<Exerci
   if (cache?.all) {
     console.log(`🚀 Using cached exercises for muscle group: ${primaryMuscle}`);
     // Filter cached exercises by primary muscle
-    return cache.all.filter(
-      (exercise: Exercise) =>
-        exercise.primary_muscles && exercise.primary_muscles.includes(primaryMuscle),
+    return cache.all.filter((exercise: Exercise) => 
+      exercise.primary_muscles && exercise.primary_muscles.includes(primaryMuscle)
     );
   }
-
+  
   // Fallback to API call for specific muscle group
   console.log(`📡 Fetching exercises from API for muscle group: ${primaryMuscle}`);
   const { data: exercises, error } = await supabase
@@ -94,93 +88,57 @@ const getExercisesForMuscleGroup = async (primaryMuscle: string): Promise<Exerci
 };
 
 /**
- * Adjusts reps based on difficulty comparison
- */
-function adjustRepsForDifficulty(
-  reps_range: string,
-  currentDifficulty: string | undefined,
-  newDifficulty: string,
-): string {
-  if (newDifficulty === 'Beginner' && currentDifficulty === 'Advanced') {
-    // Easier exercise - might do more reps
-    const [min, max] = reps_range.split('-').map(Number);
-    if (!isNaN(min) && !isNaN(max)) {
-      return `${min + 2}-${max + 2}`;
-    }
-  } else if (newDifficulty === 'Advanced' && currentDifficulty === 'Beginner') {
-    // Harder exercise - might do fewer reps
-    const [min, max] = reps_range.split('-').map(Number);
-    if (!isNaN(min) && !isNaN(max) && min > 2 && max > 2) {
-      return `${min - 2}-${max - 2}`;
-    }
-  }
-  return reps_range;
-}
-
-/**
- * Adjusts rest time based on muscle group
- */
-function adjustRestTimeForMuscleGroup(baseRestTime: number, primaryMuscles: string[]): number {
-  if (primaryMuscles.includes('Quads') || primaryMuscles.includes('Hamstrings')) {
-    // Leg exercises typically need more rest
-    return Math.max(baseRestTime, 90);
-  } else if (primaryMuscles.includes('Abs') || primaryMuscles.includes('Calves')) {
-    // Smaller muscle groups need less rest
-    return Math.min(baseRestTime, 60);
-  }
-  return baseRestTime;
-}
-
-/**
- * Adjusts reps for weight requirement changes
- */
-function adjustRepsForWeightRequirement(
-  reps_range: string,
-  currentRequiresWeight: boolean | undefined,
-  newRequiresWeight: boolean,
-): string {
-  if (newRequiresWeight !== currentRequiresWeight) {
-    if (!newRequiresWeight && currentRequiresWeight) {
-      // Switching from weighted to bodyweight - increase reps
-      const [min, max] = reps_range.split('-').map(Number);
-      if (!isNaN(min) && !isNaN(max)) {
-        return `${min + 3}-${max + 5}`;
-      }
-    } else if (newRequiresWeight && !currentRequiresWeight) {
-      // Switching from bodyweight to weighted - decrease reps
-      const [min, max] = reps_range.split('-').map(Number);
-      if (!isNaN(min) && !isNaN(max) && min > 3 && max > 5) {
-        return `${min - 3}-${max - 5}`;
-      }
-    }
-  }
-  return reps_range;
-}
-
-/**
  * Generates smart defaults for workout parameters based on exercise properties
  */
 function generateSmartDefaults(
-  exercise: Exercise,
-  currentExercise: CurrentExercise,
+  exercise: Exercise, 
+  currentExercise: CurrentExercise
 ): { sets: number; reps_range: string; rest_time: number } {
   // Use current exercise as base, but adjust based on new exercise properties
-  const sets = currentExercise.sets;
+  let sets = currentExercise.sets;
   let reps_range = currentExercise.reps_range;
   let rest_time = currentExercise.rest_time;
 
   // Adjust based on difficulty
-  reps_range = adjustRepsForDifficulty(reps_range, currentExercise.difficulty, exercise.difficulty);
+  if (exercise.difficulty === 'Beginner' && currentExercise.difficulty === 'Advanced') {
+    // Easier exercise - might do more reps
+    const [min, max] = reps_range.split('-').map(Number);
+    if (!isNaN(min) && !isNaN(max)) {
+      reps_range = `${min + 2}-${max + 2}`;
+    }
+  } else if (exercise.difficulty === 'Advanced' && currentExercise.difficulty === 'Beginner') {
+    // Harder exercise - might do fewer reps
+    const [min, max] = reps_range.split('-').map(Number);
+    if (!isNaN(min) && !isNaN(max) && min > 2 && max > 2) {
+      reps_range = `${min - 2}-${max - 2}`;
+    }
+  }
 
   // Adjust rest time based on exercise type
-  rest_time = adjustRestTimeForMuscleGroup(rest_time, exercise.primary_muscles);
+  if (exercise.primary_muscles.includes('Quads') || exercise.primary_muscles.includes('Hamstrings')) {
+    // Leg exercises typically need more rest
+    rest_time = Math.max(rest_time, 90);
+  } else if (exercise.primary_muscles.includes('Abs') || exercise.primary_muscles.includes('Calves')) {
+    // Smaller muscle groups need less rest
+    rest_time = Math.min(rest_time, 60);
+  }
 
   // Bodyweight vs weighted adjustments
-  reps_range = adjustRepsForWeightRequirement(
-    reps_range,
-    currentExercise.requires_weight,
-    exercise.requires_weight,
-  );
+  if (exercise.requires_weight !== currentExercise.requires_weight) {
+    if (!exercise.requires_weight && currentExercise.requires_weight) {
+      // Switching from weighted to bodyweight - increase reps
+      const [min, max] = reps_range.split('-').map(Number);
+      if (!isNaN(min) && !isNaN(max)) {
+        reps_range = `${min + 3}-${max + 5}`;
+      }
+    } else if (exercise.requires_weight && !currentExercise.requires_weight) {
+      // Switching from bodyweight to weighted - decrease reps
+      const [min, max] = reps_range.split('-').map(Number);
+      if (!isNaN(min) && !isNaN(max) && min > 3 && max > 5) {
+        reps_range = `${min - 3}-${max - 5}`;
+      }
+    }
+  }
 
   return { sets, reps_range, rest_time };
 }
@@ -190,51 +148,36 @@ function generateSmartDefaults(
  */
 function calculatePopularityScore(exercise: Exercise): number {
   let popularityScore = 0;
-
+  
   // Common equipment gets higher popularity
   const commonEquipment = ['Barbell', 'Dumbbell', 'Bodyweight', 'Cable', 'Machine'];
   if (commonEquipment.includes(exercise.equipment)) {
     popularityScore += 20;
   }
-
+  
   // Beginner and Intermediate exercises are more popular
   if (exercise.difficulty === 'Beginner') {
     popularityScore += 15;
   } else if (exercise.difficulty === 'Intermediate') {
     popularityScore += 10;
   }
-
+  
   // Common exercise names (basic movements)
   const commonExerciseKeywords = [
-    'squat',
-    'deadlift',
-    'bench',
-    'press',
-    'row',
-    'curl',
-    'extension',
-    'raise',
-    'fly',
-    'pulldown',
-    'pushup',
-    'pullup',
-    'dip',
-    'lunge',
-    'crunch',
-    'plank',
-    'leg press',
-    'chest press',
+    'squat', 'deadlift', 'bench', 'press', 'row', 'curl', 'extension', 
+    'raise', 'fly', 'pulldown', 'pushup', 'pullup', 'dip', 'lunge', 
+    'crunch', 'plank', 'leg press', 'chest press'
   ];
-
+  
   const exerciseNameLower = exercise.name.toLowerCase();
-  const hasCommonKeyword = commonExerciseKeywords.some((keyword) =>
-    exerciseNameLower.includes(keyword),
+  const hasCommonKeyword = commonExerciseKeywords.some(keyword => 
+    exerciseNameLower.includes(keyword)
   );
-
+  
   if (hasCommonKeyword) {
     popularityScore += 15;
   }
-
+  
   return popularityScore;
 }
 
@@ -247,9 +190,9 @@ function calculateSimilarityScore(exercise: Exercise, currentExercise: CurrentEx
   // Primary muscle match (highest weight)
   const currentPrimaryMuscles = currentExercise.primary_muscles || [];
   const exercisePrimaryMuscles = exercise.primary_muscles || [];
-
-  const primaryMuscleMatch = exercisePrimaryMuscles.some((muscle) =>
-    currentPrimaryMuscles.includes(muscle),
+  
+  const primaryMuscleMatch = exercisePrimaryMuscles.some(muscle => 
+    currentPrimaryMuscles.includes(muscle)
   );
   if (primaryMuscleMatch) score += 40; // Reduced from 50 to allow more variety
 
@@ -263,9 +206,8 @@ function calculateSimilarityScore(exercise: Exercise, currentExercise: CurrentEx
   if (exercise.requires_weight === currentExercise.requires_weight) score += 8; // Reduced from 10
 
   // Penalty for very different difficulty levels (reduced penalty)
-  const difficultyLevels = { Beginner: 1, Intermediate: 2, Advanced: 3 };
-  const currentLevel =
-    difficultyLevels[currentExercise.difficulty as keyof typeof difficultyLevels] || 2;
+  const difficultyLevels = { 'Beginner': 1, 'Intermediate': 2, 'Advanced': 3 };
+  const currentLevel = difficultyLevels[currentExercise.difficulty as keyof typeof difficultyLevels] || 2;
   const exerciseLevel = difficultyLevels[exercise.difficulty as keyof typeof difficultyLevels] || 2;
   const difficultyDiff = Math.abs(currentLevel - exerciseLevel);
   score -= difficultyDiff * 3; // Reduced penalty from 5 to 3
@@ -277,105 +219,12 @@ function calculateSimilarityScore(exercise: Exercise, currentExercise: CurrentEx
 }
 
 /**
- * Categorizes exercises into recommended and other based on smart distribution
- */
-function categorizeExercises(
-  processedExercises: ExerciseAlternative[],
-  primaryMuscle: string,
-): { recommended: ExerciseAlternative[]; other: ExerciseAlternative[] } {
-  const recommended: ExerciseAlternative[] = [];
-  const other: ExerciseAlternative[] = [];
-
-  if (processedExercises.length === 0) {
-    return { recommended: [], other: [] };
-  }
-
-  // Dynamic categorization strategy for better distribution
-  if (processedExercises.length <= 4) {
-    // For small sets, put top 50% in recommended, rest in other
-    const splitIndex = Math.ceil(processedExercises.length / 2);
-
-    for (let i = 0; i < processedExercises.length; i++) {
-      const exercise = processedExercises[i];
-      if (i < splitIndex) {
-        exercise.recommendation_type = 'recommended';
-        recommended.push(exercise);
-      } else {
-        exercise.recommendation_type = 'other';
-        other.push(exercise);
-      }
-    }
-  } else {
-    // For larger sets, use a more sophisticated approach
-    const totalExercises = processedExercises.length;
-    const highestScore = processedExercises[0]?.similarity_score || 0;
-    const lowestScore = processedExercises[processedExercises.length - 1]?.similarity_score || 0;
-    const scoreRange = highestScore - lowestScore;
-
-    // Calculate dynamic threshold based on score distribution
-    const dynamicThreshold = highestScore - scoreRange * 0.4; // Top 40% of score range
-
-    // Ensure we have at least 30% in recommended and at least 20% in other
-    const minRecommended = Math.ceil(totalExercises * 0.3);
-    const maxRecommended = Math.floor(totalExercises * 0.8);
-
-    // First pass: categorize by dynamic threshold
-    for (let i = 0; i < processedExercises.length; i++) {
-      const exercise = processedExercises[i];
-      if (exercise.similarity_score >= dynamicThreshold) {
-        exercise.recommendation_type = 'recommended';
-        recommended.push(exercise);
-      } else {
-        exercise.recommendation_type = 'other';
-        other.push(exercise);
-      }
-    }
-
-    // Adjust if distribution is too skewed
-    if (recommended.length < minRecommended) {
-      // Move some from other to recommended
-      const needToMove = minRecommended - recommended.length;
-      const toMove = other.splice(0, needToMove);
-      toMove.forEach((ex) => {
-        ex.recommendation_type = 'recommended';
-        recommended.push(ex);
-      });
-    } else if (recommended.length > maxRecommended) {
-      // Move some from recommended to other
-      const toMove = recommended.splice(maxRecommended);
-      toMove.forEach((ex) => {
-        ex.recommendation_type = 'other';
-        other.push(ex);
-      });
-    }
-
-    // Ensure other category has at least some exercises if we have enough total
-    if (other.length === 0 && totalExercises > 2) {
-      const toMove = recommended.pop();
-      if (toMove) {
-        toMove.recommendation_type = 'other';
-        other.push(toMove);
-      }
-    }
-  }
-
-  console.log(`✅ Final categorization for ${primaryMuscle} (SMART SPLIT):`, {
-    recommended: recommended.length,
-    other: other.length,
-    total: recommended.length + other.length,
-    distribution: `${Math.round((recommended.length / (recommended.length + other.length)) * 100)}% recommended, ${Math.round((other.length / (recommended.length + other.length)) * 100)}% other`,
-    recommendedNames: recommended.slice(0, 3).map((ex) => ex.name),
-    otherNames: other.slice(0, 3).map((ex) => ex.name),
-  });
-
-  return { recommended, other };
-}
-
-/**
  * Fetches exercise alternatives for a given exercise, showing ALL exercises for the SAME muscle group
  * Uses caching for optimal performance with large datasets
  */
-export async function fetchExerciseAlternatives(currentExercise: CurrentExercise): Promise<{
+export async function fetchExerciseAlternatives(
+  currentExercise: CurrentExercise
+): Promise<{
   recommended: ExerciseAlternative[];
   other: ExerciseAlternative[];
 }> {
@@ -384,7 +233,7 @@ export async function fetchExerciseAlternatives(currentExercise: CurrentExercise
       exercise_id: currentExercise.exercise_id,
       primary_muscles: currentExercise.primary_muscles,
       difficulty: currentExercise.difficulty,
-      equipment: currentExercise.equipment,
+      equipment: currentExercise.equipment
     });
 
     if (!currentExercise.primary_muscles || currentExercise.primary_muscles.length === 0) {
@@ -397,30 +246,26 @@ export async function fetchExerciseAlternatives(currentExercise: CurrentExercise
 
     // Get ALL exercises for the same muscle group using cache for optimal performance
     const muscleGroupExercises = await getExercisesForMuscleGroup(primaryMuscle);
-
+    
     if (!muscleGroupExercises || muscleGroupExercises.length === 0) {
       console.log(`❌ No exercises found for muscle group: ${primaryMuscle}`);
       return { recommended: [], other: [] };
     }
 
-    console.log(
-      `📊 Found ${muscleGroupExercises.length} exercises for ${primaryMuscle} muscle group`,
-    );
+    console.log(`📊 Found ${muscleGroupExercises.length} exercises for ${primaryMuscle} muscle group`);
 
     // Filter out current exercise and process all others in the same muscle group
-    const availableExercises = muscleGroupExercises.filter(
-      (exercise) => exercise.id !== currentExercise.exercise_id,
+    const availableExercises = muscleGroupExercises.filter(exercise => 
+      exercise.id !== currentExercise.exercise_id
     );
 
-    console.log(
-      `🎯 ${availableExercises.length} ${primaryMuscle} exercises available after filtering current exercise`,
-    );
+    console.log(`🎯 ${availableExercises.length} ${primaryMuscle} exercises available after filtering current exercise`);
 
     // Process ALL available exercises in the muscle group and add smart defaults
-    const processedExercises: ExerciseAlternative[] = availableExercises.map((exercise) => {
+    const processedExercises: ExerciseAlternative[] = availableExercises.map(exercise => {
       const smartDefaults = generateSmartDefaults(exercise, currentExercise);
       const similarityScore = calculateSimilarityScore(exercise, currentExercise);
-
+      
       return {
         ...exercise,
         exercise_id: exercise.id, // Map id to exercise_id for compatibility
@@ -437,71 +282,109 @@ export async function fetchExerciseAlternatives(currentExercise: CurrentExercise
 
     console.log(`📊 Exercise categorization for ${primaryMuscle}:`, {
       totalExercises: processedExercises.length,
-      topScores: processedExercises
-        .slice(0, 5)
-        .map((ex) => ({ name: ex.name, score: ex.similarity_score })),
+      topScores: processedExercises.slice(0, 5).map(ex => ({ name: ex.name, score: ex.similarity_score })),
       scoreRange: {
         highest: processedExercises[0]?.similarity_score || 0,
-        lowest: processedExercises[processedExercises.length - 1]?.similarity_score || 0,
-      },
+        lowest: processedExercises[processedExercises.length - 1]?.similarity_score || 0
+      }
+    });
+    
+    // Smart categorization to ensure proper split between recommended and other
+    const recommended: ExerciseAlternative[] = [];
+    const other: ExerciseAlternative[] = [];
+    
+    if (processedExercises.length === 0) {
+      return { recommended: [], other: [] };
+    }
+    
+    // Dynamic categorization strategy for better distribution
+    if (processedExercises.length <= 4) {
+      // For small sets, put top 50% in recommended, rest in other
+      const splitIndex = Math.ceil(processedExercises.length / 2);
+      
+      for (let i = 0; i < processedExercises.length; i++) {
+        const exercise = processedExercises[i];
+        if (i < splitIndex) {
+          exercise.recommendation_type = 'recommended';
+          recommended.push(exercise);
+        } else {
+          exercise.recommendation_type = 'other';
+          other.push(exercise);
+        }
+      }
+    } else {
+      // For larger sets, use a more sophisticated approach
+      const totalExercises = processedExercises.length;
+      const highestScore = processedExercises[0]?.similarity_score || 0;
+      const lowestScore = processedExercises[processedExercises.length - 1]?.similarity_score || 0;
+      const scoreRange = highestScore - lowestScore;
+      
+      // Calculate dynamic threshold based on score distribution
+      let dynamicThreshold = highestScore - (scoreRange * 0.4); // Top 40% of score range
+      
+      // Ensure we have at least 30% in recommended and at least 20% in other
+      const minRecommended = Math.ceil(totalExercises * 0.3);
+      const maxRecommended = Math.floor(totalExercises * 0.8);
+      
+      // First pass: categorize by dynamic threshold
+      for (let i = 0; i < processedExercises.length; i++) {
+        const exercise = processedExercises[i];
+        if (exercise.similarity_score >= dynamicThreshold) {
+          exercise.recommendation_type = 'recommended';
+          recommended.push(exercise);
+        } else {
+          exercise.recommendation_type = 'other';
+          other.push(exercise);
+        }
+      }
+      
+      // Adjust if distribution is too skewed
+      if (recommended.length < minRecommended) {
+        // Move some from other to recommended
+        const needToMove = minRecommended - recommended.length;
+        const toMove = other.splice(0, needToMove);
+        toMove.forEach(ex => {
+          ex.recommendation_type = 'recommended';
+          recommended.push(ex);
+        });
+      } else if (recommended.length > maxRecommended) {
+        // Move some from recommended to other
+        const needToMove = recommended.length - maxRecommended;
+        const toMove = recommended.splice(maxRecommended);
+        toMove.forEach(ex => {
+          ex.recommendation_type = 'other';
+          other.push(ex);
+        });
+      }
+      
+      // Ensure other category has at least some exercises if we have enough total
+      if (other.length === 0 && totalExercises > 2) {
+        const toMove = recommended.pop();
+        if (toMove) {
+          toMove.recommendation_type = 'other';
+          other.push(toMove);
+        }
+      }
+    }
+
+    console.log(`✅ Final categorization for ${primaryMuscle} (SMART SPLIT):`, {
+      recommended: recommended.length,
+      other: other.length,
+      total: recommended.length + other.length,
+      distribution: `${Math.round((recommended.length / (recommended.length + other.length)) * 100)}% recommended, ${Math.round((other.length / (recommended.length + other.length)) * 100)}% other`,
+      recommendedNames: recommended.slice(0, 3).map(ex => ex.name),
+      otherNames: other.slice(0, 3).map(ex => ex.name)
     });
 
-    // Use the categorization helper function
-    const result = categorizeExercises(processedExercises, primaryMuscle);
-
-    return {
-      recommended: result.recommended, // Show ALL recommended exercises for this muscle group
-      other: result.other, // Show ALL other alternatives for this muscle group
+    return { 
+      recommended: recommended, // Show ALL recommended exercises for this muscle group
+      other: other // Show ALL other alternatives for this muscle group
     };
+
   } catch (error) {
     console.error('Error in fetchExerciseAlternatives:', error);
     return { recommended: [], other: [] };
   }
-}
-
-/**
- * Applies user preferences to exercise scoring
- */
-function applyUserPreferences(
-  exercises: ExerciseAlternative[],
-  userPreferences: {
-    preferredEquipment?: string[];
-    maxDifficulty?: string;
-    preferBodyweight?: boolean;
-  },
-): ExerciseAlternative[] {
-  return exercises
-    .map((exercise) => {
-      let adjustedScore = exercise.similarity_score;
-
-      // Boost score for preferred equipment
-      if (userPreferences.preferredEquipment?.includes(exercise.equipment)) {
-        adjustedScore += 15;
-      }
-
-      // Boost score for bodyweight preference
-      if (userPreferences.preferBodyweight && !exercise.requires_weight) {
-        adjustedScore += 10;
-      }
-
-      // Filter out exercises above max difficulty
-      const difficultyLevels = { Beginner: 1, Intermediate: 2, Advanced: 3 };
-      const maxLevel =
-        difficultyLevels[userPreferences.maxDifficulty as keyof typeof difficultyLevels] || 3;
-      const exerciseLevel =
-        difficultyLevels[exercise.difficulty as keyof typeof difficultyLevels] || 2;
-
-      if (exerciseLevel > maxLevel) {
-        adjustedScore -= 30; // Heavy penalty for too difficult exercises
-      }
-
-      return {
-        ...exercise,
-        similarity_score: adjustedScore,
-        recommendation_type: 'other' as 'recommended' | 'other', // Will be determined below
-      };
-    })
-    .sort((a, b) => b.similarity_score - a.similarity_score);
 }
 
 /**
@@ -514,46 +397,145 @@ export async function fetchEnhancedExerciseAlternatives(
     preferredEquipment?: string[];
     maxDifficulty?: string;
     preferBodyweight?: boolean;
-  },
+  }
 ): Promise<{
   recommended: ExerciseAlternative[];
   other: ExerciseAlternative[];
 }> {
   try {
     const baseAlternatives = await fetchExerciseAlternatives(currentExercise);
-
+    
     if (!userPreferences) {
       return baseAlternatives;
     }
 
     // Apply user preferences to boost/filter recommendations
-    const allProcessed = applyUserPreferences(
-      [...baseAlternatives.recommended, ...baseAlternatives.other],
-      userPreferences,
-    );
+    const applyPreferences = (exercises: ExerciseAlternative[]) => {
+      return exercises.map(exercise => {
+        let adjustedScore = exercise.similarity_score;
 
+        // Boost score for preferred equipment
+        if (userPreferences.preferredEquipment?.includes(exercise.equipment)) {
+          adjustedScore += 15;
+        }
+
+        // Boost score for bodyweight preference
+        if (userPreferences.preferBodyweight && !exercise.requires_weight) {
+          adjustedScore += 10;
+        }
+
+        // Filter out exercises above max difficulty
+        const difficultyLevels = { 'Beginner': 1, 'Intermediate': 2, 'Advanced': 3 };
+        const maxLevel = difficultyLevels[userPreferences.maxDifficulty as keyof typeof difficultyLevels] || 3;
+        const exerciseLevel = difficultyLevels[exercise.difficulty as keyof typeof difficultyLevels] || 2;
+        
+        if (exerciseLevel > maxLevel) {
+          adjustedScore -= 30; // Heavy penalty for too difficult exercises
+        }
+
+        return {
+          ...exercise,
+          similarity_score: adjustedScore,
+          recommendation_type: 'other' as 'recommended' | 'other' // Will be determined below
+        };
+      }).sort((a, b) => b.similarity_score - a.similarity_score);
+    };
+
+    const allProcessed = applyPreferences([...baseAlternatives.recommended, ...baseAlternatives.other]);
+    
+    // Apply the same smart categorization logic for consistent distribution
+    const recommended: ExerciseAlternative[] = [];
+    const other: ExerciseAlternative[] = [];
+    
     if (allProcessed.length === 0) {
       return { recommended: [], other: [] };
     }
-
+    
+    // Use the same dynamic categorization as the main function
+    if (allProcessed.length <= 4) {
+      // For small sets, put top 50% in recommended, rest in other
+      const splitIndex = Math.ceil(allProcessed.length / 2);
+      
+      for (let i = 0; i < allProcessed.length; i++) {
+        const exercise = allProcessed[i];
+        if (i < splitIndex) {
+          exercise.recommendation_type = 'recommended';
+          recommended.push(exercise);
+        } else {
+          exercise.recommendation_type = 'other';
+          other.push(exercise);
+        }
+      }
+    } else {
+      // For larger sets, use dynamic threshold approach
+      const totalExercises = allProcessed.length;
+      const highestScore = allProcessed[0]?.similarity_score || 0;
+      const lowestScore = allProcessed[allProcessed.length - 1]?.similarity_score || 0;
+      const scoreRange = highestScore - lowestScore;
+      
+      // Calculate dynamic threshold based on score distribution
+      let dynamicThreshold = highestScore - (scoreRange * 0.4); // Top 40% of score range
+      
+      // Ensure we have at least 30% in recommended and at least 20% in other
+      const minRecommended = Math.ceil(totalExercises * 0.3);
+      const maxRecommended = Math.floor(totalExercises * 0.8);
+      
+      // First pass: categorize by dynamic threshold
+      for (let i = 0; i < allProcessed.length; i++) {
+        const exercise = allProcessed[i];
+        if (exercise.similarity_score >= dynamicThreshold) {
+          exercise.recommendation_type = 'recommended';
+          recommended.push(exercise);
+        } else {
+          exercise.recommendation_type = 'other';
+          other.push(exercise);
+        }
+      }
+      
+      // Adjust if distribution is too skewed
+      if (recommended.length < minRecommended) {
+        // Move some from other to recommended
+        const needToMove = minRecommended - recommended.length;
+        const toMove = other.splice(0, needToMove);
+        toMove.forEach(ex => {
+          ex.recommendation_type = 'recommended';
+          recommended.push(ex);
+        });
+      } else if (recommended.length > maxRecommended) {
+        // Move some from recommended to other
+        const needToMove = recommended.length - maxRecommended;
+        const toMove = recommended.splice(maxRecommended);
+        toMove.forEach(ex => {
+          ex.recommendation_type = 'other';
+          other.push(ex);
+        });
+      }
+      
+      // Ensure other category has at least some exercises if we have enough total
+      if (other.length === 0 && totalExercises > 2) {
+        const toMove = recommended.pop();
+        if (toMove) {
+          toMove.recommendation_type = 'other';
+          other.push(toMove);
+        }
+      }
+    }
+    
     const primaryMuscle = currentExercise.primary_muscles?.[0] || 'Unknown';
-
-    // Use the same categorization helper function for consistent distribution
-    const result = categorizeExercises(allProcessed, primaryMuscle);
-
     console.log(`🎯 Enhanced categorization result for ${primaryMuscle} (SMART SPLIT):`, {
-      recommended: result.recommended.length,
-      other: result.other.length,
-      total: result.recommended.length + result.other.length,
-      distribution: `${Math.round((result.recommended.length / (result.recommended.length + result.other.length)) * 100)}% recommended, ${Math.round((result.other.length / (result.recommended.length + result.other.length)) * 100)}% other`,
-      recommendedNames: result.recommended.slice(0, 3).map((ex) => ex.name),
-      otherNames: result.other.slice(0, 3).map((ex) => ex.name),
+      recommended: recommended.length,
+      other: other.length,
+      total: recommended.length + other.length,
+      distribution: `${Math.round((recommended.length / (recommended.length + other.length)) * 100)}% recommended, ${Math.round((other.length / (recommended.length + other.length)) * 100)}% other`,
+      recommendedNames: recommended.slice(0, 3).map(ex => ex.name),
+      otherNames: other.slice(0, 3).map(ex => ex.name)
     });
 
     return {
-      recommended: result.recommended, // Show ALL recommended exercises for this muscle group
-      other: result.other, // Show ALL other alternatives for this muscle group
+      recommended: recommended, // Show ALL recommended exercises for this muscle group
+      other: other // Show ALL other alternatives for this muscle group
     };
+
   } catch (error) {
     console.error('Error in fetchEnhancedExerciseAlternatives:', error);
     return { recommended: [], other: [] };
@@ -563,4 +545,4 @@ export async function fetchEnhancedExerciseAlternatives(
 export default {
   fetchExerciseAlternatives,
   fetchEnhancedExerciseAlternatives,
-};
+}; 

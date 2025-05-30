@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, ScrollView, Platform, Pressable, Alert } from 'react-native';
-import { Text, IconButton, Switch, Button, ActivityIndicator } from 'react-native-paper';
+import { Text, IconButton, Divider, Switch, Button, ActivityIndicator } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -31,21 +31,21 @@ export default function SettingsScreen() {
   // Format bytes to human-readable format
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return '0 B';
-
+    
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-
+    
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
   };
 
   // Format timestamp to relative time
   const formatRelativeTime = (timestamp: number | null): string => {
     if (timestamp === null) return 'N/A';
-
+    
     const now = Date.now();
     const diff = now - timestamp;
-
+    
     // Convert to minutes, hours, or days
     if (diff < 60000) return 'Just now';
     if (diff < 3600000) return `${Math.floor(diff / 60000)} min ago`;
@@ -72,68 +72,64 @@ export default function SettingsScreen() {
               const result = await clearImageCache();
               setClearingCache(false);
               updateCacheStats();
-
+              
               Alert.alert(
                 'Cache Cleared',
                 `Successfully cleared ${result.memoryClearedCount} cached images.`,
-                [{ text: 'OK' }],
+                [{ text: 'OK' }]
               );
             } catch (error) {
-              console.error('Error clearing cache:', error);
               setClearingCache(false);
               Alert.alert('Error', 'Failed to clear cache');
             }
           },
         },
-      ],
+      ]
     );
   };
 
   // Handle clearing old cache entries
   const handleClearOldCache = async () => {
-    Alert.alert('Clear Old Cache', 'This will clear cached images older than 24 hours.', [
-      {
-        text: 'Cancel',
-        style: 'cancel',
-      },
-      {
-        text: 'Clear Old Items',
-        onPress: async () => {
-          setClearingCache(true);
-          try {
-            // 24 hours in milliseconds = 86400000
-            const result = await clearImageCache({ olderThan: 86400000 });
-            setClearingCache(false);
-            updateCacheStats();
-
-            Alert.alert(
-              'Old Cache Cleared',
-              `Successfully cleared ${result.memoryClearedCount} old cached images.`,
-              [{ text: 'OK' }],
-            );
-          } catch (error) {
-            console.error('Error clearing old cache:', error);
-            setClearingCache(false);
-            Alert.alert('Error', 'Failed to clear old cache');
-          }
+    Alert.alert(
+      'Clear Old Cache',
+      'This will clear cached images older than 24 hours.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
         },
-      },
-    ]);
+        {
+          text: 'Clear Old Items',
+          onPress: async () => {
+            setClearingCache(true);
+            try {
+              // 24 hours in milliseconds = 86400000
+              const result = await clearImageCache({ olderThan: 86400000 });
+              setClearingCache(false);
+              updateCacheStats();
+              
+              Alert.alert(
+                'Old Cache Cleared',
+                `Successfully cleared ${result.memoryClearedCount} old cached images.`,
+                [{ text: 'OK' }]
+              );
+            } catch (error) {
+              setClearingCache(false);
+              Alert.alert('Error', 'Failed to clear old cache');
+            }
+          },
+        },
+      ]
+    );
   };
 
-  const renderMenuItem = (
-    icon: string,
-    title: string,
-    rightElement?: React.ReactNode,
-    isLast?: boolean,
-    onPress?: () => void,
-  ) => (
+  const renderMenuItem = (icon: string, title: string, rightElement?: React.ReactNode, isLast?: boolean, onPress?: () => void) => (
     <View>
       <Pressable style={styles.menuItem} onPress={onPress}>
         <View style={styles.menuItemLeft}>
-          <MaterialCommunityIcons
-            name={icon as keyof typeof MaterialCommunityIcons.glyphMap}
-            size={24}
+          <MaterialCommunityIcons 
+            name={icon as any} 
+            size={24} 
             color={COLORS.text}
             style={styles.menuIcon}
           />
@@ -141,20 +137,19 @@ export default function SettingsScreen() {
             {title}
           </Text>
         </View>
-        {rightElement ||
-          (onPress && title !== 'Workout Days' ? (
-            <MaterialCommunityIcons name="chevron-right" size={24} color={COLORS.text} />
-          ) : null)}
+        {rightElement || (
+          onPress && title !== 'Workout Days' ? (
+            <MaterialCommunityIcons 
+              name="chevron-right" 
+              size={24} 
+              color={COLORS.text}
+            />
+          ) : null
+        )}
       </Pressable>
       {!isLast && (
         <LinearGradient
-          colors={[
-            'transparent',
-            'rgba(108, 71, 255, 0.3)',
-            'rgba(108, 71, 255, 0.3)',
-            'rgba(108, 71, 255, 0.3)',
-            'transparent',
-          ]}
+          colors={['transparent', 'rgba(108, 71, 255, 0.3)', 'rgba(108, 71, 255, 0.3)', 'rgba(108, 71, 255, 0.3)', 'transparent']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
           locations={[0, 0.1, 0.5, 0.9, 1]}
@@ -191,7 +186,7 @@ export default function SettingsScreen() {
         <View style={styles.headerRight} />
       </View>
 
-      <ScrollView
+      <ScrollView 
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -199,13 +194,7 @@ export default function SettingsScreen() {
         <View style={styles.section}>
           {renderMenuItem('bell-outline', 'Notifications')}
           {renderMenuItem('clock-outline', 'Workout Reminders')}
-          {renderMenuItem(
-            'calendar-check-outline',
-            'Workout Days',
-            undefined,
-            false,
-            handleOpenWorkoutDaysModal,
-          )}
+          {renderMenuItem('calendar-check-outline', 'Workout Days', undefined, false, handleOpenWorkoutDaysModal)}
           {renderMenuItem('shield-outline', 'Security')}
           {renderMenuItem('watch', 'Apple Watch')}
           {renderMenuItem('heart', 'Apple Health')}
@@ -214,16 +203,24 @@ export default function SettingsScreen() {
           {renderMenuItem(
             'theme-light-dark',
             'Dark Theme',
-            <Switch value={isDarkTheme} onValueChange={setIsDarkTheme} color={COLORS.primary} />,
+            <Switch
+              value={isDarkTheme}
+              onValueChange={setIsDarkTheme}
+              color={COLORS.primary}
+            />
           )}
         </View>
-
+        
         <View style={[styles.section, styles.sectionMargin]}>
           <View style={styles.sectionHeader}>
-            <MaterialCommunityIcons name="cached" size={20} color={COLORS.primary} />
+            <MaterialCommunityIcons
+              name="cached"
+              size={20}
+              color={COLORS.primary}
+            />
             <Text style={styles.sectionHeaderText}>Cache Management</Text>
           </View>
-
+          
           {cacheStats && (
             <View style={styles.cacheSummary}>
               <View style={styles.cacheStatRow}>
@@ -236,30 +233,26 @@ export default function SettingsScreen() {
               </View>
               <View style={styles.cacheStatRow}>
                 <Text style={styles.cacheStatLabel}>Newest Image:</Text>
-                <Text style={styles.cacheStatValue}>
-                  {formatRelativeTime(cacheStats.newestEntry)}
-                </Text>
+                <Text style={styles.cacheStatValue}>{formatRelativeTime(cacheStats.newestEntry)}</Text>
               </View>
               <View style={styles.cacheStatRow}>
                 <Text style={styles.cacheStatLabel}>Oldest Image:</Text>
-                <Text style={styles.cacheStatValue}>
-                  {formatRelativeTime(cacheStats.oldestEntry)}
-                </Text>
+                <Text style={styles.cacheStatValue}>{formatRelativeTime(cacheStats.oldestEntry)}</Text>
               </View>
               <View style={styles.cacheStatRow}>
                 <Text style={styles.cacheStatLabel}>Cache Hit Rate:</Text>
                 <Text style={styles.cacheStatValue}>
-                  {cacheStats.hitCount + cacheStats.missCount > 0
+                  {cacheStats.hitCount + cacheStats.missCount > 0 
                     ? `${Math.round((cacheStats.hitCount / (cacheStats.hitCount + cacheStats.missCount)) * 100)}%`
                     : 'N/A'}
                 </Text>
               </View>
             </View>
           )}
-
+          
           <View style={styles.cacheActions}>
-            <Button
-              mode="contained"
+            <Button 
+              mode="contained" 
               onPress={handleClearOldCache}
               style={styles.cacheButton}
               disabled={clearingCache || !cacheStats || cacheStats.totalEntries === 0}
@@ -267,12 +260,12 @@ export default function SettingsScreen() {
               {clearingCache ? (
                 <ActivityIndicator size="small" color={COLORS.text} />
               ) : (
-                'Clear Old Cache'
+                "Clear Old Cache"
               )}
             </Button>
-
-            <Button
-              mode="contained"
+            
+            <Button 
+              mode="contained" 
               onPress={handleClearCache}
               style={[styles.cacheButton, styles.clearAllButton]}
               buttonColor={COLORS.error}
@@ -281,16 +274,16 @@ export default function SettingsScreen() {
               {clearingCache ? (
                 <ActivityIndicator size="small" color={COLORS.text} />
               ) : (
-                'Clear All Cache'
+                "Clear All Cache"
               )}
             </Button>
           </View>
         </View>
       </ScrollView>
 
-      <WorkoutDaysModal
-        visible={workoutDaysModalVisible}
-        onClose={() => setWorkoutDaysModalVisible(false)}
+      <WorkoutDaysModal 
+        visible={workoutDaysModalVisible} 
+        onClose={() => setWorkoutDaysModalVisible(false)} 
       />
     </View>
   );
@@ -426,5 +419,5 @@ const styles = StyleSheet.create({
     flex: 1,
     marginHorizontal: 6,
   },
-  clearAllButton: { backgroundColor: COLORS.error },
-});
+    clearAllButton: {    backgroundColor: COLORS.error,  },
+}); 

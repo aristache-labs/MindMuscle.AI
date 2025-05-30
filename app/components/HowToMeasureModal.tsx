@@ -7,8 +7,9 @@ import {
   Dimensions,
   Platform,
   Image,
+  KeyboardAvoidingView,
   ImageSourcePropType,
-  Animated,
+  Animated
 } from 'react-native';
 import { Text, IconButton, Portal, Provider } from 'react-native-paper';
 import { GestureHandlerRootView, ScrollView } from 'react-native-gesture-handler';
@@ -28,59 +29,51 @@ const MEASUREMENT_INSTRUCTIONS: MeasurementInstruction[] = [
   {
     category: 'WEIGHT',
     title: 'Weight',
-    instruction:
-      'Weigh yourself first thing in the morning, on an empty stomach, and after going to the bathroom.',
-    icon: STATIC_IMAGES.measurements.weight,
+    instruction: 'Weigh yourself first thing in the morning, on an empty stomach, and after going to the bathroom.',
+    icon: STATIC_IMAGES.measurements.weight
   },
   {
     category: 'BICEPS',
     title: 'Biceps',
-    instruction:
-      'Straighten your arms and lift them to the side of your body, parallel to the floor. Wrap the thickest part of your arm with the tape measure, making sure that it is tight to your skin and in a straight line. Flex your arm as hard as possible and then take the measurement.',
-    icon: STATIC_IMAGES.measurements.biceps,
+    instruction: 'Straighten your arms and lift them to the side of your body, parallel to the floor. Wrap the thickest part of your arm with the tape measure, making sure that it is tight to your skin and in a straight line. Flex your arm as hard as possible and then take the measurement.',
+    icon: STATIC_IMAGES.measurements.biceps
   },
   {
     category: 'CHEST',
     title: 'Chest',
-    instruction:
-      'Stand straight with your arms at your sides. Wrap the measuring tape around your chest at the fullest point, typically at nipple level. Keep the tape parallel to the ground and breathe normally.',
-    icon: STATIC_IMAGES.measurements.chest,
+    instruction: 'Stand straight with your arms at your sides. Wrap the measuring tape around your chest at the fullest point, typically at nipple level. Keep the tape parallel to the ground and breathe normally.',
+    icon: STATIC_IMAGES.measurements.chest
   },
   {
     category: 'WAIST',
     title: 'Waist',
-    instruction:
-      'Measure around your natural waistline, at the narrowest part of your waist, typically just above your belly button. Keep the tape snug but not tight, and measure after exhaling.',
-    icon: STATIC_IMAGES.measurements.waist,
+    instruction: 'Measure around your natural waistline, at the narrowest part of your waist, typically just above your belly button. Keep the tape snug but not tight, and measure after exhaling.',
+    icon: STATIC_IMAGES.measurements.waist
   },
   {
     category: 'ABS',
     title: 'Abs',
-    instruction:
-      'Measure around your abdomen at the widest point, typically at the belly button level. Keep the tape parallel to the ground and breathe normally.',
-    icon: STATIC_IMAGES.measurements.abs,
+    instruction: 'Measure around your abdomen at the widest point, typically at the belly button level. Keep the tape parallel to the ground and breathe normally.',
+    icon: STATIC_IMAGES.measurements.abs
   },
   {
     category: 'SHLDRS',
     title: 'Shoulders',
-    instruction:
-      'Measure across the widest part of your shoulders, from one end to the other. Keep the tape straight and level across your back.',
-    icon: STATIC_IMAGES.measurements.shoulders,
+    instruction: 'Measure across the widest part of your shoulders, from one end to the other. Keep the tape straight and level across your back.',
+    icon: STATIC_IMAGES.measurements.shoulders
   },
   {
     category: 'THIGH',
     title: 'Thigh',
-    instruction:
-      'Stand with your feet slightly apart. Measure around the fullest part of your thigh, typically near the top of your leg. Keep the tape level and snug but not tight.',
-    icon: STATIC_IMAGES.measurements.thigh,
+    instruction: 'Stand with your feet slightly apart. Measure around the fullest part of your thigh, typically near the top of your leg. Keep the tape level and snug but not tight.',
+    icon: STATIC_IMAGES.measurements.thigh
   },
   {
     category: 'CALF',
     title: 'Calf',
-    instruction:
-      'Sit with your leg bent at 90 degrees. Measure around the fullest part of your calf muscle. Keep the tape snug but not tight.',
-    icon: STATIC_IMAGES.measurements.calf,
-  },
+    instruction: 'Sit with your leg bent at 90 degrees. Measure around the fullest part of your calf muscle. Keep the tape snug but not tight.',
+    icon: STATIC_IMAGES.measurements.calf
+  }
 ];
 
 interface Props {
@@ -105,9 +98,7 @@ export default function HowToMeasureModal({ visible, onClose, modalAnim }: Props
           <TouchableWithoutFeedback onPress={onClose}>
             <View style={styles.overlay}>
               <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-                <Animated.View
-                  style={[styles.modalContainer, { transform: [{ translateY: modalAnim }] }]}
-                >
+                <Animated.View style={[styles.modalContainer, { transform: [{ translateY: modalAnim }] }]}>
                   <View style={styles.container}>
                     <View style={styles.topGlowLeft} />
                     <View style={styles.topGlowRight} />
@@ -130,17 +121,17 @@ export default function HowToMeasureModal({ visible, onClose, modalAnim }: Props
                         scrollEventThrottle={16}
                       >
                         {MEASUREMENT_INSTRUCTIONS.map((instruction, index) => (
-                          <View
+                          <View 
                             key={instruction.category}
                             style={[
                               styles.instructionCard,
                               index === 0 && styles.firstCard,
-                              index === MEASUREMENT_INSTRUCTIONS.length - 1 && styles.lastCard,
+                              index === MEASUREMENT_INSTRUCTIONS.length - 1 && styles.lastCard
                             ]}
                           >
                             <View style={styles.instructionImageContainer}>
                               <View style={styles.imageWrapper}>
-                                <Image
+                                <Image 
                                   source={instruction.icon}
                                   style={styles.instructionImage}
                                   resizeMode="contain"
@@ -150,7 +141,9 @@ export default function HowToMeasureModal({ visible, onClose, modalAnim }: Props
                             <Text style={styles.instructionTitle}>
                               {instruction.title.toUpperCase()}
                             </Text>
-                            <Text style={styles.instructionText}>{instruction.instruction}</Text>
+                            <Text style={styles.instructionText}>
+                              {instruction.instruction}
+                            </Text>
                           </View>
                         ))}
                       </ScrollView>
@@ -166,7 +159,7 @@ export default function HowToMeasureModal({ visible, onClose, modalAnim }: Props
   );
 }
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   overlay: {
@@ -207,8 +200,8 @@ const styles = StyleSheet.create({
     ...Platform.select({
       ios: {
         shadowColor: COLORS.primary,
-        shadowOffset: {
-          width: 10,
+        shadowOffset: { 
+          width: 10, 
           height: 0,
         },
         shadowOpacity: 1,
@@ -265,6 +258,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0.2,
     borderBottomColor: COLORS.primary,
     backgroundColor: COLORS.background,
+			  
   },
   closeButton: {
     margin: 0,
@@ -339,5 +333,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#ccc',
     lineHeight: 20,
-  },
-});
+  }
+}); 

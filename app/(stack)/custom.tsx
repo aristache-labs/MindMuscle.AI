@@ -22,8 +22,7 @@ export default function CustomScreen({ embedded = false }: CustomScreenProps) {
           icon="plus"
           style={styles.button}
           labelStyle={styles.buttonLabel}
-          onPress={() => {}}
-        >
+          onPress={() => {}}>
           CREATE WORKOUT
         </Button>
       </View>
@@ -63,4 +62,4 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-});
+}); 

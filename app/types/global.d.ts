@@ -14,4 +14,4 @@ declare module 'web-streams-polyfill';
 // Default export to satisfy Expo Router
 export default function GlobalTypes() {
   return null;
-}
+} 

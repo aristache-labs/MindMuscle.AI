@@ -1,7 +1,7 @@
-import React from 'react';
-import { StyleSheet, View, Alert, Platform, ScrollView, Dimensions } from 'react-native';
+import React, { useState } from 'react';
+import { StyleSheet, View, Pressable, Alert, Platform, ScrollView, Dimensions } from 'react-native';
 import { Text, IconButton, Surface, useTheme, Button } from 'react-native-paper';
-import { LineChart } from 'react-native-gifted-charts';
+import { BarChart, LineChart } from 'react-native-gifted-charts';
 import { COLORS } from '../constants/theme';
 
 export interface ExerciseData {
@@ -25,30 +25,32 @@ interface ExerciseGraphsProps {
 const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
   exercises,
   onAddExercise,
+  onExercisePress,
   onSetGoal,
   onDeleteExercise,
 }) => {
+  const [exerciseToDelete, setExerciseToDelete] = useState<string | null>(null);
   const theme = useTheme();
   const screenWidth = Dimensions.get('window').width - 32; // Account for outer container margins
 
   const handleDeletePress = (exerciseId: string) => {
-    const exercise = exercises.find((e) => e.id === exerciseId);
+    const exercise = exercises.find(e => e.id === exerciseId);
     if (!exercise) return;
 
     Alert.alert(
-      'Delete Exercise',
+      "Delete Exercise",
       `Are you sure you want to delete "${exercise.name}"? This action cannot be undone.`,
       [
         {
-          text: 'Cancel',
-          style: 'cancel',
+          text: "Cancel",
+          style: "cancel"
         },
         {
-          text: 'Delete',
+          text: "Delete",
           onPress: () => onDeleteExercise?.(exerciseId),
-          style: 'destructive',
-        },
-      ],
+          style: "destructive"
+        }
+      ]
     );
   };
 
@@ -57,9 +59,7 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
       <Surface style={styles.container} elevation={2}>
         <View style={styles.header}>
           <Text style={styles.title}>EXERCISE GRAPHS</Text>
-          <Text style={styles.subtitle}>
-            Add exercises and set goals to see{'\n'}your progress over time
-          </Text>
+          <Text style={styles.subtitle}>Add exercises and set goals to see{'\n'}your progress over time</Text>
         </View>
 
         <View style={styles.addExerciseButton}>
@@ -89,23 +89,23 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
                 <View style={styles.graphWrapper}>
                   <View style={styles.valueContainer}>
                     <Text style={styles.maxValue}>
-                      {Math.max(...exercise.data.map((d) => d.value))}
+                      {Math.max(...exercise.data.map(d => d.value))}
                       <Text style={styles.unitText}>{exercise.unit}</Text>
                     </Text>
                     <Text style={styles.maxLabel}>Max</Text>
-                    {exercise.data.some((d) => d.date.includes('PR')) && (
+                    {exercise.data.some(d => d.date.includes('PR')) && (
                       <Text style={styles.prLabel}>PR</Text>
                     )}
                   </View>
-
+                  
                   {/* GiftedCharts LineChart */}
                   <View style={{ width: screenWidth - 100, height: 180 }}>
                     <LineChart
-                      data={exercise.data.map((d) => ({
+                      data={exercise.data.map((d, i) => ({
                         value: d.value,
-                        label: new Date(d.date).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
+                        label: new Date(d.date).toLocaleDateString('en-US', { 
+                          month: 'short', 
+                          day: 'numeric' 
                         }),
                         dataPointText: `${d.value}`,
                       }))}

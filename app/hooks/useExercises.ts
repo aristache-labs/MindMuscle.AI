@@ -5,7 +5,7 @@ import exerciseService, { Exercise, ExerciseCategory } from '../services/exercis
 export const exerciseKeys = {
   all: ['exercises'] as const,
   lists: () => [...exerciseKeys.all, 'list'] as const,
-  list: (filters: { category?: ExerciseCategory; favorite?: boolean; query?: string }) =>
+  list: (filters: { category?: ExerciseCategory; favorite?: boolean; query?: string }) => 
     [...exerciseKeys.lists(), filters] as const,
   details: () => [...exerciseKeys.all, 'detail'] as const,
   detail: (id: string) => [...exerciseKeys.details(), id] as const,
@@ -13,14 +13,15 @@ export const exerciseKeys = {
 
 // Hooks
 export function useExercises(category?: ExerciseCategory) {
-  const queryKey = category ? exerciseKeys.list({ category }) : exerciseKeys.lists();
-
+  const queryKey = category 
+    ? exerciseKeys.list({ category }) 
+    : exerciseKeys.lists();
+  
   return useQuery({
     queryKey,
-    queryFn: () =>
-      category
-        ? exerciseService.getExercisesByCategory(category)
-        : exerciseService.getAllExercises(),
+    queryFn: () => category 
+      ? exerciseService.getExercisesByCategory(category) 
+      : exerciseService.getAllExercises(),
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 }
@@ -53,9 +54,9 @@ export function useExerciseDetails(id: string) {
 
 export function useToggleFavoriteExercise() {
   const queryClient = useQueryClient();
-
+  
   return useMutation({
-    mutationFn: ({ exerciseId, isFavorite }: { exerciseId: string; isFavorite: boolean }) =>
+    mutationFn: ({ exerciseId, isFavorite }: { exerciseId: string; isFavorite: boolean }) => 
       exerciseService.toggleFavoriteExercise(exerciseId, isFavorite),
     onSuccess: () => {
       // Invalidate and refetch favorite exercises list
@@ -68,9 +69,9 @@ export function useToggleFavoriteExercise() {
 
 export function useCreateExercise() {
   const queryClient = useQueryClient();
-
+  
   return useMutation({
-    mutationFn: (exercise: Omit<Exercise, 'id' | 'created_at' | 'updated_at'>) =>
+    mutationFn: (exercise: Omit<Exercise, 'id' | 'created_at' | 'updated_at'>) => 
       exerciseService.createExercise(exercise),
     onSuccess: () => {
       // Invalidate and refetch all exercise lists
@@ -81,13 +82,16 @@ export function useCreateExercise() {
 
 export function useUpdateExercise() {
   const queryClient = useQueryClient();
-
+  
   return useMutation({
-    mutationFn: ({ id, updates }: { id: string; updates: Partial<Exercise> }) =>
+    mutationFn: ({ id, updates }: { id: string; updates: Partial<Exercise> }) => 
       exerciseService.updateExercise(id, updates),
     onSuccess: (updatedExercise) => {
       // Update the exercise in the cache
-      queryClient.setQueryData(exerciseKeys.detail(updatedExercise.id), updatedExercise);
+      queryClient.setQueryData(
+        exerciseKeys.detail(updatedExercise.id),
+        updatedExercise
+      );
       // Invalidate related lists
       queryClient.invalidateQueries({ queryKey: exerciseKeys.lists() });
     },
@@ -96,7 +100,7 @@ export function useUpdateExercise() {
 
 export function useDeleteExercise() {
   const queryClient = useQueryClient();
-
+  
   return useMutation({
     mutationFn: (id: string) => exerciseService.deleteExercise(id),
     onSuccess: (_, deletedId) => {
@@ -109,7 +113,7 @@ export function useDeleteExercise() {
 }
 
 // Default export for Expo Router compatibility
-export default {
+export default { 
   useExercises,
   useExerciseSearch,
   useFavoriteExercises,
@@ -118,5 +122,5 @@ export default {
   useCreateExercise,
   useUpdateExercise,
   useDeleteExercise,
-  exerciseKeys,
-};
+  exerciseKeys
+}; 

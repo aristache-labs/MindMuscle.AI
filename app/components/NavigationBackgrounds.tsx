@@ -4,17 +4,15 @@ import Svg, { Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg'
 import { COLORS } from '../constants/theme';
 
 export const TabBarBackground = () => (
-  <View
-    style={{
-      position: 'absolute',
-      left: -26,
-      shadowColor: COLORS.primary,
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0.5,
-      shadowRadius: 10,
-      elevation: 10,
-    }}
-  >
+  <View style={{
+    position: 'absolute',
+    left: -26,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 10,
+  }}>
     <Svg width="480" height="120" viewBox="0 0 480 120">
       <Defs>
         <LinearGradient id="borderGradient" x1="0" y1="0" x2="1" y2="0">
@@ -36,25 +34,28 @@ export const TabBarBackground = () => (
 );
 
 export const CircleBackground = () => (
-  <View
-    style={{
-      position: 'absolute',
-      shadowColor: COLORS.primary,
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 1,
-      shadowRadius: 9,
-      borderColor: COLORS.primary,
-      borderWidth: 9,
-      borderRadius: 60,
-      elevation: 9,
-    }}
-  >
+  <View style={{
+    position: 'absolute',
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 9,
+    borderColor: COLORS.primary,
+    borderWidth: 9,
+    borderRadius: 60,
+    elevation: 9,
+  }}>
     <Svg width="72" height="72" viewBox="0 0 72 72">
-      <Circle cx="36" cy="36" r="36" fill={COLORS.surface} />
+      <Circle
+        cx="36"
+        cy="36"
+        r="36"
+        fill={COLORS.surface}
+      />
     </Svg>
   </View>
 );
 
 // Add a default export for the main component
 const NavigationBackgrounds = { TabBarBackground, CircleBackground };
-export default NavigationBackgrounds;
+export default NavigationBackgrounds; 

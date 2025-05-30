@@ -3,37 +3,22 @@ import {
   StyleSheet,
   View,
   Modal,
+  TouchableWithoutFeedback,
   Dimensions,
   Platform,
   Animated,
   TouchableOpacity,
+  Image
 } from 'react-native';
-import { Text, IconButton, Portal, Provider } from 'react-native-paper';
+import { Text, IconButton, Portal, Provider, Divider } from 'react-native-paper';
 import { GestureHandlerRootView, ScrollView } from 'react-native-gesture-handler';
 import { COLORS, SPACING } from '../constants/theme';
 import { useAuth } from '../store/AuthContext';
 import supabase from '../services/supabase';
+import workoutPlanService, { PlanExercise } from '../services/workoutPlanService';
 import OptimizedImage from '../components/OptimizedImage';
+import { router } from 'expo-router';
 import ExerciseDetailsModal from './ExerciseDetailsModal';
-
-// Define interfaces for database query results
-interface ExerciseData {
-  id?: string;
-  sets?: number;
-  reps_range?: string;
-  exercise_id?: string;
-  workout_day?: number;
-  exercise_name?: string;
-  rest_time?: number;
-  order?: number;
-  exercises?: {
-    id?: string;
-    name?: string;
-    image_url?: string;
-    primary_muscles?: string[];
-    requires_weight?: boolean;
-  }[];
-}
 
 interface Exercise {
   id: string;
@@ -70,43 +55,42 @@ interface Props {
   planWorkoutFrequency?: number; // Number of workout days per week in the plan
 }
 
-export default function PlanOverviewModal({
-  visible,
-  onClose,
-  planTitle,
+export default function PlanOverviewModal({ 
+  visible, 
+  onClose, 
+  planTitle, 
   planSubtitle,
-  weeks,
+  weeks, 
   currentWeek,
+  onWeekPress,
   onDayPress,
   activePlanId,
-  planWorkoutFrequency = 3, // Default to 3 days per week if not provided
+  planWorkoutFrequency = 3 // Default to 3 days per week if not provided
 }: Props) {
   // Generate our own animation value
   const [modalAnim] = useState(() => new Animated.Value(0));
-  const [selectedDay, setSelectedDay] = useState<{ weekNumber: number; dayNumber: number } | null>(
-    null,
-  );
+  const [selectedDay, setSelectedDay] = useState<{weekNumber: number, dayNumber: number} | null>(null);
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [isLoadingExercises, setIsLoadingExercises] = useState(false);
   const { user } = useAuth();
-
+  
   // New state for the exercise details modal
   const [exerciseDetailsVisible, setExerciseDetailsVisible] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
-
+  
   // Create a local state for weeks to avoid directly mutating props
   const [localWeeks, setLocalWeeks] = useState<WeekData[]>([]);
-
+  
   // Initialize local weeks when weeks prop changes or when modal becomes visible
   useEffect(() => {
     if (visible && weeks && weeks.length > 0) {
       // Create a deep copy of weeks to avoid mutating props
-      const updatedWeeks = weeks.map((week) => ({
+      const updatedWeeks = weeks.map(week => ({
         ...week,
         // Ensure days is at least planWorkoutFrequency
-        days: Math.max(week.days || 0, planWorkoutFrequency),
+        days: Math.max(week.days || 0, planWorkoutFrequency)
       }));
-
+      
       setLocalWeeks(updatedWeeks);
     }
   }, [weeks, visible, planWorkoutFrequency]);
@@ -124,12 +108,12 @@ export default function PlanOverviewModal({
         duration: 300,
         useNativeDriver: true,
       }).start();
-
+      
       // Reset selected day when modal closes
       setSelectedDay(null);
     }
   }, [visible, modalAnim]);
-
+  
   // Calculate translateY based on animation value
   const translateY = modalAnim.interpolate({
     inputRange: [0, 1],
@@ -146,11 +130,11 @@ export default function PlanOverviewModal({
   // Function to handle day press and fetch exercises
   const handleDayPress = async (weekNumber: number, dayNumber: number) => {
     setSelectedDay({ weekNumber, dayNumber });
-
+    
     if (onDayPress) {
       onDayPress(weekNumber, dayNumber);
     }
-
+    
     // Fetch exercises for the selected day
     if (activePlanId && user) {
       setIsLoadingExercises(true);
@@ -158,8 +142,7 @@ export default function PlanOverviewModal({
         // Fetch exercises for this plan from the workout_plan_exercises table
         const { data, error } = await supabase
           .from('workout_plan_exercises')
-          .select(
-            `
+          .select(`
             id,
             sets,
             reps_range,
@@ -175,41 +158,29 @@ export default function PlanOverviewModal({
               primary_muscles,
               requires_weight
             )
-          `,
-          )
+          `)
           .eq('plan_id', activePlanId)
           .eq('workout_day', dayNumber) // Filter by the specific workout day
           .order('order', { ascending: true });
-
+            
         if (error) {
           console.error('Error fetching exercises:', error);
           setExercises([]);
         } else if (data && data.length > 0) {
           // Transform data to match Exercise interface
-          const transformedExercises = data.map(
-            (item: ExerciseData): Exercise => ({
-              id: item.exercise_id || item.id || '',
-              name:
-                item.exercise_name ||
-                (item.exercises && item.exercises[0]
-                  ? item.exercises[0].name
-                  : 'Unknown Exercise') ||
-                '',
-              sets: item.sets || 3,
-              reps: item.reps_range || '8-12',
-              image: item.exercises && item.exercises[0] ? item.exercises[0].image_url : undefined,
-              equipment: 'Standard', // Default value
-              muscle_group:
-                item.exercises &&
-                item.exercises[0] &&
-                item.exercises[0].primary_muscles &&
-                item.exercises[0].primary_muscles.length > 0
-                  ? item.exercises[0].primary_muscles[0]
-                  : 'General',
-              kg: 0, // Default weight
-            }),
-          );
-
+          const transformedExercises = data.map((item: any) => ({
+            id: item.exercise_id || item.id,
+            name: item.exercise_name || (item.exercises ? item.exercises.name : 'Unknown Exercise'),
+            sets: item.sets || 3,
+            reps: item.reps_range || '8-12',
+            image: item.exercises ? item.exercises.image_url : undefined,
+            equipment: 'Standard', // Default value
+            muscle_group: item.exercises && item.exercises.primary_muscles && item.exercises.primary_muscles.length > 0 
+              ? item.exercises.primary_muscles[0] 
+              : 'General',
+            kg: 0 // Default weight
+          }));
+          
           setExercises(transformedExercises);
         } else {
           setExercises([]);
@@ -248,7 +219,7 @@ export default function PlanOverviewModal({
                 <View style={styles.topGlowLeft} />
                 <View style={styles.topGlowRight} />
                 <View style={styles.header}>
-                  <Text style={styles.title}>{'PLAN OVERVIEW'}</Text>
+                  <Text style={styles.title}>{"PLAN OVERVIEW"}</Text>
                   <IconButton
                     icon="close"
                     iconColor="#fff"
@@ -257,11 +228,15 @@ export default function PlanOverviewModal({
                     onPress={handleClose}
                   />
                 </View>
-
-                {planTitle ? <Text style={styles.planTitle}>{planTitle}</Text> : null}
-
-                {planSubtitle ? <Text style={styles.planSubtitle}>{planSubtitle}</Text> : null}
-
+                
+                {planTitle ? (
+                  <Text style={styles.planTitle}>{planTitle}</Text>
+                ) : null}
+                
+                {planSubtitle ? (
+                  <Text style={styles.planSubtitle}>{planSubtitle}</Text>
+                ) : null}
+                
                 <GestureHandlerRootView style={styles.gestureRoot}>
                   <ScrollView
                     style={styles.scrollView}
@@ -280,14 +255,14 @@ export default function PlanOverviewModal({
                             style={styles.backButton}
                             onPress={() => setSelectedDay(null)}
                           >
-                            <Text style={styles.backButtonText}>{'Back to Overview'}</Text>
+                            <Text style={styles.backButtonText}>{"Back to Overview"}</Text>
                           </TouchableOpacity>
                         </View>
-
+                        
                         <View style={styles.exercisesList}>
                           {isLoadingExercises ? (
                             <View style={styles.loadingContainer}>
-                              <Text style={styles.loadingText}>{'Loading exercises...'}</Text>
+                              <Text style={styles.loadingText}>{"Loading exercises..."}</Text>
                             </View>
                           ) : exercises.length > 0 ? (
                             exercises.map((exercise, index) => {
@@ -302,17 +277,15 @@ export default function PlanOverviewModal({
                                     <View style={styles.exerciseRow}>
                                       <View style={styles.exerciseImageContainer}>
                                         <OptimizedImage
-                                          source={
-                                            exercise.image
-                                              ? { uri: exercise.image }
-                                              : require('../../assets/exercises/placeholder.jpg')
-                                          }
+                                          source={exercise.image ? { uri: exercise.image } : require('../../assets/exercises/placeholder.jpg')}
                                           style={styles.exerciseImage}
                                           fallback={require('../../assets/exercises/placeholder.jpg')}
                                         />
                                       </View>
                                       <View style={styles.exerciseContent}>
-                                        <Text style={styles.exerciseName}>{exercise.name}</Text>
+                                        <Text style={styles.exerciseName}>
+                                          {exercise.name}
+                                        </Text>
                                         <View style={styles.exerciseDetails}>
                                           {exercise.sets ? (
                                             <Text style={styles.exerciseDetail}>
@@ -329,18 +302,20 @@ export default function PlanOverviewModal({
                                               {`${exercise.kg} kg`}
                                             </Text>
                                           ) : null}
-                                        </View>
+                                          </View>
                                       </View>
                                     </View>
                                   </TouchableOpacity>
-
-                                  {!isLastExercise && <View style={styles.exerciseDivider} />}
+                                  
+                                  {!isLastExercise && (
+                                    <View style={styles.exerciseDivider} />
+                                  )}
                                 </View>
                               );
                             })
                           ) : (
                             <Text style={styles.noExercisesText}>
-                              {'No exercises found for this day.'}
+                              {"No exercises found for this day."}
                             </Text>
                           )}
                         </View>
@@ -349,43 +324,39 @@ export default function PlanOverviewModal({
                       // Show timeline view
                       <View style={styles.timeline}>
                         {localWeeks.length > 0 ? <View style={styles.timelineLine} /> : null}
-
-                        {localWeeks.map((week) => {
+                        
+                        {localWeeks.map((week, index) => {
                           return (
                             <View key={`week-${week.number}`} style={styles.weekContainer}>
                               {/* Timeline dot */}
                               <View style={styles.timelineLeft}>
-                                <View
+                                <View 
                                   style={[
-                                    styles.timelineDot,
+                                    styles.timelineDot, 
                                     { backgroundColor: week.color },
-                                    week.number === currentWeek && styles.activeTimelineDot,
-                                  ]}
+                                    week.number === currentWeek && styles.activeTimelineDot
+                                  ]} 
                                 />
                               </View>
-
+                              
                               {/* Week content */}
-                              <View
+                              <View 
                                 style={[
                                   styles.weekContent,
-                                  week.number === currentWeek && styles.activeWeekContent,
+                                  week.number === currentWeek && styles.activeWeekContent
                                 ]}
                               >
                                 <View style={styles.weekHeader}>
-                                  <View
-                                    style={[styles.weekIndicator, { backgroundColor: week.color }]}
-                                  />
-                                  <Text
-                                    style={styles.weekTitle}
-                                  >{`Week ${week.number} - ${week.name}`}</Text>
+                                  <View style={[styles.weekIndicator, { backgroundColor: week.color }]} />
+                                  <Text style={styles.weekTitle}>{`Week ${week.number} - ${week.name}`}</Text>
                                 </View>
-
+                                
                                 {week.description ? (
                                   <View style={styles.weekDescription}>
                                     <Text style={styles.descriptionText}>{week.description}</Text>
                                   </View>
                                 ) : null}
-
+                                
                                 <ScrollView
                                   horizontal
                                   showsHorizontalScrollIndicator={false}
@@ -393,11 +364,11 @@ export default function PlanOverviewModal({
                                 >
                                   {Array.from({ length: week.days }).map((_, i) => (
                                     <TouchableOpacity
-                                      key={`day-${i + 1}`}
+                                      key={`day-${i+1}`}
                                       style={styles.dayButton}
-                                      onPress={() => handleDayPress(week.number, i + 1)}
+                                      onPress={() => handleDayPress(week.number, i+1)}
                                     >
-                                      <Text style={styles.dayButtonText}>{`Day ${i + 1}`}</Text>
+                                      <Text style={styles.dayButtonText}>{`Day ${i+1}`}</Text>
                                     </TouchableOpacity>
                                   ))}
                                 </ScrollView>
@@ -407,21 +378,21 @@ export default function PlanOverviewModal({
                         })}
                       </View>
                     )}
-
+                    
                     {!selectedDay ? (
                       <Text style={styles.footerText}>
-                        {
-                          'Once you complete your last workout on this plan we will generate your next plan based on your preferences, so you continue seeing results'
-                        }
+                        {"Once you complete your last workout on this plan we will generate your next plan based on your preferences, so you continue seeing results"}
                       </Text>
                     ) : null}
                   </ScrollView>
                 </GestureHandlerRootView>
               </View>
             </Animated.View>
+            
+
           </View>
         </Modal>
-
+        
         {/* Exercise Details Modal - moved outside the main Modal */}
         {selectedExercise && (
           <ExerciseDetailsModal
@@ -442,7 +413,7 @@ export default function PlanOverviewModal({
   );
 }
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   overlay: {
@@ -483,8 +454,8 @@ const styles = StyleSheet.create({
     ...Platform.select({
       ios: {
         shadowColor: COLORS.primary,
-        shadowOffset: {
-          width: 10,
+        shadowOffset: { 
+          width: 10, 
           height: 0,
         },
         shadowOpacity: 1,
@@ -801,4 +772,5 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.7)',
     fontStyle: 'italic',
   },
-});
+
+}); 

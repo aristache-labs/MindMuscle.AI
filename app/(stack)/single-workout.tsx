@@ -20,8 +20,7 @@ export default function SingleWorkoutScreen({ embedded = false }: SingleWorkoutS
             icon="refresh"
             style={styles.actionButton}
             textColor={COLORS.text}
-            onPress={() => {}}
-          >
+            onPress={() => {}}>
             Refresh
           </Button>
           <Button
@@ -29,8 +28,7 @@ export default function SingleWorkoutScreen({ embedded = false }: SingleWorkoutS
             icon="dumbbell"
             style={styles.actionButton}
             textColor={COLORS.text}
-            onPress={() => {}}
-          >
+            onPress={() => {}}>
             Muscles
           </Button>
           <Button
@@ -38,8 +36,7 @@ export default function SingleWorkoutScreen({ embedded = false }: SingleWorkoutS
             icon="clock-outline"
             style={styles.actionButton}
             textColor={COLORS.text}
-            onPress={() => {}}
-          >
+            onPress={() => {}}>
             Duration
           </Button>
         </View>
@@ -68,8 +65,7 @@ export default function SingleWorkoutScreen({ embedded = false }: SingleWorkoutS
           mode="contained"
           style={styles.startButton}
           labelStyle={styles.startButtonLabel}
-          onPress={() => {}}
-        >
+          onPress={() => {}}>
           START WORKOUT
         </Button>
       </ScrollView>
@@ -132,4 +128,4 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
-});
+}); 

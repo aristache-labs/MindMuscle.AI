@@ -1,10 +1,24 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Alert } from 'react-native';
+import { useAuth } from '../../../store/AuthContext';
 import workoutPlanService from '../../../services/workoutPlanService';
-import { ExerciseData, ExerciseSet } from '../types';
-import type { UserProfile } from '../../../store/AuthContext';
+import type { ExerciseData, ExerciseSet } from '../types';
 
-interface CompletedWorkoutData {
+export interface UseWorkoutCompletionParams {
+  planId: string;
+  workoutDay: number;
+  cycleWeek: number;
+  weekName: string;
+  exercises: ExerciseData[];
+  exerciseSets: Record<string, ExerciseSet[]>;
+  totalVolume: number;
+  totalReps: number;
+  workoutDuration: number;
+  workoutStartTime: Date | null;
+  onNavigateHome: () => void;
+}
+
+export interface WorkoutCompletionData {
   completedExercises: number;
   duration: string;
   caloriesBurned: number;
@@ -15,302 +29,201 @@ interface CompletedWorkoutData {
   cycleWeek: number;
 }
 
-interface UseWorkoutCompletionParams {
-  user: UserProfile | null;
-  planId: string;
-  workoutDay: number;
-  cycleWeek: number;
-  weekName: string;
-  exercises: ExerciseData[];
-  exerciseSets: Record<string, ExerciseSet[]>;
-  workoutDuration: number;
-  totalVolume: number;
-  totalReps: number;
-  originalCycleWeek: number | null;
-  setIsWorkoutCompleted: (value: boolean) => void;
-  setCompletedWorkoutData: (data: CompletedWorkoutData) => void;
-  stopWorkoutTimer: () => void;
-  formatTime: (seconds: number) => string;
-  fetchLastExerciseRecords: () => Promise<void>;
-  navigate: (
-    route: string,
-    params?: Record<string, string | number | boolean | undefined | null>,
-  ) => void;
+export interface UseWorkoutCompletionReturn {
+  isCompleting: boolean;
+  completedWorkoutData: WorkoutCompletionData | null;
+  completeWorkout: (overrideVolume?: number, overrideReps?: number) => Promise<void>;
+  completeWorkoutWithStateSync: (volume: number, reps: number, finalExerciseSets: Record<string, ExerciseSet[]>) => Promise<void>;
+  redoWorkout: () => Promise<void>;
+  isWorkoutCompleted: boolean;
+  setIsWorkoutCompleted: (completed: boolean) => void;
 }
 
-export const useWorkoutCompletion = ({
-  user,
-  planId,
-  workoutDay,
-  cycleWeek,
-  weekName,
-  exercises,
-  exerciseSets,
-  workoutDuration,
-  totalVolume,
-  totalReps,
-  originalCycleWeek,
-  setIsWorkoutCompleted,
-  setCompletedWorkoutData,
-  stopWorkoutTimer,
-  formatTime,
-  fetchLastExerciseRecords,
-  navigate,
-}: UseWorkoutCompletionParams) => {
-  // State for workflow management
-  const [workoutState, setWorkoutState] = useState<'in_progress' | 'completing' | 'completed'>(
-    'in_progress',
-  );
+export const useWorkoutCompletion = (params: UseWorkoutCompletionParams): UseWorkoutCompletionReturn => {
+  const {
+    planId,
+    workoutDay,
+    cycleWeek,
+    weekName,
+    exercises,
+    exerciseSets,
+    totalVolume,
+    totalReps,
+    workoutDuration,
+    workoutStartTime,
+    onNavigateHome
+  } = params;
 
-  /**
-   * Complete the workout immediately in UI and then save to database
-   */
-  const completeWorkout = async (overrideVolume?: number, overrideReps?: number) => {
-    if (!user || !planId) return;
+  const { user } = useAuth();
+  const [isCompleting, setIsCompleting] = useState(false);
+  const [isWorkoutCompleted, setIsWorkoutCompleted] = useState(false);
+  const [completedWorkoutData, setCompletedWorkoutData] = useState<WorkoutCompletionData | null>(null);
 
-    // Stop the workout timer
-    stopWorkoutTimer();
-
-    // Use override values if provided, otherwise fall back to state values
-    const finalDuration = workoutDuration;
-    const finalVolume = overrideVolume !== undefined ? overrideVolume : totalVolume;
-    const finalReps = overrideReps !== undefined ? overrideReps : totalReps;
-
-    try {
-      // Check if this is a redone workout (look for forceStart query param if needed)
-      const isRedoWorkout = false; // This would come from URL params in the component
-
-      // Calculate workout duration in minutes for display
-      const workoutDurationMinutes = Math.round(finalDuration / 60);
-
-      // Set completed workout data for immediate UI display
-      setCompletedWorkoutData({
-        completedExercises: exercises.length,
-        duration: formatTime(finalDuration),
-        caloriesBurned: Math.round(workoutDurationMinutes * 8.5),
-        totalVolume: finalVolume,
-        totalReps: finalReps,
-        completedAt: new Date().toISOString(),
-        weekName: weekName,
-        cycleWeek: cycleWeek,
-      });
-
-      // Set workout as completed immediately for UI
-      setIsWorkoutCompleted(true);
-
-      // Save to database in the background with a delay to ensure state stability
-      setTimeout(async () => {
-        try {
-          // Use the service function to complete the workout
-          const success = await workoutPlanService.completeWorkout({
-            userId: user.id,
-            planId,
-            workoutDay,
-            cycleWeek,
-            weekName,
-            exercises,
-            exerciseSets,
-            workoutDuration: finalDuration,
-            totalVolume: finalVolume,
-            totalReps: finalReps,
-            isRedoWorkout: isRedoWorkout,
-            originalCycleWeek,
-          });
-
-          if (success) {
-            // Also refresh the last exercise records after completing the workout
-            await fetchLastExerciseRecords();
-          }
-        } catch (error) /* istanbul ignore next */ {
-          // istanbul ignore next for test coverage, as this is hard to trigger reliably
-          console.error('Error saving workout completion:', error);
-        }
-      }, 1000); // 1 second delay for database save
-
-      // Don't show loading indicator since UI updates immediately
-      const _success = true; // Unused but reflects operation success
-    } catch /* istanbul ignore next */ {
-      // istanbul ignore next
-      // Show error but don't block the UI since we're doing delayed save
-      Alert.alert(
-        'Warning',
-        'Workout completed in app, but there may be an issue saving to server. Data will be retried.',
-      );
-    }
-  };
-
-  /**
-   * Complete workout with state sync - used for guaranteeing state consistency
-   */
-  const completeWorkoutWithStateSync = async (
-    overrideVolume: number,
-    overrideReps: number,
-    finalExerciseSets: Record<string, ExerciseSet[]>,
-  ) => {
-    // Mark workout as completed immediately in UI for responsiveness
-    setIsWorkoutCompleted(true);
-    setCompletedWorkoutData({
-      completedExercises: exercises.length,
-      duration: formatTime(workoutDuration),
-      caloriesBurned: Math.round((workoutDuration / 60) * 8.5),
-      totalVolume: overrideVolume,
-      totalReps: overrideReps,
-      completedAt: new Date().toISOString(),
-      weekName: weekName,
-      cycleWeek: cycleWeek,
-    });
-
-    // Use the state machine approach for database operations
-    await handleWorkoutCompletion(overrideVolume, overrideReps, finalExerciseSets);
-  };
-
-  /**
-   * State machine for workout completion
-   */
-  const handleWorkoutCompletion = async (
+  const calculateWorkoutStats = useCallback((
     finalVolume: number,
     finalReps: number,
-    _finalExerciseSets: Record<string, ExerciseSet[]>, // Mark as unused with underscore
+    finalDuration: number
+  ): WorkoutCompletionData => {
+    // Calculate completed exercises
+    const completedExercises = exercises.filter(exercise => {
+      const sets = exerciseSets[exercise.id] || [];
+      return sets.length > 0 && sets.some(set => set.isCompleted);
+    }).length;
+
+    // Estimate calories burned (rough calculation: 0.5 calories per kg lifted + base metabolic rate)
+    const estimatedCalories = Math.round((finalVolume * 0.5) + (finalDuration / 60) * 5);
+
+    // Format duration
+    const formatDuration = (seconds: number): string => {
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const remainingSeconds = seconds % 60;
+
+      if (hours > 0) {
+        return `${hours}h ${minutes}m`;
+      } else if (minutes > 0) {
+        return `${minutes}m ${remainingSeconds}s`;
+      } else {
+        return `${remainingSeconds}s`;
+      }
+    };
+
+    return {
+      completedExercises,
+      duration: formatDuration(finalDuration),
+      caloriesBurned: estimatedCalories,
+      totalVolume: finalVolume,
+      totalReps: finalReps,
+      completedAt: new Date().toISOString(),
+      weekName,
+      cycleWeek
+    };
+  }, [exercises, exerciseSets, weekName, cycleWeek]);
+
+  const saveWorkoutToDatabase = useCallback(async (
+    finalVolume: number,
+    finalReps: number,
+    finalDuration: number,
+    finalExerciseSets: Record<string, ExerciseSet[]>
   ) => {
-    // Prevent multiple completion attempts
-    if (workoutState !== 'in_progress') {
-      return;
+    if (!user) {
+      throw new Error('User not authenticated');
     }
 
-    setWorkoutState('completing');
-
     try {
-      await workoutPlanService.completeWorkout({
-        userId: user?.id || '', // Provide empty string fallback
+      // Save workout data using the service
+      await workoutPlanService.saveCompletedWorkout({
+        userId: user.id,
         planId,
         workoutDay,
         cycleWeek,
         weekName,
         exercises,
-        exerciseSets, // Use the current exerciseSets
-        workoutDuration: Math.floor(workoutDuration),
+        exerciseSets: finalExerciseSets,
         totalVolume: finalVolume,
         totalReps: finalReps,
-        isRedoWorkout: false, // isRedoWorkout
-        originalCycleWeek: null, // originalCycleWeek
+        duration: finalDuration,
+        completedAt: new Date().toISOString()
       });
 
-      setWorkoutState('completed');
+      // Update active plan progress
+      await workoutPlanService.updatePlanProgress(user.id, planId, workoutDay, cycleWeek);
 
-      // Clear any paused workout data
-      await workoutPlanService.clearPausedWorkout(user?.id || '', planId, workoutDay);
-
-      // Navigate to completion screen
-      setTimeout(() => {
-        navigate('/(tabs)/');
-      }, 1000);
     } catch (error) {
-      console.error('❌ WORKOUT COMPLETION FAILED:', error);
-      setWorkoutState('in_progress');
+      console.error('Error saving workout:', error);
+      throw error;
     }
-  };
+  }, [user, planId, workoutDay, cycleWeek, weekName, exercises]);
 
-  /**
-   * Restart the workout (for REDO WORKOUT button)
-   */
-  const redoWorkout = async (config: {
-    currentLastValues: Record<string, Record<number, { weight: string; reps: string }>>;
-    currentExercises: ExerciseData[];
-    currentCustomizations: Record<string, boolean>;
-    setCurrentExerciseIndex: (index: number) => void;
-    setUserEnteredValues: (values: Record<string, boolean>) => void;
-    setExerciseCustomized: (customized: Record<string, boolean>) => void;
-    setExerciseSets: (sets: Record<string, ExerciseSet[]>) => void;
-    setLastExerciseValues: (
-      values: Record<string, Record<number, { weight: string; reps: string }>>,
-    ) => void;
-    setTextInputRefreshKey: (key: (prev: number) => number) => void;
-    setIsLoading: (loading: boolean) => void;
-    startWorkoutTimer: () => void;
-  }) => {
-    const {
-      currentLastValues,
-      currentExercises,
-      currentCustomizations,
-      setCurrentExerciseIndex,
-      setUserEnteredValues,
-      setExerciseCustomized,
-      setExerciseSets,
-      setLastExerciseValues,
-      setTextInputRefreshKey,
-      setIsLoading,
-      startWorkoutTimer,
-    } = config;
+  const completeWorkout = useCallback(async (overrideVolume?: number, overrideReps?: number) => {
+    if (isCompleting) return;
+    
+    setIsCompleting(true);
 
     try {
-      setIsLoading(true);
+      const finalVolume = overrideVolume !== undefined ? overrideVolume : totalVolume;
+      const finalReps = overrideReps !== undefined ? overrideReps : totalReps;
+      const finalDuration = workoutDuration;
 
-      // Reset workout state
-      setCurrentExerciseIndex(0);
-      setUserEnteredValues({});
+      // Save to database
+      await saveWorkoutToDatabase(finalVolume, finalReps, finalDuration, exerciseSets);
 
-      // Keep the exercise customizations from the completed workout
-      setExerciseCustomized(currentCustomizations);
+      // Calculate and set completion data
+      const completionData = calculateWorkoutStats(finalVolume, finalReps, finalDuration);
+      setCompletedWorkoutData(completionData);
+      setIsWorkoutCompleted(true);
 
-      // CRITICAL FIX: Fetch fresh exercise history for the preserved exercises
-      let freshLastValues = currentLastValues;
-      if (currentExercises.length > 0 && user) {
-        try {
-          freshLastValues = await workoutPlanService.fetchLastExerciseRecords(
-            user.id,
-            currentExercises,
-          );
-        } catch (error) {
-          console.error('REDO WORKOUT - Error fetching fresh exercise history:', error);
-          // Fall back to current values if fetch fails
-        }
-      }
-
-      // Set the fresh exercise history immediately
-      setLastExerciseValues(freshLastValues);
-
-      // Create fresh exercise sets for the preserved exercises and pre-fill with history
-      const freshSets: Record<string, ExerciseSet[]> = {};
-      currentExercises.forEach((exercise) => {
-        const exerciseSets = Array.from({ length: exercise.sets }, (_, index) => {
-          const setNumber = index + 1;
-          const lastWeight = freshLastValues[exercise.exercise_id]?.[setNumber]?.weight || '';
-          const lastReps = freshLastValues[exercise.exercise_id]?.[setNumber]?.reps || '';
-
-          return {
-            id: `${exercise.id}-set-${index + 1}`,
-            setNumber: setNumber,
-            weight: String(lastWeight),
-            reps: String(lastReps),
-            isCompleted: false,
-          };
-        });
-
-        freshSets[exercise.id] = exerciseSets;
-      });
-
-      // Update exercise sets with pre-filled sets
-      setExerciseSets(freshSets);
-
-      // CRITICAL: Force TextInput re-render to show the pre-filled values
-      setTextInputRefreshKey((prev) => prev + 1);
-
-      setIsLoading(false);
     } catch (error) {
-      console.error('Error setting up redo workout:', error);
-      setIsLoading(false);
+      console.error('Error completing workout:', error);
+      Alert.alert(
+        'Error',
+        'Failed to save workout. Please try again.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setIsCompleting(false);
     }
+  }, [isCompleting, totalVolume, totalReps, workoutDuration, exerciseSets, saveWorkoutToDatabase, calculateWorkoutStats]);
 
-    // Start workout duration timer
-    startWorkoutTimer();
-  };
+  const completeWorkoutWithStateSync = useCallback(async (
+    volume: number,
+    reps: number,
+    finalExerciseSets: Record<string, ExerciseSet[]>
+  ) => {
+    if (isCompleting) return;
+    
+    setIsCompleting(true);
+
+    try {
+      const finalDuration = workoutDuration;
+
+      // Save to database with the provided state
+      await saveWorkoutToDatabase(volume, reps, finalDuration, finalExerciseSets);
+
+      // Calculate and set completion data
+      const completionData = calculateWorkoutStats(volume, reps, finalDuration);
+      setCompletedWorkoutData(completionData);
+      setIsWorkoutCompleted(true);
+
+    } catch (error) {
+      console.error('Error completing workout with state sync:', error);
+      Alert.alert(
+        'Error',
+        'Failed to save workout. Please try again.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setIsCompleting(false);
+    }
+  }, [isCompleting, workoutDuration, saveWorkoutToDatabase, calculateWorkoutStats]);
+
+  const redoWorkout = useCallback(async () => {
+    try {
+      // Reset completion state
+      setIsWorkoutCompleted(false);
+      setCompletedWorkoutData(null);
+      setIsCompleting(false);
+
+      // Navigate back to workout (this would need to be implemented in the parent)
+      // The parent component should handle resetting all state when this is called
+      
+    } catch (error) {
+      console.error('Error redoing workout:', error);
+      Alert.alert(
+        'Error',
+        'Failed to restart workout. Please try again.',
+        [{ text: 'OK' }]
+      );
+    }
+  }, []);
 
   return {
-    workoutState,
-    setWorkoutState,
+    isCompleting,
+    completedWorkoutData,
     completeWorkout,
     completeWorkoutWithStateSync,
-    handleWorkoutCompletion,
     redoWorkout,
+    isWorkoutCompleted,
+    setIsWorkoutCompleted,
   };
-};
+}; 

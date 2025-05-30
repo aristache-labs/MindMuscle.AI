@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 console.log("Loading metro.config.js with community polyfills from node-libs-react-native...");
 const { getDefaultConfig } = require("expo/metro-config");
 const extraNodeModules = require("node-libs-react-native");

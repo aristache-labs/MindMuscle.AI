@@ -1,11 +1,13 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { SvgXml } from 'react-native-svg';
-import {
-  highlightMusclesInSvg,
-  extractSvgIds,
-  analyzeSvgStructure,
+import { 
+  highlightMusclesInSvg, 
+  extractSvgIds, 
+  analyzeSvgStructure, 
+  getMuscleColor,
   MUSCLE_CONFIG,
+  MuscleConfig
 } from '../utils/muscleHighlighter';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 
@@ -20,7 +22,7 @@ const BodyView = React.memo(({ svg, loading, placeholderText }: BodyViewProps) =
   if (loading) {
     return <ActivityIndicator size="large" color={COLORS.primary} />;
   }
-
+  
   if (!svg) {
     return (
       <View style={styles.bodyPlaceholder}>
@@ -28,7 +30,7 @@ const BodyView = React.memo(({ svg, loading, placeholderText }: BodyViewProps) =
       </View>
     );
   }
-
+  
   // Safely render SVG, handling potential parsing errors
   try {
     return <SvgXml xml={svg} width="100%" height="100%" />;
@@ -65,7 +67,7 @@ export default function MuscleDiagram({
 }: MuscleDiagramProps) {
   // Ensure Cardio is included in primaryMuscles when isCardioExercise is true
   const enhancedPrimaryMuscles = useMemo(() => {
-    if (isCardioExercise && !primaryMuscles.some((m) => m.toLowerCase() === 'cardio')) {
+    if (isCardioExercise && !primaryMuscles.some(m => m.toLowerCase() === 'cardio')) {
       return ['Cardio', ...primaryMuscles];
     }
     return primaryMuscles;
@@ -73,7 +75,7 @@ export default function MuscleDiagram({
 
   // Normalize muscle names to improve matching
   const normalizedSecondaryMuscles = useMemo(() => {
-    return secondaryMuscles.map((m) => m.trim());
+    return secondaryMuscles.map(m => m.trim());
   }, [secondaryMuscles]);
 
   // Debug SVG structure if needed
@@ -82,9 +84,9 @@ export default function MuscleDiagram({
       console.log('======= MUSCLE DIAGRAM DEBUG =======');
       console.log('Muscles to highlight:', {
         primary: enhancedPrimaryMuscles,
-        secondary: normalizedSecondaryMuscles,
+        secondary: normalizedSecondaryMuscles
       });
-
+      
       // Analyze front SVG
       if (frontBodySvg) {
         console.log('--- FRONT SVG ANALYSIS ---');
@@ -92,7 +94,7 @@ export default function MuscleDiagram({
       } else {
         console.warn('Front SVG is missing');
       }
-
+      
       // Analyze back SVG
       if (backBodySvg) {
         console.log('--- BACK SVG ANALYSIS ---');
@@ -100,7 +102,7 @@ export default function MuscleDiagram({
       } else {
         console.warn('Back SVG is missing');
       }
-
+      
       console.log('==================================');
     }
   }, [frontBodySvg, backBodySvg, enhancedPrimaryMuscles, normalizedSecondaryMuscles, debugMode]);
@@ -109,42 +111,37 @@ export default function MuscleDiagram({
   useMemo(() => {
     if (debugMode) {
       console.log('\n=== SVG ID Analysis ===');
-
+      
       // Analyze front view
       if (frontBodySvg) {
         const frontIds = extractSvgIds(frontBodySvg);
         console.log('\nFRONT VIEW IDs:');
         console.log('----------------');
-        frontIds.forEach((id) => {
+        frontIds.forEach(id => {
           // Try to identify if this ID matches any muscle
           const lowerCaseId = id.toLowerCase();
-          const matchingMuscle = Object.entries(MUSCLE_CONFIG).find(([_, config]) =>
-            config.ids.some(
-              (muscleId) =>
-                lowerCaseId.includes(muscleId.toLowerCase()) ||
-                muscleId.toLowerCase().includes(lowerCaseId),
-            ),
+          const matchingMuscle = Object.entries(MUSCLE_CONFIG).find(([_, config]) => 
+            config.ids.some(muscleId => 
+              lowerCaseId.includes(muscleId.toLowerCase()) || 
+              muscleId.toLowerCase().includes(lowerCaseId)
+            )
           );
 
           if (matchingMuscle) {
             const [muscleName, config] = matchingMuscle;
-            const isPrimary = primaryMuscles.some(
-              (m) =>
-                m.toLowerCase().includes(muscleName.toLowerCase()) ||
-                muscleName.toLowerCase().includes(m.toLowerCase()),
+            const isPrimary = primaryMuscles.some(m => 
+              m.toLowerCase().includes(muscleName.toLowerCase()) ||
+              muscleName.toLowerCase().includes(m.toLowerCase())
             );
-            const isSecondary = secondaryMuscles.some(
-              (m) =>
-                m.toLowerCase().includes(muscleName.toLowerCase()) ||
-                muscleName.toLowerCase().includes(m.toLowerCase()),
+            const isSecondary = secondaryMuscles.some(m => 
+              m.toLowerCase().includes(muscleName.toLowerCase()) ||
+              muscleName.toLowerCase().includes(m.toLowerCase())
             );
-
+            
             console.log(`ID: ${id}`);
             console.log(`  → Matches muscle: ${muscleName}`);
             console.log(`  → Expected color: ${config.color}${isSecondary ? '80' : ''}`);
-            console.log(
-              `  → Role: ${isPrimary ? 'PRIMARY' : isSecondary ? 'SECONDARY' : 'NOT TARGETED'}`,
-            );
+            console.log(`  → Role: ${isPrimary ? 'PRIMARY' : isSecondary ? 'SECONDARY' : 'NOT TARGETED'}`);
             console.log('----------------');
           } else if (id.toLowerCase().includes('vector')) {
             console.log(`ID: ${id}`);
@@ -161,36 +158,31 @@ export default function MuscleDiagram({
         const backIds = extractSvgIds(backBodySvg);
         console.log('\nBACK VIEW IDs:');
         console.log('----------------');
-        backIds.forEach((id) => {
+        backIds.forEach(id => {
           // Try to identify if this ID matches any muscle
           const lowerCaseId = id.toLowerCase();
-          const matchingMuscle = Object.entries(MUSCLE_CONFIG).find(([_, config]) =>
-            config.ids.some(
-              (muscleId) =>
-                lowerCaseId.includes(muscleId.toLowerCase()) ||
-                muscleId.toLowerCase().includes(lowerCaseId),
-            ),
+          const matchingMuscle = Object.entries(MUSCLE_CONFIG).find(([_, config]) => 
+            config.ids.some(muscleId => 
+              lowerCaseId.includes(muscleId.toLowerCase()) || 
+              muscleId.toLowerCase().includes(lowerCaseId)
+            )
           );
 
           if (matchingMuscle) {
             const [muscleName, config] = matchingMuscle;
-            const isPrimary = primaryMuscles.some(
-              (m) =>
-                m.toLowerCase().includes(muscleName.toLowerCase()) ||
-                muscleName.toLowerCase().includes(m.toLowerCase()),
+            const isPrimary = primaryMuscles.some(m => 
+              m.toLowerCase().includes(muscleName.toLowerCase()) ||
+              muscleName.toLowerCase().includes(m.toLowerCase())
             );
-            const isSecondary = secondaryMuscles.some(
-              (m) =>
-                m.toLowerCase().includes(muscleName.toLowerCase()) ||
-                muscleName.toLowerCase().includes(m.toLowerCase()),
+            const isSecondary = secondaryMuscles.some(m => 
+              m.toLowerCase().includes(muscleName.toLowerCase()) ||
+              muscleName.toLowerCase().includes(m.toLowerCase())
             );
-
+            
             console.log(`ID: ${id}`);
             console.log(`  → Matches muscle: ${muscleName}`);
             console.log(`  → Expected color: ${config.color}${isSecondary ? '80' : ''}`);
-            console.log(
-              `  → Role: ${isPrimary ? 'PRIMARY' : isSecondary ? 'SECONDARY' : 'NOT TARGETED'}`,
-            );
+            console.log(`  → Role: ${isPrimary ? 'PRIMARY' : isSecondary ? 'SECONDARY' : 'NOT TARGETED'}`);
             console.log('----------------');
           } else if (id.toLowerCase().includes('vector')) {
             console.log(`ID: ${id}`);
@@ -201,7 +193,7 @@ export default function MuscleDiagram({
       } else {
         console.log('No back view SVG available');
       }
-
+      
       console.log('\nTarget Muscles:');
       console.log('Primary:', primaryMuscles);
       console.log('Secondary:', secondaryMuscles);
@@ -212,19 +204,19 @@ export default function MuscleDiagram({
   // Memoize the highlighted SVGs to avoid recalculating on every render
   const highlightedFrontSvg = useMemo(() => {
     if (!frontBodySvg) return null;
-
+    
     if (debugMode) {
       console.log('[FRONT] Generating highlighted SVG');
     }
-
+    
     const result = highlightMusclesInSvg(
-      frontBodySvg,
-      enhancedPrimaryMuscles,
-      normalizedSecondaryMuscles,
+      frontBodySvg, 
+      enhancedPrimaryMuscles, 
+      normalizedSecondaryMuscles, 
       false, // isBackView
-      debugMode, // debug mode
+      debugMode  // debug mode
     );
-
+    
     // Check if front SVG was modified
     if (debugMode) {
       if (result === frontBodySvg) {
@@ -233,25 +225,25 @@ export default function MuscleDiagram({
         console.log('[FRONT] SVG was successfully modified');
       }
     }
-
+    
     return result;
   }, [frontBodySvg, enhancedPrimaryMuscles, normalizedSecondaryMuscles, debugMode]);
 
   const highlightedBackSvg = useMemo(() => {
     if (!backBodySvg) return null;
-
+    
     if (debugMode) {
       console.log('[BACK] Generating highlighted SVG');
     }
-
+    
     const result = highlightMusclesInSvg(
-      backBodySvg,
-      enhancedPrimaryMuscles,
-      normalizedSecondaryMuscles,
+      backBodySvg, 
+      enhancedPrimaryMuscles, 
+      normalizedSecondaryMuscles, 
       true, // isBackView
-      debugMode, // debug mode
+      debugMode  // debug mode
     );
-
+    
     // Check if back SVG was modified
     if (debugMode) {
       if (result === backBodySvg) {
@@ -260,17 +252,14 @@ export default function MuscleDiagram({
         console.log('[BACK] SVG was successfully modified');
       }
     }
-
+    
     return result;
   }, [backBodySvg, enhancedPrimaryMuscles, normalizedSecondaryMuscles, debugMode]);
 
-  const views = useMemo(
-    () => [
-      { svg: highlightedFrontSvg, text: 'Front view not available' },
-      { svg: highlightedBackSvg, text: 'Back view not available' },
-    ],
-    [highlightedFrontSvg, highlightedBackSvg],
-  );
+  const views = useMemo(() => [
+    { svg: highlightedFrontSvg, text: 'Front view not available' },
+    { svg: highlightedBackSvg, text: 'Back view not available' },
+  ], [highlightedFrontSvg, highlightedBackSvg]);
 
   return (
     <View style={styles.muscleMapContainer}>
@@ -278,7 +267,11 @@ export default function MuscleDiagram({
         <View style={styles.bodyViewContainer}>
           {views.map((view, index) => (
             <View key={index} style={styles.bodyView}>
-              <BodyView loading={loading} svg={view.svg} placeholderText={view.text} />
+              <BodyView
+                loading={loading}
+                svg={view.svg}
+                placeholderText={view.text}
+              />
             </View>
           ))}
         </View>
@@ -322,4 +315,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     padding: SPACING.sm,
   },
-});
+}); 

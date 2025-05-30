@@ -1,12 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Dimensions } from 'react-native';
-import Svg, {
-  Path,
-  Circle,
-  Defs,
-  LinearGradient as SvgLinearGradient,
-  Stop,
-} from 'react-native-svg';
+import Svg, { Path, Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -17,24 +11,15 @@ interface MaxWeightDataPoint {
   reps?: number;
 }
 
-interface ChartPoint {
-  x: number;
-  y: number;
-  value: number;
-}
-
 interface ExerciseMaxWeightGraphProps {
   data: MaxWeightDataPoint[];
   exerciseName: string;
-  absoluteMaxWeight?: { weight: number; reps: number; date: string } | null;
+  absoluteMaxWeight?: { weight: number, reps: number, date: string } | null;
 }
 
-export default function ExerciseMaxWeightGraph({
-  data,
-  absoluteMaxWeight,
-}: ExerciseMaxWeightGraphProps) {
+export default function ExerciseMaxWeightGraph({ data, exerciseName, absoluteMaxWeight }: ExerciseMaxWeightGraphProps) {
   // Calculate chart dimensions
-  const chartWidth = screenWidth - SPACING.md * 4;
+  const chartWidth = screenWidth - (SPACING.md * 4);
   const chartHeight = 80;
   const padding = 20;
 
@@ -103,14 +88,14 @@ export default function ExerciseMaxWeightGraph({
   }
 
   // Multiple data points - create trending line chart
-  const values = data.map((d) => d.value);
+  const values = data.map(d => d.value);
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values);
-
+  
   // Add some padding to the range for better visualization
   const valueRange = maxValue - minValue || 1;
-  const paddedMin = Math.max(0, minValue - valueRange * 0);
-  const paddedMax = maxValue + valueRange * 0;
+  const paddedMin = Math.max(0, minValue - (valueRange * 0));
+  const paddedMax = maxValue + (valueRange * 0);
   const paddedRange = paddedMax - paddedMin;
 
   // Calculate points for the line chart
@@ -125,9 +110,9 @@ export default function ExerciseMaxWeightGraph({
   });
 
   // Create simple line path
-  const createLinePath = (points: ChartPoint[]) => {
+  const createLinePath = (points: any[]) => {
     if (points.length < 2) return '';
-
+    
     let path = `M ${points[0].x} ${points[0].y}`;
     for (let i = 1; i < points.length; i++) {
       path += ` L ${points[i].x} ${points[i].y}`;
@@ -136,17 +121,17 @@ export default function ExerciseMaxWeightGraph({
   };
 
   // Create filled area path
-  const createAreaPath = (points: ChartPoint[]) => {
+  const createAreaPath = (points: any[]) => {
     if (points.length < 2) return '';
-
+    
     const bottomY = chartHeight - padding;
     let path = `M ${points[0].x} ${bottomY}`;
     path += ` L ${points[0].x} ${points[0].y}`;
-
+    
     for (let i = 1; i < points.length; i++) {
       path += ` L ${points[i].x} ${points[i].y}`;
     }
-
+    
     path += ` L ${points[points.length - 1].x} ${bottomY}`;
     path += ' Z';
     return path;
@@ -188,10 +173,14 @@ export default function ExerciseMaxWeightGraph({
                 <Stop offset="100%" stopColor={COLORS.secondary} stopOpacity="0.1" />
               </SvgLinearGradient>
             </Defs>
-
+            
             {/* Filled area under the line */}
-            <Path d={areaPath} fill="url(#areaGradient)" stroke="none" />
-
+            <Path
+              d={areaPath}
+              fill="url(#areaGradient)"
+              stroke="none"
+            />
+            
             {/* Main trend line */}
             <Path
               d={linePath}
@@ -201,9 +190,9 @@ export default function ExerciseMaxWeightGraph({
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-
+            
             {/* Data points - only show the last one */}
-            {points.slice(-1).map((point) => (
+            {points.slice(-1).map((point, index) => (
               <Circle
                 key={points.length - 1.5}
                 cx={point.x}
@@ -215,7 +204,7 @@ export default function ExerciseMaxWeightGraph({
               />
             ))}
           </Svg>
-
+          
           {/* Weight labels at start and end - REMOVED */}
           {/* 
           <View style={[styles.weightLabel, { left: padding - 10 }]}>
@@ -321,4 +310,4 @@ const styles = StyleSheet.create({
     fontSize: 10,
     opacity: 0.8,
   },
-});
+}); 

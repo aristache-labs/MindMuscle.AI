@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';
-import { COLORS, SPACING } from '../constants/theme';
+import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { MenuHeader } from '../components/MenuHeader';
 
 interface AiCoachingScreenProps {
@@ -36,4 +36,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: SPACING.md,
   },
-});
+}); 

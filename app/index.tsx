@@ -18,4 +18,4 @@ export default function Index() {
     // User is not authenticated, redirect to login
     return <Redirect href="/(auth)/login" />;
   }
-}
+} 

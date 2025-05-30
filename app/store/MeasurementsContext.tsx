@@ -17,12 +17,8 @@ const MeasurementsContext = createContext<MeasurementsContextType | undefined>(u
 
 export function MeasurementsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const [measurements, setMeasurements] = useState<Record<MeasurementCategory, Measurement | null>>(
-    {} as Record<MeasurementCategory, Measurement | null>,
-  );
-  const [measurementHistory, setMeasurementHistory] = useState<
-    Record<MeasurementCategory, Measurement[]>
-  >({} as Record<MeasurementCategory, Measurement[]>);
+  const [measurements, setMeasurements] = useState<Record<MeasurementCategory, Measurement | null>>({} as Record<MeasurementCategory, Measurement | null>);
+  const [measurementHistory, setMeasurementHistory] = useState<Record<MeasurementCategory, Measurement[]>>({} as Record<MeasurementCategory, Measurement[]>);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,10 +34,7 @@ export function MeasurementsProvider({ children }: { children: React.ReactNode }
       setMeasurements(latestMeasurements);
 
       // Load history for all categories
-      const history: Record<MeasurementCategory, Measurement[]> = {} as Record<
-        MeasurementCategory,
-        Measurement[]
-      >;
+      const history: Record<MeasurementCategory, Measurement[]> = {} as Record<MeasurementCategory, Measurement[]>;
       for (const category of Object.keys(latestMeasurements) as MeasurementCategory[]) {
         const categoryHistory = await measurementService.getMeasurementHistory(user.id, category);
         history[category] = categoryHistory;
@@ -82,7 +75,7 @@ export function MeasurementsProvider({ children }: { children: React.ReactNode }
     }
   };
 
-  const deleteMeasurement = async (measurementId: string, _category: MeasurementCategory) => {
+  const deleteMeasurement = async (measurementId: string, category: MeasurementCategory) => {
     try {
       setError(null);
       await measurementService.deleteMeasurement(measurementId);
@@ -104,7 +97,11 @@ export function MeasurementsProvider({ children }: { children: React.ReactNode }
     refreshMeasurements: loadMeasurements,
   };
 
-  return <MeasurementsContext.Provider value={value}>{children}</MeasurementsContext.Provider>;
+  return (
+    <MeasurementsContext.Provider value={value}>
+      {children}
+    </MeasurementsContext.Provider>
+  );
 }
 
 export function useMeasurements() {
@@ -115,4 +112,4 @@ export function useMeasurements() {
   return context;
 }
 
-export default MeasurementsProvider;
+export default MeasurementsProvider; 

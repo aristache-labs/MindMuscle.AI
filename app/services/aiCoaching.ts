@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { format } from 'date-fns';
 import OpenAI from 'openai';
 import { getAuth } from '@services/auth';
 
@@ -68,7 +69,7 @@ class AICoachingService {
   public async getCoachingResponse(
     prompt: string,
     context: CoachingContext,
-    type: CoachingSession['type'],
+    type: CoachingSession['type']
   ): Promise<string> {
     try {
       const auth = await getAuth();
@@ -85,23 +86,19 @@ class AICoachingService {
         .replace('{gender}', context.userProfile.gender)
         .replace('{weight}', context.userProfile.weight.toString())
         .replace('{height}', context.userProfile.height.toString())
-        .replace(
-          '{medicalConditions}',
-          context.userProfile.medicalConditions?.join(', ') || 'none',
-        );
+        .replace('{medicalConditions}', context.userProfile.medicalConditions?.join(', ') || 'none');
 
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4-turbo-preview',
+        model: "gpt-4-turbo-preview",
         messages: [
-          { role: 'system', content: formattedPrompt },
-          { role: 'user', content: `Type: ${type}\nQuestion: ${prompt}` },
+          { role: "system", content: formattedPrompt },
+          { role: "user", content: `Type: ${type}\nQuestion: ${prompt}` }
         ],
         temperature: 0.7,
         max_tokens: 500,
       });
 
-      const response =
-        completion.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
+      const response = completion.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
 
       const session: CoachingSession = {
         id: Date.now().toString(),
@@ -109,7 +106,7 @@ class AICoachingService {
         timestamp: new Date(),
         type,
         prompt,
-        response,
+        response
       };
 
       await this.saveSession(session);
@@ -122,14 +119,17 @@ class AICoachingService {
 
   public async saveFeedback(sessionId: string, feedback: string, rating: number): Promise<void> {
     try {
-      const sessionIndex = this.coachingHistory.findIndex((s) => s.id === sessionId);
+      const sessionIndex = this.coachingHistory.findIndex(s => s.id === sessionId);
       if (sessionIndex !== -1) {
         this.coachingHistory[sessionIndex] = {
           ...this.coachingHistory[sessionIndex],
           feedback,
-          rating,
+          rating
         };
-        await AsyncStorage.setItem('coachingHistory', JSON.stringify(this.coachingHistory));
+        await AsyncStorage.setItem(
+          'coachingHistory',
+          JSON.stringify(this.coachingHistory)
+        );
       }
     } catch (error) {
       console.error('Error saving feedback:', error);
@@ -139,7 +139,10 @@ class AICoachingService {
 
   private async saveSession(session: CoachingSession): Promise<void> {
     this.coachingHistory.push(session);
-    await AsyncStorage.setItem('coachingHistory', JSON.stringify(this.coachingHistory));
+    await AsyncStorage.setItem(
+      'coachingHistory',
+      JSON.stringify(this.coachingHistory)
+    );
   }
 
   public async getCoachingHistory(): Promise<CoachingSession[]> {
@@ -154,7 +157,7 @@ class AICoachingService {
         this.coachingHistory = JSON.parse(history);
         // Filter sessions for the current user
         this.coachingHistory = this.coachingHistory.filter(
-          (session) => session.userId === auth.user?.id,
+          session => session.userId === auth.user?.id
         );
       }
       return this.coachingHistory;
@@ -165,4 +168,4 @@ class AICoachingService {
   }
 }
 
-export default AICoachingService;
+export default AICoachingService; 

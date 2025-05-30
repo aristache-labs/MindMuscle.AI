@@ -1,14 +1,15 @@
 /**
  * Debug Configuration
- *
+ * 
  * Edit this file to enable/disable debugging for different components.
  * Set values to true to enable debugging, false to disable.
  */
+import React from 'react';
 
 export const DEBUG_CONFIG = {
   // Master switch - enables all debugging when true
   GLOBAL: false,
-
+  
   // Component-specific debug flags
   SPLASH_SCREEN: false,
   IMAGE_PRELOADER: false,
@@ -18,11 +19,11 @@ export const DEBUG_CONFIG = {
   DATA_SYNC: false,
   PERFORMANCE: false,
   API: false,
-
+  
   // Add workout-specific debug flags
   WORKOUT_PLAN: false,
   WORKOUT_SESSION: false,
-  EXERCISE: false,
+  EXERCISE: false
 };
 
 /**
@@ -33,4 +34,4 @@ export type DebugFlags = typeof DEBUG_CONFIG;
 // Default export to satisfy Expo Router
 export default function DebugConfig() {
   return null;
-}
+} 

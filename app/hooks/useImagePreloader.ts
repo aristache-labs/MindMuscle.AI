@@ -1,12 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
-import {
-  ImagePriority,
-  safePreloadImages,
-  isFastImageAvailable,
+import { Platform } from 'react-native';
+import { Asset } from 'expo-asset';
+import { 
+  ImagePriority, 
+  safePreloadImages, 
+  isFastImageAvailable, 
   DEBUG_IMAGE_PRELOADER,
   isPlaceholderImage,
+  isSvgPreloaded,
+  preloadedSvgs,
   type Source,
-  type Priority,
+  type Priority
 } from '../utils/imagePreloader';
 
 // Cache for already preloaded images
@@ -14,7 +18,7 @@ const preloadedImagesCache = new Map<string, boolean>();
 
 // Types for the hook options
 export interface PreloadOptions {
-  priority?: 'low' | 'normal' | 'high';
+  priority?: 'low' | 'normal' | 'high'; 
   batchSize?: number;
   debugLabel?: string;
   skipIfCached?: boolean;
@@ -36,15 +40,32 @@ export interface PreloadingStatus {
 }
 
 /**
+ * Helper to check if a source is an SVG
+ */
+function isSvgSource(source: string | { uri: string } | null): boolean {
+  if (!source) return false;
+  
+  if (typeof source === 'string') {
+    return source.endsWith('.svg');
+  }
+  
+  if (source.uri) {
+    return source.uri.endsWith('.svg');
+  }
+  
+  return false;
+}
+
+/**
  * Hook for preloading a batch of images
- *
+ * 
  * @param sources Array of image URIs to preload
  * @param options Configuration options
  * @returns Status of the preloading process
  */
 export default function useImagePreloader(
   sources: (string | { uri: string })[] | null | undefined,
-  options: PreloadOptions = {},
+  options: PreloadOptions = {}
 ): PreloadingStatus {
   // Options with defaults
   const {
@@ -52,7 +73,7 @@ export default function useImagePreloader(
     batchSize = 15,
     debugLabel = 'useImagePreloader',
     skipIfCached = true,
-    disableSvgLoading = true, // By default, completely skip SVG loading
+    disableSvgLoading = true // By default, completely skip SVG loading
   } = options;
 
   // Use a ref to track if preloading has started to prevent duplicate loading
@@ -61,12 +82,9 @@ export default function useImagePreloader(
   // Convert priority string to appropriate priority
   const imagePriority = (() => {
     switch (priority) {
-      case 'low':
-        return ImagePriority.LOW;
-      case 'high':
-        return ImagePriority.HIGH;
-      default:
-        return ImagePriority.NORMAL;
+      case 'low': return ImagePriority.LOW;
+      case 'high': return ImagePriority.HIGH;
+      default: return ImagePriority.NORMAL;
     }
   })();
 
@@ -80,8 +98,8 @@ export default function useImagePreloader(
     timing: {
       startTime: 0,
       endTime: null,
-      duration: null,
-    },
+      duration: null
+    }
   });
 
   // Effect to preload images when sources change
@@ -98,8 +116,8 @@ export default function useImagePreloader(
           timing: {
             startTime: Date.now(),
             endTime: Date.now(),
-            duration: 0,
-          },
+            duration: 0
+          }
         });
       }
       return;
@@ -109,24 +127,26 @@ export default function useImagePreloader(
     preloadingStarted.current = true;
 
     // Filter out placeholder images
-    const filteredSources = sources.filter((source) => !isPlaceholderImage(source));
+    const filteredSources = sources.filter(source => !isPlaceholderImage(source));
 
     // Process sources into an array of URIs
-    const uris = filteredSources
-      .map((source) => (typeof source === 'string' ? source : source.uri || ''))
-      .filter((uri) => uri && typeof uri === 'string');
-
+    const uris = filteredSources.map(source => 
+      typeof source === 'string' ? source : (source.uri || '')
+    ).filter(uri => uri && typeof uri === 'string');
+    
     // Filter out SVGs if SVG loading is disabled
-    const nonSvgUris = disableSvgLoading ? uris.filter((uri) => !uri.endsWith('.svg')) : uris;
-
+    const nonSvgUris = disableSvgLoading 
+      ? uris.filter(uri => !uri.endsWith('.svg'))
+      : uris;
+    
     // Count skipped SVGs
     const skippedSvgCount = uris.length - nonSvgUris.length;
-
+    
     // Filter out already preloaded images if skipIfCached is true
-    const urisToLoad = skipIfCached
-      ? nonSvgUris.filter((uri) => !preloadedImagesCache.has(uri))
+    const urisToLoad = skipIfCached 
+      ? nonSvgUris.filter(uri => !preloadedImagesCache.has(uri)) 
       : nonSvgUris;
-
+    
     // If all images are already preloaded, return early
     if (urisToLoad.length === 0) {
       setStatus({
@@ -139,15 +159,15 @@ export default function useImagePreloader(
         timing: {
           startTime: Date.now(),
           endTime: Date.now(),
-          duration: 0,
-        },
+          duration: 0
+        }
       });
       return;
     }
 
     // Start preloading
     const startTime = Date.now();
-    setStatus((prev) => ({
+    setStatus(prev => ({
       ...prev,
       loaded: false,
       error: null,
@@ -157,14 +177,12 @@ export default function useImagePreloader(
       timing: {
         startTime,
         endTime: null,
-        duration: null,
-      },
+        duration: null
+      }
     }));
 
     if (DEBUG_IMAGE_PRELOADER) {
-      console.log(
-        `🚀 [${debugLabel}] Starting to preload ${urisToLoad.length} images with priority ${priority} (${skippedSvgCount} SVGs skipped)`,
-      );
+      console.log(`🚀 [${debugLabel}] Starting to preload ${urisToLoad.length} images with priority ${priority} (${skippedSvgCount} SVGs skipped)`);
     }
 
     // Preload function
@@ -181,41 +199,39 @@ export default function useImagePreloader(
         // Process each batch
         for (const batch of batches) {
           // Convert to sources format
-          const sources: Source[] = batch.map((uri) => ({
+          const sources: Source[] = batch.map(uri => ({
             uri,
-            priority: imagePriority as Priority,
+            priority: imagePriority as Priority
           }));
-
+          
           // Use our safe preload function
           await safePreloadImages(sources);
 
           // Add to cache
-          batch.forEach((uri) => {
+          batch.forEach(uri => {
             preloadedImagesCache.set(uri, true);
           });
 
           // Update progress
           completedCount += batch.length;
           const progress = Math.min(completedCount / uris.length, 1);
-
-          setStatus((prev) => ({
+          
+          setStatus(prev => ({
             ...prev,
             progress,
-            completedCount,
+            completedCount
           }));
 
           if (DEBUG_IMAGE_PRELOADER) {
-            console.log(
-              `⏱️ [${debugLabel}] Batch completed: ${completedCount}/${uris.length} (${(progress * 100).toFixed(1)}%)`,
-            );
+            console.log(`⏱️ [${debugLabel}] Batch completed: ${completedCount}/${uris.length} (${(progress * 100).toFixed(1)}%)`);
           }
         }
 
         // All loaded successfully
         const endTime = Date.now();
         const duration = endTime - startTime;
-
-        setStatus((prev) => ({
+        
+        setStatus(prev => ({
           ...prev,
           loaded: true,
           progress: 1,
@@ -223,28 +239,26 @@ export default function useImagePreloader(
           timing: {
             ...prev.timing!,
             endTime,
-            duration,
-          },
+            duration
+          }
         }));
 
         if (DEBUG_IMAGE_PRELOADER) {
-          console.log(
-            `✅ [${debugLabel}] All images preloaded in ${duration}ms using ${isFastImageAvailable ? 'FastImage' : 'Asset'}`,
-          );
+          console.log(`✅ [${debugLabel}] All images preloaded in ${duration}ms using ${isFastImageAvailable ? 'FastImage' : 'Asset'}`);
         }
       } catch (err) {
         // Handle error
         const error = err instanceof Error ? err.message : 'Unknown preloading error';
-
-        setStatus((prev) => ({
+        
+        setStatus(prev => ({
           ...prev,
           loaded: false,
           error,
           timing: {
             ...prev.timing!,
             endTime: Date.now(),
-            duration: Date.now() - startTime,
-          },
+            duration: Date.now() - startTime
+          }
         }));
 
         if (DEBUG_IMAGE_PRELOADER) {
@@ -255,7 +269,7 @@ export default function useImagePreloader(
 
     // Start preloading
     preloadImages();
-
+    
     // Reset the preloading flag when sources change
     return () => {
       preloadingStarted.current = false;
@@ -263,4 +277,4 @@ export default function useImagePreloader(
   }, [sources ? JSON.stringify(sources) : '']); // Stringify sources to prevent infinite loops
 
   return status;
-}
+} 

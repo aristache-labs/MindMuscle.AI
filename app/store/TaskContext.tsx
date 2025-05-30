@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import supabase from '../services/supabase';
-import { PostgrestError } from '@supabase/supabase-js';
+import { PostgrestError, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { logger } from '../utils/logger';
 
 export interface Task {
@@ -32,13 +32,25 @@ export function TaskProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     fetchTasks();
 
-    // Use polling instead of realtime to avoid WebSocket issues in React Native
-    const pollInterval = setInterval(() => {
-      fetchTasks();
-    }, 30000); // Poll every 30 seconds
+    const subscription = supabase
+      .channel('tasks')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tasks' },
+        (payload: RealtimePostgresChangesPayload<Task>) => {
+          logger.info('Real-time task update received', {
+            context: {
+              event: payload.eventType,
+              table: payload.table
+            }
+          });
+          fetchTasks();
+        }
+      )
+      .subscribe();
 
     return () => {
-      clearInterval(pollInterval);
+      subscription.unsubscribe();
     };
   }, []);
 
@@ -54,8 +66,8 @@ export function TaskProvider({ children }: { children: ReactNode }) {
         logger.error('Failed to fetch tasks', error);
         setError(error);
       } else {
-        logger.debug('Tasks fetched successfully', {
-          context: { count: data.length },
+        logger.debug('Tasks fetched successfully', { 
+          context: { count: data.length } 
         });
         setTasks(data);
         setError(null);
@@ -78,24 +90,24 @@ export function TaskProvider({ children }: { children: ReactNode }) {
         .single();
 
       if (error) {
-        logger.error('Failed to add task', error, {
-          context: { title },
+        logger.error('Failed to add task', error, { 
+          context: { title } 
         });
         setError(error);
       } else {
-        logger.info('Task added successfully', {
-          context: {
+        logger.info('Task added successfully', { 
+          context: { 
             taskId: data.id,
-            title,
-          },
+            title 
+          } 
         });
         setTasks([data, ...tasks]);
         setError(null);
       }
     } catch (error) {
       const pgError = error as PostgrestError;
-      logger.error('Unexpected error adding task', pgError, {
-        context: { title },
+      logger.error('Unexpected error adding task', pgError, { 
+        context: { title } 
       });
       setError(pgError);
     }
@@ -103,34 +115,39 @@ export function TaskProvider({ children }: { children: ReactNode }) {
 
   const updateTask = async (id: string, updates: Partial<Task>) => {
     try {
-      const { error } = await supabase.from('tasks').update(updates).eq('id', id).select().single();
+      const { data, error } = await supabase
+        .from('tasks')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
 
       if (error) {
-        logger.error('Failed to update task', error, {
-          context: { taskId: id },
+        logger.error('Failed to update task', error, { 
+          context: { taskId: id } 
         });
         setError(error);
       } else {
-        logger.info('Task updated successfully', {
-          context: {
+        logger.info('Task updated successfully', { 
+          context: { 
             taskId: id,
-            updates: Object.keys(updates),
-          },
+            updates: Object.keys(updates) 
+          } 
         });
-        setTasks(tasks.map((task) => (task.id === id ? { ...task, ...updates } : task)));
+        setTasks(tasks.map(task => task.id === id ? { ...task, ...updates } : task));
         setError(null);
       }
     } catch (error) {
       const pgError = error as PostgrestError;
-      logger.error('Unexpected error updating task', pgError, {
-        context: { taskId: id },
+      logger.error('Unexpected error updating task', pgError, { 
+        context: { taskId: id } 
       });
       setError(pgError);
     }
   };
 
   const toggleTask = async (id: string) => {
-    const task = tasks.find((t) => t.id === id);
+    const task = tasks.find(t => t.id === id);
     if (task) {
       await updateTask(id, { completed: !task.completed });
     }
@@ -138,41 +155,42 @@ export function TaskProvider({ children }: { children: ReactNode }) {
 
   const deleteTask = async (id: string) => {
     try {
-      const { error } = await supabase.from('tasks').delete().eq('id', id);
+      const { error } = await supabase
+        .from('tasks')
+        .delete()
+        .eq('id', id);
 
       if (error) {
-        logger.error('Failed to delete task', error, {
-          context: { taskId: id },
+        logger.error('Failed to delete task', error, { 
+          context: { taskId: id } 
         });
         setError(error);
       } else {
-        logger.info('Task deleted successfully', {
-          context: { taskId: id },
+        logger.info('Task deleted successfully', { 
+          context: { taskId: id } 
         });
-        setTasks(tasks.filter((task) => task.id !== id));
+        setTasks(tasks.filter(task => task.id !== id));
         setError(null);
       }
     } catch (error) {
       const pgError = error as PostgrestError;
-      logger.error('Unexpected error deleting task', pgError, {
-        context: { taskId: id },
+      logger.error('Unexpected error deleting task', pgError, { 
+        context: { taskId: id } 
       });
       setError(pgError);
     }
   };
 
   return (
-    <TaskContext.Provider
-      value={{
-        tasks,
-        loading,
-        error,
-        addTask,
-        updateTask,
-        deleteTask,
-        toggleTask,
-      }}
-    >
+    <TaskContext.Provider value={{ 
+      tasks, 
+      loading, 
+      error, 
+      addTask, 
+      updateTask, 
+      deleteTask, 
+      toggleTask 
+    }}>
       {children}
     </TaskContext.Provider>
   );
@@ -186,4 +204,4 @@ export function useTasks(): TaskContextType {
   return context;
 }
 
-export default TaskProvider;
+export default TaskProvider; 

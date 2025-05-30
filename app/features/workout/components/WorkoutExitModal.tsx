@@ -20,7 +20,12 @@ export default function WorkoutExitModal({
   onClose,
 }: WorkoutExitModalProps) {
   return (
-    <Modal visible={visible} transparent={true} animationType="fade" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={onClose}
+    >
       <View style={styles.modalOverlay}>
         <View style={styles.modalContainer}>
           <LinearGradient
@@ -34,53 +39,44 @@ export default function WorkoutExitModal({
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Exit Workout?</Text>
               </View>
-
+              
               {/* Action Buttons */}
               <View style={styles.modalActions}>
                 {/* End Workout Button */}
-                <TouchableOpacity style={styles.modalButton} onPress={onEndWorkout}>
+                <TouchableOpacity 
+                  style={styles.modalButton}
+                  onPress={onEndWorkout}
+                >
                   <View style={styles.buttonContent}>
-                    <Ionicons
-                      name="close-circle"
-                      size={24}
-                      color="#FF5252"
-                      style={styles.buttonIcon}
-                    />
+                    <Ionicons name="close-circle" size={24} color="#FF5252" style={styles.buttonIcon} />
                     <View style={styles.buttonTextContainer}>
                       <Text style={styles.buttonTitle}>End Workout</Text>
                       <Text style={styles.buttonSubtitle}>Discard progress</Text>
                     </View>
                   </View>
                 </TouchableOpacity>
-
+                
                 {/* Pause Workout Button */}
-                <TouchableOpacity style={styles.modalButton} onPress={onPauseWorkout}>
+                <TouchableOpacity 
+                  style={styles.modalButton}
+                  onPress={onPauseWorkout}
+                >
                   <View style={styles.buttonContent}>
-                    <Ionicons
-                      name="pause-circle"
-                      size={24}
-                      color="#FFC107"
-                      style={styles.buttonIcon}
-                    />
+                    <Ionicons name="pause-circle" size={24} color="#FFC107" style={styles.buttonIcon} />
                     <View style={styles.buttonTextContainer}>
                       <Text style={styles.buttonTitle}>Pause Workout</Text>
                       <Text style={styles.buttonSubtitle}>Save progress for later</Text>
                     </View>
                   </View>
                 </TouchableOpacity>
-
+                
                 {/* Return Button */}
-                <TouchableOpacity
+                <TouchableOpacity 
                   style={[styles.modalButton, styles.returnButton]}
                   onPress={onReturnToWorkout}
                 >
                   <View style={styles.buttonContent}>
-                    <Ionicons
-                      name="arrow-back-circle"
-                      size={24}
-                      color={COLORS.primary}
-                      style={styles.buttonIcon}
-                    />
+                    <Ionicons name="arrow-back-circle" size={24} color={COLORS.primary} style={styles.buttonIcon} />
                     <View style={styles.buttonTextContainer}>
                       <Text style={styles.buttonTitle}>Return to Workout</Text>
                       <Text style={styles.buttonSubtitle}>Continue current session</Text>
@@ -179,4 +175,4 @@ const styles = StyleSheet.create({
   returnButton: {
     // Background color is already in modalButton
   },
-});
+}); 

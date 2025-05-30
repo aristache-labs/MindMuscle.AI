@@ -7,7 +7,7 @@ export interface UseWorkoutTimerReturn {
   restTimer: number;
   restTimerActive: boolean;
   workoutStartTime: Date | null;
-
+  
   // Timer controls
   startWorkoutTimer: () => void;
   stopWorkoutTimer: () => void;
@@ -15,7 +15,7 @@ export interface UseWorkoutTimerReturn {
   clearAllTimers: () => void;
   setWorkoutStartTime: (date: Date | null) => void;
   setWorkoutDuration: (duration: number) => void;
-
+  
   // Formatters
   formatTime: (seconds: number) => string;
   formatRestTime: (seconds: number) => string;
@@ -28,7 +28,7 @@ export const useWorkoutTimer = (): UseWorkoutTimerReturn => {
   const [restTimer, setRestTimer] = useState(0);
   const [restTimerActive, setRestTimerActive] = useState(false);
   const [workoutStartTime, setWorkoutStartTime] = useState<Date | null>(null);
-
+  
   // Timer interval references
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const workoutTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -40,11 +40,11 @@ export const useWorkoutTimer = (): UseWorkoutTimerReturn => {
       clearInterval(workoutTimerRef.current);
       workoutTimerRef.current = null;
     }
-
+    
     // Start new workout timer
     setWorkoutTimerActive(true);
     workoutTimerRef.current = setInterval(() => {
-      setWorkoutDuration((prev) => prev + 1);
+      setWorkoutDuration(prev => prev + 1);
     }, 1000) as unknown as NodeJS.Timeout;
   }, []);
 
@@ -70,13 +70,13 @@ export const useWorkoutTimer = (): UseWorkoutTimerReturn => {
   const startRestTimer = useCallback((seconds: number) => {
     setRestTimer(seconds);
     setRestTimerActive(true);
-
+    
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
     }
-
+    
     timerIntervalRef.current = setInterval(() => {
-      setRestTimer((prev) => {
+      setRestTimer(prev => {
         if (prev <= 1) {
           if (timerIntervalRef.current) {
             clearInterval(timerIntervalRef.current);
@@ -96,7 +96,7 @@ export const useWorkoutTimer = (): UseWorkoutTimerReturn => {
     const secs = seconds % 60;
     return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   }, []);
-
+  
   const formatRestTime = useCallback((seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -110,7 +110,7 @@ export const useWorkoutTimer = (): UseWorkoutTimerReturn => {
     restTimer,
     restTimerActive,
     workoutStartTime,
-
+    
     // Timer controls
     startWorkoutTimer,
     stopWorkoutTimer,
@@ -118,9 +118,9 @@ export const useWorkoutTimer = (): UseWorkoutTimerReturn => {
     clearAllTimers,
     setWorkoutStartTime,
     setWorkoutDuration,
-
+    
     // Formatters
     formatTime,
     formatRestTime,
   };
-};
+}; 

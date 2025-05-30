@@ -30,8 +30,8 @@ const defaultContext: CoachingContext = {
     gender: 'male',
     weight: 70,
     height: 175,
-    medicalConditions: [],
-  },
+    medicalConditions: []
+  }
 };
 
 const CoachingContextInstance = createContext<CoachingContextType | undefined>(undefined);
@@ -42,7 +42,7 @@ export const CoachingProvider = ({ children }: { children: ReactNode }) => {
     sessions: [],
     context: defaultContext,
     isLoading: false,
-    error: null,
+    error: null
   });
   const [isCoachingEnabled, setIsCoachingEnabled] = useState(false);
 
@@ -56,9 +56,9 @@ export const CoachingProvider = ({ children }: { children: ReactNode }) => {
   const loadCoachingHistory = async () => {
     try {
       const sessions = await AICoachingService.getInstance().getCoachingHistory();
-      setState((prev) => ({ ...prev, sessions }));
-    } catch {
-      setState((prev) => ({ ...prev, error: 'Failed to load coaching history' }));
+      setState(prev => ({ ...prev, sessions }));
+    } catch (error) {
+      setState(prev => ({ ...prev, error: 'Failed to load coaching history' }));
     }
   };
 
@@ -66,12 +66,12 @@ export const CoachingProvider = ({ children }: { children: ReactNode }) => {
     try {
       const profile = await AsyncStorage.getItem('userProfile');
       if (profile) {
-        setState((prev) => ({
+        setState(prev => ({
           ...prev,
           context: {
             ...prev.context,
-            userProfile: JSON.parse(profile),
-          },
+            userProfile: JSON.parse(profile)
+          }
         }));
       }
     } catch (error) {
@@ -80,38 +80,38 @@ export const CoachingProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const getCoachingResponse = async (prompt: string, type: CoachingSession['type']) => {
-    setState((prev) => ({ ...prev, isLoading: true, error: null }));
+    setState(prev => ({ ...prev, isLoading: true, error: null }));
     try {
       const response = await AICoachingService.getInstance().getCoachingResponse(
         prompt,
         state.context,
-        type,
+        type
       );
       await loadCoachingHistory(); // Refresh history after new session
       return response;
     } catch (error) {
-      setState((prev) => ({ ...prev, error: 'Failed to get coaching response' }));
+      setState(prev => ({ ...prev, error: 'Failed to get coaching response' }));
       throw error;
     } finally {
-      setState((prev) => ({ ...prev, isLoading: false }));
+      setState(prev => ({ ...prev, isLoading: false }));
     }
   };
 
   const updateContext = (newContext: Partial<CoachingContext>) => {
-    setState((prev) => ({
+    setState(prev => ({
       ...prev,
-      context: { ...prev.context, ...newContext },
+      context: { ...prev.context, ...newContext }
     }));
   };
 
   const updateUserProfile = async (profile: Partial<CoachingContext['userProfile']>) => {
     const newProfile = { ...state.context.userProfile, ...profile };
-    setState((prev) => ({
+    setState(prev => ({
       ...prev,
       context: {
         ...prev.context,
-        userProfile: newProfile,
-      },
+        userProfile: newProfile
+      }
     }));
     await AsyncStorage.setItem('userProfile', JSON.stringify(newProfile));
   };
@@ -120,14 +120,14 @@ export const CoachingProvider = ({ children }: { children: ReactNode }) => {
     try {
       await AICoachingService.getInstance().saveFeedback(sessionId, feedback, rating);
       await loadCoachingHistory(); // Refresh history after feedback
-    } catch {
-      setState((prev) => ({ ...prev, error: 'Failed to save feedback' }));
-      throw new Error('Failed to save feedback');
+    } catch (error) {
+      setState(prev => ({ ...prev, error: 'Failed to save feedback' }));
+      throw error;
     }
   };
 
   const clearError = () => {
-    setState((prev) => ({ ...prev, error: null }));
+    setState(prev => ({ ...prev, error: null }));
   };
 
   const toggleCoaching = () => {
@@ -144,7 +144,7 @@ export const CoachingProvider = ({ children }: { children: ReactNode }) => {
         saveFeedback,
         clearError,
         isCoachingEnabled,
-        toggleCoaching,
+        toggleCoaching
       }}
     >
       {children}
@@ -160,4 +160,4 @@ export const useCoaching = () => {
   return context;
 };
 
-export default CoachingProvider;
+export default CoachingProvider; 

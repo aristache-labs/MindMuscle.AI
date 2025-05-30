@@ -17,31 +17,31 @@ interface MuscleTagsProps {
  */
 function MuscleTags({ muscles, isPrimary, debug = false }: MuscleTagsProps) {
   // Normalize and trim muscle names once
-  const normalized = useMemo(() => muscles.map((m) => m.trim()), [muscles]);
+  const normalized = useMemo(
+    () => muscles.map(m => m.trim()),
+    [muscles]
+  );
 
   if (normalized.length === 0) {
     return <Text style={styles.emptyText}>No data available</Text>;
   }
 
   if (debug) {
-    console.log(
-      `MuscleTags - Rendering ${isPrimary ? 'primary' : 'secondary'} muscles:`,
-      normalized,
-    );
+    console.log(`MuscleTags - Rendering ${isPrimary ? 'primary' : 'secondary'} muscles:`, normalized);
   }
 
   return (
     <View style={styles.container}>
-      {normalized.map((muscle) => {
+      {normalized.map(muscle => {
         const key = muscle.toLowerCase().replace(/\s+/g, '');
         const backgroundColor = getMuscleColor(key, isPrimary);
-
+        
         if (debug) {
           console.log(`Muscle: ${muscle}, Key: ${key}, Color: ${backgroundColor}`);
         }
 
         return (
-          <View key={key} style={[styles.tag, { backgroundColor }]}>
+          <View key={key} style={[styles.tag, { backgroundColor }]}>  
             <Text style={styles.tagText}>{muscle}</Text>
           </View>
         );
@@ -66,7 +66,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     fontWeight: '500',
     fontSize: 12,
-    color: COLORS.text, // Using standard text color instead of textOnPrimary
+    color: COLORS.text,  // Using standard text color instead of textOnPrimary
   },
   emptyText: {
     fontSize: 13,

@@ -1,13 +1,5 @@
 import React, { useState } from 'react';
-import {
-  StyleSheet,
-  View,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  TouchableWithoutFeedback,
-  Keyboard,
-} from 'react-native';
+import { StyleSheet, View, KeyboardAvoidingView, Platform, Pressable, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import { Text, TextInput, HelperText, ActivityIndicator } from 'react-native-paper';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -46,7 +38,7 @@ export default function ForgotPasswordScreen() {
       });
 
       if (resetError) throw resetError;
-
+      
       setSuccess(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send reset email');
@@ -78,12 +70,7 @@ export default function ForgotPasswordScreen() {
               </Text>
 
               <View style={styles.form}>
-                <View
-                  style={[
-                    styles.inputContainer,
-                    focusedInput === 'email' && styles.inputContainerFocused,
-                  ]}
-                >
+                <View style={[styles.inputContainer, focusedInput === 'email' && styles.inputContainerFocused]}>
                   <TextInput
                     mode="flat"
                     placeholder="Email"
@@ -104,12 +91,7 @@ export default function ForgotPasswordScreen() {
                     underlineColor="transparent"
                     activeUnderlineColor={COLORS.primary}
                     selectionColor="rgba(108, 71, 255, 0.3)"
-                    left={
-                      <TextInput.Icon
-                        icon="email"
-                        color={focusedInput === 'email' ? COLORS.primary : '#fff'}
-                      />
-                    }
+                    left={<TextInput.Icon icon="email" color={focusedInput === 'email' ? COLORS.primary : '#fff'} />}
                     theme={{
                       colors: {
                         background: '#1A1A1A',
@@ -130,11 +112,7 @@ export default function ForgotPasswordScreen() {
                 )}
 
                 <Pressable
-                  style={[
-                    styles.resetButtonContainer,
-                    styles.resetButton,
-                    isLoading && styles.resetButtonDisabled,
-                  ]}
+                  style={[styles.resetButtonContainer, styles.resetButton, isLoading && styles.resetButtonDisabled]}
                   onPress={handleResetPassword}
                   disabled={isLoading}
                 >
@@ -150,7 +128,9 @@ export default function ForgotPasswordScreen() {
             <View style={styles.successContainer}>
               <Ionicons name="mail-outline" size={64} color={COLORS.primary} />
               <Text style={styles.successTitle}>Check your email</Text>
-              <Text style={styles.successText}>We've sent a password reset link to {email}</Text>
+              <Text style={styles.successText}>
+                We've sent a password reset link to {email}
+              </Text>
               <Pressable
                 style={styles.resetButtonContainer}
                 onPress={() => router.replace('/(auth)/login')}
@@ -270,4 +250,4 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
   },
-});
+}); 

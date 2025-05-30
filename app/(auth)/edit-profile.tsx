@@ -1,21 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  StyleSheet,
-  View,
-  ScrollView,
-  Platform,
-  Pressable,
-  KeyboardAvoidingView,
-  TouchableWithoutFeedback,
-  Keyboard,
-} from 'react-native';
-import { Text, TextInput, IconButton, Menu } from 'react-native-paper';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { StyleSheet, View, ScrollView, Platform, Pressable, KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard } from 'react-native';
+import { Text, TextInput, IconButton, Menu, Divider } from 'react-native-paper';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../store/AuthContext';
 import { useMeasurements } from '../store/MeasurementsContext';
 import { format, isValid, subYears, isAfter, isBefore } from 'date-fns';
+import { Ionicons } from '@expo/vector-icons';
 import supabase from '../services/supabase';
 import { ThemedDatePicker } from '../components/ThemedDatePicker';
 import { ThemedNumberPicker } from '../components/ThemedNumberPicker';
@@ -30,208 +22,20 @@ interface FormData {
   height: string;
 }
 
-interface User {
-  id: string;
-  email?: string;
-  full_name?: string;
-  user_metadata?: {
-    name?: string;
-    dateOfBirth?: string;
-    gender?: string;
-    weight?: number;
-    height?: number;
-    preferred_weight_unit?: 'KG' | 'LB';
-    preferred_height_unit?: 'CM' | 'INCH';
-    [key: string]: string | number | boolean | null | undefined;
-  };
-}
-
 const genderOptions = [
   { label: 'Male', value: 'male' },
   { label: 'Female', value: 'female' },
-  { label: 'Other', value: 'other' },
+  { label: 'Other', value: 'other' }
 ];
 
-// Custom hook for form data management
-function useFormData(user: User | null) {
-  const [formData, setFormData] = useState<FormData>({
-    fullName: user?.user_metadata?.name || '',
-    email: user?.email || '',
-    dateOfBirth: user?.user_metadata?.dateOfBirth
-      ? new Date(user.user_metadata.dateOfBirth)
-      : new Date('1990-01-01'),
-    gender: (user?.user_metadata?.gender as FormData['gender']) || '',
-    weight: user?.user_metadata?.weight?.toString() || '',
-    height: user?.user_metadata?.height?.toString() || '',
-  });
-
-  return { formData, setFormData };
-}
-
-// Custom hook for unit preferences
-function useUnitPreferences(user: User | null) {
-  const [weightUnit, setWeightUnit] = useState<'KG' | 'LB'>(
-    user?.user_metadata?.preferred_weight_unit || 'KG',
-  );
-  const [heightUnit, setHeightUnit] = useState<'CM' | 'INCH'>(
-    user?.user_metadata?.preferred_height_unit || 'CM',
-  );
-
-  return { weightUnit, setWeightUnit, heightUnit, setHeightUnit };
-}
-
-// Custom hook for UI state management
-function useUIState() {
-  const [focusedInput, setFocusedInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [weightPickerVisible, setWeightPickerVisible] = useState(false);
-  const [heightPickerVisible, setHeightPickerVisible] = useState(false);
-  const [inputWidth, setInputWidth] = useState(0);
-
-  return {
-    focusedInput,
-    setFocusedInput,
-    isLoading,
-    setIsLoading,
-    weightPickerVisible,
-    setWeightPickerVisible,
-    heightPickerVisible,
-    setHeightPickerVisible,
-    inputWidth,
-    setInputWidth,
-  };
-}
-
-// Custom hook for data loading
-function useDataLoading(user: User | null, refreshMeasurements: () => Promise<void>) {
-  const isMounted = useRef(false);
-
-  useEffect(() => {
-    console.log('EditProfileScreen mounted');
-    return () => {
-      console.log('EditProfileScreen unmounted');
-    };
-  }, []);
-
-  const loadUserData = async (
-    setWeightUnit: (unit: 'KG' | 'LB') => void,
-    setHeightUnit: (unit: 'CM' | 'INCH') => void,
-    setFormData: React.Dispatch<React.SetStateAction<FormData>>,
-  ) => {
-    if (!user) return;
-
-    try {
-      await refreshMeasurements();
-
-      const { data, error } = await supabase
-        .from('user_profile_details')
-        .select('preferred_weight_unit, preferred_height_unit, weight_kg, height_cm')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (!error && data) {
-        setWeightUnit(data.preferred_weight_unit || 'KG');
-        setHeightUnit(data.preferred_height_unit || 'CM');
-
-        setFormData((prev) => ({
-          ...prev,
-          weight: data.weight_kg?.toString() || prev.weight,
-          height: data.height_cm?.toString() || prev.height,
-        }));
-      } else if (error) {
-        console.error('Error loading user preferences:', error);
-      }
-    } catch (error) {
-      console.error('Error loading user data:', error);
-    }
-  };
-
-  return { isMounted, loadUserData };
-}
-
-// Custom hook for save functionality
-function useSaveProfile() {
-  const { user, updateUserMetadata, refreshUser } = useAuth();
-  const { addMeasurement, refreshMeasurements } = useMeasurements();
-  const router = useRouter();
-
-  const handleSave = async (
-    formData: FormData,
-    weightUnit: 'KG' | 'LB',
-    heightUnit: 'CM' | 'INCH',
-    setIsLoading: (loading: boolean) => void,
-  ) => {
-    try {
-      setIsLoading(true);
-
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-
-      await updateUserMetadata({
-        name: formData.fullName,
-        dateOfBirth: formData.dateOfBirth.toISOString().split('T')[0],
-        gender: formData.gender,
-        weight: parseFloat(formData.weight),
-        height: parseFloat(formData.height),
-      });
-
-      const { error: profileError } = await supabase.rpc('upsert_profile_details', {
-        p_user_id: user.id,
-        p_date_of_birth: formData.dateOfBirth.toISOString().split('T')[0],
-        p_gender: formData.gender,
-        p_height_cm: parseFloat(formData.height),
-        p_weight_kg: parseFloat(formData.weight),
-      });
-
-      if (profileError) {
-        console.error('Error updating profile details:', profileError);
-        throw profileError;
-      }
-
-      const { error: preferencesError } = await supabase
-        .from('user_profile_details')
-        .update({
-          preferred_weight_unit: weightUnit,
-          preferred_height_unit: heightUnit,
-        })
-        .eq('user_id', user.id);
-
-      if (preferencesError) {
-        console.error('Error updating unit preferences:', preferencesError);
-        throw preferencesError;
-      }
-
-      try {
-        await addMeasurement('WEIGHT', parseFloat(formData.weight), 'kg');
-      } catch (measurementError) {
-        console.error('Error adding measurements:', measurementError);
-      }
-
-      await refreshUser();
-      await refreshMeasurements();
-
-      setTimeout(() => {
-        router.push('/(tabs)/profile');
-      }, 300);
-    } catch (error) {
-      console.error('Error updating profile:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return { handleSave };
-}
-
 // Gender Dropdown Component
-function GenderDropdown({
-  value,
-  onChange,
-  focused,
-  onFocus,
-}: {
-  value: string;
+function GenderDropdown({ 
+  value, 
+  onChange, 
+  focused, 
+  onFocus 
+}: { 
+  value: string; 
   onChange: (value: FormData['gender']) => void;
   focused: boolean;
   onFocus: () => void;
@@ -245,9 +49,9 @@ function GenderDropdown({
   };
 
   return (
-    <View
+    <View 
       style={[styles.inputContainer, focused && styles.inputContainerFocused]}
-      onLayout={(e) => setInputWidth(e.nativeEvent.layout.width)}
+      onLayout={e => setInputWidth(e.nativeEvent.layout.width)}
     >
       <Menu
         visible={visible}
@@ -256,28 +60,23 @@ function GenderDropdown({
           <TextInput
             mode="flat"
             placeholder="Select Gender"
-            value={genderOptions.find((g) => g.value === value)?.label || ''}
+            value={genderOptions.find(g => g.value === value)?.label || ''}
             editable={false}
             style={styles.input}
             contentStyle={{ backgroundColor: '#1f222a' }}
-            theme={{
-              colors: {
+            theme={{ 
+              colors: { 
                 background: '#1f222a',
                 primary: COLORS.primary,
-              },
+              } 
             }}
             placeholderTextColor={COLORS.text}
             textColor={focused ? COLORS.text : COLORS.text}
-            left={
-              <TextInput.Icon
-                icon="gender-male-female"
-                color={focused ? COLORS.primary : COLORS.text}
-              />
-            }
+            left={<TextInput.Icon icon="gender-male-female" color={focused ? COLORS.primary : COLORS.text} />}
             right={
-              <TextInput.Icon
-                icon="menu-down"
-                color={focused ? COLORS.primary : COLORS.text}
+              <TextInput.Icon 
+                icon="menu-down" 
+                color={focused ? COLORS.primary : COLORS.text} 
                 onPress={handlePress}
                 forceTextInputFocus={false}
               />
@@ -287,18 +86,21 @@ function GenderDropdown({
             activeUnderlineColor="transparent"
           />
         }
-        contentStyle={[styles.menuContent, { width: inputWidth }]}
+        contentStyle={[
+          styles.menuContent,
+          { width: inputWidth }
+        ]}
         theme={{
           colors: {
             surface: '#1A1A1A',
             onSurface: '#fff',
             elevation: {
-              level2: '#1A1A1A',
-            },
-          },
+              level2: '#1A1A1A'
+            }
+          }
         }}
       >
-        {genderOptions.map((option) => (
+        {genderOptions.map(option => (
           <Menu.Item
             key={option.value}
             onPress={() => {
@@ -308,9 +110,12 @@ function GenderDropdown({
             title={option.label}
             titleStyle={[
               styles.menuItemTitle,
-              value === option.value && styles.menuItemTitleSelected,
+              value === option.value && styles.menuItemTitleSelected
             ]}
-            style={[styles.menuItem, value === option.value && styles.menuItemSelected]}
+            style={[
+              styles.menuItem,
+              value === option.value && styles.menuItemSelected
+            ]}
           />
         ))}
       </Menu>
@@ -319,13 +124,13 @@ function GenderDropdown({
 }
 
 // Date Picker Component
-function DOBPicker({
-  date,
+function DOBPicker({ 
+  date, 
   onChange,
   focused,
-  onFocus,
-}: {
-  date: Date;
+  onFocus
+}: { 
+  date: Date; 
   onChange: (date: Date) => void;
   focused: boolean;
   onFocus: () => void;
@@ -335,8 +140,9 @@ function DOBPicker({
   const [inputWidth, setInputWidth] = useState(0);
 
   const handleDateChange = (selectedDate: Date) => {
-    const minDate = subYears(new Date(), 100);
-    const maxDate = subYears(new Date(), 13);
+    // Validate date
+    const minDate = subYears(new Date(), 100); // 100 years ago
+    const maxDate = subYears(new Date(), 13); // Must be at least 13 years old
 
     if (!isValid(selectedDate)) {
       setError('Please select a valid date');
@@ -367,9 +173,9 @@ function DOBPicker({
 
   return (
     <View>
-      <View
+      <View 
         style={[styles.inputContainer, focused && styles.inputContainerFocused]}
-        onLayout={(e) => setInputWidth(e.nativeEvent.layout.width)}
+        onLayout={e => setInputWidth(e.nativeEvent.layout.width)}
       >
         <TextInput
           mode="flat"
@@ -378,23 +184,24 @@ function DOBPicker({
           editable={false}
           style={styles.input}
           contentStyle={{ backgroundColor: '#1f222a' }}
-          theme={{
-            colors: {
+          theme={{ 
+            colors: { 
               background: '#1A1A1A',
               primary: COLORS.primary,
-            },
+            } 
           }}
           placeholderTextColor={COLORS.text}
           textColor={focused ? COLORS.text : COLORS.text}
           left={<TextInput.Icon icon="calendar" color={focused ? COLORS.primary : COLORS.text} />}
           right={
-            <TextInput.Icon
-              icon="menu-down"
-              color={focused ? COLORS.primary : COLORS.text}
+            <TextInput.Icon 
+              icon="menu-down" 
+              color={focused ? COLORS.primary : COLORS.text} 
               onPress={handlePress}
               forceTextInputFocus={false}
             />
           }
+          error={!!error}
           onPressIn={handlePress}
           underlineColor="transparent"
           activeUnderlineColor="transparent"
@@ -402,203 +209,17 @@ function DOBPicker({
 
         <ThemedDatePicker
           visible={pickerVisible}
-          onCancel={() => {
-            setPickerVisible(false);
-          }}
+          date={isValid(date) ? date : new Date()}
+          onCancel={() => setPickerVisible(false)}
           onConfirm={handleDateChange}
-          date={date}
+          maximumDate={subYears(new Date(), 13)}
+          minimumDate={subYears(new Date(), 100)}
           width={inputWidth}
         />
       </View>
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-    </View>
-  );
-}
-
-// Weight Input Component
-function WeightInput({
-  formData,
-  weightUnit,
-  focusedInput,
-  setFocusedInput,
-  weightPickerVisible,
-  setWeightPickerVisible,
-  inputWidth,
-  setInputWidth,
-  onWeightChange,
-  onUnitChange,
-}: {
-  formData: FormData;
-  weightUnit: 'KG' | 'LB';
-  focusedInput: string;
-  setFocusedInput: (input: string) => void;
-  weightPickerVisible: boolean;
-  setWeightPickerVisible: (visible: boolean) => void;
-  inputWidth: number;
-  setInputWidth: (width: number) => void;
-  onWeightChange: (value: number) => void;
-  onUnitChange: (unit: 'KG' | 'LB') => void;
-}) {
-  const kgToLbs = (kg: number): number => kg * 2.20462;
-
-  const handlePress = () => {
-    setWeightPickerVisible(true);
-    setFocusedInput('weight');
-  };
-
-  return (
-    <View
-      style={[styles.inputContainer, focusedInput === 'weight' && styles.inputContainerFocused]}
-      onLayout={(e) => setInputWidth(e.nativeEvent.layout.width)}
-    >
-      <TextInput
-        mode="flat"
-        placeholder={`Weight (${weightUnit.toLowerCase()})`}
-        value={
-          weightUnit === 'KG'
-            ? formData.weight
-              ? `${parseFloat(formData.weight).toFixed(1)} kg`
-              : ''
-            : formData.weight
-              ? `${kgToLbs(parseFloat(formData.weight)).toFixed(1)} lb`
-              : ''
-        }
-        editable={false}
-        style={styles.input}
-        contentStyle={{ backgroundColor: '#1f222a' }}
-        theme={{
-          colors: {
-            background: '#1A1A1A',
-            primary: COLORS.primary,
-          },
-        }}
-        placeholderTextColor="#fff"
-        textColor={focusedInput === 'weight' ? COLORS.text : COLORS.text}
-        left={
-          <TextInput.Icon
-            icon="weight-kilogram"
-            color={focusedInput === 'weight' ? COLORS.primary : COLORS.text}
-          />
-        }
-        right={
-          <TextInput.Icon
-            icon="menu-down"
-            color={focusedInput === 'weight' ? COLORS.primary : COLORS.text}
-            onPress={handlePress}
-            forceTextInputFocus={false}
-          />
-        }
-        onPressIn={handlePress}
-        underlineColor="transparent"
-        activeUnderlineColor="transparent"
-      />
-
-      <ThemedNumberPicker
-        visible={weightPickerVisible}
-        onCancel={() => {
-          setWeightPickerVisible(false);
-          setFocusedInput('');
-        }}
-        onConfirm={onWeightChange}
-        value={parseFloat(formData.weight) || 70}
-        width={inputWidth}
-        type="weight"
-        onUnitChange={(unit) => onUnitChange(unit as 'KG' | 'LB')}
-        initialUnit={weightUnit}
-      />
-    </View>
-  );
-}
-
-// Height Input Component
-function HeightInput({
-  formData,
-  heightUnit,
-  focusedInput,
-  setFocusedInput,
-  heightPickerVisible,
-  setHeightPickerVisible,
-  inputWidth,
-  setInputWidth,
-  onHeightChange,
-  onUnitChange,
-}: {
-  formData: FormData;
-  heightUnit: 'CM' | 'INCH';
-  focusedInput: string;
-  setFocusedInput: (input: string) => void;
-  heightPickerVisible: boolean;
-  setHeightPickerVisible: (visible: boolean) => void;
-  inputWidth: number;
-  setInputWidth: (width: number) => void;
-  onHeightChange: (value: number) => void;
-  onUnitChange: (unit: 'CM' | 'INCH') => void;
-}) {
-  const handlePress = () => {
-    setHeightPickerVisible(true);
-    setFocusedInput('height');
-  };
-
-  return (
-    <View
-      style={[styles.inputContainer, focusedInput === 'height' && styles.inputContainerFocused]}
-      onLayout={(e) => setInputWidth(e.nativeEvent.layout.width)}
-    >
-      <TextInput
-        mode="flat"
-        placeholder={`Height (${heightUnit.toLowerCase()})`}
-        value={
-          heightUnit === 'CM'
-            ? formData.height
-              ? `${parseFloat(formData.height).toFixed(1)} cm`
-              : ''
-            : formData.height
-              ? `${(parseFloat(formData.height) / 2.54).toFixed(1)} in`
-              : ''
-        }
-        editable={false}
-        style={styles.input}
-        contentStyle={{ backgroundColor: '#1f222a' }}
-        theme={{
-          colors: {
-            background: '#1A1A1A',
-            primary: '#6c47ff',
-          },
-        }}
-        placeholderTextColor="#fff"
-        textColor={focusedInput === 'height' ? COLORS.text : COLORS.text}
-        left={
-          <TextInput.Icon
-            icon="human-male-height"
-            color={focusedInput === 'height' ? COLORS.primary : COLORS.text}
-          />
-        }
-        right={
-          <TextInput.Icon
-            icon="menu-down"
-            color={focusedInput === 'height' ? COLORS.primary : COLORS.text}
-            onPress={handlePress}
-            forceTextInputFocus={false}
-          />
-        }
-        onPressIn={handlePress}
-        underlineColor="transparent"
-        activeUnderlineColor="transparent"
-      />
-
-      <ThemedNumberPicker
-        visible={heightPickerVisible}
-        onCancel={() => {
-          setHeightPickerVisible(false);
-          setFocusedInput('');
-        }}
-        onConfirm={onHeightChange}
-        value={parseFloat(formData.height) || 170}
-        width={inputWidth}
-        type="height"
-        onUnitChange={(unit) => onUnitChange(unit as 'CM' | 'INCH')}
-        initialUnit={heightUnit}
-      />
+      {error ? (
+        <Text style={styles.errorText}>{error}</Text>
+      ) : null}
     </View>
   );
 }
@@ -606,62 +227,186 @@ function HeightInput({
 export default function EditProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
-  const { measurements, refreshMeasurements } = useMeasurements();
+  const { user, updateUserMetadata, refreshUser } = useAuth();
+  const { measurements, addMeasurement, refreshMeasurements } = useMeasurements();
+  const [focusedInput, setFocusedInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [weightPickerVisible, setWeightPickerVisible] = useState(false);
+  const [heightPickerVisible, setHeightPickerVisible] = useState(false);
+  const [inputWidth, setInputWidth] = useState(0);
+  
+  // Use refs to track if the component has mounted to prevent unnecessary state updates
+  const isMounted = useRef(false);
+  
+  const [weightUnit, setWeightUnit] = useState<'KG' | 'LB'>(
+    user?.user_metadata?.preferred_weight_unit || 'KG'
+  );
+  const [heightUnit, setHeightUnit] = useState<'CM' | 'INCH'>(
+    user?.user_metadata?.preferred_height_unit || 'CM'
+  );
 
-  const { formData, setFormData } = useFormData(user);
-  const { weightUnit, setWeightUnit, heightUnit, setHeightUnit } = useUnitPreferences(user);
-  const {
-    focusedInput,
-    setFocusedInput,
-    isLoading,
-    setIsLoading,
-    weightPickerVisible,
-    setWeightPickerVisible,
-    heightPickerVisible,
-    setHeightPickerVisible,
-    inputWidth,
-    setInputWidth,
-  } = useUIState();
-  const { isMounted, loadUserData } = useDataLoading(user, refreshMeasurements);
-  const { handleSave } = useSaveProfile();
+  const [formData, setFormData] = useState<FormData>({
+    fullName: user?.user_metadata?.name || '',
+    email: user?.email || '',
+    dateOfBirth: user?.user_metadata?.dateOfBirth ? new Date(user.user_metadata.dateOfBirth) : new Date('1990-01-01'),
+    gender: user?.user_metadata?.gender || '',
+    weight: user?.user_metadata?.weight?.toString() || '',
+    height: user?.user_metadata?.height?.toString() || ''
+  });
 
   const safeGoBack = () => {
     router.push('/(tabs)/profile');
   };
-
+  
+  // Log when component mounts
   useEffect(() => {
+    console.log('EditProfileScreen mounted');
+    return () => {
+      console.log('EditProfileScreen unmounted');
+    };
+  }, []);
+
+  // Load user preferences when component mounts
+  useEffect(() => {
+    // Skip the first render to prevent double initialization
     if (!isMounted.current) {
       isMounted.current = true;
       return;
     }
+    
+    // Function to load all user data
+    const loadUserData = async () => {
+      if (!user) return;
+      
+      try {
+        // Refresh measurements first
+        await refreshMeasurements();
+        
+        // Load preferences
+        const { data, error } = await supabase
+          .from('user_profile_details')
+          .select('preferred_weight_unit, preferred_height_unit, weight_kg, height_cm')
+          .eq('user_id', user.id)
+          .maybeSingle();
 
-    loadUserData(setWeightUnit, setHeightUnit, setFormData);
+        if (!error && data) {
+          setWeightUnit(data.preferred_weight_unit || 'KG');
+          setHeightUnit(data.preferred_height_unit || 'CM');
+          
+          // Update form data with latest values from database
+          setFormData(prev => ({
+            ...prev,
+            weight: data.weight_kg?.toString() || prev.weight,
+            height: data.height_cm?.toString() || prev.height
+          }));
+        } else if (error) {
+          console.error('Error loading user preferences:', error);
+        }
+      } catch (error) {
+        console.error('Error loading user data:', error);
+      }
+    };
+
+    loadUserData();
   }, [user, refreshMeasurements]);
 
   useEffect(() => {
     if (measurements.WEIGHT) {
-      setFormData((prev) => ({
+      setFormData(prev => ({
         ...prev,
-        weight: measurements.WEIGHT?.value.toString() || '',
+        weight: measurements.WEIGHT?.value.toString() || ''
       }));
     }
   }, [measurements.WEIGHT]);
 
+  const handleSave = async () => {
+    try {
+      setIsLoading(true);
+
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      // Update user metadata in auth
+      await updateUserMetadata({
+        name: formData.fullName,
+        dateOfBirth: formData.dateOfBirth.toISOString().split('T')[0],
+        gender: formData.gender,
+        weight: parseFloat(formData.weight),
+        height: parseFloat(formData.height)
+      });
+
+      // Update profile details
+      const { error: profileError } = await supabase
+        .rpc('upsert_profile_details', {
+          p_user_id: user.id,
+          p_date_of_birth: formData.dateOfBirth.toISOString().split('T')[0],
+          p_gender: formData.gender,
+          p_height_cm: parseFloat(formData.height),
+          p_weight_kg: parseFloat(formData.weight)
+        });
+
+      if (profileError) {
+        console.error('Error updating profile details:', profileError);
+        throw profileError;
+      }
+
+      // Update unit preferences separately
+      const { error: preferencesError } = await supabase
+        .from('user_profile_details')
+        .update({
+          preferred_weight_unit: weightUnit,
+          preferred_height_unit: heightUnit
+        })
+        .eq('user_id', user.id);
+
+      if (preferencesError) {
+        console.error('Error updating unit preferences:', preferencesError);
+        throw preferencesError;
+      }
+
+      // Add weight and height measurements
+      try {
+        await addMeasurement('WEIGHT', parseFloat(formData.weight), 'kg');
+        // Note: HEIGHT may not be a valid measurement category in your app
+        // Uncomment if HEIGHT is a valid category
+        // await addMeasurement('HEIGHT', parseFloat(formData.height), 'cm');
+      } catch (measurementError) {
+        console.error('Error adding measurements:', measurementError);
+        // Continue even if measurement update fails
+      }
+
+      // Refresh user auth data and measurements
+      await refreshUser();
+      await refreshMeasurements();
+      
+      // Add a small delay before navigation to ensure state is updated
+      setTimeout(() => {
+        router.push('/(tabs)/profile');
+      }, 300);
+    } catch (error) {
+      console.error('Error updating profile:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleWeightChange = (value: number) => {
-    setFormData((prev) => ({ ...prev, weight: value.toString() }));
+    // Only update local state, without database operations
+    setFormData(prev => ({ ...prev, weight: value.toString() }));
     setWeightPickerVisible(false);
     setFocusedInput('');
   };
 
   const handleHeightChange = (value: number) => {
-    setFormData((prev) => ({ ...prev, height: value.toString() }));
+    // Value is already in CM from the picker
+    setFormData(prev => ({ ...prev, height: value.toString() }));
     setHeightPickerVisible(false);
     setFocusedInput('');
   };
 
-  const onSave = () => {
-    handleSave(formData, weightUnit, heightUnit, setIsLoading);
+  const kgToLbs = (kg: number): number => {
+    return kg * 2.20462;
   };
 
   return (
@@ -679,6 +424,7 @@ export default function EditProfileScreen() {
                 onPress={safeGoBack}
                 iconColor={COLORS.text}
                 style={styles.backButton}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               />
             </View>
             <View style={styles.headerCenter}>
@@ -686,31 +432,29 @@ export default function EditProfileScreen() {
             </View>
             <View style={styles.headerRight} />
           </View>
-
-          <ScrollView
+          <Divider style={styles.divider} />
+          
+          <ScrollView 
             style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
+            contentContainerStyle={[
+              styles.scrollContent,
+              { flexGrow: 1, justifyContent: 'flex-end' }
+            ]}
             keyboardShouldPersistTaps="handled"
           >
-            <View
-              style={[
-                styles.inputContainer,
-                focusedInput === 'fullName' && styles.inputContainerFocused,
-              ]}
-            >
+            <View style={[styles.inputContainer, focusedInput === 'fullName' && styles.inputContainerFocused]}>
               <TextInput
                 mode="flat"
                 placeholder="Full Name"
                 value={formData.fullName}
-                onChangeText={(text) => setFormData((prev) => ({ ...prev, fullName: text }))}
+                onChangeText={(text) => setFormData(prev => ({ ...prev, fullName: text }))}
                 style={styles.input}
                 contentStyle={{ backgroundColor: '#1f222a' }}
-                theme={{
-                  colors: {
+                theme={{ 
+                  colors: { 
                     background: '#1A1A1A',
                     primary: COLORS.primary,
-                  },
+                  } 
                 }}
                 placeholderTextColor={COLORS.text}
                 textColor={focusedInput === 'fullName' ? COLORS.text : COLORS.text}
@@ -718,23 +462,13 @@ export default function EditProfileScreen() {
                 underlineColor="transparent"
                 activeUnderlineColor="transparent"
                 selectionColor="rgba(108, 71, 255, 0.3)"
-                left={
-                  <TextInput.Icon
-                    icon="account"
-                    color={focusedInput === 'fullName' ? COLORS.primary : COLORS.text}
-                  />
-                }
+                left={<TextInput.Icon icon="account" color={focusedInput === 'fullName' ? COLORS.primary : COLORS.text} />}
                 onFocus={() => setFocusedInput('fullName')}
                 onBlur={() => setFocusedInput('')}
               />
             </View>
 
-            <View
-              style={[
-                styles.inputContainer,
-                focusedInput === 'email' && styles.inputContainerFocused,
-              ]}
-            >
+            <View style={[styles.inputContainer, focusedInput === 'email' && styles.inputContainerFocused]}>
               <TextInput
                 mode="flat"
                 placeholder="Email"
@@ -742,11 +476,11 @@ export default function EditProfileScreen() {
                 editable={false}
                 style={styles.input}
                 contentStyle={{ backgroundColor: '#1f222a' }}
-                theme={{
-                  colors: {
+                theme={{ 
+                  colors: { 
                     background: '#1A1A1A',
                     primary: COLORS.primary,
-                  },
+                  } 
                 }}
                 placeholderTextColor={COLORS.text}
                 textColor={COLORS.text}
@@ -760,47 +494,133 @@ export default function EditProfileScreen() {
 
             <GenderDropdown
               value={formData.gender}
-              onChange={(value) => setFormData((prev) => ({ ...prev, gender: value }))}
+              onChange={(value) => setFormData(prev => ({ ...prev, gender: value }))}
               focused={focusedInput === 'gender'}
               onFocus={() => setFocusedInput('gender')}
             />
 
-            <WeightInput
-              formData={formData}
-              weightUnit={weightUnit}
-              focusedInput={focusedInput}
-              setFocusedInput={setFocusedInput}
-              weightPickerVisible={weightPickerVisible}
-              setWeightPickerVisible={setWeightPickerVisible}
-              inputWidth={inputWidth}
-              setInputWidth={setInputWidth}
-              onWeightChange={handleWeightChange}
-              onUnitChange={setWeightUnit}
-            />
+            <View 
+              style={[styles.inputContainer, focusedInput === 'weight' && styles.inputContainerFocused]}
+              onLayout={e => setInputWidth(e.nativeEvent.layout.width)}
+            >
+              <TextInput
+                mode="flat"
+                placeholder={`Weight (${weightUnit.toLowerCase()})`}
+                value={weightUnit === 'KG' ? 
+                  formData.weight ? `${parseFloat(formData.weight).toFixed(1)} kg` : '' : 
+                  formData.weight ? `${kgToLbs(parseFloat(formData.weight)).toFixed(1)} lb` : ''}
+                editable={false}
+                style={styles.input}
+                contentStyle={{ backgroundColor: '#1f222a' }}
+                theme={{ 
+                  colors: { 
+                    background: '#1A1A1A',
+                    primary: COLORS.primary,
+                  } 
+                }}
+                placeholderTextColor="#fff"
+                textColor={focusedInput === 'weight' ? COLORS.text : COLORS.text}
+                left={<TextInput.Icon icon="weight-kilogram" color={focusedInput === 'weight' ? COLORS.primary : COLORS.text} />}
+                right={
+                  <TextInput.Icon 
+                    icon="menu-down" 
+                    color={focusedInput === 'weight' ? COLORS.primary : COLORS.text} 
+                    onPress={() => {
+                      setWeightPickerVisible(true);
+                      setFocusedInput('weight');
+                    }}
+                    forceTextInputFocus={false}
+                  />
+                }
+                onPressIn={() => {
+                  setWeightPickerVisible(true);
+                  setFocusedInput('weight');
+                }}
+                underlineColor="transparent"
+                activeUnderlineColor="transparent"
+              />
 
-            <HeightInput
-              formData={formData}
-              heightUnit={heightUnit}
-              focusedInput={focusedInput}
-              setFocusedInput={setFocusedInput}
-              heightPickerVisible={heightPickerVisible}
-              setHeightPickerVisible={setHeightPickerVisible}
-              inputWidth={inputWidth}
-              setInputWidth={setInputWidth}
-              onHeightChange={handleHeightChange}
-              onUnitChange={setHeightUnit}
-            />
+              <ThemedNumberPicker
+                visible={weightPickerVisible}
+                onCancel={() => {
+                  setWeightPickerVisible(false);
+                  setFocusedInput('');
+                }}
+                onConfirm={handleWeightChange}
+                value={parseFloat(formData.weight) || 70}
+                width={inputWidth}
+                type="weight"
+                onUnitChange={(unit) => setWeightUnit(unit as 'KG' | 'LB')}
+                initialUnit={weightUnit}
+              />
+            </View>
+
+            <View 
+              style={[styles.inputContainer, focusedInput === 'height' && styles.inputContainerFocused]}
+              onLayout={e => setInputWidth(e.nativeEvent.layout.width)}
+            >
+              <TextInput
+                mode="flat"
+                placeholder={`Height (${heightUnit.toLowerCase()})`}
+                value={heightUnit === 'CM' ? 
+                  formData.height ? `${parseFloat(formData.height).toFixed(1)} cm` : '' : 
+                  formData.height ? `${(parseFloat(formData.height) / 2.54).toFixed(1)} in` : ''}
+                editable={false}
+                style={styles.input}
+                contentStyle={{ backgroundColor: '#1f222a' }}
+                theme={{ 
+                  colors: { 
+                    background: '#1A1A1A',
+                    primary: '#6c47ff',
+                  } 
+                }}
+                placeholderTextColor="#fff"
+                textColor={focusedInput === 'height' ? COLORS.text : COLORS.text}
+                left={<TextInput.Icon icon="human-male-height" color={focusedInput === 'height' ? COLORS.primary : COLORS.text} />}
+                right={
+                  <TextInput.Icon 
+                    icon="menu-down" 
+                    color={focusedInput === 'height' ? COLORS.primary : COLORS.text} 
+                    onPress={() => {
+                      setHeightPickerVisible(true);
+                      setFocusedInput('height');
+                    }}
+                    forceTextInputFocus={false}
+                  />
+                }
+                onPressIn={() => {
+                  setHeightPickerVisible(true);
+                  setFocusedInput('height');
+                }}
+                underlineColor="transparent"
+                activeUnderlineColor="transparent"
+              />
+
+              <ThemedNumberPicker
+                visible={heightPickerVisible}
+                onCancel={() => {
+                  setHeightPickerVisible(false);
+                  setFocusedInput('');
+                }}
+                onConfirm={handleHeightChange}
+                value={parseFloat(formData.height) || 170}
+                width={inputWidth}
+                type="height"
+                onUnitChange={(unit) => setHeightUnit(unit as 'CM' | 'INCH')}
+                initialUnit={heightUnit}
+              />
+            </View>
 
             <DOBPicker
               date={formData.dateOfBirth}
-              onChange={(date) => setFormData((prev) => ({ ...prev, dateOfBirth: date }))}
+              onChange={(date) => setFormData(prev => ({ ...prev, dateOfBirth: date }))}
               focused={focusedInput === 'dateOfBirth'}
               onFocus={() => setFocusedInput('dateOfBirth')}
             />
 
             <Pressable
               style={[styles.updateButton, isLoading && styles.updateButtonDisabled]}
-              onPress={onSave}
+              onPress={handleSave}
               disabled={isLoading}
             >
               <Text style={styles.updateButtonText}>
@@ -869,7 +689,7 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: '#1f222a',
-    overflow: 'hidden',
+    overflow: "hidden",
     height: 56,
   },
   menuContent: {

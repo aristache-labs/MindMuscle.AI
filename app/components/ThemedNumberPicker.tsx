@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, Modal, Pressable, Platform } from 'react-native';
 import { Text, TextInput, IconButton } from 'react-native-paper';
-import { SPACING, BORDER_RADIUS } from '../constants/theme';
+import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 
 interface ThemedNumberPickerProps {
   visible: boolean;
@@ -16,8 +16,8 @@ interface ThemedNumberPickerProps {
 
 // More precise conversion functions
 const kgToLbs = (kg: number) => Number(Math.round(kg * 2.20462 * 10) / 10);
-const lbsToKg = (lbs: number) => Number(Math.round((lbs / 2.20462) * 10) / 10);
-const cmToInch = (cm: number) => Number(Math.round((cm / 2.54) * 10) / 10);
+const lbsToKg = (lbs: number) => Number(Math.round(lbs / 2.20462 * 10) / 10);
+const cmToInch = (cm: number) => Number(Math.round(cm / 2.54 * 10) / 10);
 const inchToCm = (inch: number) => Number(Math.round(inch * 2.54 * 10) / 10);
 
 const MAX_WEIGHT_KG = 200.0;
@@ -25,11 +25,7 @@ const MAX_WEIGHT_LB = 441.0;
 const MAX_HEIGHT_CM = 300.0;
 const MAX_HEIGHT_INCH = 120.0;
 
-const isValueWithinLimits = (
-  value: number,
-  type: 'weight' | 'height',
-  unit: 'KG' | 'LB' | 'CM' | 'INCH',
-): boolean => {
+const isValueWithinLimits = (value: number, type: 'weight' | 'height', unit: 'KG' | 'LB' | 'CM' | 'INCH'): boolean => {
   if (type === 'weight') {
     return unit === 'KG' ? value <= MAX_WEIGHT_KG : value <= MAX_WEIGHT_LB;
   } else {
@@ -45,10 +41,10 @@ export function ThemedNumberPicker({
   width,
   type,
   onUnitChange,
-  initialUnit,
+  initialUnit
 }: ThemedNumberPickerProps) {
   const [selectedUnit, setSelectedUnit] = useState<'KG' | 'LB' | 'CM' | 'INCH'>(
-    initialUnit || (type === 'weight' ? 'KG' : 'CM'),
+    initialUnit || (type === 'weight' ? 'KG' : 'CM')
   );
 
   // Sync selectedUnit with initialUnit whenever the picker becomes visible
@@ -104,7 +100,9 @@ export function ThemedNumberPicker({
   const handleIncrement = () => {
     const step = 0.1;
     // if user is mid-typing, parse that; otherwise use displayValue
-    const current = isCustomInput ? parseFloat(customValue) || 0 : displayValue;
+    const current = isCustomInput
+      ? parseFloat(customValue) || 0
+      : displayValue;
     const newDisplay = Number(Math.round((current + step) * 10) / 10);
 
     // Check if the new value is within limits
@@ -128,7 +126,9 @@ export function ThemedNumberPicker({
 
   const handleDecrement = () => {
     const step = 0.1;
-    const current = isCustomInput ? parseFloat(customValue) || 0 : displayValue;
+    const current = isCustomInput
+      ? parseFloat(customValue) || 0
+      : displayValue;
     const newDisplay = Number(Math.round((current - step) * 10) / 10);
 
     // No need to check lower limit as we want to allow any positive number
@@ -157,21 +157,16 @@ export function ThemedNumberPicker({
     const numValue = parseFloat(customValue);
     if (!isNaN(numValue)) {
       const roundedValue = Number(Math.round(numValue * 10) / 10);
-
+      
       // Check if the value is within limits
       if (!isValueWithinLimits(roundedValue, type, selectedUnit)) {
         // If over limit, set to maximum allowed value
-        const maxValue =
-          type === 'weight'
-            ? selectedUnit === 'KG'
-              ? MAX_WEIGHT_KG
-              : MAX_WEIGHT_LB
-            : selectedUnit === 'CM'
-              ? MAX_HEIGHT_CM
-              : MAX_HEIGHT_INCH;
+        const maxValue = type === 'weight' 
+          ? (selectedUnit === 'KG' ? MAX_WEIGHT_KG : MAX_WEIGHT_LB)
+          : (selectedUnit === 'CM' ? MAX_HEIGHT_CM : MAX_HEIGHT_INCH);
         setDisplayValue(maxValue);
         setCustomValue(maxValue.toFixed(1));
-
+        
         // Convert max value to base units
         if (type === 'weight' && selectedUnit === 'LB') {
           setBaseValue(lbsToKg(maxValue));
@@ -183,7 +178,7 @@ export function ThemedNumberPicker({
       } else {
         setDisplayValue(roundedValue);
         setCustomValue(roundedValue.toFixed(1));
-
+        
         // Convert display value back to base value
         if (type === 'weight' && selectedUnit === 'LB') {
           setBaseValue(lbsToKg(roundedValue));
@@ -200,80 +195,68 @@ export function ThemedNumberPicker({
     setIsCustomInput(false);
   };
 
-  // Helper function to get maximum allowed value for current type and unit
-  const getMaxValue = () => {
-    if (type === 'weight') {
-      return selectedUnit === 'KG' ? MAX_WEIGHT_KG : MAX_WEIGHT_LB;
-    }
-    return selectedUnit === 'CM' ? MAX_HEIGHT_CM : MAX_HEIGHT_INCH;
-  };
-
-  // Helper function to convert display value to base value
-  const convertToBaseValue = (displayVal: number) => {
-    if (type === 'weight' && selectedUnit === 'LB') {
-      return lbsToKg(displayVal);
-    }
-    if (type === 'height' && selectedUnit === 'INCH') {
-      return inchToCm(displayVal);
-    }
-    return displayVal;
-  };
-
-  // Helper function to convert base value to display value
-  const convertToDisplayValue = (baseVal: number) => {
-    if (type === 'weight' && selectedUnit === 'LB') {
-      return kgToLbs(baseVal);
-    }
-    if (type === 'height' && selectedUnit === 'INCH') {
-      return cmToInch(baseVal);
-    }
-    return baseVal;
-  };
-
-  // Helper function to process custom input value
-  const processCustomInput = () => {
-    const num = parseFloat(customValue);
-    if (isNaN(num)) {
-      return baseValue;
-    }
-
-    const rounded = Math.round(num * 10) / 10;
-
-    if (!isValueWithinLimits(rounded, type, selectedUnit)) {
-      const maxValue = getMaxValue();
-      return convertToBaseValue(maxValue);
-    }
-
-    return convertToBaseValue(rounded);
-  };
-
-  // Helper function to update display state
-  const updateDisplayState = (finalBase: number) => {
-    const newDisplayValue = convertToDisplayValue(finalBase);
-    setDisplayValue(newDisplayValue);
-    setCustomValue(newDisplayValue.toFixed(1));
-    setBaseValue(finalBase);
-  };
-
   const handleConfirm = () => {
+    // figure out the "final" numeric value right now
     let finalBase = baseValue;
 
     if (isCustomInput) {
-      finalBase = processCustomInput();
+      const num = parseFloat(customValue);
+      if (!isNaN(num)) {
+        const rounded = Math.round(num * 10) / 10;
+        
+        // Check if the value is within limits
+        if (!isValueWithinLimits(rounded, type, selectedUnit)) {
+          // If over limit, use maximum allowed value
+          const maxValue = type === 'weight' 
+            ? (selectedUnit === 'KG' ? MAX_WEIGHT_KG : MAX_WEIGHT_LB)
+            : (selectedUnit === 'CM' ? MAX_HEIGHT_CM : MAX_HEIGHT_INCH);
+          
+          // convert max value back to KG/CM if needed
+          if (type === 'weight' && selectedUnit === 'LB') {
+            finalBase = lbsToKg(maxValue);
+          } else if (type === 'height' && selectedUnit === 'INCH') {
+            finalBase = inchToCm(maxValue);
+          } else {
+            finalBase = maxValue;
+          }
+        } else {
+          // convert back to KG/CM if needed
+          if (type === 'weight' && selectedUnit === 'LB') {
+            finalBase = lbsToKg(rounded);
+          } else if (type === 'height' && selectedUnit === 'INCH') {
+            finalBase = inchToCm(rounded);
+          } else {
+            finalBase = rounded;
+          }
+        }
+      }
       setIsCustomInput(false);
-      updateDisplayState(finalBase);
+      setDisplayValue(
+        type === 'weight'
+          ? selectedUnit === 'LB'
+            ? kgToLbs(finalBase)
+            : finalBase
+          : selectedUnit === 'INCH'
+          ? cmToInch(finalBase)
+          : finalBase
+      );
+      setCustomValue(finalBase.toFixed(1));
+      setBaseValue(finalBase);
     }
 
+    // now synchronously pass the correct value
     onConfirm(finalBase);
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onCancel}
+    >
       <Pressable style={styles.modalOverlay} onPress={onCancel}>
-        <Pressable
-          style={[styles.modalContent, width ? { width } : null]}
-          onPress={(e) => e.stopPropagation()}
-        >
+        <Pressable style={[styles.modalContent, width ? { width } : null]} onPress={e => e.stopPropagation()}>
           <View style={styles.header}>
             <IconButton
               icon="close"
@@ -289,21 +272,13 @@ export function ThemedNumberPicker({
                     style={[styles.unitButton, selectedUnit === 'KG' && styles.selectedUnit]}
                     onPress={() => handleUnitChange('KG')}
                   >
-                    <Text
-                      style={[styles.unitText, selectedUnit === 'KG' && styles.selectedUnitText]}
-                    >
-                      KG
-                    </Text>
+                    <Text style={[styles.unitText, selectedUnit === 'KG' && styles.selectedUnitText]}>KG</Text>
                   </Pressable>
                   <Pressable
                     style={[styles.unitButton, selectedUnit === 'LB' && styles.selectedUnit]}
                     onPress={() => handleUnitChange('LB')}
                   >
-                    <Text
-                      style={[styles.unitText, selectedUnit === 'LB' && styles.selectedUnitText]}
-                    >
-                      LB
-                    </Text>
+                    <Text style={[styles.unitText, selectedUnit === 'LB' && styles.selectedUnitText]}>LB</Text>
                   </Pressable>
                 </>
               ) : (
@@ -312,21 +287,13 @@ export function ThemedNumberPicker({
                     style={[styles.unitButton, selectedUnit === 'CM' && styles.selectedUnit]}
                     onPress={() => handleUnitChange('CM')}
                   >
-                    <Text
-                      style={[styles.unitText, selectedUnit === 'CM' && styles.selectedUnitText]}
-                    >
-                      CM
-                    </Text>
+                    <Text style={[styles.unitText, selectedUnit === 'CM' && styles.selectedUnitText]}>CM</Text>
                   </Pressable>
                   <Pressable
                     style={[styles.unitButton, selectedUnit === 'INCH' && styles.selectedUnit]}
                     onPress={() => handleUnitChange('INCH')}
                   >
-                    <Text
-                      style={[styles.unitText, selectedUnit === 'INCH' && styles.selectedUnitText]}
-                    >
-                      INCH
-                    </Text>
+                    <Text style={[styles.unitText, selectedUnit === 'INCH' && styles.selectedUnitText]}>INCH</Text>
                   </Pressable>
                 </>
               )}
@@ -344,7 +311,7 @@ export function ThemedNumberPicker({
             <Pressable onPress={handleIncrement} style={styles.arrowButton}>
               <Text style={styles.arrowText}>▲</Text>
             </Pressable>
-
+            
             <View style={styles.valueContainer}>
               {isCustomInput ? (
                 <TextInput
@@ -354,11 +321,11 @@ export function ThemedNumberPicker({
                   style={styles.customInput}
                   autoFocus
                   onBlur={handleCustomInputBlur}
-                  theme={{
-                    colors: {
+                  theme={{ 
+                    colors: { 
                       text: '#fff',
                       primary: '#6c47ff',
-                    },
+                    } 
                   }}
                   underlineColor="transparent"
                   activeUnderlineColor="transparent"
@@ -516,4 +483,4 @@ const styles = StyleSheet.create({
   },
 } as const);
 
-export default ThemedNumberPicker;
+export default ThemedNumberPicker; 

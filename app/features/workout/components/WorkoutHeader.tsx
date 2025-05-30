@@ -34,7 +34,7 @@ export default function WorkoutHeader({
         <TouchableOpacity onPress={onBackPress} style={styles.headerButton}>
           <Text style={styles.headerButtonText}>Exit</Text>
         </TouchableOpacity>
-
+        
         <View style={styles.headerTitleContainer}>
           <Text style={styles.headerTitle}>
             EXERCISE {currentExerciseIndex + 1}/{totalExercises}
@@ -43,12 +43,12 @@ export default function WorkoutHeader({
             Week {cycleWeek}: {weekName}
           </Text>
         </View>
-
+        
         <TouchableOpacity style={styles.headerButton} onPress={onExerciseListPress}>
           <Text style={styles.headerButtonText}>Exercises</Text>
         </TouchableOpacity>
       </View>
-
+      
       <Divider style={styles.divider} />
     </>
   );
@@ -93,4 +93,4 @@ const styles = {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     height: 1,
   },
-};
+}; 

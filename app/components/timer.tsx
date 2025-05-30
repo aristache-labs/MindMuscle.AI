@@ -1,23 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import {
-  View,
-  StyleSheet,
-  Pressable,
-  Dimensions,
-  Platform,
-  StatusBar as RNStatusBar,
-} from 'react-native';
+import { View, StyleSheet, Pressable, Dimensions, Platform, StatusBar as RNStatusBar } from 'react-native';
 import { Text, IconButton, Surface } from 'react-native-paper';
 import { StatusBar } from 'expo-status-bar';
-import Animated, {
-  useAnimatedProps,
+import { Stack, router } from 'expo-router';
+import Animated, { 
+  useAnimatedProps, 
   withTiming,
   useSharedValue,
   Easing,
   cancelAnimation,
 } from 'react-native-reanimated';
 import Svg, { Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
-import { COLORS } from '../constants/theme';
+import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
+
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -108,12 +103,15 @@ export default function Timer({ onClose }: TimerProps) {
             style={styles.closeButton}
           />
           <View style={styles.headerTitleContainer}>
-            <Text variant="headlineSmall" style={styles.headerTitle}>
-              Timer
-            </Text>
+            <Text variant="headlineSmall" style={styles.headerTitle}>Timer</Text>
           </View>
           <Pressable style={styles.premiumButton} onPress={() => {}}>
-            <IconButton icon="crown" iconColor="#f9e009" size={26} style={styles.premiumIcon} />
+            <IconButton
+              icon="crown"
+              iconColor="#f9e009"
+              size={26}
+              style={styles.premiumIcon}
+            />
             <Text style={styles.premiumText}>PREMIUM</Text>
           </Pressable>
         </View>
@@ -124,15 +122,17 @@ export default function Timer({ onClose }: TimerProps) {
             <View style={{ borderRadius: 16, overflow: 'hidden' }}>
               <Surface style={styles.adjustButtonSurface}>
                 <Pressable
-                  style={[styles.adjustButton, isActive && styles.adjustButtonDisabled]}
+                  style={[
+                    styles.adjustButton,
+                    isActive && styles.adjustButtonDisabled
+                  ]}
                   onPress={() => !isActive && adjustTime(-5)}
                   disabled={isActive}
                 >
-                  <Text
-                    style={[styles.adjustButtonText, isActive && styles.adjustButtonTextDisabled]}
-                  >
-                    -5
-                  </Text>
+                  <Text style={[
+                    styles.adjustButtonText,
+                    isActive && styles.adjustButtonTextDisabled
+                  ]}>-5</Text>
                 </Pressable>
               </Surface>
             </View>
@@ -140,21 +140,26 @@ export default function Timer({ onClose }: TimerProps) {
             <View style={{ borderRadius: 16, overflow: 'hidden' }}>
               <Surface style={styles.adjustButtonSurface}>
                 <Pressable
-                  style={[styles.adjustButton, isActive && styles.adjustButtonDisabled]}
+                  style={[
+                    styles.adjustButton,
+                    isActive && styles.adjustButtonDisabled
+                  ]}
                   onPress={() => !isActive && adjustTime(5)}
                   disabled={isActive}
                 >
-                  <Text
-                    style={[styles.adjustButtonText, isActive && styles.adjustButtonTextDisabled]}
-                  >
-                    +5
-                  </Text>
+                  <Text style={[
+                    styles.adjustButtonText,
+                    isActive && styles.adjustButtonTextDisabled
+                  ]}>+5</Text>
                 </Pressable>
               </Surface>
             </View>
           </View>
 
-          <Pressable onPress={handlePress} style={styles.timerCircle}>
+          <Pressable
+            onPress={handlePress}
+            style={styles.timerCircle}
+          >
             <View style={{ borderRadius: CIRCLE_SIZE / 2, overflow: 'hidden' }}>
               <Surface style={styles.timerSurface}>
                 <View style={styles.timerInner}>
@@ -207,7 +212,7 @@ export default function Timer({ onClose }: TimerProps) {
               style={[
                 styles.presetButton,
                 selectedPreset === preset && styles.presetButtonSelected,
-                isActive && styles.presetButtonDisabled,
+                isActive && styles.presetButtonDisabled
               ]}
               onPress={() => {
                 if (!isActive) {
@@ -221,7 +226,7 @@ export default function Timer({ onClose }: TimerProps) {
                 style={[
                   styles.presetText,
                   selectedPreset === preset && styles.presetTextSelected,
-                  isActive && styles.presetTextDisabled,
+                  isActive && styles.presetTextDisabled
                 ]}
               >
                 {preset}
@@ -249,7 +254,7 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     position: 'relative',
     height: Platform.OS === 'android' ? 70 + (RNStatusBar.currentHeight || 24) : 120,
-    paddingTop: Platform.OS === 'android' ? RNStatusBar.currentHeight || 24 : 47,
+    paddingTop: Platform.OS === 'android' ? (RNStatusBar.currentHeight || 24) : 47,
     backgroundColor: COLORS.background,
     borderBottomWidth: 0.2,
     borderBottomColor: COLORS.primary,
@@ -261,7 +266,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 10,
   },
-  headerTitleContainer: {},
+  headerTitleContainer: {
+  },
   headerTitle: {
     fontWeight: 'bold',
     color: 'white',
@@ -304,7 +310,10 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: '50%',
     left: '50%',
-    transform: [{ translateX: -(CIRCLE_SIZE + 140) / 2 }, { translateY: -28 }],
+    transform: [
+      { translateX: -(CIRCLE_SIZE + 140) / 2 },
+      { translateY: -28 }
+    ],
   },
   timerCircle: {
     width: CIRCLE_SIZE,
@@ -389,7 +398,7 @@ const styles = StyleSheet.create({
   presetButtonSelected: {
     backgroundColor: COLORS.gradientEnd,
     shadowColor: COLORS.gradientEnd,
-
+    
     shadowOffset: {
       width: 0,
       height: 0,
@@ -448,4 +457,4 @@ const styles = StyleSheet.create({
   adjustButtonTextDisabled: {
     opacity: 0.5,
   },
-});
+}); 

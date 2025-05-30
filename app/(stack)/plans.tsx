@@ -29,6 +29,12 @@ interface Subcategory {
   identifier: string;
 }
 
+interface Category {
+  id: string;
+  name: string;
+  identifier: string;
+}
+
 export default function PlansScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -41,10 +47,10 @@ export default function PlansScreen() {
 
   // Preload subcategory hero image when available
   const subcategoryImageUrl = subcategory?.image_url ? [subcategory.image_url] : [];
-  useImagePreloader(subcategoryImageUrl, {
+  const imagePreloadStatus = useImagePreloader(subcategoryImageUrl, {
     priority: 'high',
     skipIfCached: true,
-    debugLabel: 'PlansScreen',
+    debugLabel: 'PlansScreen'
   });
 
   useEffect(() => {
@@ -96,8 +102,7 @@ export default function PlansScreen() {
           .order('display_order', { ascending: true });
         if (plansError) throw plansError;
         setPlans(plansData || []);
-      } catch (error) {
-        console.error('Error fetching plans:', error);
+      } catch (err: any) {
         setError('Failed to load plans.');
       } finally {
         setIsLoading(false);
@@ -118,7 +123,7 @@ export default function PlansScreen() {
     <View style={styles.container}>
       <StatusBar style="light" />
       {/* Header */}
-      <View style={[styles.header, { marginTop: insets.top }]}>
+      <View style={[styles.header, { marginTop: insets.top }]}> 
         <View style={styles.headerLeft}>
           <IconButton
             icon="arrow-left"
@@ -148,50 +153,38 @@ export default function PlansScreen() {
         </View>
       ) : (
         <FlatList
-          ListHeaderComponent={
-            subcategory ? (
-              <View style={styles.heroContainer}>
-                {subcategory.image_url ? (
-                  <OptimizedImage
-                    source={{ uri: subcategory.image_url }}
-                    style={styles.heroImage}
-                    resizeMode="cover"
-                    // eslint-disable-next-line @typescript-eslint/no-require-imports
-                    fallback={require('../../assets/exercises/placeholder.jpg')}
-                    cachePolicy="immutable"
-                    isImportant={true}
-                    showLoader={false}
-                  />
-                ) : (
-                  <View style={[styles.heroImage, styles.heroImagePlaceholder]} />
-                )}
-                <View style={styles.heroTextContainer}>
-                  <Text style={styles.heroTitle}>{subcategory.title}</Text>
-                  <Text style={styles.heroSubtitle}>
-                    {subcategory.subtitle}
-                    {subcategory.subtitle && categoryName ? ', ' : ''}
-                    {categoryName}
-                  </Text>
-                </View>
+          ListHeaderComponent={subcategory ? (
+            <View style={styles.heroContainer}>
+              {subcategory.image_url ? (
+                <OptimizedImage 
+                  source={{ uri: subcategory.image_url }}
+                  style={styles.heroImage}
+                  resizeMode="cover"
+                  fallback={require('../../assets/exercises/placeholder.jpg')}
+                  cachePolicy="immutable"
+                  isImportant={true}
+                  showLoader={false}
+                />
+              ) : (
+                <View style={[styles.heroImage, styles.heroImagePlaceholder]} />
+              )}
+              <View style={styles.heroTextContainer}>
+                <Text style={styles.heroTitle}>{subcategory.title}</Text>
+                <Text style={styles.heroSubtitle}>
+                  {subcategory.subtitle}
+                  {subcategory.subtitle && categoryName ? ', ' : ''}
+                  {categoryName}
+                </Text>
               </View>
-            ) : null
-          }
+            </View>
+          ) : null}
           data={plans}
-          keyExtractor={(item) => item.id}
+          keyExtractor={item => item.id}
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.planCard}
-              onPress={() => handlePlanPress(item)}
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity style={styles.planCard} onPress={() => handlePlanPress(item)} activeOpacity={0.8}>
               <Text style={styles.planCardTitle}>{item.title}</Text>
-              <IconButton
-                icon="chevron-right"
-                size={24}
-                iconColor={COLORS.text}
-                style={styles.planCardArrow}
-              />
+              <IconButton icon="chevron-right" size={24} iconColor={COLORS.text} style={styles.planCardArrow} />
             </TouchableOpacity>
           )}
         />
@@ -328,4 +321,4 @@ const styles = StyleSheet.create({
   planCardArrow: {
     margin: 0,
   },
-});
+}); 

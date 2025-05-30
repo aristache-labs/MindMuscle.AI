@@ -1,24 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
-import {
-  StyleSheet,
-  View,
-  TouchableOpacity,
-  StatusBar,
-  ViewStyle,
-  GestureResponderEvent,
-  Animated,
-  Modal,
-  Pressable,
-  ScrollView,
-  Image,
-} from 'react-native';
-import { Text, IconButton, Surface } from 'react-native-paper';
-import { COLORS, BORDER_RADIUS, HEADER_HEIGHT } from '../constants/theme';
+import { StyleSheet, View, Image, TouchableOpacity, SafeAreaView, StatusBar, ViewStyle, GestureResponderEvent, Animated, Modal, Pressable, Platform, ScrollView } from 'react-native';
+import { Text, IconButton, Surface, Divider } from 'react-native-paper';
+import { COLORS, SPACING, BORDER_RADIUS, HEADER_HEIGHT } from '../constants/theme';
 import Timer from '../components/timer';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeneralHeader } from '../components/GeneralHeader';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
 
 interface MuscleGroup {
   id: number;
@@ -43,292 +32,128 @@ interface MuscleGroup {
 
 const muscleGroups: MuscleGroup[] = [
   // Front view muscles
-  {
-    id: 1,
-    name: 'Shoulders',
+  { 
+    id: 1, 
+    name: 'Shoulders', 
     dotPosition: { top: '27%', left: '30%' },
     textPosition: { top: '25%', left: '1%' },
-    view: 'front',
+    view: 'front' 
   },
-  {
-    id: 17,
-    name: 'Cardio',
+  { 
+    id: 17, 
+    name: 'Cardio', 
     dotPosition: { top: '20%', right: '25%' },
     textPosition: { top: '18%', right: '1%' },
     view: 'front',
-    heartPosition: { top: '20%', right: '25%' },
+    heartPosition: { top: '20%', right: '25%' }
   },
-  {
-    id: 2,
-    name: 'Chest',
+  { 
+    id: 2, 
+    name: 'Chest', 
     dotPosition: { top: '32%', left: '40%' },
     textPosition: { top: '30%', left: '1%' },
-    view: 'front',
+    view: 'front' 
   },
-  {
-    id: 3,
-    name: 'Biceps',
+  { 
+    id: 3, 
+    name: 'Biceps', 
     dotPosition: { top: '35%', right: '31%' },
     textPosition: { top: '33%', right: '1%' },
-    view: 'front',
+    view: 'front' 
   },
-  {
-    id: 4,
-    name: 'Forearms',
+  { 
+    id: 4, 
+    name: 'Forearms', 
     dotPosition: { top: '42%', left: '22%' },
     textPosition: { top: '40%', left: '1%' },
-    view: 'front',
+    view: 'front' 
   },
-  {
-    id: 5,
-    name: 'Abs',
+  { 
+    id: 5, 
+    name: 'Abs', 
     dotPosition: { top: '41%', right: '47%' },
     textPosition: { top: '39%', right: '1%' },
-    view: 'front',
+    view: 'front' 
   },
-  {
-    id: 6,
-    name: 'Obliques',
+  { 
+    id: 6, 
+    name: 'Obliques', 
     dotPosition: { top: '48%', left: '34%' },
     textPosition: { top: '46%', left: '1%' },
-    view: 'front',
+    view: 'front' 
   },
-  {
-    id: 7,
-    name: 'Quads',
+  { 
+    id: 7, 
+    name: 'Quads', 
     dotPosition: { top: '58%', left: '39%' },
     textPosition: { top: '56%', left: '1%' },
-    view: 'front',
+    view: 'front' 
   },
-  {
-    id: 8,
-    name: 'Adductors',
+  { 
+    id: 8, 
+    name: 'Adductors', 
     dotPosition: { top: '60%', right: '47%' },
     textPosition: { top: '58%', right: '1%' },
-    view: 'front',
+    view: 'front' 
   },
   // Back view muscles
-  {
-    id: 9,
-    name: 'Traps',
+  { 
+    id: 9, 
+    name: 'Traps', 
     dotPosition: { top: '24%', left: '44%' },
     textPosition: { top: '22%', left: '1%' },
-    view: 'back',
+    view: 'back' 
   },
-  {
-    id: 10,
-    name: 'Triceps',
+  { 
+    id: 10, 
+    name: 'Triceps', 
     dotPosition: { top: '34%', left: '25%' },
     textPosition: { top: '32%', left: '1%' },
-    view: 'back',
+    view: 'back' 
   },
-  {
-    id: 11,
-    name: 'Abductors',
+  { 
+    id: 11, 
+    name: 'Abductors', 
     dotPosition: { top: '44%', left: '35%' },
     textPosition: { top: '42%', left: '1%' },
-    view: 'back',
+    view: 'back' 
   },
-  {
-    id: 12,
-    name: 'Lats',
+  { 
+    id: 12, 
+    name: 'Lats', 
     dotPosition: { top: '31%', right: '39%' },
     textPosition: { top: '29%', right: '1%' },
-    view: 'back',
+    view: 'back' 
   },
-  {
-    id: 13,
-    name: 'Lower back',
+  { 
+    id: 13, 
+    name: 'Lower back', 
     dotPosition: { top: '42%', right: '44%' },
     textPosition: { top: '40%', right: '1%' },
-    view: 'back',
+    view: 'back' 
   },
-  {
-    id: 14,
-    name: 'Glutes',
+  { 
+    id: 14, 
+    name: 'Glutes', 
     dotPosition: { top: '50%', right: '45%' },
     textPosition: { top: '48%', right: '1%' },
-    view: 'back',
+    view: 'back' 
   },
-  {
-    id: 15,
-    name: 'Hamstrings',
+  { 
+    id: 15, 
+    name: 'Hamstrings', 
     dotPosition: { top: '58%', left: '36%' },
     textPosition: { top: '56%', left: '1%' },
-    view: 'back',
+    view: 'back' 
   },
-  {
-    id: 16,
-    name: 'Calves',
+  { 
+    id: 16, 
+    name: 'Calves', 
     dotPosition: { top: '70%', left: '34%' },
     textPosition: { top: '68%', left: '1%' },
-    view: 'back',
-  },
+    view: 'back' 
+  }
 ];
-
-// Helper functions for muscle position calculations
-const getPositionValue = (position: { left?: string; right?: string }, defaultValue = '0') => {
-  if (position.right) {
-    return 100 - parseFloat(position.right);
-  }
-  return parseFloat(position.left || defaultValue);
-};
-
-const calculateClickableZoneWidth = (muscle: MuscleGroup) => {
-  const textPos = getPositionValue(muscle.textPosition);
-  const dotPos = getPositionValue(muscle.dotPosition);
-  return Math.abs(textPos - dotPos) + 5;
-};
-
-const calculateClickableZoneLeft = (muscle: MuscleGroup) => {
-  if (muscle.textPosition.right) {
-    return (
-      100 -
-      Math.max(parseFloat(muscle.textPosition.right), parseFloat(muscle.dotPosition.right || '0'))
-    );
-  }
-  return Math.min(
-    parseFloat(muscle.dotPosition.left || '100'),
-    parseFloat(muscle.textPosition.left || '100'),
-  );
-};
-
-const calculateDottedLineWidth = (muscle: MuscleGroup) => {
-  const textPos = getPositionValue(muscle.textPosition);
-  const dotPos = getPositionValue(muscle.dotPosition);
-  return Math.abs(textPos - dotPos);
-};
-
-const calculateDottedLineLeft = (muscle: MuscleGroup) => {
-  return calculateClickableZoneLeft(muscle);
-};
-
-// Component for rendering muscle marker
-interface MuscleMarkerProps {
-  muscle: MuscleGroup;
-  pulseAnim: Animated.Value;
-  onPress: (muscleName: string) => void;
-}
-
-const MuscleMarker = ({ muscle, pulseAnim, onPress }: MuscleMarkerProps) => {
-  const isCardio = muscle.name === 'Cardio';
-  const markerStyle = isCardio ? muscle.heartPosition : muscle.dotPosition;
-
-  return (
-    <TouchableOpacity
-      style={[
-        styles.muscleMarker,
-        isCardio
-          ? {
-              width: 32,
-              height: 32,
-              justifyContent: 'center',
-              alignItems: 'center',
-              marginTop: -12,
-            }
-          : {},
-        markerStyle as ViewStyle,
-      ]}
-      onPress={() => onPress(muscle.name)}
-    >
-      {isCardio ? (
-        <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-          <MaterialCommunityIcons
-            name="heart-pulse"
-            size={28}
-            color={COLORS.primary}
-            style={{ marginTop: -1 }}
-          />
-        </Animated.View>
-      ) : (
-        <Animated.View
-          style={[
-            styles.markerDot,
-            {
-              transform: [{ scale: pulseAnim }],
-            },
-          ]}
-        />
-      )}
-    </TouchableOpacity>
-  );
-};
-
-// Component for muscle text
-interface MuscleTextProps {
-  muscle: MuscleGroup;
-  onPress: (muscleName: string) => void;
-}
-
-const MuscleText = ({ muscle, onPress }: MuscleTextProps) => (
-  <TouchableOpacity
-    style={[
-      styles.textContainer,
-      muscle.textPosition as ViewStyle,
-      muscle.textPosition.right ? styles.textRight : styles.textLeft,
-    ]}
-    onPress={() => onPress(muscle.name)}
-  >
-    <Text style={styles.markerText}>{muscle.name}</Text>
-  </TouchableOpacity>
-);
-
-// Component for clickable zone
-interface ClickableZoneProps {
-  muscle: MuscleGroup;
-  onPress: (muscleName: string) => void;
-}
-
-const ClickableZone = ({ muscle, onPress }: ClickableZoneProps) => (
-  <TouchableOpacity
-    style={[
-      styles.clickableZone,
-      {
-        position: 'absolute',
-        width: `${calculateClickableZoneWidth(muscle)}%`,
-        height: '10%',
-        left: `${calculateClickableZoneLeft(muscle)}%`,
-        top: `${parseFloat(muscle.dotPosition.top) - 5}%`,
-        zIndex: 5,
-      } as ViewStyle,
-    ]}
-    onPress={() => onPress(muscle.name)}
-  />
-);
-
-// Component for dotted line
-interface DottedLineProps {
-  muscle: MuscleGroup;
-}
-
-const DottedLine = ({ muscle }: DottedLineProps) => (
-  <View
-    style={[
-      styles.dottedLine,
-      {
-        width: `${calculateDottedLineWidth(muscle)}%`,
-        left: `${calculateDottedLineLeft(muscle)}%`,
-        top: `${parseFloat(muscle.dotPosition.top) + 0.5}%`,
-      } as ViewStyle,
-    ]}
-  />
-);
-
-// Main muscle group component
-interface MuscleGroupRenderProps {
-  muscle: MuscleGroup;
-  pulseAnim: Animated.Value;
-  onPress: (muscleName: string) => void;
-}
-
-const MuscleGroupRender = ({ muscle, pulseAnim, onPress }: MuscleGroupRenderProps) => (
-  <React.Fragment key={muscle.id}>
-    <ClickableZone muscle={muscle} onPress={onPress} />
-    <MuscleMarker muscle={muscle} pulseAnim={pulseAnim} onPress={onPress} />
-    <MuscleText muscle={muscle} onPress={onPress} />
-    <DottedLine muscle={muscle} />
-  </React.Fragment>
-);
 
 export default function ExercisesScreen() {
   const [currentView, setCurrentView] = useState<'front' | 'back'>('front');
@@ -348,6 +173,8 @@ export default function ExercisesScreen() {
   // Directly reference body model images without preloading via hook
   const frontBodyModel = require('../../assets/body-model_front.png');
   const backBodyModel = require('../../assets/body-model_back.png');
+  
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (isImageLoaded) {
@@ -370,7 +197,7 @@ export default function ExercisesScreen() {
             duration: 800,
             useNativeDriver: true,
           }),
-        ]),
+        ])
       ).start();
     }
   }, [isImageLoaded]);
@@ -389,7 +216,7 @@ export default function ExercisesScreen() {
           duration: 1000,
           useNativeDriver: true,
         }),
-      ]),
+      ])
     ).start();
   }, []);
 
@@ -421,7 +248,7 @@ export default function ExercisesScreen() {
 
   const handleTouchEnd = (event: GestureResponderEvent) => {
     const swipeLength = event.nativeEvent.pageX - touchStart;
-
+    
     if (Math.abs(swipeLength) > SWIPE_THRESHOLD) {
       if (swipeLength > 0 && currentView === 'back') {
         handleViewChange('front');
@@ -434,31 +261,32 @@ export default function ExercisesScreen() {
   const navigateToExercisesList = (muscleGroupName: string) => {
     // Update to use the new dedicated page for single muscle groups
     const categoryId = muscleGroupName;
-
+    
     router.push({
       pathname: '/(tabs)/exercises-single-group',
-      params: { categoryId, fromScreen: 'exercises' },
+      params: { categoryId, fromScreen: 'exercises' }
     });
   };
 
   const navigateToAllExercises = () => {
     router.push({
       pathname: '/(tabs)/exercises-list',
-      params: {
-        showAllCategories: 'true',
-        openSearch: 'true',
-        fromScreen: 'exercises',
+      params: { 
+        showAllCategories: 'true', 
+        openSearch: 'true', 
+        fromScreen: 'exercises', 
         resetSearch: 'true',
-        groupByMuscle: 'true',
-      },
+        groupByMuscle: 'true'
+      }
     });
   };
 
-  const filteredMuscles = muscleGroups.filter((muscle) => muscle.view === currentView);
+  const filteredMuscles = muscleGroups.filter(muscle => muscle.view === currentView);
 
-  const handleScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
-    useNativeDriver: false,
-  });
+  const handleScroll = Animated.event(
+    [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+    { useNativeDriver: false }
+  );
 
   const handleScrollEnd = ({ nativeEvent }: { nativeEvent: { contentOffset: { y: number } } }) => {
     if (nativeEvent.contentOffset.y > 100) {
@@ -490,14 +318,17 @@ export default function ExercisesScreen() {
             </View>
           }
         />
-
+        
         {/* Search Icon */}
-        <TouchableOpacity style={styles.searchButton} onPress={navigateToAllExercises}>
+        <TouchableOpacity 
+          style={styles.searchButton}
+          onPress={navigateToAllExercises}
+        >
           <Surface style={styles.searchSurface}>
             <MaterialIcons name="search" size={24} color={COLORS.text} />
           </Surface>
         </TouchableOpacity>
-
+        
         {/* Timer Modal */}
         <Modal
           animationType="slide"
@@ -518,7 +349,7 @@ export default function ExercisesScreen() {
           onMomentumScrollEnd={handleScrollEnd}
           scrollEventThrottle={16}
         >
-          <View
+          <View 
             style={[styles.bodyModelContainer, { paddingTop: HEADER_HEIGHT }]}
             onTouchStart={handleTouchStart}
             onTouchEnd={handleTouchEnd}
@@ -526,20 +357,20 @@ export default function ExercisesScreen() {
             <Animated.View style={[styles.modelContainer, { opacity: fadeAnim }]}>
               <View style={styles.imagesContainer}>
                 {/* Front body model */}
-                <Image
+                <Image 
                   source={frontBodyModel}
                   style={{
                     width: '100%',
                     height: '100%',
                     position: 'absolute',
                     opacity: currentView === 'front' ? 1 : 0,
-                    resizeMode: 'contain',
+                    resizeMode: 'contain'
                   }}
                   onLoad={() => {
                     setIsImageLoaded(true);
                   }}
                 />
-
+                
                 {/* Back body model */}
                 <Image
                   source={backBodyModel}
@@ -548,14 +379,14 @@ export default function ExercisesScreen() {
                     height: '100%',
                     position: 'absolute',
                     opacity: currentView === 'back' ? 1 : 0,
-                    resizeMode: 'contain',
+                    resizeMode: 'contain'
                   }}
                   onLoad={() => {
                     setIsImageLoaded(true);
                   }}
                 />
               </View>
-
+              
               {/* Timer Icon */}
               <IconButton
                 icon="timer-outline"
@@ -566,15 +397,102 @@ export default function ExercisesScreen() {
               />
 
               {/* Muscle Group Markers */}
-              {isImageLoaded &&
-                filteredMuscles.map((muscle) => (
-                  <MuscleGroupRender
-                    key={muscle.id}
-                    muscle={muscle}
-                    pulseAnim={pulseAnim}
-                    onPress={navigateToExercisesList}
+              {isImageLoaded && filteredMuscles.map((muscle) => (
+                <React.Fragment key={muscle.id}>
+                  {/* Create a larger clickable area first */}
+                  <TouchableOpacity
+                    style={[
+                      styles.clickableZone,
+                      {
+                        position: 'absolute',
+                        width: `${Math.abs(
+                          parseFloat((muscle.textPosition.right ? (100 - parseFloat(muscle.textPosition.right)) : muscle.textPosition.left || '0').toString()) -
+                          parseFloat((muscle.dotPosition.right ? (100 - parseFloat(muscle.dotPosition.right)) : muscle.dotPosition.left || '0').toString())
+                        ) + 5}%`, // Slightly wider than the dotted line
+                        height: '10%', // Tall enough to be easily clickable
+                        left: `${
+                          muscle.textPosition.right 
+                            ? (100 - Math.max(
+                                parseFloat(muscle.textPosition.right),
+                                parseFloat(muscle.dotPosition.right || '0')
+                              ))
+                            : Math.min(
+                                parseFloat(muscle.dotPosition.left || '100'),
+                                parseFloat(muscle.textPosition.left || '100')
+                              )
+                        }%`,
+                        top: `${parseFloat(muscle.dotPosition.top) - 5}%`, // Slightly above the dot
+                        zIndex: 5,
+                      } as ViewStyle
+                    ]}
+                    onPress={() => navigateToExercisesList(muscle.name)}
                   />
-                ))}
+                  
+                  <TouchableOpacity
+                    style={[
+                      styles.muscleMarker,
+                      muscle.name === 'Cardio' ? { 
+                        width: 32, 
+                        height: 32, 
+                        justifyContent: 'center', 
+                        alignItems: 'center',
+                        marginTop: -12
+                      } : {},
+                      muscle.name === 'Cardio' ? muscle.heartPosition as ViewStyle : muscle.dotPosition as ViewStyle
+                    ]}
+                    onPress={() => navigateToExercisesList(muscle.name)}
+                  >
+                    {muscle.name === 'Cardio' ? (
+                      <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+                        <MaterialCommunityIcons name="heart-pulse" size={28} color={COLORS.primary} style={{ marginTop: -1 }} />
+                      </Animated.View>
+                    ) : (
+                      <Animated.View 
+                        style={[
+                          styles.markerDot,
+                          { 
+                            transform: [{ scale: pulseAnim }],
+                          }
+                        ]} 
+                      />
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.textContainer,
+                      muscle.textPosition as ViewStyle,
+                      muscle.textPosition.right ? styles.textRight : styles.textLeft
+                    ]}
+                    onPress={() => navigateToExercisesList(muscle.name)}
+                  >
+                    <Text style={styles.markerText}>{muscle.name}</Text>
+                  </TouchableOpacity>
+                  {/* Visual dotted line (not clickable anymore as we have the large clickable zone) */}
+                  <View
+                    style={[
+                      styles.dottedLine,
+                      {
+                        width: `${Math.abs(
+                          parseFloat((muscle.textPosition.right ? (100 - parseFloat(muscle.textPosition.right)) : muscle.textPosition.left || '0').toString()) -
+                          parseFloat((muscle.dotPosition.right ? (100 - parseFloat(muscle.dotPosition.right)) : muscle.dotPosition.left || '0').toString())
+                        )}%`,
+                        left: `${
+                          muscle.textPosition.right 
+                            ? (100 - Math.max(
+                                parseFloat(muscle.textPosition.right),
+                                parseFloat(muscle.dotPosition.right || '0')
+                              ))
+                            : Math.min(
+                                parseFloat(muscle.dotPosition.left || '100'),
+                                parseFloat(muscle.textPosition.left || '100')
+                              )
+                        }%`,
+                        top: `${parseFloat(muscle.dotPosition.top) + 0.5}%`,
+                      } as ViewStyle
+                    ]}
+                  />
+                </React.Fragment>
+              ))}
 
               <View style={styles.viewIndicator}>
                 <View style={[styles.dot, currentView === 'front' && styles.activeDot]} />
@@ -582,9 +500,7 @@ export default function ExercisesScreen() {
               </View>
 
               {/* Scroll indicator */}
-              <Animated.View
-                style={[styles.scrollIndicator, { transform: [{ translateY: scrollIndicatorY }] }]}
-              >
+              <Animated.View style={[styles.scrollIndicator, { transform: [{ translateY: scrollIndicatorY }] }]}>
                 <MaterialIcons name="keyboard-arrow-up" size={30} color="white" />
                 <Text style={styles.scrollText}>Scroll for all exercises</Text>
               </Animated.View>
@@ -623,7 +539,7 @@ const styles = StyleSheet.create({
     position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'transparent',
+    backgroundColor: 'transparent'
   },
   bodyModel: {
     width: '100%',
@@ -750,4 +666,4 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 5,
   },
-});
+}); 

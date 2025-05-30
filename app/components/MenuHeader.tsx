@@ -1,16 +1,16 @@
 import React, { useState } from 'react';
-import { View, TouchableOpacity, StyleSheet, GestureResponderEvent } from 'react-native';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Text, IconButton, Menu, Divider } from 'react-native-paper';
 import { MaterialIcons } from '@expo/vector-icons';
 import { COLORS } from '../constants/theme';
-import { router } from 'expo-router';
+import { router, usePathname } from 'expo-router';
 import { GeneralHeader } from './GeneralHeader';
 
 const options = [
   { label: 'My Plan', icon: 'calendar-today', route: '/(tabs)', isTab: true },
   { label: 'Single Workout', icon: 'dumbbell', route: '/(stack)/single-workout', isTab: false },
   { label: 'AI Coaching', icon: 'robot', route: '/(stack)/ai-coaching', isTab: false },
-  { label: 'Custom', icon: 'tune', route: '/(stack)/custom', isTab: false },
+  { label: 'Custom', icon: 'tune', route: '/(stack)/custom', isTab: false }
 ];
 
 interface MenuHeaderProps {
@@ -21,16 +21,17 @@ interface MenuHeaderProps {
 export function MenuHeader({ currentOption, onOptionSelect }: MenuHeaderProps) {
   const [menuVisible, setMenuVisible] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState({ x: 0, y: 0 });
+  const pathname = usePathname();
 
-  const showMenu = (event: GestureResponderEvent) => {
+  const showMenu = (event: any) => {
     const { pageX, pageY } = event.nativeEvent;
     setMenuAnchor({ x: pageX - 10, y: pageY + 10 });
     setMenuVisible(true);
   };
 
-  const handleOptionSelect = (option: (typeof options)[0]) => {
+  const handleOptionSelect = (option: typeof options[0]) => {
     setMenuVisible(false);
-
+    
     // Always navigate to the selected route regardless of current state
     // This ensures navigation works correctly from any screen
     if (option.label !== currentOption) {
@@ -39,13 +40,13 @@ export function MenuHeader({ currentOption, onOptionSelect }: MenuHeaderProps) {
         // For My Plan, navigate to the tabs index with a parameter
         router.replace({
           pathname: option.route,
-          params: { selectedOption: option.label },
+          params: { selectedOption: option.label }
         });
       } else {
         // For other options, navigate directly to their stack routes
         router.replace(option.route);
       }
-
+      
       // Also call the callback if provided (for UI state updates)
       if (onOptionSelect) {
         onOptionSelect(option.label);
@@ -58,10 +59,13 @@ export function MenuHeader({ currentOption, onOptionSelect }: MenuHeaderProps) {
       <GeneralHeader
         title={currentOption}
         icon={
-          <TouchableOpacity style={styles.dropdownButton} onPress={showMenu}>
-            <MaterialIcons
-              name={menuVisible ? 'keyboard-arrow-up' : 'keyboard-arrow-down'}
-              size={24}
+          <TouchableOpacity 
+            style={styles.dropdownButton}
+            onPress={showMenu}
+          >
+            <MaterialIcons 
+              name={menuVisible ? "keyboard-arrow-up" : "keyboard-arrow-down"} 
+              size={24} 
               color={COLORS.text}
             />
           </TouchableOpacity>
@@ -69,7 +73,12 @@ export function MenuHeader({ currentOption, onOptionSelect }: MenuHeaderProps) {
         rightElement={
           <View style={styles.premiumButton}>
             <View style={styles.premiumIconColumn}>
-              <IconButton icon="crown" iconColor="#f9e009" size={26} style={styles.premiumIcon} />
+              <IconButton
+                icon="crown"
+                iconColor="#f9e009"
+                size={26}
+                style={styles.premiumIcon}
+              />
               <Text style={styles.premiumText}>PREMIUM</Text>
             </View>
           </View>
@@ -89,7 +98,7 @@ export function MenuHeader({ currentOption, onOptionSelect }: MenuHeaderProps) {
               title={option.label}
               titleStyle={[
                 styles.menuItemTitle,
-                option.label === currentOption && styles.menuItemTitleActive,
+                option.label === currentOption && styles.menuItemTitleActive
               ]}
               leadingIcon={option.icon}
             />
@@ -150,4 +159,4 @@ const styles = StyleSheet.create({
 });
 
 // Add default export to fix the warning
-export default MenuHeader;
+export default MenuHeader; 

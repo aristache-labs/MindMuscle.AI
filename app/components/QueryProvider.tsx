@@ -1,4 +1,5 @@
 import React, { ReactNode } from 'react';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { queryClient, asyncStoragePersister } from '../services/queryClient';
 
@@ -21,4 +22,4 @@ export function QueryProvider({ children }: QueryProviderProps) {
   );
 }
 
-export default QueryProvider;
+export default QueryProvider; 

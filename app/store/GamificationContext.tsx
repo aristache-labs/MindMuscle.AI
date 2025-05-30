@@ -22,19 +22,10 @@ interface UserStats {
   achievements: Achievement[];
 }
 
-interface PersonalRecord {
-  exerciseId: string;
-  exerciseName: string;
-  value: number;
-  unit: string; // e.g., 'kg', 'lbs', 'reps'
-  date: string;
-  previousValue?: number;
-}
-
 interface Metrics {
   totalWorkouts: number;
   streak: number;
-  personalRecords: PersonalRecord[];
+  personalRecords: any[];
   averageWorkoutDuration: number;
 }
 
@@ -119,10 +110,7 @@ const GamificationContext = createContext<GamificationContextType>({
   loading: true,
 });
 
-export const GamificationProvider: React.FC<{ children: React.ReactNode; metrics: Metrics }> = ({
-  children,
-  metrics,
-}) => {
+export const GamificationProvider: React.FC<{ children: React.ReactNode; metrics: Metrics }> = ({ children, metrics }) => {
   const [stats, setStats] = useState<UserStats>(defaultStats);
   const [loading, setLoading] = useState(true);
 
@@ -181,7 +169,7 @@ export const GamificationProvider: React.FC<{ children: React.ReactNode; metrics
 
   const checkAchievements = async () => {
     try {
-      const updatedAchievements = stats.achievements.map((achievement) => {
+      const updatedAchievements = stats.achievements.map(achievement => {
         let progress = 0;
         let completed = achievement.completed;
 
@@ -209,10 +197,7 @@ export const GamificationProvider: React.FC<{ children: React.ReactNode; metrics
           ...achievement,
           progress,
           completed,
-          completedAt:
-            completed && !achievement.completedAt
-              ? new Date().toISOString()
-              : achievement.completedAt,
+          completedAt: completed && !achievement.completedAt ? new Date().toISOString() : achievement.completedAt,
         };
       });
 
@@ -244,4 +229,4 @@ export const GamificationProvider: React.FC<{ children: React.ReactNode; metrics
 
 export const useGamification = () => useContext(GamificationContext);
 
-export default GamificationProvider;
+export default GamificationProvider; 

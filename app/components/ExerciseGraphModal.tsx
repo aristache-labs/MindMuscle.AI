@@ -52,12 +52,19 @@ const ExerciseGraphModal: React.FC<ExerciseGraphModalProps> = ({
   };
 
   return (
-    <Modal visible={visible} transparent={true} animationType="fade" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={onClose}
+    >
       <Pressable style={styles.modalOverlay} onPress={onClose}>
         <View style={styles.modalContainer}>
           <Pressable style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{exercise ? 'Update Exercise' : 'Add Exercise'}</Text>
+              <Text style={styles.modalTitle}>
+                {exercise ? 'Update Exercise' : 'Add Exercise'}
+              </Text>
               <IconButton
                 icon="close"
                 iconColor="#fff"
@@ -95,7 +102,11 @@ const ExerciseGraphModal: React.FC<ExerciseGraphModalProps> = ({
                 disabled={!!exercise}
               />
 
-              <Button mode="contained" onPress={handleSave} style={styles.saveButton}>
+              <Button
+                mode="contained"
+                onPress={handleSave}
+                style={styles.saveButton}
+              >
                 Save
               </Button>
             </ScrollView>
@@ -149,4 +160,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default ExerciseGraphModal;
+export default ExerciseGraphModal; 

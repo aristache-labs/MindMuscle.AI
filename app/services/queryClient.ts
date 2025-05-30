@@ -1,6 +1,8 @@
 import { QueryClient } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { PersistedClient, Persister } from '@tanstack/react-query-persist-client';
+import { View } from 'react-native';
+import React from 'react';
 
 // Create a client
 export const queryClient = new QueryClient({
@@ -37,4 +39,4 @@ export const asyncStoragePersister: Persister = {
 // This is only here to satisfy Expo Router and is not meant to be used
 export default function QueryClientProvider() {
   return null;
-}
+} 

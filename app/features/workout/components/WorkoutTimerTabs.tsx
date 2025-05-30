@@ -58,4 +58,4 @@ const styles = {
     fontSize: 18,
     fontWeight: 'bold' as const,
   },
-};
+}; 

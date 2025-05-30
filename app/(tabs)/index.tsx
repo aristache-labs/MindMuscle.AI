@@ -6,6 +6,7 @@ import { COLORS, HEADER_HEIGHT } from '../constants/theme';
 import { router, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { MenuHeader } from '../components/MenuHeader';
+import SentryTestButton from '../components/SentryTestButton';
 
 // Import content components
 import MyPlanScreen from '../(stack)/my-plan';
@@ -101,6 +102,14 @@ export default function HomeScreen() {
         >
           START MY PLAN
         </Button>
+
+        {/* Sentry Test Button - Development Only */}
+        {__DEV__ && (
+          <View style={styles.devSection}>
+            <Text style={styles.devTitle}>Development Tools</Text>
+            <SentryTestButton title="Test Sentry Error Reporting" />
+          </View>
+        )}
       </View>
     </ScrollView>
   );
@@ -181,5 +190,20 @@ const styles = StyleSheet.create({
   startButtonLabel: {
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  devSection: {
+    marginTop: 24,
+    padding: 16,
+    backgroundColor: COLORS.background,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+  },
+  devTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: COLORS.primary,
+    marginBottom: 12,
+    textAlign: 'center',
   },
 });

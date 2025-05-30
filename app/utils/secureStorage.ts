@@ -1,22 +1,33 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+// Define types for SecureStore module
+interface SecureStoreModule {
+  setItemAsync: (key: string, value: string) => Promise<void>;
+  getItemAsync: (key: string) => Promise<string | null>;
+  deleteItemAsync: (key: string) => Promise<void>;
+}
+
 // Check if SecureStore is available at module level
-let SecureStoreModule: any = null;
+let SecureStoreModule: SecureStoreModule | null = null;
 let isSecureStoreModuleAvailable = false;
 
 // Try to load SecureStore module safely
-try {
-  SecureStoreModule = require('expo-secure-store');
-  isSecureStoreModuleAvailable = true;
-  console.log('SecureStore module loaded successfully');
-} catch (error: any) {
-  console.warn('SecureStore module not available, will use AsyncStorage fallback:', error.message);
-  isSecureStoreModuleAvailable = false;
+async function loadSecureStoreModule(): Promise<void> {
+  try {
+    const module = await import('expo-secure-store');
+    SecureStoreModule = module.default || module;
+    isSecureStoreModuleAvailable = true;
+    console.log('SecureStore module loaded successfully');
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.warn('SecureStore module not available, will use AsyncStorage fallback:', errorMessage);
+    isSecureStoreModuleAvailable = false;
+  }
 }
 
 // Storage utility with fallback support
 class SecureStorageUtility {
-  private secureStore: any = null;
+  private secureStore: SecureStoreModule | null = null;
   private isSecureStoreAvailable = false;
   private initializationPromise: Promise<void>;
   private isInitialized = false;
@@ -27,6 +38,9 @@ class SecureStorageUtility {
 
   private async initializeSecureStore(): Promise<void> {
     try {
+      // Load the module first
+      await loadSecureStoreModule();
+
       // Only proceed if the module was loaded successfully
       if (!isSecureStoreModuleAvailable || !SecureStoreModule) {
         console.warn('SecureStore module not available, using AsyncStorage fallback');
@@ -43,12 +57,13 @@ class SecureStorageUtility {
           this.secureStore = SecureStoreModule;
           this.isSecureStoreAvailable = true;
           console.log('SecureStore native module is available - using secure storage');
-        } catch (testError: any) {
+        } catch (testError: unknown) {
+          const errorMessage = testError instanceof Error ? testError.message : '';
           // Check if it's a native module error
           if (
-            testError.message?.includes('Cannot find native module') ||
-            testError.message?.includes('ExpoSecureStore') ||
-            testError.message?.includes('is not a function')
+            errorMessage.includes('Cannot find native module') ||
+            errorMessage.includes('ExpoSecureStore') ||
+            errorMessage.includes('is not a function')
           ) {
             console.warn('SecureStore native module not available, falling back to AsyncStorage');
             this.isSecureStoreAvailable = false;
@@ -65,10 +80,11 @@ class SecureStorageUtility {
         this.isSecureStoreAvailable = false;
         this.secureStore = null;
       }
-    } catch (initError: any) {
+    } catch (initError: unknown) {
+      const errorMessage = initError instanceof Error ? initError.message : 'Unknown error';
       console.warn(
         'SecureStore initialization failed, falling back to AsyncStorage:',
-        initError.message,
+        errorMessage,
       );
       this.isSecureStoreAvailable = false;
       this.secureStore = null;
@@ -89,8 +105,9 @@ class SecureStorageUtility {
     if (this.isSecureStoreAvailable && this.secureStore) {
       try {
         return await this.secureStore.setItemAsync(key, value);
-      } catch (error: any) {
-        console.warn('SecureStore setItem failed, falling back to AsyncStorage:', error.message);
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.warn('SecureStore setItem failed, falling back to AsyncStorage:', errorMessage);
         return AsyncStorage.setItem(`secure_${key}`, value);
       }
     } else {
@@ -104,8 +121,9 @@ class SecureStorageUtility {
     if (this.isSecureStoreAvailable && this.secureStore) {
       try {
         return await this.secureStore.getItemAsync(key);
-      } catch (error: any) {
-        console.warn('SecureStore getItem failed, falling back to AsyncStorage:', error.message);
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.warn('SecureStore getItem failed, falling back to AsyncStorage:', errorMessage);
         return AsyncStorage.getItem(`secure_${key}`);
       }
     } else {
@@ -119,8 +137,9 @@ class SecureStorageUtility {
     if (this.isSecureStoreAvailable && this.secureStore) {
       try {
         return await this.secureStore.deleteItemAsync(key);
-      } catch (error: any) {
-        console.warn('SecureStore deleteItem failed, falling back to AsyncStorage:', error.message);
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.warn('SecureStore deleteItem failed, falling back to AsyncStorage:', errorMessage);
         return AsyncStorage.removeItem(`secure_${key}`);
       }
     } else {

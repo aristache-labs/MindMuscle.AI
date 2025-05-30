@@ -28,7 +28,6 @@
       "enableDebug": true,
       "sourceMaps": true,
       "sourceMapRenames": false,
-      "address": "localhost",
       "port": 8081,
       "skipFiles": [
         "<node_internals>/**",

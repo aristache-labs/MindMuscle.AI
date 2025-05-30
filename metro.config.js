@@ -1,14 +1,16 @@
 /* eslint-disable prettier/prettier */
 console.log("Loading metro.config.js with community polyfills from node-libs-react-native...");
-const { getDefaultConfig } = require("expo/metro-config");
 const extraNodeModules = require("node-libs-react-native");
 const path = require("path");
+const {
+  getSentryExpoConfig
+} = require("@sentry/react-native/metro");
 
 // Get the project root directory
 const projectRoot = path.resolve(process.cwd());
 
 // Create the default Metro config
-const config = getDefaultConfig(projectRoot);
+const config = getSentryExpoConfig(projectRoot);
 
 // Ensure Metro honors package.json exports (so RN-optimized bundles are picked)
 config.resolver.unstable_enablePackageExports = true;

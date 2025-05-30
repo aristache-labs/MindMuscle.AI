@@ -79,11 +79,12 @@ interface GlobalCache {
 const safelyPreventAutoHide = async (): Promise<void> => {
   try {
     if (Platform.OS !== 'web') {
-      if (typeof SplashScreen.preventAutoHideAsync === 'function') {
+      // Check if SplashScreen module and method are available
+      if (SplashScreen && typeof SplashScreen.preventAutoHideAsync === 'function') {
         await SplashScreen.preventAutoHideAsync();
         logger.debugComponent('SPLASH_SCREEN', 'preventAutoHideAsync called successfully');
       } else {
-        logger.warn('SplashScreen.preventAutoHideAsync is not a function');
+        logger.warn('SplashScreen.preventAutoHideAsync is not available');
       }
     }
   } catch (error) {
@@ -95,11 +96,12 @@ const safelyPreventAutoHide = async (): Promise<void> => {
 const safelyHideSplashScreen = async (): Promise<void> => {
   try {
     if (Platform.OS !== 'web') {
-      if (typeof SplashScreen.hideAsync === 'function') {
+      // Check if SplashScreen module and method are available
+      if (SplashScreen && typeof SplashScreen.hideAsync === 'function') {
         await SplashScreen.hideAsync();
         logger.debugComponent('SPLASH_SCREEN', 'hideAsync called successfully');
       } else {
-        logger.warn('SplashScreen.hideAsync is not a function');
+        logger.warn('SplashScreen.hideAsync is not available');
       }
     }
   } catch (error) {
@@ -407,13 +409,17 @@ export default function SplashScreenManager({ children }: { children: React.Reac
       // Try to hide the native splash screen to show our custom loading screen
       if (Platform.OS !== 'web') {
         try {
-          if (typeof SplashScreen.hideAsync === 'function') {
+          if (SplashScreen && typeof SplashScreen.hideAsync === 'function') {
             if (DEBUG_SPLASH_SCREEN) {
               console.log('🎭 [SplashScreenManager] Hiding native splash screen...');
             }
             await SplashScreen.hideAsync();
             if (DEBUG_SPLASH_SCREEN) {
               console.log('✅ [SplashScreenManager] Native splash screen hidden');
+            }
+          } else {
+            if (DEBUG_SPLASH_SCREEN) {
+              console.log('⚠️ [SplashScreenManager] SplashScreen.hideAsync not available');
             }
           }
         } catch (splashError) {

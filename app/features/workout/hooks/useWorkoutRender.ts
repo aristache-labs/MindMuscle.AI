@@ -81,3 +81,6 @@ export const useWorkoutRender = ({
     progressPercentage,
   };
 };
+export default function disablewarn() {
+  return null;
+}

@@ -19,3 +19,4 @@ web-build/
 /build
 /coverage
 /node_modules
+.env.local

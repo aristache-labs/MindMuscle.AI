@@ -334,3 +334,6 @@ export const useDateSelection = ({
     getPausedWorkoutData,
   };
 };
+export default function WorkoutHistoryRecord() {
+  return null;
+}

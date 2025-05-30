@@ -141,3 +141,6 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
   },
 });
+export default function DebugHelpers() {
+  return null;
+}

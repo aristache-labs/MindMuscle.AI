@@ -8,3 +8,6 @@ export { default as CompletedWorkoutView } from './CompletedWorkoutView';
 export { default as WorkoutHeader } from './WorkoutHeader';
 export { default as WorkoutStatsRow } from './WorkoutStatsRow';
 export { default as NoPlanView } from './NoPlanView';
+export default function index() {
+  return null;
+}

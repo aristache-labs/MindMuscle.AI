@@ -18,8 +18,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../../store/AuthContext';
 import OptimizedImage from '../../../components/OptimizedImage';
 import ExerciseDetailsModal from '../../../components/ExerciseDetailsModal';
-import ExerciseListDragDrop from '../../../components/DragDropList/ExerciseListDragDrop';
-import { DragDropItem } from '../../../components/DragDropList/types';
 import CustomizeExerciseModal from '../../../components/CustomizeExerciseModal';
 
 import { COLORS, SPACING, BORDER_RADIUS } from '../../../constants/theme';
@@ -595,42 +593,6 @@ export default function WorkoutSessionScreen() {
           secondary_muscles={[]} // Add secondary muscles if available in your data
         />
       )}
-
-      {/* Exercise List Modal */}
-      <ExerciseListDragDrop
-        exercises={workoutExercises}
-        currentExerciseIndex={currentExerciseIndex}
-        isCustomizeMode={false}
-        exerciseSets={workoutExerciseSets}
-        onReorder={(reorderedExercises: DragDropItem[]) => {
-          setWorkoutExercises(reorderedExercises);
-        }}
-        onExercisePress={handleExerciseSelect}
-        onRemoveExercise={(exerciseIndex: number) => {
-          // Remove exercise from the exercises array
-          setWorkoutExercises((prev) => prev.filter((_, index) => index !== exerciseIndex));
-
-          // Remove exercise sets for the removed exercise
-          const removedExercise = workoutExercises[exerciseIndex];
-          if (removedExercise) {
-            setWorkoutExerciseSets((prev) => {
-              const updated = { ...prev };
-              delete updated[removedExercise.id];
-              return updated;
-            });
-          }
-
-          // Adjust current exercise index if needed
-          if (exerciseIndex < currentExerciseIndex) {
-            setCurrentExerciseIndex((prev) => prev - 1);
-          } else if (
-            exerciseIndex === currentExerciseIndex &&
-            currentExerciseIndex >= workoutExercises.length - 1
-          ) {
-            setCurrentExerciseIndex((prev) => Math.max(0, prev - 1));
-          }
-        }}
-      />
 
       {/* Customize Exercise Modal */}
       <CustomizeExerciseModal

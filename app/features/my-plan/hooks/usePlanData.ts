@@ -127,3 +127,6 @@ export const usePlanData = ({
     fetchActivePlan,
   };
 };
+export default function UsePlanDataProps() {
+  return null;
+}

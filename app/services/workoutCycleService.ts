@@ -389,3 +389,6 @@ export const checkWeekProgression = async (
     return null;
   }
 };
+export default function disablewarn() {
+  return null;
+}

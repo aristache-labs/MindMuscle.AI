@@ -86,3 +86,6 @@ export const useWorkoutKeyboardHandling = () => {
     handleInputBlur,
   };
 };
+export default function disablewarn() {
+  return null;
+}

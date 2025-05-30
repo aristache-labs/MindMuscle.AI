@@ -17,3 +17,6 @@ export * from './utils';
 
 // Screen exports
 export { default as WorkoutSessionScreen } from './screens/workout-session';
+export default function disablewarn() {
+  return null;
+}

@@ -618,3 +618,6 @@ export const fetchExerciseAbsoluteMaxWeight = async (
     return null;
   }
 };
+export default function disablewarn() {
+  return null;
+}

@@ -124,3 +124,6 @@ export const useWorkoutTimer = (): UseWorkoutTimerReturn => {
     formatRestTime,
   };
 };
+export default function disablewarn() {
+  return null;
+}

@@ -497,3 +497,6 @@ export const processRepsRange = (value: string): string => {
   }
   return value;
 };
+export default function disablewarn() {
+  return null;
+}

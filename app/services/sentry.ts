@@ -13,29 +13,24 @@ export function initializeSentry() {
 
     Sentry.init({
       dsn: sentryDsn,
-      debug: false, // Disable debug mode even in development
-      environment: Constants.expoConfig?.extra?.environment || 'development',
-      tracesSampleRate: 1.0,
+      // Adds more context data to events (IP address, cookies, user, etc.)
+      // For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/data-collected/
       sendDefaultPii: true,
-      // Disable user interaction tracing
-      integrations: (integrations) => {
-        return integrations.filter(
-          (integration) => integration.name !== 'UserInteractionIntegration',
-        );
-      },
-      // Silence Sentry logs
-      beforeBreadcrumb(breadcrumb) {
-        // Return null to drop the breadcrumb
-        return breadcrumb.category === 'console' ? null : breadcrumb;
-      },
+      // Set tracesSampleRate to 1.0 to capture 100% of transactions for tracing.
+      // We recommend adjusting this value in production.
+      // Learn more at
+      // https://docs.sentry.io/platforms/react-native/configuration/options/#traces-sample-rate
+      tracesSampleRate: 1.0,
+      // profilesSampleRate is relative to tracesSampleRate.
+      // Here, we'll capture profiles for 100% of transactions.
+      profilesSampleRate: 1.0,
+      debug: __DEV__, // Enable debug mode in development
+      environment: Constants.expoConfig?.extra?.environment || 'development',
     });
 
-    // Disable console logging from Sentry
-    Sentry.setTag('silent', 'true');
-
-    // Still log initialization success but only once
-    if (!__DEV__) {
-      console.log('Sentry initialized successfully');
+    // Log initialization success
+    if (__DEV__) {
+      console.log('Sentry initialized successfully with DSN:', sentryDsn);
     }
   } catch (error) {
     console.warn('Sentry initialization failed:', error);

@@ -62,8 +62,9 @@
         "@sentry/react-native/expo",
         {
           "url": "https://sentry.io/",
-          "organization": "mindmuscleai",
-          "project": "mindmuscle-ai"
+          "note": "Use SENTRY_AUTH_TOKEN env to authenticate with Sentry.",
+          "project": "mind-muscle-ai",
+          "organization": "mindmuscleai"
         }
       ],
       [

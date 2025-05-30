@@ -105,3 +105,6 @@ export const useWorkoutNavigation = ({
     getCurrentSets,
   };
 };
+export default function disablewarn() {
+  return null;
+}

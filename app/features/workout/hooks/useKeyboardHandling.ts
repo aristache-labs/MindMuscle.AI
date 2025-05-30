@@ -188,3 +188,6 @@ export const useKeyboardHandling = (): UseKeyboardHandlingReturn => {
     setFocusedInputs,
   };
 };
+export default function disablewarn() {
+  return null;
+}

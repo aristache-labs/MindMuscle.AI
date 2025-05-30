@@ -159,3 +159,6 @@ export const useProgressPhotos = () => {
     cleanupAndPickImage,
   };
 };
+export default function disablewarn() {
+  return null;
+}

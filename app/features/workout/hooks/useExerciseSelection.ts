@@ -432,3 +432,6 @@ export const useExerciseSelection = ({
     handleExerciseChange,
   };
 };
+export default function disablewarn() {
+  return null;
+}

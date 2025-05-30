@@ -390,3 +390,6 @@ export const updatePausedWorkoutWithCustomizations = async (
     return pausedWorkoutData;
   }
 };
+export default function disablewarn() {
+  return null;
+}

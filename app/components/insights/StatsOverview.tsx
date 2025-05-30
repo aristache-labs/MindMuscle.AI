@@ -127,3 +127,6 @@ const styles = StyleSheet.create({
     marginHorizontal: 8,
   },
 });
+export default function DebugHelpers() {
+  return null;
+}

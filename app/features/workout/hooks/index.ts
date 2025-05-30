@@ -27,3 +27,6 @@ export * from './useWorkoutWarmup';
 export * from './useWorkoutInitialization';
 export * from './useWorkoutKeyboardHandling';
 export * from './useWorkoutRender';
+export default function disablewarn() {
+  return null;
+}

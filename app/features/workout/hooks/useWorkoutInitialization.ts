@@ -158,3 +158,6 @@ export const useWorkoutInitialization = ({
     };
   }, [clearAllTimers]);
 };
+export default function disablewarn() {
+  return null;
+}

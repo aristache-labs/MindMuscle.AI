@@ -176,3 +176,6 @@ export const useCalendarData = ({
     updatePausedWorkoutDays,
   };
 };
+export default function UseCalendarDataProps() {
+  return null;
+}

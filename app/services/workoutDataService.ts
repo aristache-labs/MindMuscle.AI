@@ -1021,3 +1021,6 @@ export const completeWorkout = async (options: CompleteWorkoutOptions): Promise<
     return false;
   }
 };
+export default function disablewarn() {
+  return null;
+}

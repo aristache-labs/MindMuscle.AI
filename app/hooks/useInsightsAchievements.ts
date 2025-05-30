@@ -57,3 +57,6 @@ export const useInsightsAchievements = () => {
     handleRandomAchievementPress,
   };
 };
+export default function disablewarn() {
+  return null;
+}

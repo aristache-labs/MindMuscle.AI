@@ -58,3 +58,6 @@ export interface CycleWeekInfo {
 }
 
 export type WorkoutState = 'in_progress' | 'completing' | 'completed';
+export default function disablewarn() {
+  return null;
+}

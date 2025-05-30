@@ -5,3 +5,6 @@ export { default as WorkoutExerciseCard } from './WorkoutExerciseCard';
 export { default as WorkoutExerciseSetRow } from './WorkoutExerciseSetRow';
 export { default as WorkoutWarmupModal } from './WorkoutWarmupModal';
 export { default as WorkoutExitModal } from './WorkoutExitModal';
+export default function disablewarn() {
+  return null;
+}

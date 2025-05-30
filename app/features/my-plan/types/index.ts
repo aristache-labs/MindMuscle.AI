@@ -108,3 +108,6 @@ export interface PausedWorkout {
   originalCycleWeek: number;
   pausedAt: string;
 }
+export default function disablewarn() {
+  return null;
+}

@@ -1,10 +1,8 @@
 /* eslint-disable prettier/prettier */
-console.log("Loading metro.config.js with community polyfills from node-libs-react-native...");
-const extraNodeModules = require("node-libs-react-native");
-const path = require("path");
-const {
-  getSentryExpoConfig
-} = require("@sentry/react-native/metro");
+console.log('Loading metro.config.js with community polyfills from node-libs-react-native...');
+const extraNodeModules = require('node-libs-react-native');
+const path = require('path');
+const { getSentryExpoConfig } = require('@sentry/react-native/metro');
 
 // Get the project root directory
 const projectRoot = path.resolve(process.cwd());
@@ -16,10 +14,7 @@ const config = getSentryExpoConfig(projectRoot);
 config.resolver.unstable_enablePackageExports = true;
 
 // Add WASM support for expo-sqlite web compatibility
-config.resolver.assetExts = [
-  ...config.resolver.assetExts,
-  'wasm'
-];
+config.resolver.assetExts = [...config.resolver.assetExts, 'wasm'];
 
 // Block Prisma and other server-only modules
 config.resolver.blockList = [
@@ -33,7 +28,7 @@ config.resolver.blockList = [
 config.resolver.extraNodeModules = {
   ...extraNodeModules,
   // Override web-streams polyfill
-  "web-streams-polyfill": require.resolve("web-streams-polyfill/ponyfill/es6"),
+  'web-streams-polyfill': require.resolve('web-streams-polyfill/ponyfill/es6'),
 };
 
 // Enhanced server configuration for cross-platform debugging
@@ -45,27 +40,32 @@ config.server = {
       // Add CORS headers for cross-origin debugging
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Authorization, X-Requested-With',
+      );
       res.setHeader('Access-Control-Allow-Credentials', 'true');
-      
+
       // Handle preflight requests
       if (req.method === 'OPTIONS') {
         res.writeHead(200);
         res.end();
         return;
       }
-      
+
       // Log requests for debugging
       if (process.env.NODE_ENV === 'development') {
-        console.log(`[Metro] ${req.method} ${req.url} from ${req.headers['x-forwarded-for'] || req.connection.remoteAddress}`);
+        console.log(
+          `[Metro] ${req.method} ${req.url} from ${req.headers['x-forwarded-for'] || req.connection.remoteAddress}`,
+        );
       }
-      
+
       return middleware(req, res, next);
     };
   },
   // Listen on all interfaces for LAN debugging
   host: process.env.REACT_NATIVE_PACKAGER_HOSTNAME || '0.0.0.0',
-  port: process.env.RCT_METRO_PORT || 8081,
+  port: parseInt(process.env.RCT_METRO_PORT) || 8081,
 };
 
 // Enhanced transformer for better debugging
@@ -85,11 +85,7 @@ config.transformer = {
 // Enhanced serializer for debugging
 config.serializer = {
   ...config.serializer,
-  // Create source maps for debugging
-  createModuleIdFactory: () => (path) => {
-    // Use relative paths for better debugging
-    return path.replace(projectRoot, '').replace(/\\/g, '/');
-  },
+  // Keep source maps for better debugging
 };
 
 // Development-specific enhancements

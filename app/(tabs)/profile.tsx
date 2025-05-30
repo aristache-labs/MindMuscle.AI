@@ -1,19 +1,28 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { StyleSheet, View, ScrollView, Pressable, Platform, ActivityIndicator } from 'react-native';
-import { Text, Avatar, IconButton } from 'react-native-paper';
-import { COLORS, SPACING, BORDER_RADIUS, HEADER_HEIGHT } from '../constants/theme';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter, usePathname } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '../store/AuthContext';
-import { GeneralHeader } from '../components/GeneralHeader';
 import * as ImagePicker from 'expo-image-picker';
-import firebaseAvatarService from '../services/firebaseAvatarService';
+import { LinearGradient } from 'expo-linear-gradient';
+import { usePathname, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
+import { Avatar, IconButton, Text } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GeneralHeader } from '../components/GeneralHeader';
 import OptimizedImage from '../components/OptimizedImage';
-import { markAsImportantImage } from '../utils/imagePreloader';
+import { BORDER_RADIUS, COLORS, HEADER_HEIGHT, SPACING } from '../constants/theme';
 import useImagePreloader from '../hooks/useImagePreloader';
-import { SentryTestUtils, SentryLogger, SentryInsights } from '../services/sentry';
+import firebaseAvatarService from '../services/firebaseAvatarService';
+import { SentryLogger, SentryTestUtils } from '../services/sentry';
+import { useAuth } from '../store/AuthContext';
+import { safeAsyncFireAndForget } from '../utils/asyncErrorHandler';
+import { markAsImportantImage } from '../utils/imagePreloader';
 
 interface MenuItemProps {
   icon: string;
@@ -78,22 +87,34 @@ export default function ProfileScreen() {
 
   // Refresh user data when screen is mounted or becomes active
   useEffect(() => {
+    if (pathname === '/profile' && !isRefreshing) {
+      setIsRefreshing(true);
+    }
+
     const refreshData = async () => {
-      if (pathname === '/profile' && !isRefreshing) {
-        setIsRefreshing(true);
-        try {
-          await refreshUser();
-          // Load user avatar
-          await loadUserAvatar();
-        } catch (error) {
-          console.error('Error refreshing user data:', error);
-        } finally {
-          setIsRefreshing(false);
-        }
+      try {
+        await Promise.all([loadUserAvatar(), refreshUser()]);
+      } catch (error) {
+        console.error('Error refreshing profile data:', error);
+        SentryLogger.error(
+          'Profile refresh error',
+          {
+            error_message: error instanceof Error ? error.message : String(error),
+            pathname,
+          },
+          { feature: 'profile', action: 'refresh_error' },
+        );
+      } finally {
+        setIsRefreshing(false);
       }
     };
-    refreshData();
-  }, [pathname]);
+
+    // Call the async function and handle any potential unhandled promise rejections
+    safeAsyncFireAndForget(() => refreshData(), {
+      errorPrefix: 'Profile data refresh failed',
+      context: { pathname },
+    });
+  }, [pathname, isRefreshing, refreshUser]);
 
   // Load user avatar with caching
   const loadUserAvatar = useCallback(async () => {
@@ -152,7 +173,7 @@ export default function ProfileScreen() {
   // Handle avatar upload
   const handleAvatarPress = async () => {
     if (!user?.id) {
-      alert('Please sign in to update your avatar');
+      Alert.alert('Authentication Required', 'Please sign in to update your avatar');
       return;
     }
 
@@ -160,7 +181,10 @@ export default function ProfileScreen() {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
       if (status !== 'granted') {
-        alert('Sorry, we need camera roll permissions to make this work!');
+        Alert.alert(
+          'Permission Required',
+          'Sorry, we need camera roll permissions to make this work!',
+        );
         return;
       }
 
@@ -183,17 +207,33 @@ export default function ProfileScreen() {
           console.log('Avatar updated successfully');
 
           // Update local user object to reflect changes immediately
-          refreshUser();
-        } catch (error) {
-          console.error('Error uploading avatar:', error);
-          alert('Failed to upload avatar. Please try again.');
+          await refreshUser();
+        } catch (uploadError) {
+          console.error('Error uploading avatar:', uploadError);
+          SentryLogger.error(
+            'Avatar upload failed',
+            {
+              error_message:
+                uploadError instanceof Error ? uploadError.message : String(uploadError),
+              user_id: user.id,
+            },
+            { feature: 'profile', action: 'avatar_upload_error' },
+          );
+          Alert.alert('Upload Failed', 'Failed to upload avatar. Please try again.');
         } finally {
           setLoadingAvatar(false);
         }
       }
     } catch (error) {
       console.error('Error picking image:', error);
-      alert('Failed to select image. Please try again.');
+      SentryLogger.error(
+        'Image picker failed',
+        {
+          error_message: error instanceof Error ? error.message : String(error),
+        },
+        { feature: 'profile', action: 'image_picker_error' },
+      );
+      Alert.alert('Selection Failed', 'Failed to select image. Please try again.');
     }
   };
 
@@ -325,43 +365,72 @@ export default function ProfileScreen() {
           {__DEV__ && (
             <MenuItem
               icon="bug"
-              title="🔬 Test Sentry Insights & Logs"
+              title="🔬 Test Sentry Insights & Profiling"
               onPress={async () => {
                 try {
-                  console.log('Testing comprehensive Sentry monitoring...');
-                  
-                  // Test original Sentry features
-                  SentryTestUtils.generateTestData();
-                  await SentryTestUtils.generatePerformanceData();
-                  SentryTestUtils.testUserInteraction('test_button_press', 'profile');
-                  
-                  // Test custom logging system
-                  SentryLogger.generateTestLogs();
-                  
-                  // Test new Sentry Insights performance monitoring
-                  await SentryInsights.generateInsightsTestData();
-                  
-                  // Test specific logging features with insights
-                  SentryLogger.user.action('test_comprehensive_monitoring', 'profile', { 
-                    test_type: 'full_sentry_suite',
+                  console.log('Testing comprehensive Sentry monitoring with profiling...');
+
+                  // Run the comprehensive test suite (now includes profiling)
+                  const results = await SentryTestUtils.runComprehensiveTest();
+
+                  // Test user interaction tracking
+                  SentryLogger.user.action('test_button_press', 'profile', {
+                    test_type: 'sentry_comprehensive_suite',
                     timestamp: new Date().toISOString(),
-                    features_tested: ['data_collection', 'logging', 'insights', 'performance']
+                    features_tested: [
+                      'data_collection',
+                      'logging',
+                      'insights',
+                      'performance',
+                      'profiling',
+                    ],
                   });
-                  
+
+                  // Test performance marking
                   SentryLogger.performance.mark('sentry_comprehensive_test_completion', 500, {
-                    test_features: ['data_collection', 'performance', 'logging', 'insights', 'transactions'],
-                    success: true,
-                    insights_enabled: true
+                    test_features: [
+                      'data_collection',
+                      'performance',
+                      'logging',
+                      'insights',
+                      'transactions',
+                      'profiling',
+                    ],
+                    success: Object.values(results).every(Boolean),
+                    insights_enabled: true,
+                    profiling_enabled: results.profiling,
+                    test_results: results,
                   });
-                  
-                  alert('🎯 Comprehensive Sentry test completed!\n\nCheck your dashboard for:\n\n📊 INSIGHTS:\n• Transaction traces with spans\n• Performance metrics\n• Cross-referenced issues\n• Custom performance queries\n\n📝 LOGS:\n• Structured log data\n• Breadcrumbs with context\n\n⚡ PERFORMANCE:\n• Macro-level metrics\n• Micro-level spans\n• API & DB performance\n• User interaction timing');
+
+                  const allPassed = Object.values(results).every(Boolean);
+                  const profilingWorking = results.profiling;
+
+                  let message = '';
+                  if (allPassed && profilingWorking) {
+                    message =
+                      '🎯 Comprehensive Sentry test completed successfully!\n\n✅ PROFILING IS WORKING!\n\nCheck your Sentry dashboard for:\n\n📊 EVENTS:\n• Test messages and errors\n• Performance transactions\n• User interactions\n\n📝 BREADCRUMBS:\n• Test breadcrumbs\n• Navigation events\n• User actions\n\n⚡ PERFORMANCE:\n• API call tracking\n• User interaction timing\n• Performance marks\n\n🔍 PROFILING:\n• CPU usage profiles\n• Function call stacks\n• Performance bottlenecks\n\n👉 Go to: Performance > Profiles in Sentry\n\n⏱️ Wait 1-2 minutes for data to appear!';
+                  } else if (allPassed && !profilingWorking) {
+                    message =
+                      '⚠️ Sentry test completed successfully but PROFILING FAILED!\n\nBasic Sentry features are working:\n• Events and errors ✅\n• Performance monitoring ✅\n• Breadcrumbs ✅\n\nBut profiling is not working ❌\n\nTroubleshooting:\n• Check if tracesSampleRate > 0\n• Ensure profilesSampleRate > 0\n• Verify Hermes engine is enabled\n• Check console logs for errors';
+                  } else {
+                    message =
+                      '⚠️ Sentry test completed with some failures.\n\nCheck console logs for details and your Sentry dashboard for captured events.\n\nProfiling status: ' +
+                      (profilingWorking ? '✅ Working' : '❌ Failed') +
+                      '\n\nIf only errors show up:\n• This is normal for new setups\n• Profiling needs active transactions\n• Try navigating between screens\n• Wait 1-2 minutes for data';
+                  }
+
+                  Alert.alert('Sentry Test Results', message);
                 } catch (error) {
                   console.error('Error testing Sentry:', error);
-                  SentryLogger.error('Comprehensive Sentry test failed', {
-                    error_message: error instanceof Error ? error.message : String(error),
-                    test_type: 'sentry_comprehensive_suite'
-                  }, { feature: 'sentry_test', action: 'error' });
-                  alert('❌ Failed to complete Sentry test suite.');
+                  SentryLogger.error(
+                    'Comprehensive Sentry test failed',
+                    {
+                      error_message: error instanceof Error ? error.message : String(error),
+                      test_type: 'sentry_comprehensive_suite',
+                    },
+                    { feature: 'sentry_test', action: 'error' },
+                  );
+                  Alert.alert('❌ Failed to complete Sentry test suite.');
                 }
               }}
               isLast

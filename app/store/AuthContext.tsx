@@ -1,10 +1,16 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, JSX } from 'react';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import secureStorage from '../utils/secureStorage';
-import { supabaseUrl, supabaseAnonKey } from '../services/supabase';
-import { AuthError, AuthSession, AuthResponse } from '@supabase/supabase-js';
+import {
+  AuthError,
+  AuthResponse,
+  AuthSession,
+  createClient,
+  SupabaseClient,
+} from '@supabase/supabase-js';
+import React, { createContext, JSX, ReactNode, useContext, useEffect, useState } from 'react';
+import { supabaseAnonKey, supabaseUrl } from '../services/supabase';
+import { safeAsyncFireAndForget } from '../utils/asyncErrorHandler';
 import { logger } from '../utils/logger';
+import secureStorage from '../utils/secureStorage';
 
 // Keys for secure storage (same as in login.tsx)
 const SAVED_EMAIL_KEY = 'mindmuscle_saved_email';
@@ -52,11 +58,11 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     });
   };
 
-  const [supabase, setSupabase] = useState<SupabaseClient>(() => createSupabaseClient(true));
   const [session, setSession] = useState<AuthSession | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<AuthError | null>(null);
+  const [_supabase, _setSupabase] = useState(createSupabaseClient(true));
 
   const clearError = () => {
     setError(null);
@@ -79,7 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
         const {
           data: { session },
           error,
-        } = await supabase.auth.getSession();
+        } = await _supabase.auth.getSession();
 
         if (isMounted) {
           if (error) {
@@ -106,7 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = _supabase.auth.onAuthStateChange((_event, session) => {
       if (isMounted) {
         logger.info('Auth state changed', { context: { event: _event } });
         setSession(session);
@@ -119,7 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       clearTimeout(initTimeout);
       subscription.unsubscribe();
     };
-  }, [supabase]);
+  }, [_supabase]);
 
   const signIn = async (
     email: string,
@@ -132,7 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
 
       // Always persist session for login functionality
       // The rememberMe parameter only affects credential storage, not session persistence
-      const response = await supabase.auth.signInWithPassword({
+      const response = await _supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -174,7 +180,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
 
       // Always persist session for login functionality
       // The rememberMe parameter only affects credential storage, not session persistence
-      const response = await supabase.auth.signUp({
+      const response = await _supabase.auth.signUp({
         email,
         password,
         options: {
@@ -213,7 +219,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     try {
       setError(null);
       setIsLoading(true);
-      const response = await supabase.auth.signOut();
+      const response = await _supabase.auth.signOut();
 
       if (response.error) {
         logger.error('Sign out failed', response.error);
@@ -223,24 +229,21 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
         setError(null);
 
         // Clear saved credentials when user explicitly signs out
-        try {
-          await Promise.all([
-            secureStorage.deleteItemAsync(SAVED_EMAIL_KEY).catch(() => {}),
-            secureStorage.deleteItemAsync(SAVED_PASSWORD_KEY).catch(() => {}),
-            secureStorage.deleteItemAsync(REMEMBER_ME_KEY).catch(() => {}),
-          ]);
-          logger.info('Saved credentials cleared on sign out');
-        } catch (credentialError) {
-          logger.warn('Failed to clear saved credentials on sign out', {
-            context: {
-              error:
-                credentialError instanceof Error
-                  ? credentialError.message
-                  : String(credentialError),
-            },
-          });
-          // Don't fail the sign out process if we can't clear credentials
-        }
+        safeAsyncFireAndForget(
+          async () => {
+            await Promise.all([
+              secureStorage.deleteItemAsync(SAVED_EMAIL_KEY),
+              secureStorage.deleteItemAsync(SAVED_PASSWORD_KEY),
+              secureStorage.deleteItemAsync(REMEMBER_ME_KEY),
+            ]);
+            logger.info('Saved credentials cleared on sign out');
+          },
+          {
+            errorPrefix: 'Failed to clear saved credentials on sign out',
+            context: { action: 'sign_out' },
+            logToConsole: true,
+          },
+        );
       }
 
       return response;
@@ -260,7 +263,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       const {
         data: { user },
         error,
-      } = await supabase.auth.getUser();
+      } = await _supabase.auth.getUser();
 
       if (error) {
         if (error.name === 'AuthSessionMissingError') {
@@ -281,7 +284,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
           const {
             data: { session: newSession },
             error: sessionError,
-          } = await supabase.auth.getSession();
+          } = await _supabase.auth.getSession();
           if (sessionError) {
             logger.error('Error getting session:', sessionError);
             throw sessionError;
@@ -315,7 +318,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       const {
         data: { user },
         error,
-      } = await supabase.auth.updateUser({
+      } = await _supabase.auth.updateUser({
         data: metadata,
       });
 
@@ -328,7 +331,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
         const {
           data: { session: newSession },
           error: sessionError,
-        } = await supabase.auth.getSession();
+        } = await _supabase.auth.getSession();
         if (sessionError) {
           logger.error('Error getting session:', sessionError);
           throw sessionError;
@@ -345,7 +348,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
   };
 
   const value: AuthContextType = {
-    supabase,
+    supabase: _supabase,
     session,
     loading,
     isLoading,

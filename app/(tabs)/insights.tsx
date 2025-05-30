@@ -1,71 +1,63 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  Animated,
+  Dimensions,
+  Easing,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
   StyleSheet,
   View,
-  ScrollView,
-  Dimensions,
-  Pressable,
-  Modal,
-  ActivityIndicator,
-  Platform,
-  Animated,
-  Easing,
 } from 'react-native';
-import { Text, Surface, useTheme, IconButton, Button, Provider } from 'react-native-paper';
+import { Button, IconButton, Provider, Surface, Text, useTheme } from 'react-native-paper';
 
-import { format } from 'date-fns';
-import { COLORS, SPACING, HEADER_HEIGHT } from '../constants/theme';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Stack } from 'expo-router';
+import { format } from 'date-fns';
 import * as ImagePicker from 'expo-image-picker';
-import { useAuth } from '../store/AuthContext';
-import { achievementService, Achievement, UserAchievement } from '../services/achievements';
-import { MeasurementCategory } from '../services/measurements';
-import MeasurementModal from '../components/MeasurementModal';
-import MeasurementsGraph from '../components/MeasurementsGraph';
-import HowToMeasureModal from '../components/HowToMeasureModal';
-import ExerciseGraphs, { ExerciseData } from '../components/ExerciseGraphs';
-import ExerciseGraphModal from '../components/ExerciseGraphModal';
+import { Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useMeasurements } from '../store/MeasurementsContext';
+import ExerciseGraphModal from '../components/ExerciseGraphModal';
+import ExerciseGraphs, { ExerciseData } from '../components/ExerciseGraphs';
 import { GeneralHeader } from '../components/GeneralHeader';
-import firebaseProgressPhotoService, { ProgressPhoto } from '../services/firebaseProgressPhotos';
-import useImagePreloader from '../hooks/useImagePreloader';
-import { markAsImportantImage } from '../utils/imagePreloader';
+import HowToMeasureModal from '../components/HowToMeasureModal';
+import { AchievementsSection } from '../components/insights/AchievementsSection';
+import { BeforeAfterPhotos } from '../components/insights/BeforeAfterPhotos';
 import { StatsOverview } from '../components/insights/StatsOverview';
 import { WorkoutCalendar } from '../components/insights/WorkoutCalendar';
-import { BeforeAfterPhotos } from '../components/insights/BeforeAfterPhotos';
-import { AchievementsSection } from '../components/insights/AchievementsSection';
-
-const SAMPLE_EXERCISES: ExerciseData[] = [
-  {
-    id: '1',
-    name: 'Bench Press',
-    unit: 'kg',
-    data: [
-      { date: '07.02', value: 40 },
-      { date: '02.11', value: 45 },
-      { date: '27.07', value: 50 },
-      { date: '21.04', value: 55 },
-    ],
-  },
-  {
-    id: '2',
-    name: 'Seated Dumbbell Overhead Press',
-    unit: 'kg',
-    data: [
-      { date: '07.02', value: 8 },
-      { date: '02.11', value: 16 },
-      { date: '27.07', value: 24 },
-      { date: '21.04', value: 26 },
-    ],
-  },
-];
+import MeasurementModal from '../components/MeasurementModal';
+import MeasurementsGraph from '../components/MeasurementsGraph';
+import { COLORS, HEADER_HEIGHT, SPACING } from '../constants/theme';
+import useImagePreloader from '../hooks/useImagePreloader';
+import { Achievement, achievementService, UserAchievement } from '../services/achievements';
+import exerciseService from '../services/exerciseService';
+import firebaseProgressPhotoService, { ProgressPhoto } from '../services/firebaseProgressPhotos';
+import { MeasurementCategory } from '../services/measurements';
+import supabase from '../services/supabase';
+import { useAuth } from '../store/AuthContext';
+import { useMeasurements } from '../store/MeasurementsContext';
+import { markAsImportantImage } from '../utils/imagePreloader';
 
 interface DisplayProgressPhoto {
   id: string;
   url: string;
   date: string;
+}
+
+// Add proper TypeScript interfaces for exercise records
+interface UserExerciseRecord {
+  exercise_id: string;
+  weight: number | null;
+  reps: number | null;
+  created_at: string;
+  user_workout_history:
+    | {
+        completed_at: string;
+      }
+    | Array<{
+        completed_at: string;
+      }>;
 }
 
 // Helper function to convert ProgressPhoto to DisplayProgressPhoto
@@ -177,7 +169,7 @@ export default function InsightsScreen() {
   const [achievementsLoading, setAchievementsLoading] = useState(true);
   const [selectedMeasurement, setSelectedMeasurement] = useState<MeasurementCategory | null>(null);
   const [showHowToMeasure, setShowHowToMeasure] = useState(false);
-  const [exercises, setExercises] = useState<ExerciseData[]>(SAMPLE_EXERCISES);
+  const [exercises, setExercises] = useState<ExerciseData[]>([]);
   const [selectedExercise, setSelectedExercise] = useState<ExerciseData | undefined>();
   const [showExerciseModal, setShowExerciseModal] = useState(false);
 
@@ -251,6 +243,7 @@ export default function InsightsScreen() {
     if (user?.id) {
       loadSavedPhotos();
       loadAchievements();
+      loadExerciseData();
     }
   }, [user?.id]);
 
@@ -306,6 +299,87 @@ export default function InsightsScreen() {
       console.error('Error loading saved photos:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadExerciseData = async () => {
+    if (!user?.id) return;
+
+    try {
+      // Get user's exercise records from the database with exercise details
+      const { data: exerciseRecords, error } = await supabase
+        .from('user_exercise_records')
+        .select(
+          `
+          exercise_id,
+          weight,
+          reps,
+          created_at,
+          user_workout_history!inner(
+            completed_at
+          )
+        `,
+        )
+        .eq('user_workout_history.user_id', user.id)
+        .eq('completed', true)
+        .not('weight', 'is', null)
+        .neq('weight', 0)
+        .order('user_workout_history(completed_at)', { ascending: true });
+
+      if (error) {
+        console.error('Error loading exercise data:', error);
+        setExercises([]);
+        return;
+      }
+
+      if (!exerciseRecords || exerciseRecords.length === 0) {
+        setExercises([]);
+        return;
+      }
+
+      // Get exercise details for the exercise IDs
+      const _exerciseIds = [
+        ...new Set(exerciseRecords.map((record: UserExerciseRecord) => record.exercise_id)),
+      ];
+      const exercises = await exerciseService.getAllExercises();
+      const exerciseMap = new Map(exercises.map((ex) => [ex.id, ex.name]));
+
+      // Group records by exercise and transform data
+      const exerciseDataMap = new Map<string, ExerciseData>();
+
+      exerciseRecords.forEach((record: UserExerciseRecord) => {
+        const exerciseId = record.exercise_id;
+        const exerciseName = exerciseMap.get(exerciseId) || 'Unknown Exercise';
+
+        if (!exerciseDataMap.has(exerciseId)) {
+          exerciseDataMap.set(exerciseId, {
+            id: exerciseId,
+            name: exerciseName,
+            unit: 'kg',
+            data: [],
+          });
+        }
+
+        const exerciseData = exerciseDataMap.get(exerciseId)!;
+        const workoutHistory = Array.isArray(record.user_workout_history)
+          ? record.user_workout_history[0]
+          : record.user_workout_history;
+
+        exerciseData.data.push({
+          date: format(new Date(workoutHistory.completed_at), 'dd.MM'),
+          value: record.weight || 0,
+        });
+      });
+
+      // Convert map to array and limit to most recent exercises
+      const exerciseDataArray = Array.from(exerciseDataMap.values())
+        .filter((ex) => ex.data.length > 0)
+        .slice(0, 10); // Limit to 10 exercises for performance
+
+      setExercises(exerciseDataArray);
+    } catch (error) {
+      console.error('Error loading exercise data:', error);
+      setExercises([]);
     }
   };
 

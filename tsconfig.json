@@ -3,47 +3,21 @@
   "compilerOptions": {
     "strict": true,
     "skipLibCheck": true,
+    "sourceMap": true,
     "baseUrl": ".",
     "module": "esnext",
     "paths": {
-      "@/*": [
-        "./app/*"
-      ],
-      "@components/*": [
-        "./app/components/*"
-      ],
-      "@constants/*": [
-        "./app/constants/*"
-      ],
-      "@hooks/*": [
-        "./app/hooks/*"
-      ],
-      "@utils/*": [
-        "./app/utils/*"
-      ],
-      "@store/*": [
-        "./app/store/*"
-      ],
-      "@services/*": [
-        "./app/services/*"
-      ],
-      "@types/*": [
-        "./app/types/*"
-      ],
-      "@assets/*": [
-        "./assets/*"
-      ]
+      "@/*": ["./app/*"],
+      "@components/*": ["./app/components/*"],
+      "@constants/*": ["./app/constants/*"],
+      "@hooks/*": ["./app/hooks/*"],
+      "@utils/*": ["./app/utils/*"],
+      "@store/*": ["./app/store/*"],
+      "@services/*": ["./app/services/*"],
+      "@types/*": ["./app/types/*"],
+      "@assets/*": ["./assets/*"]
     }
   },
-  "include": [
-    "**/*.ts",
-    "**/*.tsx",
-    "app/services/**/*"
-  ],
-  "exclude": [
-    "node_modules",
-    "babel.config.js",
-    "metro.config.js",
-    "jest.config.js"
-  ]
+  "include": ["**/*.ts", "**/*.tsx", "app/services/**/*"],
+  "exclude": ["node_modules", "babel.config.js", "metro.config.js", "jest.config.js"]
 }

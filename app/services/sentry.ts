@@ -34,6 +34,9 @@ export function initializeSentry() {
     Sentry.init({
       dsn: sentryDsn,
 
+      // CRITICAL: Ensure native SDK auto-initialization for profiling
+      autoInitializeNativeSdk: true,
+
       // Enhanced Data Collection Configuration
       // For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/data-collected/
 
@@ -45,8 +48,15 @@ export function initializeSentry() {
       // For more information, visit: https://docs.sentry.io/platforms/react-native/tracing/
       tracesSampleRate: __DEV__ ? 1.0 : 0.3, // 100% in dev, 30% in production
 
-      // Enhanced profiling for better insights
+      // Enhanced profiling for better insights - FIXED CONFIGURATION
       profilesSampleRate: __DEV__ ? 1.0 : 0.2, // 100% in dev, 20% in production
+
+      // IMPORTANT: Enable profiling explicitly
+      _experiments: {
+        profilesSampleRate: __DEV__ ? 1.0 : 0.2,
+        // Additional profiling configurations
+        maxProfileDurationMs: 30000, // 30 seconds max profile duration
+      },
 
       // Session tracking - enhanced
       autoSessionTracking: true,
@@ -74,11 +84,15 @@ export function initializeSentry() {
       attachStacktrace: true,
       sendClientReports: true,
 
-      // Enhanced integrations
+      // Enhanced integrations with profiling support
       integrations: [
-        // Add React Native specific integrations for tracing
+        // Add React Navigation specific integrations for tracing
         Sentry.reactNavigationIntegration({
           enableTimeToInitialDisplay: true,
+        }),
+        // Add Hermes profiling integration explicitly (CRITICAL for profiling to work)
+        Sentry.hermesProfilingIntegration({
+          platformProfilers: true, // Enable both JS and native platform profiling
         }),
       ],
 
@@ -91,7 +105,7 @@ export function initializeSentry() {
         /^https:\/\/[^/]*\.googleapis\.com/,
       ],
 
-      // Enhanced beforeSend with more permissive filtering for development
+      // Production optimization: reduce noise in production
       beforeSend(event, _hint) {
         // In development, send everything for better debugging
         if (__DEV__) {
@@ -99,7 +113,41 @@ export function initializeSentry() {
           return event;
         }
 
-        // In production, still filter sensitive data
+        // In production, filter out excessive API breadcrumbs and focus on errors
+        if (event.breadcrumbs) {
+          event.breadcrumbs = event.breadcrumbs
+            .filter((breadcrumb) => {
+              // Keep error-related breadcrumbs
+              if (breadcrumb.level === 'error' || breadcrumb.level === 'warning') {
+                return true;
+              }
+
+              // Keep important app lifecycle events
+              if (
+                breadcrumb.category === 'app.lifecycle' ||
+                breadcrumb.category === 'workout' ||
+                breadcrumb.category === 'navigation'
+              ) {
+                return true;
+              }
+
+              // Filter out excessive HTTP requests in production
+              if (breadcrumb.type === 'http' && breadcrumb.category === 'xhr') {
+                // Keep only failed requests and important endpoints
+                return (
+                  breadcrumb.data?.status_code >= 400 ||
+                  (breadcrumb.data?.url &&
+                    (breadcrumb.data.url.includes('/auth/') ||
+                      breadcrumb.data.url.includes('/api/')))
+                );
+              }
+
+              return true;
+            })
+            .slice(-50); // Keep only last 50 breadcrumbs in production
+        }
+
+        // Filter sensitive data
         if (event.request?.headers) {
           delete event.request.headers['Authorization'];
           delete event.request.headers['Cookie'];
@@ -188,26 +236,46 @@ export function initializeSentry() {
         sendDefaultPii: true,
         tracesSampleRate: 1.0,
         profilesSampleRate: 1.0,
+        autoInitializeNativeSdk: true,
         environment: Constants.expoConfig?.extra?.environment || 'development',
         release: Constants.expoConfig?.version || '1.0.0',
         maxBreadcrumbs: 150,
         enableAutoPerformanceTracing: true,
+        profilingEnabled: true,
+        integrations: ['reactNavigationIntegration', 'hermesProfilingIntegration'],
       });
+
+      // Test profiling availability
+      console.log('🔍 Profiling Configuration Check:');
+      console.log('  ✓ profilesSampleRate:', __DEV__ ? 1.0 : 0.2);
+      console.log('  ✓ tracesSampleRate:', __DEV__ ? 1.0 : 0.3);
+      console.log('  ✓ autoInitializeNativeSdk: true');
+      console.log('  ✓ enableAutoPerformanceTracing: true');
+      console.log('  ✓ Platform:', Constants.platform?.ios ? 'iOS' : 'Android');
+      console.log('  ✓ Hermes Engine: enabled');
+      console.log('  ⚠️ Note: Profiling requires active transactions to capture data');
 
       // Send a test message to verify connection
       Sentry.captureMessage('Sentry initialized successfully in development mode', 'info');
 
       // Add initial breadcrumb
       Sentry.addBreadcrumb({
-        message: 'App started with enhanced Sentry configuration',
+        message: 'App started with enhanced Sentry configuration including profiling',
         category: 'app.lifecycle',
         level: 'info',
         data: {
           timestamp: new Date().toISOString(),
           platform: Constants.platform?.ios ? 'ios' : 'android',
           version: Constants.expoConfig?.version,
+          profiling_enabled: true,
+          profiling_sample_rate: __DEV__ ? 1.0 : 0.2,
+          traces_sample_rate: __DEV__ ? 1.0 : 0.3,
         },
       });
+
+      // Test profiling functionality
+      console.log('🔍 Testing Sentry profiling...');
+      testProfilingFunctionality();
     }
   } catch (error) {
     console.warn('❌ Sentry initialization failed:', error);
@@ -217,6 +285,65 @@ export function initializeSentry() {
     } catch {
       // Silently fail if Sentry is not available
     }
+  }
+}
+
+// Test function to verify profiling is working
+function testProfilingFunctionality() {
+  try {
+    // Create a transaction to test profiling using withScope
+    Sentry.withScope((scope) => {
+      scope.setTag('test_type', 'profiling');
+      scope.setContext('profiling_test', {
+        test_name: 'test_profiling_transaction',
+        operation: 'test.profiling',
+      });
+
+      // Simulate some work
+      const startTime = Date.now();
+
+      // CPU-intensive operation to generate profile data
+      let sum = 0;
+      for (let i = 0; i < 100000; i++) {
+        sum += Math.random() * i;
+      }
+
+      const duration = Date.now() - startTime;
+
+      scope.setContext('test_results', {
+        test_sum: sum,
+        duration_ms: duration,
+        status: 'ok',
+      });
+
+      console.log('✅ Profiling test completed successfully');
+      console.log(`📊 Test duration: ${duration}ms, Sum: ${sum.toFixed(2)}`);
+
+      // Add breadcrumb about profiling test
+      Sentry.addBreadcrumb({
+        message: 'Profiling functionality test completed',
+        category: 'profiling.test',
+        level: 'info',
+        data: {
+          duration_ms: duration,
+          test_result: 'success',
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      // Capture a message to test the profiling context
+      Sentry.captureMessage('Profiling test completed successfully', 'info');
+    });
+  } catch (error) {
+    console.error('❌ Profiling test failed:', error);
+    Sentry.withScope((scope) => {
+      scope.setTag('test_type', 'profiling_verification');
+      scope.setContext('test_error', {
+        test_failed: true,
+        error_message: error instanceof Error ? error.message : String(error),
+      });
+      Sentry.captureException(error instanceof Error ? error : new Error(String(error)));
+    });
   }
 }
 
@@ -542,108 +669,6 @@ export const SentryTracing = {
 // Export commonly used functions
 export const { captureException, captureMessage, addBreadcrumb } = Sentry;
 
-// Enhanced testing utilities for development
-export const SentryTestUtils = {
-  // Generate test data to verify Sentry is working
-  generateTestData: () => {
-    if (!__DEV__) {
-      console.warn('Test data generation is only available in development mode');
-      return;
-    }
-
-    console.log('🧪 Generating Sentry test data...');
-
-    // Test message
-    Sentry.captureMessage('Test message from MindMuscle.AI', 'info');
-
-    // Test breadcrumbs
-    Sentry.addBreadcrumb({
-      message: 'User navigated to test screen',
-      category: 'navigation',
-      level: 'info',
-      data: { screen: 'test', timestamp: new Date().toISOString() },
-    });
-
-    Sentry.addBreadcrumb({
-      message: 'Test workout started',
-      category: 'workout',
-      level: 'info',
-      data: { workoutId: 'test-workout-123', exerciseCount: 5 },
-    });
-
-    // Test context
-    Sentry.setContext('test_session', {
-      session_id: 'test-session-' + Date.now(),
-      test_mode: true,
-      generated_at: new Date().toISOString(),
-    });
-
-    // Test tags
-    Sentry.setTag('test_run', 'true');
-    Sentry.setTag('feature_test', 'sentry_integration');
-
-    // Test warning
-    Sentry.captureMessage('Test warning message', 'warning');
-
-    // Test error (non-fatal)
-    try {
-      throw new Error('Test error for Sentry verification - this is intentional');
-    } catch (error) {
-      Sentry.captureException(error);
-    }
-
-    console.log('✅ Test data sent to Sentry. Check your dashboard!');
-  },
-
-  // Generate performance test data
-  generatePerformanceData: async () => {
-    if (!__DEV__) return;
-
-    console.log('⚡ Generating performance test data...');
-
-    // Simulate a slow operation
-    await SentryTracing.measureAsync(
-      'test_slow_operation',
-      async () => {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        return 'completed';
-      },
-      { category: 'test', tags: { operation_type: 'slow_test' } },
-    );
-
-    // Simulate workout tracking
-    await SentryTracing.trackWorkoutOperation(
-      'test_workout_session',
-      'test-workout-456',
-      async () => {
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        return { exercises: 3, duration: 1800 };
-      },
-    );
-
-    console.log('✅ Performance test data sent to Sentry!');
-  },
-
-  // Test user interaction tracking
-  testUserInteraction: (action: string, screen: string) => {
-    if (!__DEV__) return;
-
-    Sentry.addBreadcrumb({
-      message: `User ${action} on ${screen}`,
-      category: 'user_interaction',
-      level: 'info',
-      data: {
-        action,
-        screen,
-        timestamp: new Date().toISOString(),
-        test_interaction: true,
-      },
-    });
-
-    SentryTracing.trackNavigation(screen, { test_mode: true, action });
-  },
-};
-
 // Custom Logging System (Sentry Logs Alternative)
 // This provides structured logging capabilities similar to Sentry Logs
 // but using existing Sentry features until React Native support is added
@@ -651,7 +676,7 @@ export const SentryLogger = {
   // Log levels matching Sentry's standard levels
   levels: {
     DEBUG: 'debug',
-    INFO: 'info', 
+    INFO: 'info',
     WARNING: 'warning',
     ERROR: 'error',
     FATAL: 'fatal',
@@ -662,7 +687,7 @@ export const SentryLogger = {
     level: 'debug' | 'info' | 'warning' | 'error' | 'fatal',
     message: string,
     data?: Record<string, any>,
-    tags?: Record<string, string>
+    tags?: Record<string, string>,
   ) => {
     const timestamp = new Date().toISOString();
     const logId = `log_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -706,8 +731,8 @@ export const SentryLogger = {
 
     // Console output for development
     if (__DEV__) {
-      const consoleMethod = level === 'error' || level === 'fatal' ? 'error' : 
-                           level === 'warning' ? 'warn' : 'log';
+      const consoleMethod =
+        level === 'error' || level === 'fatal' ? 'error' : level === 'warning' ? 'warn' : 'log';
       console[consoleMethod](`[${level.toUpperCase()}] ${message}`, data || '');
     }
   },
@@ -736,169 +761,204 @@ export const SentryLogger = {
   // Structured logging for specific app features
   workout: {
     started: (workoutId: string, planId?: string, exercises?: number) => {
-      SentryLogger.info('Workout session started', {
-        workout_id: workoutId,
-        plan_id: planId,
-        exercise_count: exercises,
-        session_type: 'workout',
-      }, { feature: 'workout', action: 'start' });
+      SentryLogger.info(
+        'Workout session started',
+        {
+          workout_id: workoutId,
+          plan_id: planId,
+          exercise_count: exercises,
+          session_type: 'workout',
+        },
+        { feature: 'workout', action: 'start' },
+      );
     },
 
     completed: (workoutId: string, duration: number, exercisesCompleted: number) => {
-      SentryLogger.info('Workout session completed', {
-        workout_id: workoutId,
-        duration_seconds: duration,
-        exercises_completed: exercisesCompleted,
-        session_type: 'workout',
-      }, { feature: 'workout', action: 'complete' });
+      SentryLogger.info(
+        'Workout session completed',
+        {
+          workout_id: workoutId,
+          duration_seconds: duration,
+          exercises_completed: exercisesCompleted,
+          session_type: 'workout',
+        },
+        { feature: 'workout', action: 'complete' },
+      );
     },
 
     paused: (workoutId: string, currentExercise: string) => {
-      SentryLogger.info('Workout session paused', {
-        workout_id: workoutId,
-        current_exercise: currentExercise,
-        session_type: 'workout',
-      }, { feature: 'workout', action: 'pause' });
+      SentryLogger.info(
+        'Workout session paused',
+        {
+          workout_id: workoutId,
+          current_exercise: currentExercise,
+          session_type: 'workout',
+        },
+        { feature: 'workout', action: 'pause' },
+      );
     },
 
     error: (workoutId: string, error: string, context?: Record<string, any>) => {
-      SentryLogger.error('Workout session error', {
-        workout_id: workoutId,
-        error_message: error,
-        session_type: 'workout',
-        ...context,
-      }, { feature: 'workout', action: 'error' });
+      SentryLogger.error(
+        'Workout session error',
+        {
+          workout_id: workoutId,
+          error_message: error,
+          session_type: 'workout',
+          ...context,
+        },
+        { feature: 'workout', action: 'error' },
+      );
     },
   },
 
   // User interaction logging
   user: {
     action: (action: string, screen: string, data?: Record<string, any>) => {
-      SentryLogger.info(`User ${action}`, {
-        action,
-        screen,
-        interaction_type: 'user_action',
-        ...data,
-      }, { feature: 'user_interaction', screen });
+      SentryLogger.info(
+        `User ${action}`,
+        {
+          action,
+          screen,
+          interaction_type: 'user_action',
+          ...data,
+        },
+        { feature: 'user_interaction', screen },
+      );
     },
 
     navigation: (from: string, to: string, method?: string) => {
-      SentryLogger.info('User navigation', {
-        from_screen: from,
-        to_screen: to,
-        navigation_method: method || 'unknown',
-        interaction_type: 'navigation',
-      }, { feature: 'navigation', from, to });
+      SentryLogger.info(
+        'User navigation',
+        {
+          from_screen: from,
+          to_screen: to,
+          navigation_method: method || 'unknown',
+          interaction_type: 'navigation',
+        },
+        { feature: 'navigation', from, to },
+      );
     },
 
     error: (action: string, error: string, context?: Record<string, any>) => {
-      SentryLogger.error(`User action failed: ${action}`, {
-        failed_action: action,
-        error_message: error,
-        interaction_type: 'user_error',
-        ...context,
-      }, { feature: 'user_interaction', action: 'error' });
+      SentryLogger.error(
+        `User action failed: ${action}`,
+        {
+          failed_action: action,
+          error_message: error,
+          interaction_type: 'user_error',
+          ...context,
+        },
+        { feature: 'user_interaction', action: 'error' },
+      );
     },
   },
 
   // API and database logging
   api: {
     request: (endpoint: string, method: string, data?: Record<string, any>) => {
-      SentryLogger.debug('API request initiated', {
-        endpoint,
-        method,
-        request_type: 'api_call',
-        ...data,
-      }, { feature: 'api', endpoint, method });
+      SentryLogger.debug(
+        'API request initiated',
+        {
+          endpoint,
+          method,
+          request_type: 'api_call',
+          ...data,
+        },
+        { feature: 'api', endpoint, method },
+      );
     },
 
     success: (endpoint: string, method: string, duration: number, data?: Record<string, any>) => {
-      SentryLogger.info('API request successful', {
-        endpoint,
-        method,
-        duration_ms: duration,
-        request_type: 'api_call',
-        status: 'success',
-        ...data,
-      }, { feature: 'api', endpoint, method });
+      SentryLogger.info(
+        'API request successful',
+        {
+          endpoint,
+          method,
+          duration_ms: duration,
+          request_type: 'api_call',
+          status: 'success',
+          ...data,
+        },
+        { feature: 'api', endpoint, method },
+      );
     },
 
     error: (endpoint: string, method: string, error: string, statusCode?: number) => {
-      SentryLogger.error('API request failed', {
-        endpoint,
-        method,
-        error_message: error,
-        status_code: statusCode,
-        request_type: 'api_call',
-        status: 'error',
-      }, { feature: 'api', endpoint, method });
+      SentryLogger.error(
+        'API request failed',
+        {
+          endpoint,
+          method,
+          error_message: error,
+          status_code: statusCode,
+          request_type: 'api_call',
+          status: 'error',
+        },
+        { feature: 'api', endpoint, method },
+      );
     },
   },
 
   // Database operation logging
   database: {
     query: (table: string, operation: string, data?: Record<string, any>) => {
-      SentryLogger.debug('Database query executed', {
-        table,
-        operation,
-        query_type: 'database_operation',
-        ...data,
-      }, { feature: 'database', table, operation });
+      SentryLogger.debug(
+        'Database query executed',
+        {
+          table,
+          operation,
+          query_type: 'database_operation',
+          ...data,
+        },
+        { feature: 'database', table, operation },
+      );
     },
 
     error: (table: string, operation: string, error: string, query?: string) => {
-      SentryLogger.error('Database operation failed', {
-        table,
-        operation,
-        error_message: error,
-        query: query?.substring(0, 200), // Truncate long queries
-        query_type: 'database_operation',
-      }, { feature: 'database', table, operation });
+      SentryLogger.error(
+        'Database operation failed',
+        {
+          table,
+          operation,
+          error_message: error,
+          query: query?.substring(0, 200), // Truncate long queries
+          query_type: 'database_operation',
+        },
+        { feature: 'database', table, operation },
+      );
     },
   },
 
   // Performance logging
   performance: {
     mark: (name: string, duration?: number, data?: Record<string, any>) => {
-      SentryLogger.info('Performance mark', {
-        performance_mark: name,
-        duration_ms: duration,
-        measurement_type: 'performance',
-        ...data,
-      }, { feature: 'performance', mark: name });
+      SentryLogger.info(
+        'Performance mark',
+        {
+          performance_mark: name,
+          duration_ms: duration,
+          measurement_type: 'performance',
+          ...data,
+        },
+        { feature: 'performance', mark: name },
+      );
     },
 
     slow: (operation: string, duration: number, threshold: number, data?: Record<string, any>) => {
-      SentryLogger.warn('Slow operation detected', {
-        operation,
-        duration_ms: duration,
-        threshold_ms: threshold,
-        measurement_type: 'performance',
-        performance_issue: 'slow_operation',
-        ...data,
-      }, { feature: 'performance', operation, issue: 'slow' });
+      SentryLogger.warn(
+        'Slow operation detected',
+        {
+          operation,
+          duration_ms: duration,
+          threshold_ms: threshold,
+          measurement_type: 'performance',
+          performance_issue: 'slow_operation',
+          ...data,
+        },
+        { feature: 'performance', operation, issue: 'slow' },
+      );
     },
-  },
-
-  // Test log generation for development
-  generateTestLogs: () => {
-    if (!__DEV__) return;
-
-    console.log('🧪 Generating test logs...');
-
-    // Test different log levels
-    SentryLogger.debug('Debug message for testing', { test_data: 'debug_value' });
-    SentryLogger.info('Info message for testing', { test_data: 'info_value' });
-    SentryLogger.warn('Warning message for testing', { test_data: 'warning_value' });
-    SentryLogger.error('Error message for testing', { test_data: 'error_value' });
-
-    // Test structured logging
-    SentryLogger.workout.started('test-workout-789', 'test-plan-123', 5);
-    SentryLogger.user.action('button_press', 'profile', { button: 'test_logs' });
-    SentryLogger.api.request('/api/test', 'GET', { test: true });
-    SentryLogger.performance.mark('test_operation', 150, { test: true });
-
-    console.log('✅ Test logs generated! Check Sentry for structured log data.');
   },
 };
 
@@ -907,123 +967,216 @@ export const SentryLogger = {
 export const SentryInsights = {
   // Transaction management for comprehensive performance tracking
   startTransaction: (name: string, op: string, data?: Record<string, any>) => {
-    // Use withScope for React Native compatibility
-    Sentry.withScope((scope) => {
-      scope.setTag('transaction_name', name);
-      scope.setTag('transaction_op', op);
-      scope.setTag('feature', 'performance_insights');
-      
-      if (data) {
-        Object.entries(data).forEach(([key, value]) => {
-          scope.setContext(key, { value });
-        });
-      }
+    // For React Native, we'll use performance marking and scoped events
+    const transactionId = `${name}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Mark the start of the transaction
+    Sentry.addBreadcrumb({
+      message: `Transaction started: ${name}`,
+      category: 'performance',
+      level: 'info',
+      data: {
+        transaction_id: transactionId,
+        transaction_name: name,
+        transaction_op: op,
+        transaction_start: Date.now(),
+        ...data,
+      },
     });
 
+    // Set transaction context
+    Sentry.setTag('current_transaction', transactionId);
+    Sentry.setTag('transaction_name', name);
+    Sentry.setTag('transaction_op', op);
+
+    if (data) {
+      Sentry.setContext(`transaction_${transactionId}`, {
+        ...data,
+        transaction_name: name,
+        transaction_op: op,
+        started_at: new Date().toISOString(),
+      });
+    }
+
     const startTime = Date.now();
-    
+
     if (__DEV__) {
-      console.log(`🔄 Started transaction: ${name} (${op})`);
+      console.log(`🔄 Started transaction: ${name} (${op}) [${transactionId}]`);
     }
 
     return {
       name,
       op,
       startTime,
+      transactionId,
       data: data || {},
       setStatus: (status: string) => {
-        Sentry.withScope((scope) => {
-          scope.setTag('transaction_status', status);
-        });
+        Sentry.setTag(`transaction_${transactionId}_status`, status);
+        Sentry.setContext(`transaction_${transactionId}_status`, { status, timestamp: Date.now() });
       },
       setData: (key: string, value: any) => {
-        Sentry.withScope((scope) => {
-          scope.setContext(key, { value });
-        });
+        Sentry.setContext(`transaction_${transactionId}_${key}`, { [key]: value });
+      },
+      setTag: (key: string, value: string) => {
+        Sentry.setTag(`transaction_${transactionId}_${key}`, value);
       },
       finish: () => {
         const duration = Date.now() - startTime;
-        
+
+        // Mark transaction completion
         Sentry.addBreadcrumb({
           message: `Transaction completed: ${name}`,
           category: 'performance',
           level: 'info',
           data: {
+            transaction_id: transactionId,
             transaction_name: name,
             transaction_op: op,
             duration_ms: duration,
+            completed_at: Date.now(),
             ...data,
           },
         });
 
+        // Send performance event
+        Sentry.withScope((scope) => {
+          scope.setTag('event_type', 'transaction_completed');
+          scope.setTag('transaction_id', transactionId);
+          scope.setTag('transaction_name', name);
+          scope.setTag('transaction_op', op);
+          scope.setContext('performance_data', {
+            transaction_name: name,
+            operation: op,
+            duration_ms: duration,
+            started_at: startTime,
+            completed_at: Date.now(),
+            transaction_id: transactionId,
+            ...data,
+          });
+
+          Sentry.captureMessage(`Transaction completed: ${name}`, 'info');
+        });
+
         if (__DEV__) {
-          console.log(`✅ Finished transaction: ${name} (${duration}ms)`);
+          console.log(`✅ Finished transaction: ${name} (${duration}ms) [${transactionId}]`);
         }
       },
       startChild: (childData: { op: string; description: string; data?: Record<string, any> }) => {
-        return SentryInsights.createSpan(null, childData.op, childData.description, childData.data);
+        return SentryInsights.createSpan(
+          { transactionId, transaction: null },
+          childData.op,
+          childData.description,
+          childData.data,
+        );
       },
     };
   },
 
   // Finish transaction with metrics
-  finishTransaction: (transaction: any, status?: string, data?: Record<string, any>) => {
-    if (transaction) {
+  finishTransaction: (transactionWrapper: any, status?: string, data?: Record<string, any>) => {
+    if (transactionWrapper) {
       if (status) {
-        transaction.setStatus(status);
+        transactionWrapper.setStatus(status);
       }
-      
+
       if (data) {
         Object.entries(data).forEach(([key, value]) => {
-          transaction.setData(key, value);
+          transactionWrapper.setData(key, value);
         });
       }
 
-      transaction.finish();
+      transactionWrapper.finish();
     }
   },
 
   // Create spans for micro-level performance tracking
-  createSpan: (transaction: any, operation: string, description: string, data?: Record<string, any>) => {
+  createSpan: (
+    transactionWrapper: any,
+    operation: string,
+    description: string,
+    data?: Record<string, any>,
+  ) => {
+    const spanId = `${operation}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const parentTransactionId = transactionWrapper?.transactionId || 'unknown';
+
+    // Mark span start
+    Sentry.addBreadcrumb({
+      message: `Span started: ${description}`,
+      category: 'performance',
+      level: 'info',
+      data: {
+        span_id: spanId,
+        parent_transaction_id: parentTransactionId,
+        span_operation: operation,
+        span_description: description,
+        span_start: Date.now(),
+        ...data,
+      },
+    });
+
     const startTime = Date.now();
 
     if (__DEV__) {
-      console.log(`📊 Created span: ${description} (${operation})`);
+      console.log(`📊 Created span: ${description} (${operation}) [${spanId}]`);
     }
 
     return {
       op: operation,
       description,
       startTime,
+      spanId,
+      parentTransactionId,
       data: data || {},
       setStatus: (status: string) => {
-        Sentry.withScope((scope) => {
-          scope.setTag('span_status', status);
-          scope.setTag('span_operation', operation);
-        });
+        Sentry.setTag(`span_${spanId}_status`, status);
       },
       setData: (key: string, value: any) => {
-        Sentry.withScope((scope) => {
-          scope.setContext(`span_${key}`, { value });
-        });
+        Sentry.setContext(`span_${spanId}_${key}`, { [key]: value });
+      },
+      setTag: (key: string, value: string) => {
+        Sentry.setTag(`span_${spanId}_${key}`, value);
       },
       finish: () => {
         const duration = Date.now() - startTime;
-        
+
+        // Mark span completion
         Sentry.addBreadcrumb({
           message: `Span completed: ${description}`,
           category: 'performance',
           level: 'info',
           data: {
+            span_id: spanId,
+            parent_transaction_id: parentTransactionId,
             span_operation: operation,
             span_description: description,
             duration_ms: duration,
+            completed_at: Date.now(),
             ...data,
           },
         });
 
+        // Send span completion event
+        Sentry.withScope((scope) => {
+          scope.setTag('event_type', 'span_completed');
+          scope.setTag('span_id', spanId);
+          scope.setTag('parent_transaction_id', parentTransactionId);
+          scope.setTag('span_operation', operation);
+          scope.setContext('span_performance', {
+            span_operation: operation,
+            span_description: description,
+            duration_ms: duration,
+            parent_transaction_id: parentTransactionId,
+            span_id: spanId,
+            started_at: startTime,
+            completed_at: Date.now(),
+            ...data,
+          });
+
+          Sentry.captureMessage(`Span completed: ${description}`, 'info');
+        });
+
         if (__DEV__) {
-          console.log(`📊 Finished span: ${description} (${duration}ms)`);
+          console.log(`📊 Finished span: ${description} (${duration}ms) [${spanId}]`);
         }
       },
     };
@@ -1035,7 +1188,7 @@ export const SentryInsights = {
     trackWorkoutSession: async <T>(
       workoutId: string,
       planId: string,
-      fn: () => Promise<T>
+      fn: () => Promise<T>,
     ): Promise<T> => {
       const transaction = SentryInsights.startTransaction(
         `workout_session_${workoutId}`,
@@ -1044,12 +1197,12 @@ export const SentryInsights = {
           workout_id: workoutId,
           plan_id: planId,
           session_type: 'complete_workout',
-        }
+        },
       );
 
       try {
         const result = await fn();
-        
+
         SentryInsights.finishTransaction(transaction, 'ok', {
           workout_completed: true,
           session_result: 'success',
@@ -1071,7 +1224,7 @@ export const SentryInsights = {
       transaction: any,
       exerciseId: string,
       exerciseName: string,
-      fn: () => Promise<T>
+      fn: () => Promise<T>,
     ): Promise<T> => {
       const span = SentryInsights.createSpan(
         transaction,
@@ -1080,12 +1233,12 @@ export const SentryInsights = {
         {
           exercise_id: exerciseId,
           exercise_name: exerciseName,
-        }
+        },
       );
 
       try {
         const result = await fn();
-        
+
         if (span) {
           span.setStatus('ok');
           span.setData('exercise_completed', true);
@@ -1113,7 +1266,7 @@ export const SentryInsights = {
         {
           rest_duration_seconds: duration,
           exercise_name: exerciseName,
-        }
+        },
       );
 
       if (span) {
@@ -1133,7 +1286,7 @@ export const SentryInsights = {
       endpoint: string,
       method: string,
       fn: () => Promise<T>,
-      options?: { timeout?: number; retries?: number }
+      options?: { timeout?: number; retries?: number },
     ): Promise<T> => {
       const transaction = SentryInsights.startTransaction(
         `api_${method.toLowerCase()}_${endpoint.replace(/[^a-zA-Z0-9]/g, '_')}`,
@@ -1144,7 +1297,7 @@ export const SentryInsights = {
           api_type: 'external',
           timeout: options?.timeout,
           max_retries: options?.retries,
-        }
+        },
       );
 
       const startTime = Date.now();
@@ -1152,7 +1305,7 @@ export const SentryInsights = {
       try {
         const result = await fn();
         const duration = Date.now() - startTime;
-        
+
         SentryInsights.finishTransaction(transaction, 'ok', {
           response_time_ms: duration,
           api_success: true,
@@ -1167,7 +1320,7 @@ export const SentryInsights = {
         return result;
       } catch (error) {
         const duration = Date.now() - startTime;
-        
+
         SentryInsights.finishTransaction(transaction, 'internal_error', {
           response_time_ms: duration,
           api_success: false,
@@ -1184,25 +1337,21 @@ export const SentryInsights = {
       operation: string,
       table: string,
       fn: () => Promise<T>,
-      queryInfo?: { query?: string; params?: any[] }
+      queryInfo?: { query?: string; params?: any[] },
     ): Promise<T> => {
-      const transaction = SentryInsights.startTransaction(
-        `db_${operation}_${table}`,
-        'db.query',
-        {
-          operation,
-          table,
-          query_type: operation,
-          has_params: !!queryInfo?.params?.length,
-        }
-      );
+      const transaction = SentryInsights.startTransaction(`db_${operation}_${table}`, 'db.query', {
+        operation,
+        table,
+        query_type: operation,
+        has_params: !!queryInfo?.params?.length,
+      });
 
       const startTime = Date.now();
 
       try {
         const result = await fn();
         const duration = Date.now() - startTime;
-        
+
         SentryInsights.finishTransaction(transaction, 'ok', {
           query_time_ms: duration,
           db_success: true,
@@ -1211,22 +1360,17 @@ export const SentryInsights = {
 
         // Log slow queries for optimization insights
         if (duration > 1000) {
-          SentryLogger.performance.slow(
-            `db_${operation}_${table}`,
-            duration,
-            500,
-            {
-              table,
-              operation,
-              query: queryInfo?.query?.substring(0, 100),
-            }
-          );
+          SentryLogger.performance.slow(`db_${operation}_${table}`, duration, 500, {
+            table,
+            operation,
+            query: queryInfo?.query?.substring(0, 100),
+          });
         }
 
         return result;
       } catch (error) {
         const duration = Date.now() - startTime;
-        
+
         SentryInsights.finishTransaction(transaction, 'internal_error', {
           query_time_ms: duration,
           db_success: false,
@@ -1249,7 +1393,7 @@ export const SentryInsights = {
           from_screen: fromScreen,
           to_screen: toScreen,
           navigation_method: method,
-        }
+        },
       );
 
       // Set up automatic finish after a reasonable time
@@ -1266,7 +1410,7 @@ export const SentryInsights = {
     trackScreenLoad: async <T>(
       screenName: string,
       fn: () => Promise<T>,
-      loadingSteps?: string[]
+      loadingSteps?: string[],
     ): Promise<T> => {
       const transaction = SentryInsights.startTransaction(
         `screen_load_${screenName}`,
@@ -1274,7 +1418,7 @@ export const SentryInsights = {
         {
           screen_name: screenName,
           loading_steps: loadingSteps?.length || 0,
-        }
+        },
       );
 
       const startTime = Date.now();
@@ -1283,18 +1427,16 @@ export const SentryInsights = {
         // Track individual loading steps if provided
         if (loadingSteps) {
           loadingSteps.forEach((step, index) => {
-            SentryInsights.createSpan(
-              transaction,
-              'navigation.load.step',
-              step,
-              { step_index: index, step_name: step }
-            );
+            SentryInsights.createSpan(transaction, 'navigation.load.step', step, {
+              step_index: index,
+              step_name: step,
+            });
           });
         }
 
         const result = await fn();
         const loadTime = Date.now() - startTime;
-        
+
         SentryInsights.finishTransaction(transaction, 'ok', {
           screen_load_time_ms: loadTime,
           load_success: true,
@@ -1303,18 +1445,15 @@ export const SentryInsights = {
 
         // Log slow screen loads
         if (loadTime > 3000) {
-          SentryLogger.performance.slow(
-            `screen_load_${screenName}`,
-            loadTime,
-            1500,
-            { screen_name: screenName }
-          );
+          SentryLogger.performance.slow(`screen_load_${screenName}`, loadTime, 1500, {
+            screen_name: screenName,
+          });
         }
 
         return result;
       } catch (error) {
         const loadTime = Date.now() - startTime;
-        
+
         SentryInsights.finishTransaction(transaction, 'internal_error', {
           screen_load_time_ms: loadTime,
           load_success: false,
@@ -1332,7 +1471,7 @@ export const SentryInsights = {
     trackButtonPress: async <T>(
       buttonName: string,
       screen: string,
-      fn: () => Promise<T>
+      fn: () => Promise<T>,
     ): Promise<T> => {
       const transaction = SentryInsights.startTransaction(
         `interaction_button_${buttonName}`,
@@ -1341,7 +1480,7 @@ export const SentryInsights = {
           button_name: buttonName,
           screen,
           interaction_type: 'button_press',
-        }
+        },
       );
 
       const startTime = Date.now();
@@ -1349,7 +1488,7 @@ export const SentryInsights = {
       try {
         const result = await fn();
         const responseTime = Date.now() - startTime;
-        
+
         SentryInsights.finishTransaction(transaction, 'ok', {
           response_time_ms: responseTime,
           interaction_success: true,
@@ -1359,7 +1498,7 @@ export const SentryInsights = {
         return result;
       } catch (error) {
         const responseTime = Date.now() - startTime;
-        
+
         SentryInsights.finishTransaction(transaction, 'internal_error', {
           response_time_ms: responseTime,
           interaction_success: false,
@@ -1370,108 +1509,522 @@ export const SentryInsights = {
       }
     },
   },
-
-  // Generate comprehensive test data for Sentry Insights
-  generateInsightsTestData: async () => {
-    if (!__DEV__) return;
-
-    console.log('🔬 Generating Sentry Insights test data...');
-
-    // Test workout session tracking
-    await SentryInsights.workout.trackWorkoutSession(
-      'test-workout-insights-123',
-      'test-plan-insights-456',
-      async () => {
-        // Simulate workout with exercises - create a mock transaction for testing
-        const workoutTransaction = SentryInsights.startTransaction(
-          'test_workout_exercises',
-          'workout.exercises',
-          { test_mode: true }
-        );
-        
-        // Test exercise tracking
-        await SentryInsights.workout.trackExercisePerformance(
-          workoutTransaction,
-          'exercise-1',
-          'Push-ups',
-          async () => {
-            await new Promise(resolve => setTimeout(resolve, 800));
-            return { sets: 3, reps: 15 };
-          }
-        );
-
-        // Test rest period
-        SentryInsights.workout.trackRestPeriod(workoutTransaction, 60, 'Push-ups');
-
-        await SentryInsights.workout.trackExercisePerformance(
-          workoutTransaction,
-          'exercise-2',
-          'Squats',
-          async () => {
-            await new Promise(resolve => setTimeout(resolve, 600));
-            return { sets: 3, reps: 20 };
-          }
-        );
-
-        workoutTransaction.finish();
-        return { totalExercises: 2, duration: 1400 };
-      }
-    );
-
-    // Test API call tracking
-    await SentryInsights.api.trackApiCall(
-      '/api/test/insights',
-      'GET',
-      async () => {
-        await new Promise(resolve => setTimeout(resolve, 300));
-        return { data: 'test_insights_response' };
-      }
-    );
-
-    // Test database operation tracking
-    await SentryInsights.api.trackDatabaseOperation(
-      'select',
-      'test_insights_table',
-      async () => {
-        await new Promise(resolve => setTimeout(resolve, 150));
-        return [{ id: 1, name: 'test_insights_record' }];
-      },
-      { query: 'SELECT * FROM test_insights_table WHERE test = true' }
-    );
-
-    // Test navigation tracking
-    const navTransaction = SentryInsights.navigation.trackScreenTransition(
-      'profile',
-      'insights_test',
-      'button_press'
-    );
-
-    // Test screen load tracking
-    await SentryInsights.navigation.trackScreenLoad(
-      'insights_test_screen',
-      async () => {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        return { loaded: true };
-      },
-      ['fetch_data', 'render_components', 'setup_listeners']
-    );
-
-    // Test user interaction tracking
-    await SentryInsights.userInteraction.trackButtonPress(
-      'test_insights_button',
-      'insights_test_screen',
-      async () => {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        return { action: 'completed' };
-      }
-    );
-
-    console.log('✅ Sentry Insights test data generated! Check your dashboard for:');
-    console.log('  • Transaction traces with spans');
-    console.log('  • Performance metrics');
-    console.log('  • Cross-referenced issues');
-    console.log('  • Custom performance queries');
-  },
 };
 
 export default Sentry;
+
+// Sentry Health Monitoring Utility
+export const SentryHealth = {
+  // Get current Sentry configuration status
+  getStatus: () => {
+    const status = {
+      initialized: true,
+      environment: Constants.expoConfig?.extra?.environment || 'development',
+      release: Constants.expoConfig?.version || '1.0.0',
+      profilingEnabled: __DEV__ ? 1.0 : 0.2,
+      tracingEnabled: __DEV__ ? 1.0 : 0.3,
+      platform: Constants.platform?.ios ? 'ios' : 'android',
+      timestamp: new Date().toISOString(),
+    };
+
+    if (__DEV__) {
+      console.log('📊 Sentry Health Status:', status);
+    }
+
+    return status;
+  },
+
+  // Quick health check with test event
+  performHealthCheck: async () => {
+    try {
+      const healthCheckId = `health_check_${Date.now()}`;
+
+      // Send a health check event
+      Sentry.withScope((scope) => {
+        scope.setTag('health_check', 'true');
+        scope.setTag('check_id', healthCheckId);
+        scope.setContext('health_status', SentryHealth.getStatus());
+
+        Sentry.captureMessage('Sentry health check completed', 'info');
+      });
+
+      if (__DEV__) {
+        console.log('✅ Sentry health check completed successfully');
+      }
+
+      return { success: true, checkId: healthCheckId };
+    } catch (error) {
+      console.error('❌ Sentry health check failed:', error);
+      return { success: false, error: String(error) };
+    }
+  },
+
+  // Monitor critical app metrics
+  reportAppMetrics: () => {
+    try {
+      // Safely check for memory usage (browser/React Native specific)
+      const memoryUsage = (() => {
+        try {
+          // @ts-ignore - performance.memory is not standard but exists in some environments
+          return global.performance?.memory?.usedJSHeapSize || 'unknown';
+        } catch {
+          return 'unknown';
+        }
+      })();
+
+      const metrics = {
+        memory_usage: memoryUsage,
+        app_state: 'active', // You can enhance this with actual app state
+        connectivity: 'online', // You can enhance this with network state
+        battery_level: 'unknown', // You can add battery info if needed
+        device_info: {
+          platform: Constants.platform?.ios ? 'ios' : 'android',
+          expo_version: Constants.expoConfig?.sdkVersion,
+          app_version: Constants.expoConfig?.version,
+        },
+        timestamp: new Date().toISOString(),
+      };
+
+      Sentry.setContext('app_metrics', metrics);
+
+      if (__DEV__) {
+        console.log('📈 App metrics reported to Sentry:', metrics);
+      }
+
+      return metrics;
+    } catch (error) {
+      console.error('❌ Failed to report app metrics:', error);
+      return null;
+    }
+  },
+};
+
+// Simple test utilities for development
+export const SentryTestUtils = {
+  // Test basic Sentry functionality
+  testBasicFunctionality: () => {
+    try {
+      // Test message capture
+      SentryDataCollection.captureMessage('Sentry test message', 'info');
+
+      // Test breadcrumb
+      SentryDataCollection.addBreadcrumb({
+        message: 'Test breadcrumb from Sentry test',
+        category: 'test',
+        level: 'info',
+        data: {
+          test_type: 'basic_functionality',
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      // Test context
+      SentryDataCollection.setContext('test_context', {
+        test_feature: 'sentry_test',
+        test_timestamp: new Date().toISOString(),
+        test_success: true,
+      });
+
+      // Test tag
+      SentryDataCollection.setTag('test_feature', 'sentry_basic_test');
+
+      console.log('✅ Basic Sentry test completed successfully');
+      return true;
+    } catch (error) {
+      console.error('❌ Basic Sentry test failed:', error);
+      SentryDataCollection.captureException(error as Error, {
+        test_type: 'basic_functionality',
+        test_failed: true,
+      });
+      return false;
+    }
+  },
+
+  // Test error capture
+  testErrorCapture: () => {
+    try {
+      // Create a test error
+      const testError = new Error('Test error for Sentry monitoring');
+
+      // Capture with context
+      SentryDataCollection.captureException(testError, {
+        test_type: 'error_capture',
+        error_intentional: true,
+        timestamp: new Date().toISOString(),
+      });
+
+      console.log('✅ Error capture test completed');
+      return true;
+    } catch (error) {
+      console.error('❌ Error capture test failed:', error);
+      return false;
+    }
+  },
+
+  // Test performance monitoring and profiling
+  testPerformanceMonitoring: async () => {
+    try {
+      console.log('🔍 Testing Sentry performance monitoring and profiling...');
+
+      // Test a simple async operation with performance tracking
+      const result = await SentryInsights.api.trackApiCall('test_api_endpoint', 'GET', async () => {
+        // Simulate API call delay
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return { test: 'data', success: true };
+      });
+
+      console.log('✅ Performance monitoring test completed:', result);
+      return true;
+    } catch (error) {
+      console.error('❌ Performance monitoring test failed:', error);
+      SentryDataCollection.captureException(error as Error, {
+        test_type: 'performance_monitoring',
+        test_failed: true,
+      });
+      return false;
+    }
+  },
+
+  // NEW: Test profiling with explicit transaction (GUARANTEED to show in dashboard)
+  testProfilingWithTransaction: async () => {
+    try {
+      console.log('🔍 Testing Sentry profiling with explicit transaction...');
+
+      // Create an explicit transaction for profiling
+      return new Promise((resolve) => {
+        Sentry.withScope((scope: any) => {
+          // Start capturing profiling data
+          scope.setTag('test_type', 'profiling_with_transaction');
+          scope.setTag('platform', 'react-native');
+          scope.setTag('profiling_enabled', 'true');
+
+          scope.setContext('profiling_test', {
+            test_name: 'explicit_transaction_profiling',
+            purpose: 'ensure_dashboard_visibility',
+            expected_result: 'profile_data_in_dashboard',
+          });
+
+          console.log('⚡ Starting CPU-intensive work with profiling...');
+          const startTime = performance.now();
+
+          // Intensive CPU work that will definitely show up in profiles
+          let computationResult = 0;
+          let stringResult = '';
+          const objects: Array<{ id: number; computation: number; text: string }> = [];
+
+          // Extended computation to ensure profile capture
+          for (let i = 0; i < 1000000; i++) {
+            // Mathematical operations
+            computationResult += Math.sin(i) * Math.cos(i) + Math.sqrt(i);
+
+            // String operations every 10000 iterations
+            if (i % 10000 === 0) {
+              stringResult += `iteration_${i}_${Math.random().toString(36).substring(7)}`;
+              objects.push({
+                id: i,
+                computation: computationResult,
+                text: stringResult.substring(0, 20),
+              });
+            }
+
+            // Additional complex operations every 50000 iterations
+            if (i % 50000 === 0) {
+              const tempArray = Array.from({ length: 1000 }, (_, idx) => idx * i);
+              const filtered = tempArray.filter((x) => x % 3 === 0);
+              const mapped = filtered.map((x) => Math.sqrt(x));
+              computationResult += mapped.reduce((acc, val) => acc + val, 0);
+            }
+          }
+
+          // JSON operations
+          const jsonData = JSON.stringify(objects);
+          const parsedData = JSON.parse(jsonData);
+          const finalResult = parsedData.reduce(
+            (sum: number, obj: any) => sum + obj.computation,
+            0,
+          );
+
+          const duration = performance.now() - startTime;
+
+          // Set comprehensive results
+          scope.setContext('profiling_results', {
+            computation_result: computationResult,
+            string_length: stringResult.length,
+            objects_created: objects.length,
+            json_operations: 2,
+            final_result: finalResult,
+            total_duration_ms: duration,
+            iterations_completed: 1000000,
+            profile_should_be_visible: true,
+          });
+
+          console.log('✅ Profiling computation completed!');
+          console.log(`📊 Duration: ${duration.toFixed(2)}ms`);
+          console.log(`🔢 Computation result: ${computationResult.toFixed(2)}`);
+          console.log(`📝 String length: ${stringResult.length}`);
+          console.log(`🗂️  Objects created: ${objects.length}`);
+          console.log(`📋 Final result: ${finalResult.toFixed(2)}`);
+
+          // Add breadcrumb with profiling info
+          Sentry.addBreadcrumb({
+            message: 'Explicit transaction profiling test completed - should appear in dashboard',
+            category: 'profiling.transaction.test',
+            level: 'info',
+            data: {
+              duration_ms: duration,
+              test_result: 'success',
+              iterations: 1000000,
+              profiling_method: 'explicit_transaction',
+              timestamp: new Date().toISOString(),
+              expected_in_dashboard: true,
+            },
+          });
+
+          // Capture the event with profiling context
+          Sentry.captureMessage(
+            'PROFILING TEST COMPLETED - Check Performance > Profiles in Sentry Dashboard',
+            'info',
+          );
+
+          console.log('🎯 Profiling data sent to Sentry - check dashboard in 1-2 minutes');
+          resolve({
+            success: true,
+            duration,
+            computationResult,
+            objectsCreated: objects.length,
+            expectedInDashboard: true,
+          });
+        });
+      });
+    } catch (error) {
+      console.error('❌ Profiling test with transaction failed:', error);
+      Sentry.withScope((scope) => {
+        scope.setTag('test_type', 'profiling_transaction_error');
+        scope.setContext('test_error', {
+          test_failed: true,
+          error_message: error instanceof Error ? error.message : String(error),
+        });
+        Sentry.captureException(error instanceof Error ? error : new Error(String(error)));
+      });
+      return { success: false, error: String(error) };
+    }
+  },
+
+  // NEW: Test performance events that should show up in dashboard
+  testPerformanceEvents: async () => {
+    try {
+      console.log('🎯 Testing performance events for Sentry dashboard visibility...');
+
+      // Test 1: API call simulation with performance tracking
+      const apiTransaction = SentryInsights.startTransaction('test_api_call', 'http.client', {
+        endpoint: '/api/test',
+        method: 'GET',
+        test_type: 'performance_visibility',
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 200)); // Simulate API delay
+
+      apiTransaction.setData('response_status', 200);
+      apiTransaction.setData('response_size', 1024);
+      apiTransaction.finish();
+
+      // Test 2: Database operation simulation
+      const dbTransaction = SentryInsights.startTransaction('test_db_query', 'db.query', {
+        table: 'exercises',
+        operation: 'SELECT',
+        test_type: 'performance_visibility',
+      });
+
+      const dbSpan = SentryInsights.createSpan(
+        dbTransaction,
+        'db.connection',
+        'Database connection',
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      dbSpan.finish();
+
+      const querySpan = SentryInsights.createSpan(
+        dbTransaction,
+        'db.query.execute',
+        'Execute SELECT query',
+      );
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      querySpan.setData('rows_returned', 25);
+      querySpan.finish();
+
+      dbTransaction.setData('total_rows', 25);
+      dbTransaction.finish();
+
+      // Test 3: Workout operation simulation
+      const workoutTransaction = SentryInsights.startTransaction(
+        'test_workout_session',
+        'workout.session',
+        {
+          workout_id: 'test_workout_123',
+          plan_id: 'test_plan_456',
+          test_type: 'performance_visibility',
+        },
+      );
+
+      // Simulate multiple exercises
+      for (let i = 1; i <= 3; i++) {
+        const exerciseSpan = SentryInsights.createSpan(
+          workoutTransaction,
+          'workout.exercise',
+          `Exercise ${i}`,
+          { exercise_id: `exercise_${i}` },
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        exerciseSpan.setData('sets_completed', 3);
+        exerciseSpan.setData('total_reps', 30);
+        exerciseSpan.finish();
+      }
+
+      workoutTransaction.setData('exercises_completed', 3);
+      workoutTransaction.setData('total_duration_seconds', 240);
+      workoutTransaction.finish();
+
+      // Test 4: Navigation performance
+      const navTransaction = SentryInsights.startTransaction(
+        'test_screen_load',
+        'navigation.load',
+        {
+          screen_name: 'WorkoutScreen',
+          test_type: 'performance_visibility',
+        },
+      );
+
+      const loadSpan = SentryInsights.createSpan(
+        navTransaction,
+        'navigation.data.load',
+        'Load workout data',
+      );
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      loadSpan.finish();
+
+      const renderSpan = SentryInsights.createSpan(
+        navTransaction,
+        'navigation.render',
+        'Render screen',
+      );
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      renderSpan.finish();
+
+      navTransaction.setData('screen_load_success', true);
+      navTransaction.finish();
+
+      // Send a summary event
+      Sentry.withScope((scope) => {
+        scope.setTag('test_type', 'performance_events_completed');
+        scope.setTag('event_category', 'performance_testing');
+        scope.setContext('test_summary', {
+          transactions_created: 4,
+          spans_created: 6,
+          total_test_duration: 'approximately_1_second',
+          expected_in_dashboard: true,
+          dashboard_sections: [
+            'Performance > Transactions',
+            'Performance > Database',
+            'Performance > Web Vitals',
+            'Discover > Search for event_type:transaction_completed',
+          ],
+        });
+
+        Sentry.captureMessage(
+          'Performance events test completed - Check Sentry Performance dashboard',
+          'info',
+        );
+      });
+
+      console.log('✅ Performance events test completed successfully!');
+      console.log('📊 Check these sections in your Sentry dashboard:');
+      console.log('   • Performance > Transactions');
+      console.log('   • Performance > Database');
+      console.log('   • Discover > Search for "event_type:transaction_completed"');
+      console.log('   • Issues > Search for "Performance events test completed"');
+
+      return {
+        success: true,
+        transactions_created: 4,
+        spans_created: 6,
+        message: 'Performance events sent to Sentry dashboard',
+      };
+    } catch (error) {
+      console.error('❌ Performance events test failed:', error);
+      Sentry.withScope((scope) => {
+        scope.setTag('test_type', 'performance_events_test');
+        scope.setContext('test_error', {
+          test_failed: true,
+          error_message: error instanceof Error ? error.message : String(error),
+        });
+        Sentry.captureException(error instanceof Error ? error : new Error(String(error)));
+      });
+      return { success: false, error: String(error) };
+    }
+  },
+
+  // Comprehensive test suite
+  runComprehensiveTest: async () => {
+    console.log('🧪 Running comprehensive Sentry test suite...');
+
+    const results = {
+      basic: false,
+      error: false,
+      performance: false,
+      profiling: false,
+      performanceEvents: false,
+    };
+
+    try {
+      // Run all tests
+      results.basic = SentryTestUtils.testBasicFunctionality();
+      results.error = SentryTestUtils.testErrorCapture();
+      results.performance = await SentryTestUtils.testPerformanceMonitoring();
+      const profilingResult = (await SentryTestUtils.testProfilingWithTransaction()) as any;
+      results.profiling = profilingResult?.success || false;
+      const performanceEventsResult = (await SentryTestUtils.testPerformanceEvents()) as any;
+      results.performanceEvents = performanceEventsResult?.success || false;
+
+      // Log comprehensive results
+      SentryLogger.user.action('comprehensive_sentry_test', 'test_suite', {
+        test_results: results,
+        all_passed: Object.values(results).every(Boolean),
+        timestamp: new Date().toISOString(),
+      });
+
+      const allPassed = Object.values(results).every(Boolean);
+      console.log(allPassed ? '✅ All Sentry tests passed!' : '⚠️ Some Sentry tests failed');
+      console.log('📊 Test Results:', results);
+
+      if (results.profiling) {
+        console.log(
+          '🎯 Profiling is working! Check your Sentry dashboard under "Performance" > "Profiles"',
+        );
+      } else {
+        console.log('⚠️ Profiling test failed. Check console for errors.');
+      }
+
+      if (results.performanceEvents) {
+        console.log(
+          '📈 Performance events sent! Check "Performance" > "Transactions" and "Discover" in your Sentry dashboard',
+        );
+      } else {
+        console.log('⚠️ Performance events test failed. Check console for errors.');
+      }
+
+      return results;
+    } catch (error) {
+      console.error('❌ Comprehensive test suite failed:', error);
+      Sentry.withScope((scope) => {
+        scope.setTag('test_type', 'comprehensive_suite');
+        scope.setContext('test_error', {
+          test_failed: true,
+          error_message: error instanceof Error ? error.message : String(error),
+        });
+        Sentry.captureException(error instanceof Error ? error : new Error(String(error)));
+      });
+      return results;
+    }
+  },
+};

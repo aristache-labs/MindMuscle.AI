@@ -82,10 +82,13 @@ config.transformer = {
   },
 };
 
-// Enhanced serializer for debugging
+// Enhanced serializer for debugging and source maps
 config.serializer = {
   ...config.serializer,
-  // Keep source maps for better debugging
+  // Ensure source maps are generated for Sentry
+  createModuleIdFactory: config.serializer.createModuleIdFactory,
+  // Keep source maps for better debugging and Sentry error reporting
+  getSourceMapUrl: config.serializer.getSourceMapUrl,
 };
 
 // Development-specific enhancements

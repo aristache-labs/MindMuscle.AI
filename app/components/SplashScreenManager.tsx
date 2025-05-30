@@ -1,13 +1,14 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { AppState, AppStateStatus, Platform } from 'react-native';
-import * as SplashScreen from 'expo-splash-screen';
-import InitialLoadingScreen from './InitialLoadingScreen';
-import { useAuth } from '../store/AuthContext';
 import * as Network from 'expo-network';
-import supabase from '../services/supabase';
+import * as SplashScreen from 'expo-splash-screen';
+import React, { useEffect, useRef, useState } from 'react';
+import { AppState, AppStateStatus, Platform } from 'react-native';
 import { LOADING_MESSAGES } from '../constants/loadingMessages';
 import exerciseService from '../services/exerciseService';
+import supabase from '../services/supabase';
+import { useAuth } from '../store/AuthContext';
+import { safeAsyncFireAndForget } from '../utils/asyncErrorHandler';
 import logger from '../utils/logger';
+import InitialLoadingScreen from './InitialLoadingScreen';
 
 // Define storage bucket constants for compatibility with previous code
 export const STORAGE_BUCKETS = {
@@ -109,8 +110,9 @@ const safelyHideSplashScreen = async (): Promise<void> => {
 
 // Execute once on module load
 if (Platform.OS !== 'web') {
-  safelyPreventAutoHide().catch((err) => {
-    console.warn('Initial splash screen setup failed:', err);
+  safeAsyncFireAndForget(() => safelyPreventAutoHide(), {
+    errorPrefix: 'Initial splash screen setup failed',
+    context: { location: 'module_load' },
   });
 }
 

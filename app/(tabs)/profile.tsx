@@ -13,7 +13,7 @@ import firebaseAvatarService from '../services/firebaseAvatarService';
 import OptimizedImage from '../components/OptimizedImage';
 import { markAsImportantImage } from '../utils/imagePreloader';
 import useImagePreloader from '../hooks/useImagePreloader';
-import { SentryTestUtils } from '../services/sentry';
+import { SentryTestUtils, SentryLogger, SentryInsights } from '../services/sentry';
 
 interface MenuItemProps {
   icon: string;
@@ -325,17 +325,43 @@ export default function ProfileScreen() {
           {__DEV__ && (
             <MenuItem
               icon="bug"
-              title="🧪 Test Sentry Data"
+              title="🔬 Test Sentry Insights & Logs"
               onPress={async () => {
                 try {
-                  console.log('Testing Sentry data collection...');
+                  console.log('Testing comprehensive Sentry monitoring...');
+                  
+                  // Test original Sentry features
                   SentryTestUtils.generateTestData();
                   await SentryTestUtils.generatePerformanceData();
                   SentryTestUtils.testUserInteraction('test_button_press', 'profile');
-                  alert('✅ Test data sent to Sentry! Check your dashboard.');
+                  
+                  // Test custom logging system
+                  SentryLogger.generateTestLogs();
+                  
+                  // Test new Sentry Insights performance monitoring
+                  await SentryInsights.generateInsightsTestData();
+                  
+                  // Test specific logging features with insights
+                  SentryLogger.user.action('test_comprehensive_monitoring', 'profile', { 
+                    test_type: 'full_sentry_suite',
+                    timestamp: new Date().toISOString(),
+                    features_tested: ['data_collection', 'logging', 'insights', 'performance']
+                  });
+                  
+                  SentryLogger.performance.mark('sentry_comprehensive_test_completion', 500, {
+                    test_features: ['data_collection', 'performance', 'logging', 'insights', 'transactions'],
+                    success: true,
+                    insights_enabled: true
+                  });
+                  
+                  alert('🎯 Comprehensive Sentry test completed!\n\nCheck your dashboard for:\n\n📊 INSIGHTS:\n• Transaction traces with spans\n• Performance metrics\n• Cross-referenced issues\n• Custom performance queries\n\n📝 LOGS:\n• Structured log data\n• Breadcrumbs with context\n\n⚡ PERFORMANCE:\n• Macro-level metrics\n• Micro-level spans\n• API & DB performance\n• User interaction timing');
                 } catch (error) {
                   console.error('Error testing Sentry:', error);
-                  alert('❌ Failed to send test data to Sentry.');
+                  SentryLogger.error('Comprehensive Sentry test failed', {
+                    error_message: error instanceof Error ? error.message : String(error),
+                    test_type: 'sentry_comprehensive_suite'
+                  }, { feature: 'sentry_test', action: 'error' });
+                  alert('❌ Failed to complete Sentry test suite.');
                 }
               }}
               isLast

@@ -1,6 +1,6 @@
 {
   "name": "mindmuscle-ai",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "main": "expo-router/entry",
   "scripts": {
     "start": "npx expo start",
@@ -83,7 +83,6 @@
     "react-native": "0.79.2",
     "react-native-calendars": "^1.1312.0",
     "react-native-draggable-flatlist": "^4.0.3",
-    "react-native-flipper": "^0.273.0",
     "react-native-gesture-handler": "~2.24.0",
     "react-native-get-random-values": "^1.11.0",
     "react-native-gifted-charts": "^1.4.61",

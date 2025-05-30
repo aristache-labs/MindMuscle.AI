@@ -1,4 +1,5 @@
 import supabase from './supabase';
+import { SentryLogger } from './sentry';
 
 // Import all functions from modular services
 import {
@@ -77,7 +78,15 @@ export const getActivePlanWithCycleWeek = async (
   planId: string;
   workoutDay: number;
 } | null> => {
+  const startTime = Date.now();
+
   try {
+    SentryLogger.database.query('user_active_plans', 'select', {
+      user_id: userId,
+      plan_id: planId,
+      operation: 'get_active_plan_with_cycle_week',
+    });
+
     // Get the active plan information
     const { data: planData, error: planError } = await supabase
       .from('user_active_plans')
@@ -87,9 +96,23 @@ export const getActivePlanWithCycleWeek = async (
       .eq('is_active', true)
       .single();
 
-    if (planError) throw planError;
+    if (planError) {
+      SentryLogger.database.error('user_active_plans', 'select', planError.message);
+      throw planError;
+    }
 
-    if (!planData) return null;
+    if (!planData) {
+      SentryLogger.info(
+        'No active plan found',
+        {
+          user_id: userId,
+          plan_id: planId,
+          operation: 'get_active_plan_with_cycle_week',
+        },
+        { feature: 'workout_plan', action: 'not_found' },
+      );
+      return null;
+    }
 
     // Get the week name
     const { data: weekData, error: weekError } = await supabase
@@ -99,6 +122,16 @@ export const getActivePlanWithCycleWeek = async (
       .single();
 
     if (weekError) {
+      SentryLogger.warn(
+        'Could not fetch week name, using default',
+        {
+          week_number: planData.current_week,
+          error: weekError.message,
+          operation: 'get_active_plan_with_cycle_week',
+        },
+        { feature: 'workout_plan', action: 'fallback' },
+      );
+
       // Return default if we can't get the week name
       return {
         currentWeek: planData.current_week || 1,
@@ -108,13 +141,42 @@ export const getActivePlanWithCycleWeek = async (
       };
     }
 
-    return {
+    const result = {
       currentWeek: planData.current_week || 1,
       weekName: weekData?.name || getDefaultWeekName(planData.current_week || 1),
       planId: planData.plan_id,
       workoutDay: planData.current_day || 0,
     };
-  } catch {
+
+    const duration = Date.now() - startTime;
+    SentryLogger.info(
+      'Active plan with cycle week retrieved successfully',
+      {
+        user_id: userId,
+        plan_id: planId,
+        current_week: result.currentWeek,
+        week_name: result.weekName,
+        workout_day: result.workoutDay,
+        duration_ms: duration,
+        operation: 'get_active_plan_with_cycle_week',
+      },
+      { feature: 'workout_plan', action: 'success' },
+    );
+
+    return result;
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    SentryLogger.error(
+      'Failed to get active plan with cycle week',
+      {
+        user_id: userId,
+        plan_id: planId,
+        error_message: error instanceof Error ? error.message : String(error),
+        duration_ms: duration,
+        operation: 'get_active_plan_with_cycle_week',
+      },
+      { feature: 'workout_plan', action: 'error' },
+    );
     return null;
   }
 };
@@ -133,7 +195,32 @@ export const saveCompletedWorkout = async (workoutData: {
   duration: number;
   completedAt: string;
 }): Promise<void> => {
+  const startTime = Date.now();
+
   try {
+    SentryLogger.workout.completed(
+      `${workoutData.planId}_day_${workoutData.workoutDay}`,
+      workoutData.duration,
+      workoutData.exercises.length,
+    );
+
+    SentryLogger.info(
+      'Saving completed workout',
+      {
+        user_id: workoutData.userId,
+        plan_id: workoutData.planId,
+        workout_day: workoutData.workoutDay,
+        cycle_week: workoutData.cycleWeek,
+        week_name: workoutData.weekName,
+        exercise_count: workoutData.exercises.length,
+        total_volume: workoutData.totalVolume,
+        total_reps: workoutData.totalReps,
+        duration_seconds: workoutData.duration,
+        operation: 'save_completed_workout',
+      },
+      { feature: 'workout_completion', action: 'start' },
+    );
+
     // Use the existing completeWorkout function with proper options object
     await completeWorkout({
       userId: workoutData.userId,
@@ -147,7 +234,33 @@ export const saveCompletedWorkout = async (workoutData: {
       totalVolume: workoutData.totalVolume,
       totalReps: workoutData.totalReps,
     });
+
+    const saveDuration = Date.now() - startTime;
+    SentryLogger.info(
+      'Completed workout saved successfully',
+      {
+        user_id: workoutData.userId,
+        plan_id: workoutData.planId,
+        workout_day: workoutData.workoutDay,
+        save_duration_ms: saveDuration,
+        operation: 'save_completed_workout',
+      },
+      { feature: 'workout_completion', action: 'success' },
+    );
   } catch (error) {
+    const saveDuration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    SentryLogger.workout.error(
+      `${workoutData.planId}_day_${workoutData.workoutDay}`,
+      errorMessage,
+      {
+        user_id: workoutData.userId,
+        save_duration_ms: saveDuration,
+        operation: 'save_completed_workout',
+      },
+    );
+
     console.error('Error saving completed workout:', error);
     throw error;
   }

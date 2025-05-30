@@ -1,13 +1,42 @@
 import { useCallback, useEffect } from 'react';
 import { SentryDataCollection } from '../services/sentry';
 
-interface UseSentryDataCollectionOptions {
-  // Whether to automatically set user context when user data changes
-  autoSetUser?: boolean;
-  // Whether to respect user privacy preferences
-  respectPrivacySettings?: boolean;
-  // Component name for context
-  componentName?: string;
+// Type definitions for Sentry data collection
+type SentryValue = string | number | boolean | Date | null | undefined;
+
+interface SentryContext {
+  [key: string]: SentryValue | Record<string, SentryValue>;
+}
+
+interface BreadcrumbData {
+  [key: string]: SentryValue | Record<string, SentryValue>;
+}
+
+interface UserActionData {
+  action?: string;
+  [key: string]: SentryValue;
+}
+
+interface ScreenViewData {
+  screen?: string;
+  from?: string;
+  [key: string]: SentryValue;
+}
+
+interface WorkoutEventData {
+  event?: string;
+  timestamp?: string;
+  type?: string;
+  exerciseCount?: number;
+  estimatedDuration?: number;
+  duration?: number;
+  exercisesCompleted?: number;
+  totalWeight?: number;
+  name?: string;
+  sets?: number;
+  reps?: number;
+  weight?: number;
+  [key: string]: SentryValue;
 }
 
 interface UserData {
@@ -15,6 +44,12 @@ interface UserData {
   email?: string;
   username?: string;
   ip_address?: string;
+}
+
+interface UseSentryDataCollectionOptions {
+  componentName?: string;
+  autoSetUser?: boolean;
+  respectPrivacySettings?: boolean;
 }
 
 /**
@@ -60,7 +95,7 @@ export function useSentryDataCollection(options: UseSentryDataCollectionOptions 
 
   // Set context with component information
   const setContext = useCallback(
-    (key: string, context: Record<string, any>) => {
+    (key: string, context: SentryContext) => {
       const enhancedContext = componentName ? { ...context, component: componentName } : context;
 
       SentryDataCollection.setContext(key, enhancedContext);
@@ -79,7 +114,7 @@ export function useSentryDataCollection(options: UseSentryDataCollectionOptions 
       message: string;
       category?: string;
       level?: 'fatal' | 'error' | 'warning' | 'info' | 'debug';
-      data?: Record<string, any>;
+      data?: BreadcrumbData;
     }) => {
       const enhancedBreadcrumb = {
         ...breadcrumb,
@@ -93,7 +128,7 @@ export function useSentryDataCollection(options: UseSentryDataCollectionOptions 
 
   // Capture exception with component context
   const captureException = useCallback(
-    (error: Error, context?: Record<string, any>) => {
+    (error: Error, context?: SentryContext) => {
       const enhancedContext = componentName ? { ...context, component: componentName } : context;
 
       SentryDataCollection.captureException(error, enhancedContext);
@@ -114,7 +149,7 @@ export function useSentryDataCollection(options: UseSentryDataCollectionOptions 
 
   // Track user action
   const trackUserAction = useCallback(
-    (action: string, data?: Record<string, any>) => {
+    (action: string, data?: UserActionData) => {
       addBreadcrumb({
         message: `User action: ${action}`,
         category: 'user-action',
@@ -130,15 +165,17 @@ export function useSentryDataCollection(options: UseSentryDataCollectionOptions 
 
   // Track screen view
   const trackScreenView = useCallback(
-    (screenName: string, data?: Record<string, any>) => {
+    (screenName: string, data?: ScreenViewData) => {
+      const breadcrumbData: BreadcrumbData = {
+        screen: screenName,
+        ...data,
+      };
+
       addBreadcrumb({
         message: `Screen view: ${screenName}`,
         category: 'navigation',
         level: 'info',
-        data: {
-          screen: screenName,
-          ...data,
-        },
+        data: breadcrumbData,
       });
 
       setTag('current_screen', screenName);
@@ -148,7 +185,7 @@ export function useSentryDataCollection(options: UseSentryDataCollectionOptions 
 
   // Track workout event
   const trackWorkoutEvent = useCallback(
-    (event: string, workoutData?: Record<string, any>) => {
+    (event: string, workoutData?: WorkoutEventData) => {
       setContext('workout_event', {
         event,
         timestamp: new Date().toISOString(),
@@ -320,20 +357,27 @@ export function useSentryNavigationTracking() {
   });
 
   const trackNavigation = useCallback(
-    (from: string, to: string, params?: Record<string, any>) => {
+    (from: string, to: string, params?: Record<string, SentryValue>) => {
+      const navigationData: BreadcrumbData = {
+        from,
+        to,
+        timestamp: new Date().toISOString(),
+        ...params,
+      };
+
       sentry.addBreadcrumb({
         message: `Navigation: ${from} → ${to}`,
         category: 'navigation',
         level: 'info',
-        data: {
-          from,
-          to,
-          params,
-          timestamp: new Date().toISOString(),
-        },
+        data: navigationData,
       });
 
-      sentry.trackScreenView(to, { from, params });
+      const screenViewData: ScreenViewData = {
+        from,
+        ...params,
+      };
+
+      sentry.trackScreenView(to, screenViewData);
     },
     [sentry],
   );
@@ -342,4 +386,7 @@ export function useSentryNavigationTracking() {
     ...sentry,
     trackNavigation,
   };
+}
+export default function disablewarn() {
+  return null;
 }

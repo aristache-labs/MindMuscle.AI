@@ -13,6 +13,7 @@ import firebaseAvatarService from '../services/firebaseAvatarService';
 import OptimizedImage from '../components/OptimizedImage';
 import { markAsImportantImage } from '../utils/imagePreloader';
 import useImagePreloader from '../hooks/useImagePreloader';
+import { SentryTestUtils } from '../services/sentry';
 
 interface MenuItemProps {
   icon: string;
@@ -319,8 +320,27 @@ export default function ProfileScreen() {
                 alert('Failed to sign out. Please try again.');
               }
             }}
-            isLast
+            isLast={!__DEV__}
           />
+          {__DEV__ && (
+            <MenuItem
+              icon="bug"
+              title="🧪 Test Sentry Data"
+              onPress={async () => {
+                try {
+                  console.log('Testing Sentry data collection...');
+                  SentryTestUtils.generateTestData();
+                  await SentryTestUtils.generatePerformanceData();
+                  SentryTestUtils.testUserInteraction('test_button_press', 'profile');
+                  alert('✅ Test data sent to Sentry! Check your dashboard.');
+                } catch (error) {
+                  console.error('Error testing Sentry:', error);
+                  alert('❌ Failed to send test data to Sentry.');
+                }
+              }}
+              isLast
+            />
+          )}
         </View>
 
         <View style={[styles.menuSection, styles.secondMenuSection]}>

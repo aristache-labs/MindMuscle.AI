@@ -18,8 +18,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../../store/AuthContext';
 import OptimizedImage from '../../../components/OptimizedImage';
 import ExerciseDetailsModal from '../../../components/ExerciseDetailsModal';
-// import ExerciseListDragDrop from '../../../components/DragDropList/ExerciseListDragDrop'; // Removed
-// import { DragDropItem } from '../../../components/DragDropList/types'; // Removed
+import ExerciseListDragDrop from '../../../components/DragDropList/ExerciseListDragDrop';
+import { DragDropItem } from '../../../components/DragDropList/types';
 import CustomizeExerciseModal from '../../../components/CustomizeExerciseModal';
 
 import { COLORS, SPACING, BORDER_RADIUS } from '../../../constants/theme';
@@ -188,10 +188,10 @@ export default function WorkoutSessionScreen() {
     initialSelectedExercise: _initialSelectedExercise,
     handleExerciseNamePress,
     handleExerciseDetailsModalClose,
-    handleExerciseListPress: _handleExerciseListPress,
+    handleExerciseListPress,
     handleExerciseListModalClose: _handleExerciseListModalClose,
     handleNextExercisePress,
-    handleExerciseSelect: _handleExerciseSelect,
+    handleExerciseSelect,
     handleCustomizeExercisePress,
     handleCustomizeExerciseFromList: _handleCustomizeExerciseFromList,
     handleCustomizeExerciseModalClose,
@@ -469,7 +469,7 @@ export default function WorkoutSessionScreen() {
         cycleWeek={cycleWeek}
         weekName={weekName}
         onBackPress={handleBackPress}
-        onExerciseListPress={() => {}}
+        onExerciseListPress={handleExerciseListPress}
       />
 
       <WorkoutTimerTabs
@@ -597,53 +597,40 @@ export default function WorkoutSessionScreen() {
       )}
 
       {/* Exercise List Modal */}
-      {/* Removed ExerciseListDragDrop modal - functionality disabled */}
-      {/* {_showExerciseListModal && (
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Exercise List</Text>
-              <TouchableOpacity onPress={_handleExerciseListModalClose} style={styles.closeButton}>
-                <Ionicons name="close" size={24} color={COLORS.text} />
-              </TouchableOpacity>
-            </View>
-            <ExerciseListDragDrop
-              exercises={workoutExercises}
-              currentExerciseIndex={currentExerciseIndex}
-              isCustomizeMode={false}
-              exerciseSets={workoutExerciseSets}
-              onReorder={(reorderedExercises: DragDropItem[]) => {
-                setWorkoutExercises(reorderedExercises);
-              }}
-              onExercisePress={_handleExerciseSelect}
-              onRemoveExercise={(exerciseIndex: number) => {
-                // Remove exercise from the exercises array
-                setWorkoutExercises((prev) => prev.filter((_, index) => index !== exerciseIndex));
+      <ExerciseListDragDrop
+        exercises={workoutExercises}
+        currentExerciseIndex={currentExerciseIndex}
+        isCustomizeMode={false}
+        exerciseSets={workoutExerciseSets}
+        onReorder={(reorderedExercises: DragDropItem[]) => {
+          setWorkoutExercises(reorderedExercises);
+        }}
+        onExercisePress={handleExerciseSelect}
+        onRemoveExercise={(exerciseIndex: number) => {
+          // Remove exercise from the exercises array
+          setWorkoutExercises((prev) => prev.filter((_, index) => index !== exerciseIndex));
 
-                // Remove exercise sets for the removed exercise
-                const removedExercise = workoutExercises[exerciseIndex];
-                if (removedExercise) {
-                  setWorkoutExerciseSets((prev) => {
-                    const updated = { ...prev };
-                    delete updated[removedExercise.id];
-                    return updated;
-                  });
-                }
+          // Remove exercise sets for the removed exercise
+          const removedExercise = workoutExercises[exerciseIndex];
+          if (removedExercise) {
+            setWorkoutExerciseSets((prev) => {
+              const updated = { ...prev };
+              delete updated[removedExercise.id];
+              return updated;
+            });
+          }
 
-                // Adjust current exercise index if needed
-                if (exerciseIndex < currentExerciseIndex) {
-                  setCurrentExerciseIndex((prev) => prev - 1);
-                } else if (
-                  exerciseIndex === currentExerciseIndex &&
-                  currentExerciseIndex >= workoutExercises.length - 1
-                ) {
-                  setCurrentExerciseIndex((prev) => Math.max(0, prev - 1));
-                }
-              }}
-            />
-          </View>
-        </View>
-      )} */}
+          // Adjust current exercise index if needed
+          if (exerciseIndex < currentExerciseIndex) {
+            setCurrentExerciseIndex((prev) => prev - 1);
+          } else if (
+            exerciseIndex === currentExerciseIndex &&
+            currentExerciseIndex >= workoutExercises.length - 1
+          ) {
+            setCurrentExerciseIndex((prev) => Math.max(0, prev - 1));
+          }
+        }}
+      />
 
       {/* Customize Exercise Modal */}
       <CustomizeExerciseModal
@@ -791,10 +778,4 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     fontSize: 14,
   },
-  // Removed modal styles since ExerciseListDragDrop is no longer used
-  // modalOverlay: { ... },
-  // modalContainer: { ... },
-  // modalHeader: { ... },
-  // modalTitle: { ... },
-  // closeButton: { ... },
 });

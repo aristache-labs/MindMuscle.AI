@@ -19,7 +19,6 @@ import OptimizedImage from '../components/OptimizedImage';
 import { BORDER_RADIUS, COLORS, HEADER_HEIGHT, SPACING } from '../constants/theme';
 import useImagePreloader from '../hooks/useImagePreloader';
 import firebaseAvatarService from '../services/firebaseAvatarService';
-import { SentryLogger } from '../services/sentry';
 import { useAuth } from '../store/AuthContext';
 import { safeAsyncFireAndForget } from '../utils/asyncErrorHandler';
 import { markAsImportantImage } from '../utils/imagePreloader';
@@ -140,14 +139,7 @@ export default function ProfileScreen() {
       await Promise.all([loadUserAvatar(), refreshUser()]);
     } catch (error) {
       console.error('Error refreshing profile data:', error);
-      SentryLogger.error(
-        'Profile refresh error',
-        {
-          error_message: error instanceof Error ? error.message : String(error),
-          pathname,
-        },
-        { feature: 'profile', action: 'refresh_error' },
-      );
+      console.error('Profile refresh error:', error);
     } finally {
       setIsRefreshing(false);
     }
@@ -211,15 +203,7 @@ export default function ProfileScreen() {
           await refreshUser();
         } catch (uploadError) {
           console.error('Error uploading avatar:', uploadError);
-          SentryLogger.error(
-            'Avatar upload failed',
-            {
-              error_message:
-                uploadError instanceof Error ? uploadError.message : String(uploadError),
-              user_id: user.id,
-            },
-            { feature: 'profile', action: 'avatar_upload_error' },
-          );
+
           Alert.alert('Upload Failed', 'Failed to upload avatar. Please try again.');
         } finally {
           setLoadingAvatar(false);
@@ -227,13 +211,7 @@ export default function ProfileScreen() {
       }
     } catch (error) {
       console.error('Error picking image:', error);
-      SentryLogger.error(
-        'Image picker failed',
-        {
-          error_message: error instanceof Error ? error.message : String(error),
-        },
-        { feature: 'profile', action: 'image_picker_error' },
-      );
+      console.error('Image picker failed:', error);
       Alert.alert('Selection Failed', 'Failed to select image. Please try again.');
     }
   };
@@ -348,6 +326,13 @@ export default function ProfileScreen() {
         <View style={styles.menuSection}>
           <MenuItem icon="account-edit" title="Edit Profile" onPress={_handleEditProfile} />
           <MenuItem icon="cog" title="Settings" onPress={() => router.push('/(stack)/settings')} />
+          {__DEV__ && (
+            <MenuItem
+              icon="bug"
+              title="Sentry Debug"
+              onPress={() => router.push('/(tabs)/sentry-debug')}
+            />
+          )}
           <MenuItem icon="crown" title="Subscription Membership" />
           <MenuItem
             icon="logout"

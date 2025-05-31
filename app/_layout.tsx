@@ -25,7 +25,11 @@ import AuthGuard from './components/AuthGuard';
 import { QueryProvider } from './components/QueryProvider';
 import SplashScreenManager from './components/SplashScreenManager';
 import { ThemeProvider } from './constants/theme';
-import { createExpoRouterNavigationIntegration, initializeSentry } from './services/sentry';
+import {
+  createExpoRouterNavigationIntegration,
+  initializeSentry,
+  simpleErrorHandler,
+} from './services/sentry';
 import { AuthProvider } from './store/AuthContext';
 import { MeasurementsProvider } from './store/MeasurementsContext';
 import { ProfileProvider } from './store/ProfileContext';
@@ -36,6 +40,9 @@ const navigationIntegration = createExpoRouterNavigationIntegration(isRunningInE
 
 // Initialize Sentry as early as possible with navigation integration
 initializeSentry(navigationIntegration);
+
+// Initialize comprehensive error handler
+simpleErrorHandler.initialize();
 
 // Setup global async error handler
 setupGlobalAsyncErrorHandler();

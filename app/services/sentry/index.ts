@@ -15,4 +15,7 @@ export { SentryTesting } from './testing';
 import * as Sentry from '@sentry/react-native';
 export const { captureException, captureMessage, addBreadcrumb, setUser, setContext, setTag } =
   Sentry;
+
+// Export the simple error handler for comprehensive error monitoring
+export * from './simpleErrorHandler';
 export default Sentry;

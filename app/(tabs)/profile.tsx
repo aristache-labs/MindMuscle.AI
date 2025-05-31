@@ -18,6 +18,7 @@ import { GeneralHeader } from '../components/GeneralHeader';
 import OptimizedImage from '../components/OptimizedImage';
 import { BORDER_RADIUS, COLORS, HEADER_HEIGHT, SPACING } from '../constants/theme';
 import useImagePreloader from '../hooks/useImagePreloader';
+import { useSentryAuthTracking } from '../hooks/useSentryDataCollection';
 import firebaseAvatarService from '../services/firebaseAvatarService';
 import { useAuth } from '../store/AuthContext';
 import { safeAsyncFireAndForget } from '../utils/asyncErrorHandler';
@@ -77,6 +78,7 @@ export default function ProfileScreen() {
   const pathname = usePathname();
   const _insets = useSafeAreaInsets();
   const { user, refreshUser, signOut } = useAuth();
+  const sentry = useSentryAuthTracking('ProfileScreen');
 
   // Preload avatar image when URL is available
   const { loaded: _avatarPreloaded } = useImagePreloader(avatarUrl ? [avatarUrl] : [], {
@@ -161,6 +163,17 @@ export default function ProfileScreen() {
 
   const _handleEditProfile = () => {
     router.push('/(auth)/edit-profile');
+  };
+
+  const _handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refreshUser();
+    } catch (error) {
+      console.error('Error refreshing profile:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   // Handle avatar upload
@@ -326,23 +339,21 @@ export default function ProfileScreen() {
         <View style={styles.menuSection}>
           <MenuItem icon="account-edit" title="Edit Profile" onPress={_handleEditProfile} />
           <MenuItem icon="cog" title="Settings" onPress={() => router.push('/(stack)/settings')} />
-          {__DEV__ && (
-            <MenuItem
-              icon="bug"
-              title="Sentry Debug"
-              onPress={() => router.push('/(tabs)/sentry-debug')}
-            />
-          )}
           <MenuItem icon="crown" title="Subscription Membership" />
           <MenuItem
             icon="logout"
             title="Logout"
             onPress={async () => {
               try {
+                sentry.trackLogout();
                 await signOut();
                 router.replace('/(auth)/login');
               } catch (error) {
                 console.error('Error signing out:', error);
+                sentry.captureException(error as Error, {
+                  context: 'profile_logout_navigation',
+                  attempted_route: '/(auth)/login',
+                });
                 alert('Failed to sign out. Please try again.');
               }
             }}

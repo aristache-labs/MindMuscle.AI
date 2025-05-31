@@ -14,8 +14,9 @@ configureReanimatedLogger({
 });
 
 import * as Sentry from '@sentry/react-native';
+import { isRunningInExpoGo } from 'expo';
 import { useFonts } from 'expo-font';
-import { Slot } from 'expo-router';
+import { Slot, useNavigationContainerRef } from 'expo-router';
 import React from 'react';
 import { StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -24,14 +25,17 @@ import AuthGuard from './components/AuthGuard';
 import { QueryProvider } from './components/QueryProvider';
 import SplashScreenManager from './components/SplashScreenManager';
 import { ThemeProvider } from './constants/theme';
-import { initializeSentry } from './services/sentry';
+import { createExpoRouterNavigationIntegration, initializeSentry } from './services/sentry';
 import { AuthProvider } from './store/AuthContext';
 import { MeasurementsProvider } from './store/MeasurementsContext';
 import { ProfileProvider } from './store/ProfileContext';
 import { setupGlobalAsyncErrorHandler } from './utils/asyncErrorHandler';
 
-// Initialize Sentry as early as possible
-initializeSentry();
+// Create navigation integration for Expo Router
+const navigationIntegration = createExpoRouterNavigationIntegration(isRunningInExpoGo());
+
+// Initialize Sentry as early as possible with navigation integration
+initializeSentry(navigationIntegration);
 
 // Setup global async error handler
 setupGlobalAsyncErrorHandler();
@@ -117,6 +121,16 @@ const RootApp = () => {
   const [fontsLoaded] = useFonts({
     // Add any custom fonts here if needed
   });
+
+  // Get navigation container ref for Expo Router integration
+  const ref = useNavigationContainerRef();
+
+  // Register navigation container with Sentry
+  React.useEffect(() => {
+    if (ref) {
+      navigationIntegration.registerNavigationContainer(ref);
+    }
+  }, [ref]);
 
   // Wait for fonts to load
   if (!fontsLoaded) {

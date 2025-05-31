@@ -5,6 +5,7 @@ import { Dimensions, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Text, useTheme } from 'react-native-paper';
 import { MenuHeader } from '../components/MenuHeader';
 import { COLORS, HEADER_HEIGHT } from '../constants/theme';
+import { useSentryAuthTracking } from '../hooks/useSentryDataCollection';
 import { useAuth } from '../store/AuthContext';
 
 // Import content components
@@ -20,6 +21,7 @@ export default function HomeScreen() {
   const [selectedOption, setSelectedOption] = useState('My Plan');
   const params = useLocalSearchParams();
   const _theme = useTheme();
+  const sentry = useSentryAuthTracking('HomeScreen');
 
   // Set My Plan as default option, and handle navigation with params
   useEffect(() => {
@@ -38,10 +40,15 @@ export default function HomeScreen() {
 
   const _handleLogout = async () => {
     try {
+      sentry.trackLogout();
       await signOut();
-      router.replace('(auth)/login');
+      router.replace('/(auth)/login');
     } catch (error) {
       console.error('Logout error:', error);
+      sentry.captureException(error as Error, {
+        context: 'logout_navigation',
+        attempted_route: '/(auth)/login',
+      });
     }
   };
 

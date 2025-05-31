@@ -36,9 +36,20 @@ import * as Sentry from '@sentry/react-native';
  * Utility to safely execute async operations and prevent unhandled promise rejections
  */
 
+// Type definitions for React Native global objects
+interface ReactNativeGlobal {
+  ErrorUtils?: {
+    setGlobalHandler: (handler: (error: Error, isFatal?: boolean) => void) => void;
+  };
+  onunhandledrejection?: ((event: PromiseRejectionEvent) => void) | null;
+}
+
+// Extend the global object with React Native specific properties
+declare const global: ReactNativeGlobal & typeof globalThis;
+
 export interface AsyncErrorHandlerOptions {
   /** Context information for debugging */
-  context?: Record<string, any>;
+  context?: Record<string, unknown>;
   /** Whether to log errors to console in development */
   logToConsole?: boolean;
   /** Whether to report errors to Sentry */
@@ -48,7 +59,7 @@ export interface AsyncErrorHandlerOptions {
   /** Whether to rethrow the error after handling */
   rethrow?: boolean;
   /** Fallback value to return on error */
-  fallback?: any;
+  fallback?: unknown;
 }
 
 /**
@@ -100,7 +111,7 @@ export async function safeAsync<T>(
 
     // Return fallback value if provided
     if (fallback !== undefined) {
-      return fallback;
+      return fallback as T;
     }
 
     // Rethrow if requested
@@ -117,7 +128,7 @@ export async function safeAsync<T>(
  * Useful for fire-and-forget operations
  */
 export function safeAsyncFireAndForget(
-  fn: () => Promise<any>,
+  fn: () => Promise<unknown>,
   options: AsyncErrorHandlerOptions = {},
 ): void {
   safeAsync(fn, {
@@ -144,7 +155,7 @@ export function safePromise<T>(
 /**
  * Create a safe version of an async function
  */
-export function makeSafeAsync<TArgs extends any[], TReturn>(
+export function makeSafeAsync<TArgs extends unknown[], TReturn>(
   fn: (...args: TArgs) => Promise<TReturn>,
   defaultOptions: AsyncErrorHandlerOptions = {},
 ) {
@@ -223,7 +234,7 @@ export async function safeAsyncWithRetry<T>(
     /** Maximum delay in milliseconds */
     maxDelay?: number;
     /** Function to determine if error should trigger retry */
-    shouldRetry?: (error: any, attempt: number) => boolean;
+    shouldRetry?: (error: unknown, attempt: number) => boolean;
   } = {},
 ): Promise<T | undefined> {
   const {
@@ -235,7 +246,7 @@ export async function safeAsyncWithRetry<T>(
     ...safeOptions
   } = options;
 
-  let lastError: any;
+  let lastError: unknown;
   let delay = initialDelay;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -303,32 +314,77 @@ export async function safeAsyncWithTimeout<T>(
  */
 export function setupGlobalAsyncErrorHandler(): void {
   // Handle unhandled promise rejections
-  if (typeof global !== 'undefined' && typeof global.addEventListener === 'function') {
-    global.addEventListener('unhandledrejection', (event) => {
-      const error = event.reason;
-      const errorMessage = error instanceof Error ? error.message : String(error);
+  const originalHandler = global.onunhandledrejection;
 
-      // Log to console
-      console.error('🚨 Global unhandled promise rejection:', error);
+  global.onunhandledrejection = (event: PromiseRejectionEvent) => {
+    const error = event.reason instanceof Error ? event.reason : new Error(String(event.reason));
 
-      // Report to Sentry
-      try {
-        Sentry.captureException(error instanceof Error ? error : new Error(errorMessage), {
-          contexts: {
-            unhandled_rejection: {
-              source: 'global_handler',
-              timestamp: new Date().toISOString(),
-            },
-          },
-        });
-      } catch (sentryError) {
-        console.error('Failed to report unhandled promise rejection to Sentry:', sentryError);
+    console.error('Unhandled promise rejection:', error);
+
+    // Check if it's a navigation error
+    const isNavigationError =
+      error.message.includes('was not handled by any navigator') ||
+      error.message.includes('Do you have a route named') ||
+      error.message.includes('REPLACE') ||
+      error.message.includes('NAVIGATE');
+
+    Sentry.withScope((scope) => {
+      scope.setTag(
+        'error_type',
+        isNavigationError ? 'navigation_error' : 'unhandled_promise_rejection',
+      );
+      scope.setContext('promise_rejection_context', {
+        error_message: error.message,
+        error_stack: error.stack,
+        is_navigation_error: isNavigationError,
+        timestamp: new Date().toISOString(),
+      });
+
+      if (isNavigationError) {
+        scope.setTag('navigation_error_type', 'route_not_found');
+        scope.setLevel('warning'); // Navigation errors are usually not fatal
+      } else {
+        scope.setLevel('error');
       }
 
-      // Prevent the default behavior (which would crash the app)
-      event.preventDefault();
+      Sentry.captureException(error);
+    });
+
+    // Call original handler if it exists
+    if (originalHandler) {
+      try {
+        originalHandler(event);
+      } catch (handlerError) {
+        console.error('Error in original unhandled rejection handler:', handlerError);
+      }
+    }
+
+    // Prevent the default behavior (logging to console) since we're handling it
+    event.preventDefault();
+  };
+
+  // Handle JavaScript errors (React Native specific)
+  if (global.ErrorUtils?.setGlobalHandler) {
+    global.ErrorUtils.setGlobalHandler((error: Error, isFatal?: boolean) => {
+      console.error('Global JavaScript error:', error);
+
+      Sentry.withScope((scope) => {
+        scope.setTag('error_type', 'javascript_error');
+        scope.setTag('is_fatal', isFatal ? 'true' : 'false');
+        scope.setLevel(isFatal ? 'fatal' : 'error');
+        scope.setContext('javascript_error_context', {
+          error_message: error.message,
+          error_stack: error.stack,
+          is_fatal: isFatal,
+          timestamp: new Date().toISOString(),
+        });
+
+        Sentry.captureException(error);
+      });
     });
   }
+
+  console.log('✅ Global async error handlers setup complete');
 }
 
 export default {

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { SentryDataCollection, SentryTestUtils } from '../services/sentry';
+import { SentryDataCollection, SentryTesting } from '../services/sentry';
 
 /**
  * Sentry Test Component
@@ -11,19 +11,19 @@ import { SentryDataCollection, SentryTestUtils } from '../services/sentry';
  */
 export default function SentryTestComponent() {
   const handleBasicTest = () => {
-    const result = SentryTestUtils.testBasicFunctionality();
-    Alert.alert('Basic Test', result ? 'Passed ✅' : 'Failed ❌');
+    SentryTesting.testMessage();
+    Alert.alert('Basic Test', 'Test message sent ✅');
   };
 
   const handleErrorTest = () => {
-    const result = SentryTestUtils.testErrorCapture();
-    Alert.alert('Error Test', result ? 'Passed ✅' : 'Failed ❌');
+    SentryTesting.testError();
+    Alert.alert('Error Test', 'Test error sent ✅');
   };
 
   const handlePerformanceTest = async () => {
     try {
-      const result = await SentryTestUtils.testPerformanceMonitoring();
-      Alert.alert('Performance Test', result ? 'Passed ✅' : 'Failed ❌');
+      SentryTesting.testBreadcrumb();
+      Alert.alert('Performance Test', 'Test breadcrumb sent ✅');
     } catch {
       Alert.alert('Performance Test', 'Failed ❌');
     }
@@ -31,13 +31,8 @@ export default function SentryTestComponent() {
 
   const handleProfilingTest = async () => {
     try {
-      const result = await SentryTestUtils.testProfilingWithTransaction();
-      Alert.alert(
-        'Profiling Test',
-        (result as any)?.success
-          ? 'Passed ✅\nCheck Sentry Dashboard > Performance > Profiles'
-          : 'Failed ❌',
-      );
+      SentryTesting.testSessionReplay();
+      Alert.alert('Profiling Test', 'Session Replay test sent ✅\nCheck Sentry Dashboard');
     } catch {
       Alert.alert('Profiling Test', 'Failed ❌');
     }
@@ -45,16 +40,8 @@ export default function SentryTestComponent() {
 
   const handleComprehensiveTest = async () => {
     try {
-      const results = await SentryTestUtils.runComprehensiveTest();
-      const passed = Object.values(results).filter(Boolean).length;
-      const total = Object.keys(results).length;
-
-      Alert.alert(
-        'Comprehensive Test',
-        `${passed}/${total} tests passed\n\nResults:\n${Object.entries(results)
-          .map(([test, result]) => `${test}: ${result ? '✅' : '❌'}`)
-          .join('\n')}`,
-      );
+      await SentryTesting.testAll();
+      Alert.alert('Comprehensive Test', 'All tests completed ✅\nCheck Sentry Dashboard');
     } catch {
       Alert.alert('Comprehensive Test', 'Failed ❌');
     }

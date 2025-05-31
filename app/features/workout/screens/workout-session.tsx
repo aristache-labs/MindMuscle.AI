@@ -17,6 +17,7 @@ import { Button } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CustomizeExerciseModal from '../../../components/CustomizeExerciseModal';
 import ExerciseDetailsModal from '../../../components/ExerciseDetailsModal';
+import ExerciseListModal from '../../../components/ExerciseListModal';
 import OptimizedImage from '../../../components/OptimizedImage';
 import { useAuth } from '../../../store/AuthContext';
 
@@ -610,6 +611,16 @@ export default function WorkoutSessionScreen() {
         onSave={handleCustomizeExerciseSave}
         availableExercises={workoutExercises}
         onExerciseChange={handleExerciseChange}
+      />
+
+      {/* Exercise List Modal */}
+      <ExerciseListModal
+        visible={_showExerciseListModal}
+        onClose={_handleExerciseListModalClose}
+        exercises={workoutExercises}
+        currentExerciseIndex={currentExerciseIndex}
+        onExerciseSelect={_handleExerciseSelect}
+        onCustomizeExercise={_handleCustomizeExerciseFromList}
       />
     </View>
   );

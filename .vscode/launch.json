@@ -12,58 +12,31 @@
       "enableDebug": true,
       "sourceMaps": true,
       "sourceMapRenames": false,
-      "skipFiles": [
-        "<node_internals>/**",
-        "node_modules/**"
-      ]
+      "skipFiles": ["<node_internals>/**", "node_modules/**"]
     },
     {
-      "name": "Debug Expo iOS (Tunnel)",
-      "request": "launch",
-      "type": "reactnativedirect",
-      "cwd": "${workspaceFolder}",
-      "platform": "exponent",
-      "expoHostType": "tunnel",
-      "trace": "log",
-      "enableDebug": true,
-      "sourceMaps": true,
-      "sourceMapRenames": false,
-      "skipFiles": [
-        "<node_internals>/**",
-        "node_modules/**"
-      ]
-    },
-    {
-      "name": "Debug Expo Android (LAN)",
-      "request": "launch",
-      "type": "reactnativedirect",
-      "cwd": "${workspaceFolder}",
-      "platform": "exponent",
-      "expoHostType": "lan",
-      "trace": "log",
-      "enableDebug": true,
-      "sourceMaps": true,
-      "sourceMapRenames": false,
-      "skipFiles": [
-        "<node_internals>/**",
-        "node_modules/**"
-      ]
-    },
-    {
-      "name": "Debug iOS Device (Network)",
+      "type": "expo",
       "request": "attach",
-      "type": "reactnativedirect",
+      "name": "Attach to Expo Go (iOS on LAN)",
+      "projectRoot": "${workspaceFolder}",
+      "bundlerHost": "${input:windowsIP}"
+    },
+    {
+      "type": "expo",
+      "request": "attach",
+      "name": "Attach to Expo Go (iOS on LAN)",
+      "projectRoot": "${workspaceFolder}",
+      "bundlerHost": "${input:windowsIP}"
+    },
+    {
+      "name": "Attach to Expo Dev Client (iOS, Windows LAN)",
+      "request": "attach",
+      "type": "reactnative",
       "cwd": "${workspaceFolder}",
-      "platform": "ios",
-      "trace": "log",
-      "sourceMaps": true,
-      "sourceMapRenames": false,
       "address": "${input:windowsIP}",
       "port": 8081,
-      "skipFiles": [
-        "<node_internals>/**",
-        "node_modules/**"
-      ]
+      "sourceMaps": true,
+      "skipFiles": ["<node_internals>/**", "node_modules/**"]
     },
     {
       "name": "Debug iOS Simulator (Mac Remote)",
@@ -76,10 +49,7 @@
       "sourceMapRenames": false,
       "address": "${input:macIP}",
       "port": 8081,
-      "skipFiles": [
-        "<node_internals>/**",
-        "node_modules/**"
-      ]
+      "skipFiles": ["<node_internals>/**", "node_modules/**"]
     },
     {
       "name": "Debug Android Hermes",
@@ -91,10 +61,7 @@
       "enableDebug": true,
       "sourceMaps": true,
       "sourceMapRenames": false,
-      "skipFiles": [
-        "<node_internals>/**",
-        "node_modules/**"
-      ]
+      "skipFiles": ["<node_internals>/**", "node_modules/**"]
     },
     {
       "name": "Attach to Metro (Any Platform)",
@@ -106,10 +73,7 @@
       "sourceMapRenames": false,
       "address": "localhost",
       "port": 8081,
-      "skipFiles": [
-        "<node_internals>/**",
-        "node_modules/**"
-      ]
+      "skipFiles": ["<node_internals>/**", "node_modules/**"]
     }
   ],
   "inputs": [
@@ -129,12 +93,12 @@
   "compounds": [
     {
       "name": "Debug Expo iOS + Android (LAN)",
-      "configurations": ["Debug Expo iOS (LAN)", "Debug Expo Android (LAN)"],
+      "configurations": ["Debug Expo iOS (LAN)", "Attach to Expo Go (iOS on LAN)"],
       "stopAll": true
     },
     {
       "name": "Debug All Platforms",
-      "configurations": ["Debug Expo iOS (LAN)", "Debug Expo Android (LAN)", "Debug Android Hermes"],
+      "configurations": ["Debug Expo iOS (LAN)", "Debug Android Hermes"],
       "stopAll": true
     }
   ]

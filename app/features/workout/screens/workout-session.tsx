@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
 // TODO: Refactoring in progress - complexity has been reduced by moving logic to custom hooks
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -44,7 +44,7 @@ import {
   useWorkoutTimer,
   useWorkoutWarmup,
 } from '../hooks';
-import { ExerciseSet } from '../types';
+import { ExerciseData, ExerciseSet } from '../types';
 
 export default function WorkoutSessionScreen() {
   const router = useRouter();
@@ -215,6 +215,57 @@ export default function WorkoutSessionScreen() {
     setTextInputRefreshKey,
     userId: user?.id,
   });
+
+  // Handle exercise reordering
+  const handleReorderExercises = useCallback(
+    (newOrder: ExerciseData[]) => {
+      setWorkoutExercises(newOrder);
+
+      // Update exercise sets to match the new order
+      const newExerciseSets: Record<string, ExerciseSet[]> = {};
+      newOrder.forEach((exercise) => {
+        if (workoutExerciseSets[exercise.id]) {
+          newExerciseSets[exercise.id] = workoutExerciseSets[exercise.id];
+        }
+      });
+      setWorkoutExerciseSets(newExerciseSets);
+
+      // Update other related state if needed
+      const newExerciseCustomized: Record<string, boolean> = {};
+      const newUserEnteredValues: Record<string, boolean> = {};
+      const newLastExerciseValues: Record<
+        string,
+        Record<number, { weight: string; reps: string }>
+      > = {};
+
+      newOrder.forEach((exercise) => {
+        if (exerciseCustomized[exercise.id]) {
+          newExerciseCustomized[exercise.id] = exerciseCustomized[exercise.id];
+        }
+        if (userEnteredValues[exercise.id]) {
+          newUserEnteredValues[exercise.id] = userEnteredValues[exercise.id];
+        }
+        if (lastExerciseValues[exercise.id]) {
+          newLastExerciseValues[exercise.id] = lastExerciseValues[exercise.id];
+        }
+      });
+
+      setExerciseCustomized(newExerciseCustomized);
+      setUserEnteredValues(newUserEnteredValues);
+      setLastExerciseValues(newLastExerciseValues);
+    },
+    [
+      setWorkoutExercises,
+      workoutExerciseSets,
+      setWorkoutExerciseSets,
+      exerciseCustomized,
+      setExerciseCustomized,
+      userEnteredValues,
+      setUserEnteredValues,
+      lastExerciseValues,
+      setLastExerciseValues,
+    ],
+  );
 
   // Use the workout warmup hook
   const { showWarmup, warmupCompleted, handleWarmupComplete, skipWarmup } = useWorkoutWarmup({
@@ -621,6 +672,7 @@ export default function WorkoutSessionScreen() {
         currentExerciseIndex={currentExerciseIndex}
         onExerciseSelect={_handleExerciseSelect}
         onCustomizeExercise={_handleCustomizeExerciseFromList}
+        onReorderExercises={handleReorderExercises}
       />
     </View>
   );

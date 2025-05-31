@@ -91,23 +91,21 @@ export function initializeSentry() {
 
       // Enhanced integrations with profiling support
       integrations: [
-        // Add React Navigation specific integrations for tracing
+        // React Navigation integration for tracing
         Sentry.reactNavigationIntegration({
           enableTimeToInitialDisplay: true,
         }),
-        // Add Hermes profiling integration explicitly (CRITICAL for profiling to work)
+
+        // Hermes profiling integration for performance profiling
         Sentry.hermesProfilingIntegration({
           platformProfilers: true, // Enable both JS and native platform profiling
         }),
-        // Add Mobile Replay integration for session recording
+
+        // Mobile Replay integration for session recording
         Sentry.mobileReplayIntegration({
           maskAllText: true, // Mask all text by default for privacy
           maskAllImages: true, // Mask all images by default for privacy
           maskAllVectors: true, // Mask all vector graphics by default for privacy
-        }),
-        // CRITICAL: Add console integration to capture logs (React Native specific)
-        new Sentry.Integrations.Console({
-          levels: ['log', 'info', 'warn', 'error', 'debug', 'assert'], // Capture all console levels
         }),
       ],
 
@@ -217,6 +215,9 @@ export function initializeSentry() {
       },
     });
 
+    // Set up console integration manually after initialization
+    setupConsoleIntegration();
+
     // Enhanced user context setup
     Sentry.setUser({
       ip_address: '{{auto}}', // Let Sentry determine IP automatically
@@ -264,6 +265,7 @@ export function initializeSentry() {
           'reactNavigationIntegration',
           'hermesProfilingIntegration',
           'mobileReplayIntegration',
+          'consoleIntegration (manual)',
         ],
       });
 
@@ -278,6 +280,7 @@ export function initializeSentry() {
       console.log('  ✓ Platform:', Constants.platform?.ios ? 'iOS' : 'Android');
       console.log('  ✓ Hermes Engine: enabled');
       console.log('  ✓ Mobile Replay: enabled with privacy masking');
+      console.log('  ✓ Console Integration: enabled (manual setup)');
       console.log('  ⚠️ Note: Profiling requires active transactions to capture data');
       console.log('  ⚠️ Note: Mobile Replay captures user sessions for debugging');
 
@@ -316,6 +319,74 @@ export function initializeSentry() {
       // Silently fail if Sentry is not available
     }
   }
+}
+
+// Manual console integration setup - compatible with Sentry React Native 6.x
+function setupConsoleIntegration() {
+  // Store original console methods
+  const originalConsole = {
+    log: console.log,
+    info: console.info,
+    warn: console.warn,
+    error: console.error,
+    debug: console.debug,
+  };
+
+  // Override console methods to capture them in Sentry
+  console.log = (...args) => {
+    Sentry.addBreadcrumb({
+      message: args.join(' '),
+      level: 'info',
+      category: 'console',
+      timestamp: Date.now() / 1000,
+    });
+    originalConsole.log(...args);
+  };
+
+  console.info = (...args) => {
+    Sentry.addBreadcrumb({
+      message: args.join(' '),
+      level: 'info',
+      category: 'console',
+      timestamp: Date.now() / 1000,
+    });
+    originalConsole.info(...args);
+  };
+
+  console.warn = (...args) => {
+    Sentry.addBreadcrumb({
+      message: args.join(' '),
+      level: 'warning',
+      category: 'console',
+      timestamp: Date.now() / 1000,
+    });
+    originalConsole.warn(...args);
+  };
+
+  console.error = (...args) => {
+    // Send console.error as actual errors to Sentry
+    const message = args.join(' ');
+    Sentry.captureMessage(message, 'error');
+    Sentry.addBreadcrumb({
+      message,
+      level: 'error',
+      category: 'console',
+      timestamp: Date.now() / 1000,
+    });
+    originalConsole.error(...args);
+  };
+
+  console.debug = (...args) => {
+    if (__DEV__) {
+      Sentry.addBreadcrumb({
+        message: args.join(' '),
+        level: 'debug',
+        category: 'console',
+        timestamp: Date.now() / 1000,
+      });
+    }
+    originalConsole.debug(...args);
+  };
 }
 
 // Test function to verify profiling is working
@@ -363,6 +434,15 @@ function testProfilingFunctionality() {
 
       // Capture a message to test the profiling context
       Sentry.captureMessage('Profiling test completed successfully', 'info');
+
+      // Test console logging integration
+      console.log('Testing console.log integration with Sentry');
+      console.info('Testing console.info integration with Sentry');
+      console.warn('Testing console.warn integration with Sentry');
+      console.error('Testing console.error integration with Sentry');
+
+      // Add a note about the test component
+      console.log('🧪 Sentry Test Component available in app - check dropdown menu "Sentry Test"');
     });
   } catch (error) {
     console.error('❌ Profiling test failed:', error);

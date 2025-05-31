@@ -22,6 +22,8 @@
     "sentry:info": "npx @sentry/cli info",
     "sentry:test": "node scripts/test-sentry-connection.mjs",
     "sentry:test:replay": "node scripts/test-sentry-mobile-replay.js",
+    "sentry:release": "bash scripts/sentry-release.sh",
+    "sentry:release:win": "powershell -ExecutionPolicy Bypass -File scripts/sentry-release.ps1",
     "build:release": "npx expo prebuild && npm run sentry:upload"
   },
   "dependencies": {

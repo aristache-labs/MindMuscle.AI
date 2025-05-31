@@ -1,291 +1,143 @@
-# Sentry Debug Files Upload Script
+# Sentry Release Scripts
 
-This directory contains scripts for managing Sentry debug information files upload, based on the [official Sentry documentation](https://docs.sentry.io/platforms/react-native/data-management/debug-files/).
+This directory contains scripts to automate Sentry release management for the MindMuscle.AI project.
 
-## Overview
+## Available Scripts
 
-The `sentry-debug-upload.js` script automates the upload of debug information files to Sentry, including:
+### 1. Bash Script (Linux/macOS)
 
-- **Source Maps**: JavaScript/TypeScript source maps for readable stack traces
-- **iOS Debug Symbols**: dSYM files for iOS crash symbolication
-- **Android Debug Symbols**: ProGuard mappings and native symbols
-- **Source Context**: Original source code for enhanced debugging
+- **File**: `sentry-release.sh`
+- **Usage**: `npm run sentry:release`
+- **Direct usage**: `bash scripts/sentry-release.sh`
 
-## Supported Debug File Formats
+### 2. PowerShell Script (Windows)
 
-According to the [Sentry documentation](https://docs.sentry.io/platforms/react-native/data-management/debug-files/), we support:
+- **File**: `sentry-release.ps1`
+- **Usage**: `npm run sentry:release:win`
+- **Direct usage**: `powershell -ExecutionPolicy Bypass -File scripts/sentry-release.ps1`
 
-- **dSYM files** for iOS, iPadOS, tvOS, watchOS, macOS, and visionOS
-- **ELF symbols** for Linux and Android (NDK)
-- **PDB files** for Windows and .NET
-- **Breakpad symbols** for all platforms
-- **WASM files** for WebAssembly
-- **ProGuard mappings** for Java and Android
-- **Source maps** for JavaScript/TypeScript
+## What These Scripts Do
+
+The scripts automate the following Sentry release workflow:
+
+1. **Propose Version**: Automatically generates a version number based on your git commits
+2. **Create Release**: Creates a new release in Sentry with the proposed version
+3. **Set Commits**: Associates git commits with the release for better tracking
+4. **Finalize Release**: Marks the release as finalized and ready to receive events
+
+## Configuration
+
+The scripts use the following configuration from your `sentry.properties` file:
+
+```bash
+SENTRY_AUTH_TOKEN=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
+SENTRY_ORG=testmind-zb
+SENTRY_PROJECT=testreact
+```
 
 ## Prerequisites
 
-1. **Sentry CLI**: Installed via `@sentry/cli` package
-2. **Authentication**: `SENTRY_AUTH_TOKEN` environment variable set
-3. **Project Configuration**: Correct organization and project settings in `sentry.properties`
+1. **Sentry CLI**: Install the Sentry CLI globally
 
-## Usage
+   ```bash
+   npm install -g @sentry/cli
+   ```
 
-### NPM Scripts (Recommended)
+2. **Git Repository**: The scripts work best when run from a git repository with commits
 
-```bash
-# Upload all debug files for production
-npm run sentry:upload
+3. **Authentication**: The auth token is already configured in the scripts
 
-# Platform-specific uploads
-npm run sentry:upload:ios      # iOS dSYM files only
-npm run sentry:upload:android  # Android ProGuard/native symbols only
-npm run sentry:upload:web      # Web source maps only
+## Usage Examples
 
-# Environment-specific uploads
-npm run sentry:upload:staging  # Upload to staging environment
-npm run sentry:upload:dev      # Upload to development (skip cleanup)
-
-# Validation and info
-npm run sentry:validate        # Validate uploaded files
-npm run sentry:info           # Show Sentry CLI info
-
-# Combined build and upload
-npm run build:release         # Build and upload in one command
-```
-
-### Direct Script Usage
+### Create a new release (Linux/macOS)
 
 ```bash
-# Basic upload (all platforms, production)
-node scripts/sentry-debug-upload.js
-
-# Platform-specific upload
-node scripts/sentry-debug-upload.js --platform ios
-node scripts/sentry-debug-upload.js --platform android
-node scripts/sentry-debug-upload.js --platform web
-
-# Environment-specific upload
-node scripts/sentry-debug-upload.js --environment staging
-node scripts/sentry-debug-upload.js --environment development
-
-# Skip validation and cleanup
-node scripts/sentry-debug-upload.js --skip-validation --skip-cleanup
-
-# Help
-node scripts/sentry-debug-upload.js --help
+npm run sentry:release
 ```
 
-## Command Line Options
+### Create a new release (Windows)
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--platform <platform>` | Platform to upload for (`ios`, `android`, `web`, `all`) | `all` |
-| `--environment <env>` | Environment to deploy to | `production` |
-| `--skip-validation` | Skip validation of uploaded files | `false` |
-| `--skip-cleanup` | Skip cleanup of old releases | `false` |
-| `--help` | Show help message | - |
-
-## File Paths Configuration
-
-The script looks for debug files in these locations:
-
-```javascript
-const config = {
-  paths: {
-    sourceMaps: './dist',                    // Web source maps
-    iosSymbols: './ios/build/Build/Products/Release-iphoneos',  // iOS dSYM files
-    androidSymbols: './android/app/build/outputs/mapping/release',  // Android ProGuard
-    androidNativeSymbols: './android/app/build/intermediates/merged_native_libs/release/out/lib',  // Android native
-    sources: './app',                        // Source context
-  }
-};
+```bash
+npm run sentry:release:win
 ```
 
-## What Gets Uploaded
+### Manual execution
 
-### Source Maps (Web/React Native)
-- **Location**: `./dist/**/*.map`
-- **Purpose**: Readable stack traces with original file names and line numbers
-- **Processing**: Rewritten, stripped prefixes, validated
+```bash
+# Linux/macOS
+bash scripts/sentry-release.sh
 
-### iOS Debug Symbols
-- **Location**: `./ios/build/Build/Products/Release-iphoneos/**/*.dSYM`
-- **Purpose**: Symbolicate iOS native crashes
-- **Format**: dSYM files generated by Xcode
+# Windows
+powershell -ExecutionPolicy Bypass -File scripts/sentry-release.ps1
+```
 
-### Android Debug Symbols
-- **ProGuard Mappings**: `./android/app/build/outputs/mapping/release/mapping.txt`
-- **Native Symbols**: `./android/app/build/intermediates/merged_native_libs/release/out/lib/**/*.so`
-- **Purpose**: Symbolicate Android crashes and native code
+## Script Features
 
-### Source Context
-- **Location**: `./app/**/*.{ts,tsx,js,jsx}`
-- **Purpose**: Show original source code in Sentry error reports
-- **Includes**: `app/`, `components/`, `services/`, `hooks/`, `utils/`, `types/`, `constants/`
+- ✅ **Error Handling**: Scripts exit on errors and provide clear error messages
+- ✅ **Colored Output**: Status messages are color-coded for better readability
+- ✅ **Validation**: Checks for required tools and dependencies
+- ✅ **Cross-Platform**: Separate scripts for Unix-like systems and Windows
+- ✅ **Automated Workflow**: Complete release process in one command
 
-## Release Management
+## Output Example
 
-The script automatically:
-
-1. **Creates Release**: Based on `package.json` version
-2. **Sets Commits**: Links git commits to the release (if in git repo)
-3. **Uploads Files**: Source maps, symbols, and source context
-4. **Validates**: Ensures files were uploaded correctly
-5. **Finalizes**: Marks release as complete
-6. **Deploys**: Creates deployment record for environment
-7. **Cleans Up**: Removes old releases (keeps last 10)
-
-## Environment Configuration
-
-### Development
-- Upload: Manual only (`upload.auto=false`)
-- Logging: Debug level
-- Cleanup: Skipped
-- Validation: Optional
-
-### Staging
-- Upload: Automatic
-- Logging: Info level
-- Cleanup: Enabled
-- Validation: Enabled
-
-### Production
-- Upload: Automatic
-- Logging: Warning level
-- Cleanup: Enabled
-- Validation: Enabled
-- Wait for processing: Enabled
+```
+[INFO] Starting Sentry release workflow...
+[INFO] Organization: testmind-zb
+[INFO] Project: testreact
+[INFO] Proposing version...
+[SUCCESS] Proposed version: 1.0.2-abc123
+[INFO] Creating new release: 1.0.2-abc123
+[SUCCESS] Release 1.0.2-abc123 created successfully
+[INFO] Setting commits for release 1.0.2-abc123
+[SUCCESS] Commits set successfully for release 1.0.2-abc123
+[INFO] Finalizing release 1.0.2-abc123
+[SUCCESS] Release 1.0.2-abc123 finalized successfully
+[SUCCESS] Sentry release workflow completed successfully!
+[INFO] Release 1.0.2-abc123 is now live and ready to receive events
+[INFO] You can view it at: https://sentry.io/organizations/testmind-zb/releases/
+```
 
 ## Troubleshooting
 
 ### Common Issues
 
-#### 1. Authentication Failed
-```bash
-❌ Sentry authentication failed. Please set SENTRY_AUTH_TOKEN
-```
-**Solution**: Set the `SENTRY_AUTH_TOKEN` environment variable:
-```bash
-export SENTRY_AUTH_TOKEN=your_token_here
-```
+1. **"sentry-cli not found"**
 
-#### 2. Files Not Found
-```bash
-⚠️  Source maps directory not found: ./dist
-```
-**Solution**: Ensure you've built your project first:
-```bash
-npm run build
-npm run sentry:upload
-```
+   - Install Sentry CLI: `npm install -g @sentry/cli`
 
-#### 3. CLI Not Found
-```bash
-❌ Sentry CLI not found. Please install @sentry/cli
-```
-**Solution**: Install the Sentry CLI:
-```bash
-npm install @sentry/cli
-```
+2. **"Failed to set commits automatically"**
 
-#### 4. Upload Timeout
-```bash
-❌ Upload failed: timeout
-```
-**Solution**: Increase timeout in `sentry.properties`:
-```properties
-http.timeout=60
-upload.max-wait=600
-```
+   - This is normal if you're not in a git repository or have no commits
+   - The script will continue and still create a valid release
 
-### Debug Mode
+3. **Permission denied (Linux/macOS)**
 
-Enable debug logging for troubleshooting:
+   - Make the script executable: `chmod +x scripts/sentry-release.sh`
+
+4. **PowerShell execution policy error (Windows)**
+   - The npm script includes the bypass flag, but you can also run:
+   - `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
+
+### Getting Help
+
+- Run with help flag: `powershell scripts/sentry-release.ps1 -Help` (Windows only)
+- Check Sentry CLI documentation: https://docs.sentry.io/cli/
+- View releases in Sentry dashboard: https://sentry.io/organizations/testmind-zb/releases/
+
+## Integration with Build Process
+
+You can integrate these scripts into your CI/CD pipeline or build process:
 
 ```bash
-# Set log level to debug
-node scripts/sentry-debug-upload.js --environment development
-
-# Check Sentry CLI info
-npm run sentry:info
-
-# Validate specific release
-npx @sentry/cli releases files 1.0.0 list
-npx @sentry/cli releases files 1.0.0 validate
+# Example: Create release before deployment
+npm run sentry:release
+npm run build:release
 ```
 
-### File Size Limits
+## Next Steps After Running
 
-If you encounter file size errors:
-
-1. **Increase limits** in `sentry.properties`:
-```properties
-max-file-size=100
-max-archive-size=200
-```
-
-2. **Enable compression**:
-```properties
-upload.compress=true
-```
-
-3. **Exclude large files** in `.sentryignore`:
-```
-# Large assets
-assets/videos/
-assets/large-images/
-```
-
-## Retention Policy
-
-According to the [Sentry documentation](https://docs.sentry.io/platforms/react-native/data-management/debug-files/):
-
-- **Retention Period**: 90 days
-- **Expiration**: Time to idle mechanism
-- **Active Use**: Files retained while processing events
-- **Automatic Cleanup**: Files expire after 90 days of inactivity
-
-## Integration with CI/CD
-
-### GitHub Actions Example
-
-```yaml
-- name: Upload Debug Files to Sentry
-  env:
-    SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-  run: |
-    npm run build
-    npm run sentry:upload
-```
-
-### EAS Build Integration
-
-Add to `eas.json`:
-
-```json
-{
-  "build": {
-    "production": {
-      "env": {
-        "SENTRY_AUTH_TOKEN": "@sentry_auth_token"
-      }
-    }
-  }
-}
-```
-
-## Security Considerations
-
-1. **Token Security**: Store `SENTRY_AUTH_TOKEN` securely
-2. **File Exclusion**: Use `.sentryignore` to exclude sensitive files
-3. **Source Code**: Consider if source context should be uploaded to production
-4. **Access Control**: Limit Sentry project access to team members
-
-## References
-
-- [Sentry Debug Information Files](https://docs.sentry.io/platforms/react-native/data-management/debug-files/)
-- [Sentry CLI Documentation](https://docs.sentry.io/cli/)
-- [React Native Source Maps](https://docs.sentry.io/platforms/react-native/source-maps/)
-- [iOS Debug Symbols](https://docs.sentry.io/platforms/react-native/debug-symbols/)
-- [Android Debug Symbols](https://docs.sentry.io/platforms/android/debug-symbols/) 
+1. Deploy your application with the new version
+2. Monitor the release in your Sentry dashboard
+3. Check for any new issues or performance regressions
+4. Set up alerts for the new release if needed

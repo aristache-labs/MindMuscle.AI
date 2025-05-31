@@ -19,7 +19,7 @@ import OptimizedImage from '../components/OptimizedImage';
 import { BORDER_RADIUS, COLORS, HEADER_HEIGHT, SPACING } from '../constants/theme';
 import useImagePreloader from '../hooks/useImagePreloader';
 import firebaseAvatarService from '../services/firebaseAvatarService';
-import { SentryLogger, SentryTestUtils } from '../services/sentry';
+import { SentryLogger } from '../services/sentry';
 import { useAuth } from '../store/AuthContext';
 import { safeAsyncFireAndForget } from '../utils/asyncErrorHandler';
 import { markAsImportantImage } from '../utils/imagePreloader';
@@ -360,82 +360,8 @@ export default function ProfileScreen() {
                 alert('Failed to sign out. Please try again.');
               }
             }}
-            isLast={!__DEV__}
+            isLast
           />
-          {__DEV__ && (
-            <MenuItem
-              icon="bug"
-              title="🔬 Test Sentry Insights & Profiling"
-              onPress={async () => {
-                try {
-                  console.log('Testing comprehensive Sentry monitoring with profiling...');
-
-                  // Run the comprehensive test suite (now includes profiling)
-                  const results = await SentryTestUtils.runComprehensiveTest();
-
-                  // Test user interaction tracking
-                  SentryLogger.user.action('test_button_press', 'profile', {
-                    test_type: 'sentry_comprehensive_suite',
-                    timestamp: new Date().toISOString(),
-                    features_tested: [
-                      'data_collection',
-                      'logging',
-                      'insights',
-                      'performance',
-                      'profiling',
-                    ],
-                  });
-
-                  // Test performance marking
-                  SentryLogger.performance.mark('sentry_comprehensive_test_completion', 500, {
-                    test_features: [
-                      'data_collection',
-                      'performance',
-                      'logging',
-                      'insights',
-                      'transactions',
-                      'profiling',
-                    ],
-                    success: Object.values(results).every(Boolean),
-                    insights_enabled: true,
-                    profiling_enabled: results.profiling,
-                    test_results: results,
-                  });
-
-                  const allPassed = Object.values(results).every(Boolean);
-                  const profilingWorking = results.profiling;
-
-                  let message = '';
-                  if (allPassed && profilingWorking) {
-                    message =
-                      '🎯 Comprehensive Sentry test completed successfully!\n\n✅ PROFILING IS WORKING!\n\nCheck your Sentry dashboard for:\n\n📊 EVENTS:\n• Test messages and errors\n• Performance transactions\n• User interactions\n\n📝 BREADCRUMBS:\n• Test breadcrumbs\n• Navigation events\n• User actions\n\n⚡ PERFORMANCE:\n• API call tracking\n• User interaction timing\n• Performance marks\n\n🔍 PROFILING:\n• CPU usage profiles\n• Function call stacks\n• Performance bottlenecks\n\n👉 Go to: Performance > Profiles in Sentry\n\n⏱️ Wait 1-2 minutes for data to appear!';
-                  } else if (allPassed && !profilingWorking) {
-                    message =
-                      '⚠️ Sentry test completed successfully but PROFILING FAILED!\n\nBasic Sentry features are working:\n• Events and errors ✅\n• Performance monitoring ✅\n• Breadcrumbs ✅\n\nBut profiling is not working ❌\n\nTroubleshooting:\n• Check if tracesSampleRate > 0\n• Ensure profilesSampleRate > 0\n• Verify Hermes engine is enabled\n• Check console logs for errors';
-                  } else {
-                    message =
-                      '⚠️ Sentry test completed with some failures.\n\nCheck console logs for details and your Sentry dashboard for captured events.\n\nProfiling status: ' +
-                      (profilingWorking ? '✅ Working' : '❌ Failed') +
-                      '\n\nIf only errors show up:\n• This is normal for new setups\n• Profiling needs active transactions\n• Try navigating between screens\n• Wait 1-2 minutes for data';
-                  }
-
-                  Alert.alert('Sentry Test Results', message);
-                } catch (error) {
-                  console.error('Error testing Sentry:', error);
-                  SentryLogger.error(
-                    'Comprehensive Sentry test failed',
-                    {
-                      error_message: error instanceof Error ? error.message : String(error),
-                      test_type: 'sentry_comprehensive_suite',
-                    },
-                    { feature: 'sentry_test', action: 'error' },
-                  );
-                  Alert.alert('❌ Failed to complete Sentry test suite.');
-                }
-              }}
-              isLast
-            />
-          )}
         </View>
 
         <View style={[styles.menuSection, styles.secondMenuSection]}>

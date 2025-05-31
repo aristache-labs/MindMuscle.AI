@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { View, TouchableOpacity, StyleSheet, GestureResponderEvent } from 'react-native';
-import { Text, IconButton, Menu, Divider } from 'react-native-paper';
 import { MaterialIcons } from '@expo/vector-icons';
-import { COLORS } from '../constants/theme';
 import { router } from 'expo-router';
+import React, { useState } from 'react';
+import { GestureResponderEvent, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Divider, IconButton, Menu, Text } from 'react-native-paper';
+import { COLORS } from '../constants/theme';
 import { GeneralHeader } from './GeneralHeader';
 
 const options = [

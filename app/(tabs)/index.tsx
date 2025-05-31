@@ -1,17 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Dimensions } from 'react-native';
-import { Text, Button, useTheme } from 'react-native-paper';
-import { useAuth } from '../store/AuthContext';
-import { COLORS, HEADER_HEIGHT } from '../constants/theme';
-import { router, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { router, useLocalSearchParams } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { Dimensions, ScrollView, StyleSheet, View } from 'react-native';
+import { Button, Text, useTheme } from 'react-native-paper';
 import { MenuHeader } from '../components/MenuHeader';
+import { COLORS, HEADER_HEIGHT } from '../constants/theme';
+import { useAuth } from '../store/AuthContext';
 
 // Import content components
-import MyPlanScreen from '../(stack)/my-plan';
-import SingleWorkoutScreen from '../(stack)/single-workout';
 import AiCoachingScreen from '../(stack)/ai-coaching';
 import CustomScreen from '../(stack)/custom';
+import MyPlanScreen from '../(stack)/my-plan';
+import SingleWorkoutScreen from '../(stack)/single-workout';
 
 const { width: _width } = Dimensions.get('window');
 
@@ -56,6 +56,7 @@ export default function HomeScreen() {
         return <AiCoachingScreen embedded={true} />;
       case 'Custom':
         return <CustomScreen embedded={true} />;
+
       default:
         return renderHomeContent();
     }

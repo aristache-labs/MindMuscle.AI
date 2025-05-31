@@ -16,19 +16,37 @@ config.resolver.unstable_enablePackageExports = true;
 // Add WASM support for expo-sqlite web compatibility
 config.resolver.assetExts = [...config.resolver.assetExts, 'wasm'];
 
-// Block Prisma and other server-only modules
+// Block Prisma, WebSocket server modules, and problematic Node.js modules
 config.resolver.blockList = [
   /\/node_modules\/prisma\//,
   /\/node_modules\/@prisma\/client\//,
   /ws\/lib\/websocket-server\.js$/,
   /ws\/lib\/server\.js$/,
+  // Block specific problematic WebSocket files that import Node.js modules
+  /\/node_modules\/@supabase\/realtime-js\/node_modules\/ws\/lib\/websocket\.js$/,
+  /\/node_modules\/ws\/lib\/websocket\.js$/,
+  /\/node_modules\/ws\/lib\/.*\.js$/,
 ];
 
-// Configure polyfills and stub out ws
+// Configure polyfills and stub out Node.js modules
 config.resolver.extraNodeModules = {
   ...extraNodeModules,
   // Override web-streams polyfill
   'web-streams-polyfill': require.resolve('web-streams-polyfill/ponyfill/es6'),
+  // Stub out problematic Node.js modules with false to disable them
+  net: false,
+  tls: false,
+  fs: false,
+  child_process: false,
+  http2: false,
+  dgram: false,
+  dns: false,
+  // Use existing polyfills from node-libs-react-native where available
+  ws: false, // Disable WebSocket entirely to prevent Node.js imports
+  http: extraNodeModules.http,
+  https: extraNodeModules.https,
+  url: extraNodeModules.url,
+  querystring: extraNodeModules.querystring,
 };
 
 // Enhanced server configuration for cross-platform debugging
@@ -63,8 +81,7 @@ config.server = {
       return middleware(req, res, next);
     };
   },
-  // Listen on all interfaces for LAN debugging
-  host: process.env.REACT_NATIVE_PACKAGER_HOSTNAME || '0.0.0.0',
+  // Use port configuration only (host is not a valid Metro server option)
   port: parseInt(process.env.RCT_METRO_PORT) || 8081,
 };
 
@@ -87,16 +104,16 @@ config.serializer = {
   ...config.serializer,
   // Ensure source maps are generated for Sentry
   createModuleIdFactory: config.serializer.createModuleIdFactory,
-  // Keep source maps for better debugging and Sentry error reporting
-  getSourceMapUrl: config.serializer.getSourceMapUrl,
+  // Removed getSourceMapUrl as it's not a valid Metro serializer option
 };
 
 // Development-specific enhancements
 if (process.env.NODE_ENV === 'development') {
   console.log('🔧 Metro configured for cross-platform debugging');
-  console.log(`📡 Server will listen on: ${config.server.host}:${config.server.port}`);
+  console.log(`📡 Server will listen on port: ${config.server.port}`);
   console.log('🌐 CORS enabled for network debugging');
   console.log('🗺️  Source maps optimized for debugging');
+  console.log('🚫 Node.js modules disabled for React Native compatibility');
 }
 
 module.exports = config;

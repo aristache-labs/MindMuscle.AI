@@ -48,6 +48,11 @@ export function initializeSentry() {
       // For more information, visit: https://docs.sentry.io/platforms/react-native/tracing/
       tracesSampleRate: __DEV__ ? 1.0 : 0.3, // 100% in dev, 30% in production
 
+      // Mobile Replay Configuration
+      // For more information, visit: https://docs.sentry.io/platforms/react-native/session-replay/
+      replaysSessionSampleRate: __DEV__ ? 1.0 : 0.1, // 100% in dev, 10% in production
+      replaysOnErrorSampleRate: 1.0, // Always capture replays on errors
+
       // Enhanced profiling for better insights - FIXED CONFIGURATION
       profilesSampleRate: __DEV__ ? 1.0 : 0.2, // 100% in dev, 20% in production
 
@@ -93,6 +98,16 @@ export function initializeSentry() {
         // Add Hermes profiling integration explicitly (CRITICAL for profiling to work)
         Sentry.hermesProfilingIntegration({
           platformProfilers: true, // Enable both JS and native platform profiling
+        }),
+        // Add Mobile Replay integration for session recording
+        Sentry.mobileReplayIntegration({
+          maskAllText: true, // Mask all text by default for privacy
+          maskAllImages: true, // Mask all images by default for privacy
+          maskAllVectors: true, // Mask all vector graphics by default for privacy
+        }),
+        // CRITICAL: Add console integration to capture logs (React Native specific)
+        new Sentry.Integrations.Console({
+          levels: ['log', 'info', 'warn', 'error', 'debug', 'assert'], // Capture all console levels
         }),
       ],
 
@@ -236,31 +251,43 @@ export function initializeSentry() {
         sendDefaultPii: true,
         tracesSampleRate: 1.0,
         profilesSampleRate: 1.0,
+        replaysSessionSampleRate: 1.0,
+        replaysOnErrorSampleRate: 1.0,
         autoInitializeNativeSdk: true,
         environment: Constants.expoConfig?.extra?.environment || 'development',
         release: Constants.expoConfig?.version || '1.0.0',
         maxBreadcrumbs: 150,
         enableAutoPerformanceTracing: true,
         profilingEnabled: true,
-        integrations: ['reactNavigationIntegration', 'hermesProfilingIntegration'],
+        mobileReplayEnabled: true,
+        integrations: [
+          'reactNavigationIntegration',
+          'hermesProfilingIntegration',
+          'mobileReplayIntegration',
+        ],
       });
 
-      // Test profiling availability
-      console.log('🔍 Profiling Configuration Check:');
+      // Test profiling and replay availability
+      console.log('🔍 Sentry Features Configuration Check:');
       console.log('  ✓ profilesSampleRate:', __DEV__ ? 1.0 : 0.2);
       console.log('  ✓ tracesSampleRate:', __DEV__ ? 1.0 : 0.3);
+      console.log('  ✓ replaysSessionSampleRate:', __DEV__ ? 1.0 : 0.1);
+      console.log('  ✓ replaysOnErrorSampleRate: 1.0');
       console.log('  ✓ autoInitializeNativeSdk: true');
       console.log('  ✓ enableAutoPerformanceTracing: true');
       console.log('  ✓ Platform:', Constants.platform?.ios ? 'iOS' : 'Android');
       console.log('  ✓ Hermes Engine: enabled');
+      console.log('  ✓ Mobile Replay: enabled with privacy masking');
       console.log('  ⚠️ Note: Profiling requires active transactions to capture data');
+      console.log('  ⚠️ Note: Mobile Replay captures user sessions for debugging');
 
       // Send a test message to verify connection
       Sentry.captureMessage('Sentry initialized successfully in development mode', 'info');
 
       // Add initial breadcrumb
       Sentry.addBreadcrumb({
-        message: 'App started with enhanced Sentry configuration including profiling',
+        message:
+          'App started with enhanced Sentry configuration including profiling and mobile replay',
         category: 'app.lifecycle',
         level: 'info',
         data: {
@@ -270,6 +297,9 @@ export function initializeSentry() {
           profiling_enabled: true,
           profiling_sample_rate: __DEV__ ? 1.0 : 0.2,
           traces_sample_rate: __DEV__ ? 1.0 : 0.3,
+          mobile_replay_enabled: true,
+          replay_session_sample_rate: __DEV__ ? 1.0 : 0.1,
+          replay_error_sample_rate: 1.0,
         },
       });
 
@@ -1974,6 +2004,7 @@ export const SentryTestUtils = {
       performance: false,
       profiling: false,
       performanceEvents: false,
+      mobileReplay: false,
     };
 
     try {
@@ -1985,6 +2016,8 @@ export const SentryTestUtils = {
       results.profiling = profilingResult?.success || false;
       const performanceEventsResult = (await SentryTestUtils.testPerformanceEvents()) as any;
       results.performanceEvents = performanceEventsResult?.success || false;
+      const mobileReplayResult = SentryTestUtils.testMobileReplay() as any;
+      results.mobileReplay = mobileReplayResult?.success || false;
 
       // Log comprehensive results
       SentryLogger.user.action('comprehensive_sentry_test', 'test_suite', {
@@ -2013,6 +2046,12 @@ export const SentryTestUtils = {
         console.log('⚠️ Performance events test failed. Check console for errors.');
       }
 
+      if (results.mobileReplay) {
+        console.log('🎬 Mobile Replay test sent! Check "Replays" section in your Sentry dashboard');
+      } else {
+        console.log('⚠️ Mobile Replay test failed. Check console for errors.');
+      }
+
       return results;
     } catch (error) {
       console.error('❌ Comprehensive test suite failed:', error);
@@ -2025,6 +2064,69 @@ export const SentryTestUtils = {
         Sentry.captureException(error instanceof Error ? error : new Error(String(error)));
       });
       return results;
+    }
+  },
+
+  // Test mobile replay functionality
+  testMobileReplay: () => {
+    console.log('🎬 Testing Mobile Replay functionality...');
+
+    try {
+      // Add breadcrumb to indicate replay test
+      Sentry.addBreadcrumb({
+        message: 'Mobile Replay test initiated',
+        category: 'replay.test',
+        level: 'info',
+        data: {
+          timestamp: new Date().toISOString(),
+          test_type: 'mobile_replay_verification',
+        },
+      });
+
+      // Trigger an event that should be captured in replay
+      Sentry.withScope((scope) => {
+        scope.setTag('test_type', 'mobile_replay');
+        scope.setTag('replay_test', 'user_interaction_simulation');
+        scope.setContext('replay_test', {
+          test_action: 'button_tap_simulation',
+          screen: 'test_screen',
+          timestamp: new Date().toISOString(),
+          expected_in_replay: true,
+        });
+
+        // Capture a test message that should trigger replay recording
+        Sentry.captureMessage('Mobile Replay test - User interaction simulated', 'info');
+      });
+
+      console.log('✅ Mobile Replay test completed!');
+      console.log('🎬 If replay is working, you should see:');
+      console.log('   • Session recordings in Sentry > Replays');
+      console.log('   • User interactions captured in the replay');
+      console.log('   • Text and images masked for privacy');
+      console.log('   • This test event linked to the replay session');
+
+      return {
+        success: true,
+        message: 'Mobile Replay test event sent - check Sentry Replays dashboard',
+        configuration: {
+          replaysSessionSampleRate: __DEV__ ? 1.0 : 0.1,
+          replaysOnErrorSampleRate: 1.0,
+          maskAllText: true,
+          maskAllImages: true,
+          maskAllVectors: true,
+        },
+      };
+    } catch (error) {
+      console.error('❌ Mobile Replay test failed:', error);
+      Sentry.withScope((scope) => {
+        scope.setTag('test_type', 'mobile_replay_test_error');
+        scope.setContext('replay_test_error', {
+          test_failed: true,
+          error_message: error instanceof Error ? error.message : String(error),
+        });
+        Sentry.captureException(error instanceof Error ? error : new Error(String(error)));
+      });
+      return { success: false, error: String(error) };
     }
   },
 };

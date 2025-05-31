@@ -105,10 +105,16 @@ class SimpleErrorHandler {
 
       this.captureException(error, context);
 
-      // Call original handler if it exists
-      if (originalHandler) {
+      // Call original handler if it exists and is compatible
+      if (originalHandler && typeof originalHandler === 'function') {
         try {
-          originalHandler(event);
+          // Check if we're in a browser environment with window context
+          if (typeof window !== 'undefined' && originalHandler.call) {
+            originalHandler.call(window, event);
+          } else {
+            // In React Native, just call the function directly
+            (originalHandler as (event: PromiseRejectionEvent) => void)(event);
+          }
         } catch (handlerError) {
           console.error('Error in original unhandled rejection handler:', handlerError);
         }
@@ -139,62 +145,74 @@ class SimpleErrorHandler {
     }
   }
 
+  // Split the complex categorizeMessage method into smaller functions
   private categorizeMessage(message: string): ErrorCategory {
     const lowerMessage = message.toLowerCase();
 
-    if (lowerMessage.includes('navigation') || lowerMessage.includes('route')) {
-      return 'navigation_error';
-    }
-    if (
-      lowerMessage.includes('network') ||
-      lowerMessage.includes('fetch') ||
-      lowerMessage.includes('api')
-    ) {
-      return 'network_error';
-    }
-    if (
-      lowerMessage.includes('database') ||
-      lowerMessage.includes('sql') ||
-      lowerMessage.includes('supabase')
-    ) {
-      return 'database_error';
-    }
-    if (
-      lowerMessage.includes('auth') ||
-      lowerMessage.includes('login') ||
-      lowerMessage.includes('token')
-    ) {
-      return 'auth_error';
-    }
-    if (
-      lowerMessage.includes('workout') ||
-      lowerMessage.includes('exercise') ||
-      lowerMessage.includes('plan')
-    ) {
-      return 'workout_error';
-    }
-    if (
-      lowerMessage.includes('ui') ||
-      lowerMessage.includes('render') ||
-      lowerMessage.includes('component')
-    ) {
-      return 'ui_error';
-    }
-    if (
-      lowerMessage.includes('storage') ||
-      lowerMessage.includes('cache') ||
-      lowerMessage.includes('async')
-    ) {
-      return 'storage_error';
-    }
-    if (lowerMessage.includes('memory') || lowerMessage.includes('performance')) {
-      return 'performance_error';
-    }
-    if (lowerMessage.includes('validation') || lowerMessage.includes('invalid')) {
-      return 'validation_error';
-    }
+    // Check navigation errors
+    if (this.isNavigationError(lowerMessage)) return 'navigation_error';
+
+    // Check network errors
+    if (this.isNetworkError(lowerMessage)) return 'network_error';
+
+    // Check database errors
+    if (this.isDatabaseError(lowerMessage)) return 'database_error';
+
+    // Check auth errors
+    if (this.isAuthError(lowerMessage)) return 'auth_error';
+
+    // Check workout errors
+    if (this.isWorkoutError(lowerMessage)) return 'workout_error';
+
+    // Check UI errors
+    if (this.isUIError(lowerMessage)) return 'ui_error';
+
+    // Check storage errors
+    if (this.isStorageError(lowerMessage)) return 'storage_error';
+
+    // Check performance errors
+    if (this.isPerformanceError(lowerMessage)) return 'performance_error';
+
+    // Check validation errors
+    if (this.isValidationError(lowerMessage)) return 'validation_error';
 
     return 'javascript_error';
+  }
+
+  private isNavigationError(message: string): boolean {
+    return message.includes('navigation') || message.includes('route');
+  }
+
+  private isNetworkError(message: string): boolean {
+    return message.includes('network') || message.includes('fetch') || message.includes('api');
+  }
+
+  private isDatabaseError(message: string): boolean {
+    return message.includes('database') || message.includes('sql') || message.includes('supabase');
+  }
+
+  private isAuthError(message: string): boolean {
+    return message.includes('auth') || message.includes('login') || message.includes('token');
+  }
+
+  private isWorkoutError(message: string): boolean {
+    return message.includes('workout') || message.includes('exercise') || message.includes('plan');
+  }
+
+  private isUIError(message: string): boolean {
+    return message.includes('ui') || message.includes('render') || message.includes('component');
+  }
+
+  private isStorageError(message: string): boolean {
+    return message.includes('storage') || message.includes('cache') || message.includes('async');
+  }
+
+  private isPerformanceError(message: string): boolean {
+    return message.includes('memory') || message.includes('performance');
+  }
+
+  private isValidationError(message: string): boolean {
+    return message.includes('validation') || message.includes('invalid');
   }
 
   // Public methods for manual error reporting

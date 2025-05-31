@@ -55,8 +55,24 @@ config.server = {
   // Enable network debugging
   enhanceMiddleware: (middleware) => {
     return (req, res, next) => {
-      // Add CORS headers for cross-origin debugging
-      res.setHeader('Access-Control-Allow-Origin', '*');
+      // Add CORS headers for cross-origin debugging (restricted to development origins)
+      const allowedOrigins = [
+        'http://localhost:3000',
+        'http://localhost:8081',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:8081',
+        'http://192.168.1.1:8081', // Common local network range
+        'http://10.0.0.1:8081', // Common local network range
+      ];
+
+      const origin = req.headers.origin;
+      if (process.env.NODE_ENV === 'development' && origin && allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+      } else if (process.env.NODE_ENV === 'development') {
+        // Fallback for development without specific origin (like direct IP access)
+        res.setHeader('Access-Control-Allow-Origin', 'http://localhost:8081');
+      }
+
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
       res.setHeader(
         'Access-Control-Allow-Headers',

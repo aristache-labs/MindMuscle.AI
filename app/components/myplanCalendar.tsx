@@ -10,17 +10,29 @@
  * Used by: my-plan.tsx
  */
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { addDays, format, getDay, isSameDay, startOfWeek } from 'date-fns';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Icon } from 'react-native-paper';
-import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
-import { format, addDays, isSameDay, getDay, startOfWeek } from 'date-fns';
+import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import workoutPlanService from '../services/workoutPlanService';
 
 // Define proper types for the plan and marked dates
+interface Exercise {
+  id: string;
+  name: string;
+  sets: number;
+  reps_range: string;
+  image_url?: string;
+  primary_muscles?: string[];
+  exercise_name?: string;
+  workout_day: number;
+  exercise_id?: string;
+}
+
 interface WorkoutDay {
   day: number;
-  exercises: any[];
+  exercises: Exercise[];
   total_exercises: number;
   estimated_duration: number;
   total_calories: number;
@@ -47,7 +59,8 @@ interface MyPlanCalendarProps {
   pausedWorkoutDays: string[];
   embedded?: boolean;
   initialSelectedDate?: Date;
-  cycleProgress?: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  _cycleProgress?: any;
 }
 
 export default function MyPlanCalendar({
@@ -58,7 +71,7 @@ export default function MyPlanCalendar({
   pausedWorkoutDays,
   embedded = false,
   initialSelectedDate,
-  cycleProgress,
+  _cycleProgress,
 }: MyPlanCalendarProps) {
   const [selectedDate, setSelectedDate] = useState(initialSelectedDate || new Date());
   const [markedDates, setMarkedDates] = useState<{ [key: string]: MarkedDateInfo }>({});

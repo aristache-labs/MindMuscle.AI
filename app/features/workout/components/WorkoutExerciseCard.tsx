@@ -1,8 +1,8 @@
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
-import OptimizedImage from '../../../components/OptimizedImage';
+import { Text, TouchableOpacity, View } from 'react-native';
 import ExerciseMaxWeightGraph from '../../../components/ExerciseMaxWeightGraph';
-import { COLORS, SPACING, BORDER_RADIUS } from '../../../constants/theme';
+import OptimizedImage from '../../../components/OptimizedImage';
+import { BORDER_RADIUS, COLORS, SPACING } from '../../../constants/theme';
 
 interface WorkoutExerciseCardProps {
   exercise: {
@@ -28,14 +28,15 @@ export default function WorkoutExerciseCard({
   const getImageSource = () => {
     // Check if we have a valid image URL
     // This prevents flickering by avoiding invalid URI loading attempts
+    const trimmedImageUrl = exercise?.image_url?.trim();
     const hasValidImageUrl =
-      exercise?.image_url &&
-      exercise.image_url.trim() !== '' &&
-      exercise.image_url !== 'null' &&
-      exercise.image_url !== 'undefined';
+      trimmedImageUrl &&
+      trimmedImageUrl !== '' &&
+      trimmedImageUrl !== 'null' &&
+      trimmedImageUrl !== 'undefined';
 
     if (hasValidImageUrl) {
-      return { uri: exercise.image_url };
+      return { uri: trimmedImageUrl };
     } else {
       // Use placeholder directly for local assets to prevent any loading attempts
       return require('../../../../assets/exercises/placeholder.jpg');

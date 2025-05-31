@@ -1,6 +1,6 @@
 import supabase from './supabase';
-import { ExerciseData, ExerciseSet } from './workoutSessionService';
 import { getCycleWeekInfo } from './workoutCycleService';
+import { ExerciseData, ExerciseSet } from './workoutSessionService';
 
 // Interface for completed workout data
 export interface CompletedWorkoutData {
@@ -65,7 +65,7 @@ interface CompleteWorkoutOptions {
 
 // Helper function to validate workout parameters
 const validateWorkoutParameters = (planId: string, workoutDay: number): void => {
-  if (isNaN(workoutDay) || workoutDay < 1) {
+  if (Number.isNaN(workoutDay) || workoutDay < 1) {
     console.error(`Invalid workout day: ${workoutDay}. Must be a number >= 1`);
     throw new Error('Invalid workout day');
   }

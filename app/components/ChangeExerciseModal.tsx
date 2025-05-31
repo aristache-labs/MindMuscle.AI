@@ -1,19 +1,19 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  Modal,
-  TouchableOpacity,
   ActivityIndicator,
   FlatList,
+  Modal,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
-import OptimizedImage from './OptimizedImage';
+import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import { fetchExerciseAlternatives } from '../services/exerciseAlternativesService';
-import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
+import OptimizedImage from './OptimizedImage';
 
 type _ListItemType =
   | { type: 'current'; exercise: Exercise; key: string }
@@ -386,11 +386,12 @@ export default function ChangeExerciseModal({
   const getImageSource = useCallback((exercise: ExerciseAlternative | Exercise) => {
     // Check if we have a valid image URL
     // This prevents flickering by avoiding invalid URI loading attempts
+    const trimmedImageUrl = exercise?.image_url?.trim();
     const hasValidImageUrl =
-      exercise?.image_url &&
-      exercise.image_url.trim() !== '' &&
-      exercise.image_url !== 'null' &&
-      exercise.image_url !== 'undefined';
+      trimmedImageUrl &&
+      trimmedImageUrl !== '' &&
+      trimmedImageUrl !== 'null' &&
+      trimmedImageUrl !== 'undefined';
 
     if (hasValidImageUrl) {
       return { uri: exercise.image_url };

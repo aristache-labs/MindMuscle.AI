@@ -1,12 +1,14 @@
-import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 
 // Platform-specific SQLite import
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let SQLite: any = null;
 
 // Only import SQLite on native platforms
 if (Platform.OS !== 'web') {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   SQLite = require('expo-sqlite');
 }
 
@@ -91,11 +93,11 @@ export const getDatabase = () => {
     console.warn('Database not available on web platform');
     return null;
   }
-  
+
   if (!SQLite) {
     throw new Error('SQLite not available on this platform');
   }
-  
+
   return SQLite.openDatabaseAsync(DB_DIRECTORY + DB_NAME);
 };
 
@@ -103,7 +105,7 @@ export async function closeDatabase() {
   if (Platform.OS === 'web' || !SQLite) {
     return;
   }
-  
+
   const db = await SQLite.openDatabaseAsync(DB_DIRECTORY + DB_NAME);
   await db.closeAsync();
 }

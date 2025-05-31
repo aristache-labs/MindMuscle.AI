@@ -1,19 +1,19 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  StyleSheet,
-  View,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  StyleSheet,
   TouchableWithoutFeedback,
-  Keyboard,
+  View,
 } from 'react-native';
-import { TextInput, Text, Checkbox, HelperText } from 'react-native-paper';
-import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
-import { useAuth } from '../store/AuthContext';
+import { Checkbox, HelperText, Text, TextInput } from 'react-native-paper';
+import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import { useNavigationDebounce } from '../hooks/useDebounce';
+import { useAuth } from '../store/AuthContext';
 
 // Custom hook for form validation
 function useFormValidation() {
@@ -47,12 +47,12 @@ function useFormValidation() {
     }
     if (!password.trim()) {
       errors.password = 'Password is required';
-    } else if (password.length < 6) {
+    } else if (password.trim().length < 6) {
       errors.password = 'Password should be at least 6 characters';
     }
     if (!confirmPassword.trim()) {
       errors.confirmPassword = 'Please confirm your password';
-    } else if (password !== confirmPassword) {
+    } else if (password.trim() !== confirmPassword.trim()) {
       errors.confirmPassword = 'Passwords do not match';
     }
 

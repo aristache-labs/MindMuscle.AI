@@ -10,10 +10,7 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "jsEngine": "hermes",
-    "assetBundlePatterns": [
-      "**/*",
-      "assets/measurements/instructions/*"
-    ],
+    "assetBundlePatterns": ["**/*", "assets/measurements/instructions/*"],
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -22,9 +19,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.mindmuscle.ai",
-      "associatedDomains": [
-        "applinks:mindmuscle.app"
-      ],
+      "associatedDomains": ["applinks:mindmuscle.app"],
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       },
@@ -78,10 +73,7 @@
       },
       "package": "com.mindmuscle.ai",
       "edgeToEdgeEnabled": true,
-      "permissions": [
-        "android.permission.RECORD_AUDIO",
-        "android.permission.CAMERA"
-      ]
+      "permissions": ["android.permission.RECORD_AUDIO", "android.permission.CAMERA"]
     },
     "web": {
       "bundler": "metro",
@@ -132,7 +124,7 @@
     ],
     "scheme": "mindmuscle",
     "extra": {
-      "sentryDsn": "https://95ca621b3a918874f6289b653a3e3f6a@o4509201331978240.ingest.de.sentry.io/4509201333092432",
+      "sentryDsn": "https://e0ba77028738bd1dae789d1b11d04739@o4509415311278080.ingest.de.sentry.io/4509415314882640",
       "environment": "development",
       "eas": {
         "projectId": "9858a5f6-fb78-441d-a3f8-baf6348ed857"

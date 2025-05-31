@@ -1,17 +1,17 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  StyleSheet,
-  View,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  StyleSheet,
   TouchableWithoutFeedback,
-  Keyboard,
+  View,
 } from 'react-native';
-import { Text, TextInput, HelperText, ActivityIndicator } from 'react-native-paper';
-import { router } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
-import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
+import { ActivityIndicator, HelperText, Text, TextInput } from 'react-native-paper';
+import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import supabase from '../services/supabase';
 
 // Custom hook for password validation
@@ -23,11 +23,11 @@ function usePasswordValidation() {
       setError('Password is required');
       return false;
     }
-    if (password.length < 6) {
+    if (password.trim().length < 6) {
       setError('Password must be at least 6 characters');
       return false;
     }
-    if (password !== confirmPassword) {
+    if (password.trim() !== confirmPassword.trim()) {
       setError('Passwords do not match');
       return false;
     }

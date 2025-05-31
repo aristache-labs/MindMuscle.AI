@@ -104,13 +104,13 @@ function adjustRepsForDifficulty(
   if (newDifficulty === 'Beginner' && currentDifficulty === 'Advanced') {
     // Easier exercise - might do more reps
     const [min, max] = reps_range.split('-').map(Number);
-    if (!isNaN(min) && !isNaN(max)) {
+    if (!Number.isNaN(min) && !Number.isNaN(max)) {
       return `${min + 2}-${max + 2}`;
     }
   } else if (newDifficulty === 'Advanced' && currentDifficulty === 'Beginner') {
     // Harder exercise - might do fewer reps
     const [min, max] = reps_range.split('-').map(Number);
-    if (!isNaN(min) && !isNaN(max) && min > 2 && max > 2) {
+    if (!Number.isNaN(min) && !Number.isNaN(max) && min > 2 && max > 2) {
       return `${min - 2}-${max - 2}`;
     }
   }
@@ -143,13 +143,13 @@ function adjustRepsForWeightRequirement(
     if (!newRequiresWeight && currentRequiresWeight) {
       // Switching from weighted to bodyweight - increase reps
       const [min, max] = reps_range.split('-').map(Number);
-      if (!isNaN(min) && !isNaN(max)) {
+      if (!Number.isNaN(min) && !Number.isNaN(max)) {
         return `${min + 3}-${max + 5}`;
       }
     } else if (newRequiresWeight && !currentRequiresWeight) {
       // Switching from bodyweight to weighted - decrease reps
       const [min, max] = reps_range.split('-').map(Number);
-      if (!isNaN(min) && !isNaN(max) && min > 3 && max > 5) {
+      if (!Number.isNaN(min) && !Number.isNaN(max) && min > 3 && max > 5) {
         return `${min - 3}-${max - 5}`;
       }
     }

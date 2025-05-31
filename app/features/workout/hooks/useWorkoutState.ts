@@ -1,10 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Alert } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert } from 'react-native';
 import workoutPlanService from '../../../services/workoutPlanService';
-import { ExerciseData, ExerciseSet, CycleWeekInfo } from '../types';
 import type { UserProfile } from '../../../store/AuthContext';
-import { debug } from '../../../utils/debugHelpers';
+import { ExerciseData, ExerciseSet } from '../types';
 import type { RecommendationData } from './useExerciseSets';
 
 // Define more specific types for workout data
@@ -217,14 +216,21 @@ export const useWorkoutState = ({
 
   // Function to fetch workout data
   const fetchWorkoutData = useCallback(async () => {
-    if (!planId || isNaN(workoutDay) || !user?.id) {
+    if (!planId || Number.isNaN(workoutDay) || !user?.id) {
       console.error('Invalid workout parameters:', { planId, workoutDay, user: !!user });
       Alert.alert('Error', 'Invalid workout parameters');
       return;
     }
 
+    // Don't fetch workout data if we're currently resuming a paused workout
+    if (isResumingPausedWorkout) {
+      console.log('FETCH: Skipping fetchWorkoutData because we are resuming a paused workout');
+      return;
+    }
+
     try {
       setIsLoading(true);
+      console.log('FETCH: Starting fetchWorkoutData');
 
       // Check if this is a redo workout
       const isRedoWorkout = forceStart === true;
@@ -251,6 +257,7 @@ export const useWorkoutState = ({
       // Set recommendations state
       setRecommendations(fetchedRecommendations as Record<string, RecommendationData>);
 
+      console.log('FETCH: fetchWorkoutData completed successfully');
       setIsLoading(false);
     } catch (error) {
       console.error('Error fetching workout data:', error);
@@ -284,14 +291,23 @@ export const useWorkoutState = ({
     } finally {
       setIsLoading(false);
     }
-  }, [planId, workoutDay, cycleWeek, user, forceStart, router]);
+  }, [planId, workoutDay, cycleWeek, user, forceStart, router, isResumingPausedWorkout]);
 
   // This function only checks if workout is completed without paused workout logic
   const checkWorkoutCompletionOnly = useCallback(async () => {
     if (!user?.id || !planId) return;
 
+    // Don't check completion if we're currently resuming a paused workout
+    if (isResumingPausedWorkout) {
+      console.log(
+        'CHECK: Skipping checkWorkoutCompletionOnly because we are resuming a paused workout',
+      );
+      return;
+    }
+
     try {
       setIsLoading(true);
+      console.log('CHECK: Starting checkWorkoutCompletionOnly');
 
       // Use the service function to check workout completion for specific cycle week
       const { isCompleted, completedWorkoutData: workoutData } =
@@ -337,6 +353,7 @@ export const useWorkoutState = ({
     setWorkoutStartTime,
     startWorkoutTimer,
     onWorkoutStarted,
+    isResumingPausedWorkout,
   ]);
 
   // Function to resume a paused workout
@@ -390,21 +407,30 @@ export const useWorkoutState = ({
         setExercises(workout.exercises as unknown as ExerciseData[]);
         setExerciseSets(workout.exerciseSets as Record<string, ExerciseSet[]>);
 
-        // Restore the current exercise index - this was missing!
+        // Restore the current exercise index - this is critical for resuming at the correct exercise
         if (workout.currentExerciseIndex !== undefined && workout.currentExerciseIndex !== null) {
+          console.log('RESUME: Setting currentExerciseIndex to:', workout.currentExerciseIndex);
           setCurrentExerciseIndex(workout.currentExerciseIndex);
-          console.log('Restored currentExerciseIndex to:', workout.currentExerciseIndex);
+          console.log(
+            'RESUME: currentExerciseIndex has been set to:',
+            workout.currentExerciseIndex,
+          );
+        } else {
+          console.warn(
+            'RESUME: No currentExerciseIndex found in paused workout data, defaulting to 0',
+          );
+          setCurrentExerciseIndex(0);
         }
 
         // Restore totals - these were also missing!
         if (workout.totalVolume !== undefined && workout.totalVolume !== null) {
           setTotalVolume(workout.totalVolume);
-          console.log('Restored totalVolume to:', workout.totalVolume);
+          console.log('RESUME: Restored totalVolume to:', workout.totalVolume);
         }
 
         if (workout.totalReps !== undefined && workout.totalReps !== null) {
           setTotalReps(workout.totalReps);
-          console.log('Restored totalReps to:', workout.totalReps);
+          console.log('RESUME: Restored totalReps to:', workout.totalReps);
         }
 
         if (workout.originalCycleWeek !== null && workout.originalCycleWeek !== undefined) {
@@ -421,11 +447,19 @@ export const useWorkoutState = ({
         // Clear the paused workout since we're resuming it now
         workoutPlanService.clearPausedWorkout(user.id, planId, workoutDay);
 
+        // Verify that the currentExerciseIndex was set correctly
+        setTimeout(() => {
+          console.log('RESUME: Verifying currentExerciseIndex after state restoration...');
+          // This will be logged in the next render cycle
+        }, 100);
+
         // Clear the resuming flag after a delay to ensure all state updates are complete
         setTimeout(() => {
           setIsResumingPausedWorkout(false);
-          console.log('Cleared isResumingPausedWorkout flag - effects can now run normally');
-        }, 2000);
+          console.log(
+            'RESUME: Cleared isResumingPausedWorkout flag - effects can now run normally',
+          );
+        }, 3000); // Increased timeout to 3 seconds to ensure all state updates complete
       } catch (error) {
         console.error('Error resuming paused workout:', error);
         // If there's an error, proceed with normal workout
@@ -456,15 +490,27 @@ export const useWorkoutState = ({
       console.warn('User or Plan ID missing, cannot check workout completion.');
       return;
     }
+
+    // Don't check completion if we're currently resuming a paused workout
+    if (isResumingPausedWorkout) {
+      console.log(
+        'CHECK: Skipping checkWorkoutCompletion because we are resuming a paused workout',
+      );
+      return;
+    }
+
     try {
+      console.log('CHECK: Starting checkWorkoutCompletion');
       // First check if there's a paused workout to resume
       const pausedWorkout = await workoutPlanService.getPausedWorkout(user.id, planId, workoutDay);
 
       if (pausedWorkout) {
         // No longer show the alert dialog - directly resume the paused workout
+        console.log('CHECK: Found paused workout, resuming...');
         resumePausedWorkout(pausedWorkout);
       } else {
         // No paused workout, continue with normal flow
+        console.log('CHECK: No paused workout found, checking completion...');
         checkWorkoutCompletionOnly();
       }
     } catch {
@@ -472,86 +518,71 @@ export const useWorkoutState = ({
       // If there's an error, proceed with normal workout
       checkWorkoutCompletionOnly();
     }
-  }, [user, planId, workoutDay, resumePausedWorkout, checkWorkoutCompletionOnly]);
+  }, [
+    user,
+    planId,
+    workoutDay,
+    resumePausedWorkout,
+    checkWorkoutCompletionOnly,
+    isResumingPausedWorkout,
+  ]);
 
-  // Effect to handle workout initialization
+  // Single effect to handle all workout initialization to prevent race conditions
   useEffect(() => {
-    if (forceStart) {
-      // Force start means we want to start the workout even if it's already completed
-      setIsWorkoutCompleted(false);
-      fetchWorkoutData();
+    const initializeWorkout = async () => {
+      if (forceStart) {
+        // Force start means we want to start the workout even if it's already completed
+        setIsWorkoutCompleted(false);
+        fetchWorkoutData();
 
-      // Start workout timer
-      setWorkoutStartTime(new Date());
-      startWorkoutTimer();
-      if (onWorkoutStarted) onWorkoutStarted();
-    } else {
-      // Check for completion first, then proceed with normal flow
-      checkWorkoutCompletion();
-    }
-
-    // Cleanup
-    return () => {
-      clearAllTimers();
-    };
-  }, []);
-
-  // Effect to handle the workout flow based on parameters
-  useEffect(() => {
-    // Check if workout is already completed for today, but skip if forceStart is true
-    if (!forceStart) {
-      if (forceResume) {
+        // Start workout timer
+        setWorkoutStartTime(new Date());
+        startWorkoutTimer();
+        if (onWorkoutStarted) onWorkoutStarted();
+      } else if (forceResume) {
         // If forceResume is true, directly try to load and resume the paused workout
-        const resumePausedWorkoutDirectly = async () => {
-          try {
-            setIsLoading(true);
+        try {
+          setIsLoading(true);
 
-            // Try to get the paused workout
-            const pausedWorkout = await workoutPlanService.getPausedWorkout(
-              user?.id || '',
-              planId,
-              workoutDay,
-            );
+          // Try to get the paused workout
+          const pausedWorkout = await workoutPlanService.getPausedWorkout(
+            user?.id || '',
+            planId,
+            workoutDay,
+          );
 
-            if (pausedWorkout) {
-              // Directly resume the paused workout
-              resumePausedWorkout(pausedWorkout);
-            } else {
-              // No paused workout found, fetch workout data normally
-              setIsResumingPausedWorkout(false); // Make sure flag is cleared
-              fetchWorkoutData();
-              setWorkoutStartTime(new Date());
-              startWorkoutTimer();
-              if (onWorkoutStarted) onWorkoutStarted();
-            }
-          } catch {
-            // If there's an error, fetch workout data normally
+          if (pausedWorkout) {
+            // Directly resume the paused workout
+            resumePausedWorkout(pausedWorkout);
+          } else {
+            // No paused workout found, fetch workout data normally
             setIsResumingPausedWorkout(false); // Make sure flag is cleared
             fetchWorkoutData();
             setWorkoutStartTime(new Date());
             startWorkoutTimer();
             if (onWorkoutStarted) onWorkoutStarted();
           }
-        };
-
-        resumePausedWorkoutDirectly();
+        } catch {
+          // If there's an error, fetch workout data normally
+          setIsResumingPausedWorkout(false); // Make sure flag is cleared
+          fetchWorkoutData();
+          setWorkoutStartTime(new Date());
+          startWorkoutTimer();
+          if (onWorkoutStarted) onWorkoutStarted();
+        }
       } else {
         // Normal flow - check if workout is completed or paused
         checkWorkoutCompletion();
       }
-    } else {
-      // If forceStart is true, always fetch workout data and start the timer
-      fetchWorkoutData();
-      setWorkoutStartTime(new Date());
-      startWorkoutTimer();
-      if (onWorkoutStarted) onWorkoutStarted();
-    }
+    };
+
+    initializeWorkout();
 
     // Cleanup
     return () => {
       clearAllTimers();
     };
-  }, [planId, workoutDay, forceStart, forceResume, clearAllTimers]);
+  }, [planId, workoutDay, forceStart, forceResume]);
 
   return {
     // Core state

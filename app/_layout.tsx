@@ -1,6 +1,9 @@
 // Initialize polyfills first
 import './utils/polyfills';
 
+// Apply splash screen compatibility patch before any other imports
+import './utils/splashScreenPatch';
+
 // Configure Reanimated logger to reduce warnings
 import { configureReanimatedLogger, ReanimatedLogLevel } from 'react-native-reanimated';
 

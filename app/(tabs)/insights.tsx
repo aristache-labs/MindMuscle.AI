@@ -722,17 +722,17 @@ const _getMeasurementIcon = (category: MeasurementCategory): string => {
     case 'BICEPS':
       return 'arm-flex';
     case 'ABS':
-      return 'human-male';
+      return 'stomach';
     case 'WAIST':
-      return 'human-male';
+      return 'tape-measure';
     case 'CHEST':
-      return 'human-male';
+      return 'human-male-board';
     case 'SHLDRS':
-      return 'human-male';
+      return 'account-box';
     case 'THIGH':
-      return 'human-male';
+      return 'human-male-height';
     case 'CALF':
-      return 'human-male';
+      return 'foot-print';
     default:
       return 'ruler';
   }

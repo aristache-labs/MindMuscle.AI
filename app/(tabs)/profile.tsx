@@ -85,37 +85,6 @@ export default function ProfileScreen() {
     debugLabel: 'ProfileAvatar',
   });
 
-  // Refresh user data when screen is mounted or becomes active
-  useEffect(() => {
-    if (pathname === '/profile' && !isRefreshing) {
-      setIsRefreshing(true);
-    }
-
-    const refreshData = async () => {
-      try {
-        await Promise.all([loadUserAvatar(), refreshUser()]);
-      } catch (error) {
-        console.error('Error refreshing profile data:', error);
-        SentryLogger.error(
-          'Profile refresh error',
-          {
-            error_message: error instanceof Error ? error.message : String(error),
-            pathname,
-          },
-          { feature: 'profile', action: 'refresh_error' },
-        );
-      } finally {
-        setIsRefreshing(false);
-      }
-    };
-
-    // Call the async function and handle any potential unhandled promise rejections
-    safeAsyncFireAndForget(() => refreshData(), {
-      errorPrefix: 'Profile data refresh failed',
-      context: { pathname },
-    });
-  }, [pathname, isRefreshing, refreshUser]);
-
   // Load user avatar with caching
   const loadUserAvatar = useCallback(async () => {
     if (!user?.id) return;
@@ -161,6 +130,38 @@ export default function ProfileScreen() {
       }
     }
   }, [user, avatarUrl]);
+
+  // Refresh user data when screen is mounted or becomes active
+  const refreshData = useCallback(async () => {
+    if (isRefreshing) return; // Prevent multiple simultaneous refreshes
+
+    setIsRefreshing(true);
+    try {
+      await Promise.all([loadUserAvatar(), refreshUser()]);
+    } catch (error) {
+      console.error('Error refreshing profile data:', error);
+      SentryLogger.error(
+        'Profile refresh error',
+        {
+          error_message: error instanceof Error ? error.message : String(error),
+          pathname,
+        },
+        { feature: 'profile', action: 'refresh_error' },
+      );
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [isRefreshing, loadUserAvatar, refreshUser, pathname]);
+
+  useEffect(() => {
+    // Only refresh when the screen becomes active and we're not already refreshing
+    if (pathname === '/profile') {
+      safeAsyncFireAndForget(() => refreshData(), {
+        errorPrefix: 'Profile data refresh failed',
+        context: { pathname },
+      });
+    }
+  }, [pathname, refreshData]);
 
   // Get user's full name and email from metadata, fallback to defaults if not set
   const userFullName = user?.user_metadata?.name || user?.email?.split('@')[0] || 'User';

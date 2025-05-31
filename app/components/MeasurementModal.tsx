@@ -1,22 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import Slider from '@react-native-community/slider';
+import React, { useEffect, useState } from 'react';
 import {
-  StyleSheet,
-  View,
-  Modal,
-  Pressable,
-  TextInput,
-  TouchableWithoutFeedback,
-  Keyboard,
-  KeyboardAvoidingView,
-  Platform,
   Image,
   ImageSourcePropType,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  TouchableWithoutFeedback,
+  View,
 } from 'react-native';
-import { Text, IconButton, Portal, Provider } from 'react-native-paper';
-import Slider from '@react-native-community/slider';
-import { MeasurementCategory, measurementService, Measurement } from '../services/measurements';
-import MeasurementHistory from './MeasurementHistory';
+import { IconButton, Portal, Provider, Text } from 'react-native-paper';
 import { COLORS } from '../constants/theme';
+import { Measurement, MeasurementCategory, measurementService } from '../services/measurements';
+import MeasurementHistory from './MeasurementHistory';
 interface Props {
   visible: boolean;
   category: MeasurementCategory;
@@ -109,7 +109,7 @@ export default function MeasurementModal({
 
   const handleSave = async (value: number) => {
     try {
-      const numericValue = isNaN(value) ? 0 : parseFloat(value.toFixed(1));
+      const numericValue = Number.isNaN(value) ? 0 : parseFloat(value.toFixed(1));
       await onSave(numericValue);
       const updatedMeasurements = await measurementService.getMeasurementHistory(userId, category);
       setMeasurements(updatedMeasurements);
@@ -154,7 +154,7 @@ export default function MeasurementModal({
     setValue(sanitizedText);
     // Only update slider if value is within bounds
     const numValue = parseFloat(sanitizedText);
-    if (!isNaN(numValue) && numValue >= MIN_VALUE && numValue <= MAX_VALUE) {
+    if (!Number.isNaN(numValue) && numValue >= MIN_VALUE && numValue <= MAX_VALUE) {
       setSliderValue(numValue);
     }
   };
@@ -162,7 +162,7 @@ export default function MeasurementModal({
   // Clamp and format value on blur
   const handleValueBlur = () => {
     let numValue = parseFloat(value);
-    if (isNaN(numValue)) numValue = MIN_VALUE;
+    if (Number.isNaN(numValue)) numValue = MIN_VALUE;
     if (numValue < MIN_VALUE) numValue = MIN_VALUE;
     if (numValue > MAX_VALUE) numValue = MAX_VALUE;
     setValue(numValue.toFixed(1));

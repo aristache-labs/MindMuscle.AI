@@ -1,6 +1,6 @@
 import { Asset } from 'expo-asset';
-import { Platform } from 'react-native';
 import { Image } from 'expo-image';
+import { Platform } from 'react-native';
 import { loggers } from './debugHelpers';
 
 // Get the image preloader logger
@@ -130,6 +130,8 @@ const _getFastImagePriority = (priority: 'low' | 'normal' | 'high'): string => {
       case 'high':
         return FastImage.priority.high;
       default:
+        // Fallback to normal priority for any unexpected values
+        console.warn(`Unknown priority: ${priority}, falling back to normal`);
         return FastImage.priority.normal;
     }
   }

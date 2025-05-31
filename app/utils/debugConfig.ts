@@ -11,6 +11,7 @@ export const DEBUG_CONFIG = {
 
   // Component-specific debug flags
   SPLASH_SCREEN: false,
+  SPLASH_PATCH: false,
   IMAGE_PRELOADER: false,
   NETWORK: false,
   AUTH: false,

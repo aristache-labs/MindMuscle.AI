@@ -1,48 +1,48 @@
 import React, { useEffect } from 'react';
 // TODO: Refactoring in progress - complexity has been reduced by moving logic to custom hooks
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  ActivityIndicator,
-  Platform,
-  KeyboardAvoidingView,
-} from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Button } from 'react-native-paper';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../../../store/AuthContext';
-import OptimizedImage from '../../../components/OptimizedImage';
-import ExerciseDetailsModal from '../../../components/ExerciseDetailsModal';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { Button } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CustomizeExerciseModal from '../../../components/CustomizeExerciseModal';
+import ExerciseDetailsModal from '../../../components/ExerciseDetailsModal';
+import OptimizedImage from '../../../components/OptimizedImage';
+import { useAuth } from '../../../store/AuthContext';
 
-import { COLORS, SPACING, BORDER_RADIUS } from '../../../constants/theme';
+import { BORDER_RADIUS, COLORS, SPACING } from '../../../constants/theme';
 import {
-  useWorkoutTimer,
-  useExerciseSets,
-  useWorkoutData,
-  useWorkoutCompletion,
-  useWorkoutNavigation,
-  useExerciseSelection,
-  useWorkoutState,
-  useWorkoutExitHandling,
-  useWorkoutWarmup,
-  useWorkoutInitialization,
-  useWorkoutKeyboardHandling,
-  useWorkoutRender,
-} from '../hooks';
-import {
-  WorkoutHeader,
-  WorkoutTimerTabs,
   WorkoutExerciseCard,
   WorkoutExerciseSetRow,
-  WorkoutWarmupModal,
   WorkoutExitModal,
+  WorkoutHeader,
+  WorkoutTimerTabs,
+  WorkoutWarmupModal,
 } from '../components';
+import {
+  useExerciseSelection,
+  useExerciseSets,
+  useWorkoutCompletion,
+  useWorkoutData,
+  useWorkoutExitHandling,
+  useWorkoutInitialization,
+  useWorkoutKeyboardHandling,
+  useWorkoutNavigation,
+  useWorkoutRender,
+  useWorkoutState,
+  useWorkoutTimer,
+  useWorkoutWarmup,
+} from '../hooks';
 import { ExerciseSet } from '../types';
 
 export default function WorkoutSessionScreen() {
@@ -303,6 +303,14 @@ export default function WorkoutSessionScreen() {
 
   // Get the current exercise based on the current index
   const currentExercise = workoutExercises[currentExerciseIndex];
+
+  // Debug log to track currentExerciseIndex changes
+  useEffect(() => {
+    console.log('WORKOUT SESSION: currentExerciseIndex changed to:', currentExerciseIndex);
+    if (currentExercise) {
+      console.log('WORKOUT SESSION: Current exercise is:', currentExercise.name);
+    }
+  }, [currentExerciseIndex, currentExercise?.name]);
 
   // Use the workout render hook for render-related calculations
   const {

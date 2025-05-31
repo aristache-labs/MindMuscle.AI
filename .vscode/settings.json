@@ -175,6 +175,6 @@
   "search.smartCase": true,
   "search.useGlobalIgnoreFiles": true,
   "react-native-tools.showUserTips": true,
-  "react-native-tools.projectRoot": "${workspaceFolder}",
+  "react-native-tools.projectRoot": "c:\\Personal\\MindMuscle.AI\\",
   "expo.enableTelemetry": false
 }

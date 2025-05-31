@@ -1,44 +1,44 @@
-import React, { useEffect, useCallback } from 'react';
-import { View, ScrollView, FlatList, ActivityIndicator } from 'react-native';
-import { Appbar, IconButton, FAB, Button } from 'react-native-paper';
 import { useRouter } from 'expo-router';
+import React, { useCallback, useEffect } from 'react';
+import { ActivityIndicator, FlatList, ScrollView, View } from 'react-native';
+import { Appbar, Button, FAB, IconButton } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, SPACING } from '../../../constants/theme';
-import { useAuth } from '../../../store/AuthContext';
-import MyPlanCalendar from '../../../components/myplanCalendar';
 import ExerciseDetailsModal from '../../../components/ExerciseDetailsModal';
+import MyPlanCalendar from '../../../components/myplanCalendar';
 import PlanOverviewModal from '../../../components/PlanOverviewModal';
+import { COLORS, SPACING } from '../../../constants/theme';
 import workoutPlanService from '../../../services/workoutPlanService';
+import { useAuth } from '../../../store/AuthContext';
 import {
-  DateSelectionLoadingComponent,
-  RestDayComponent,
-  LockedWeekComponent,
   CompletedWorkoutView,
+  DateSelectionLoadingComponent,
+  ExerciseItem,
+  LockedWeekComponent,
+  NoPlanView,
+  PausedWorkoutModal,
+  RestDayComponent,
   WorkoutHeader,
   WorkoutStatsRow,
-  ExerciseItem,
-  PausedWorkoutModal,
-  NoPlanView,
 } from '../components';
 import {
-  usePlanState,
-  useWorkoutActions,
   useCalendarData,
   useDateSelection,
   usePlanData,
+  usePlanState,
+  useWorkoutActions,
 } from '../hooks';
+import { styles } from '../styles';
 import {
-  MyPlanScreenProps,
+  CompletedWorkoutData,
+  CycleProgress,
   Exercise,
+  LockedWeekInfo,
+  MyPlanScreenProps,
   PausedWorkout,
   Plan,
-  CycleProgress,
-  CompletedWorkoutData,
-  LockedWeekInfo,
   WorkoutDay,
 } from '../types';
 import { updatePausedWorkoutWithCustomizations } from '../utils';
-import { styles } from '../styles';
 
 // Loading Screen Component
 const LoadingScreen: React.FC<{ embedded: boolean }> = ({ embedded }) => {
@@ -456,7 +456,7 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
 
   // PLAN FETCH EFFECT
   useEffect(() => {
-    if (user?.id && userWorkoutDays.length >= 0) {
+    if (user?.id && userWorkoutDays.length > 0) {
       fetchActivePlan();
     }
   }, [user?.id, userWorkoutDays.length, fetchActivePlan]);
@@ -521,7 +521,7 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
         pausedWorkoutDays={pausedWorkoutDays}
         embedded={embedded}
         initialSelectedDate={selectedDate}
-        cycleProgress={cycleProgress}
+        _cycleProgress={cycleProgress}
       />
 
       {/* Scrollable Content */}

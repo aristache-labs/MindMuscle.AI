@@ -1,14 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Check if SecureStore is available at module level
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let SecureStoreModule: any = null;
 let isSecureStoreModuleAvailable = false;
 
 // Try to load SecureStore module safely
 try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   SecureStoreModule = require('expo-secure-store');
   isSecureStoreModuleAvailable = true;
   console.log('SecureStore module loaded successfully');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } catch (error: any) {
   console.warn('SecureStore module not available, will use AsyncStorage fallback:', error.message);
   isSecureStoreModuleAvailable = false;

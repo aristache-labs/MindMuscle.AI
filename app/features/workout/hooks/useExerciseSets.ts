@@ -1,17 +1,17 @@
-import { useState, useCallback, SetStateAction } from 'react';
+import { SetStateAction, useCallback, useState } from 'react';
 import { Alert } from 'react-native';
 import type { ExerciseData, ExerciseSet } from '../types';
 import {
-  resolveRepsValues,
-  resolveWeightValue,
-  checkCompletionStatus,
-  resolveSetValuesForLogAll,
-  validateAutoFillConditions,
-  determineAutoFillValues,
-  clearUserEnteredFlags,
   calculateVolumeFromSet,
-  updateSetsForCustomization,
+  checkCompletionStatus,
+  clearUserEnteredFlags,
+  determineAutoFillValues,
   processRepsInput,
+  resolveRepsValues,
+  resolveSetValuesForLogAll,
+  resolveWeightValue,
+  updateSetsForCustomization,
+  validateAutoFillConditions,
 } from '../utils';
 
 export interface RecommendationData {
@@ -585,7 +585,7 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
 
     // Replace comma with dot for decimal values
     if (value.includes(',')) {
-      processedValue = value.replace(',', '.');
+      processedValue = value.replace(/,/g, '.');
     }
 
     // Keep '-' as is but remove leading zeros

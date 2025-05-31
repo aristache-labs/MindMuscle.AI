@@ -76,16 +76,46 @@ interface GlobalCache {
   userFavoritesCache?: UserFavoritesCache;
 }
 
+// Track splash screen state to prevent multiple operations
+const splashScreenState = {
+  isShown: false,
+  isHidden: false,
+  preventAutoHideCalled: false,
+};
+
 // Safely attempt to prevent auto-hide with error handling
 const safelyPreventAutoHide = async (): Promise<void> => {
   try {
-    if (Platform.OS !== 'web') {
-      if (typeof SplashScreen.preventAutoHideAsync === 'function') {
-        await SplashScreen.preventAutoHideAsync();
-        logger.debugComponent('SPLASH_SCREEN', 'preventAutoHideAsync called successfully');
-      } else {
-        logger.warn('SplashScreen.preventAutoHideAsync is not a function');
-      }
+    // Skip splash screen management in web or if running in Expo Go
+    if (Platform.OS === 'web') {
+      logger.debugComponent('SPLASH_SCREEN', 'Skipping splash screen on web platform');
+      return;
+    }
+
+    // Check if already called
+    if (splashScreenState.preventAutoHideCalled) {
+      logger.debugComponent('SPLASH_SCREEN', 'preventAutoHideAsync already called, skipping');
+      return;
+    }
+
+    // Check if we're running in Expo Go (development)
+    const isExpoGo = typeof SplashScreen?.preventAutoHideAsync !== 'function';
+
+    if (isExpoGo) {
+      logger.debugComponent(
+        'SPLASH_SCREEN',
+        'Running in Expo Go - splash screen management limited',
+      );
+      return;
+    }
+
+    if (typeof SplashScreen.preventAutoHideAsync === 'function') {
+      await SplashScreen.preventAutoHideAsync();
+      splashScreenState.preventAutoHideCalled = true;
+      splashScreenState.isShown = true;
+      logger.debugComponent('SPLASH_SCREEN', 'preventAutoHideAsync called successfully');
+    } else {
+      logger.warn('SplashScreen.preventAutoHideAsync is not available');
     }
   } catch (error) {
     logger.warn('Error with splash screen prevention:', { context: { error: String(error) } });
@@ -95,25 +125,50 @@ const safelyPreventAutoHide = async (): Promise<void> => {
 // Safely attempt to hide with error handling
 const safelyHideSplashScreen = async (): Promise<void> => {
   try {
-    if (Platform.OS !== 'web') {
-      if (typeof SplashScreen.hideAsync === 'function') {
-        await SplashScreen.hideAsync();
-        logger.debugComponent('SPLASH_SCREEN', 'hideAsync called successfully');
-      } else {
-        logger.warn('SplashScreen.hideAsync is not a function');
-      }
+    // Skip splash screen management in web or if running in Expo Go
+    if (Platform.OS === 'web') {
+      logger.debugComponent('SPLASH_SCREEN', 'Skipping splash screen hide on web platform');
+      return;
+    }
+
+    // Check if already hidden or never shown
+    if (splashScreenState.isHidden || !splashScreenState.isShown) {
+      logger.debugComponent(
+        'SPLASH_SCREEN',
+        'Splash screen already hidden or never shown, skipping',
+      );
+      return;
+    }
+
+    // Check if we're running in Expo Go (development)
+    const isExpoGo = typeof SplashScreen?.hideAsync !== 'function';
+
+    if (isExpoGo) {
+      logger.debugComponent('SPLASH_SCREEN', 'Running in Expo Go - splash screen hide limited');
+      return;
+    }
+
+    if (typeof SplashScreen.hideAsync === 'function') {
+      await SplashScreen.hideAsync();
+      splashScreenState.isHidden = true;
+      logger.debugComponent('SPLASH_SCREEN', 'hideAsync called successfully');
+    } else {
+      logger.warn('SplashScreen.hideAsync is not available');
     }
   } catch (error) {
     logger.warn('Error hiding splash screen:', { context: { error: String(error) } });
   }
 };
 
-// Execute once on module load
-if (Platform.OS !== 'web') {
-  safeAsyncFireAndForget(() => safelyPreventAutoHide(), {
-    errorPrefix: 'Initial splash screen setup failed',
-    context: { location: 'module_load' },
-  });
+// Execute once on module load - only in production builds
+if (Platform.OS !== 'web' && typeof SplashScreen?.preventAutoHideAsync === 'function') {
+  // Add a small delay to ensure the native module is fully initialized
+  setTimeout(() => {
+    safeAsyncFireAndForget(() => safelyPreventAutoHide(), {
+      errorPrefix: 'Initial splash screen setup failed',
+      context: { location: 'module_load' },
+    });
+  }, 100);
 }
 
 export default function SplashScreenManager({ children }: { children: React.ReactNode }) {
@@ -129,8 +184,14 @@ export default function SplashScreenManager({ children }: { children: React.Reac
     if (DEBUG_SPLASH_SCREEN)
       console.log('🚀 SplashScreenManager component mounting - initial render');
 
-    // Prevent auto-hide on component mount
-    safelyPreventAutoHide();
+    // Prevent auto-hide on component mount with better error handling
+    // Add a small delay to ensure proper initialization order
+    setTimeout(() => {
+      safeAsyncFireAndForget(() => safelyPreventAutoHide(), {
+        errorPrefix: 'Component mount splash screen setup failed',
+        context: { location: 'component_mount' },
+      });
+    }, 50);
 
     // Set up total timeout as a safety net
     totalTimeoutRef.current = setTimeout(() => {
@@ -143,11 +204,23 @@ export default function SplashScreenManager({ children }: { children: React.Reac
     // Listen for app state changes
     const subscription = AppState.addEventListener('change', handleAppStateChange);
 
+    // Initialize splash screen with comprehensive error handling
     const initSplashScreen = async () => {
       try {
         await prepare();
       } catch (e) {
         console.error('Error in splash screen setup:', e);
+        // Log to Sentry if available, but don't let it crash the app
+        try {
+          if (typeof logger?.error === 'function') {
+            logger.error(
+              'SplashScreen initialization failed',
+              e instanceof Error ? e : new Error(String(e)),
+            );
+          }
+        } catch (logError) {
+          console.warn('Failed to log splash screen error:', logError);
+        }
       } finally {
         // Regardless of errors, we need to finish loading
         if (isMounted.current) {
@@ -156,7 +229,11 @@ export default function SplashScreenManager({ children }: { children: React.Reac
       }
     };
 
-    initSplashScreen();
+    // Use safeAsyncFireAndForget to prevent unhandled promise rejections
+    safeAsyncFireAndForget(() => initSplashScreen(), {
+      errorPrefix: 'SplashScreen initialization failed',
+      context: { location: 'useEffect_init' },
+    });
 
     return () => {
       isMounted.current = false;
@@ -406,21 +483,12 @@ export default function SplashScreenManager({ children }: { children: React.Reac
       }
       await new Promise((resolve) => setTimeout(resolve, 200));
 
-      // Try to hide the native splash screen to show our custom loading screen
-      if (Platform.OS !== 'web') {
-        try {
-          if (typeof SplashScreen.hideAsync === 'function') {
-            if (DEBUG_SPLASH_SCREEN) {
-              console.log('🎭 [SplashScreenManager] Hiding native splash screen...');
-            }
-            await SplashScreen.hideAsync();
-            if (DEBUG_SPLASH_SCREEN) {
-              console.log('✅ [SplashScreenManager] Native splash screen hidden');
-            }
-          }
-        } catch (splashError) {
-          console.warn('❌ [SplashScreenManager] Error hiding native splash screen:', splashError);
-        }
+      // Note: We don't hide the native splash screen here anymore
+      // It will be hidden only when the app is fully ready in finishLoading()
+      if (DEBUG_SPLASH_SCREEN) {
+        console.log(
+          '🎭 [SplashScreenManager] Keeping native splash screen visible during loading...',
+        );
       }
 
       // Execute phases sequentially
@@ -477,11 +545,15 @@ export default function SplashScreenManager({ children }: { children: React.Reac
           console.log('🎭 [SplashScreenManager] Hiding splash screen');
         }
         setShowSplash(false);
-        setTimeout(() => {
-          if (DEBUG_SPLASH_SCREEN) {
-            console.log('🔚 [SplashScreenManager] Calling safelyHideSplashScreen');
+
+        // Hide the native splash screen after our custom loading screen is hidden
+        setTimeout(async () => {
+          if (isMounted.current) {
+            if (DEBUG_SPLASH_SCREEN) {
+              console.log('🔚 [SplashScreenManager] Calling safelyHideSplashScreen');
+            }
+            await safelyHideSplashScreen();
           }
-          safelyHideSplashScreen();
         }, 100);
       } else {
         if (DEBUG_SPLASH_SCREEN) {

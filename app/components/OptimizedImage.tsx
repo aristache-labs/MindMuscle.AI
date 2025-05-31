@@ -1,15 +1,15 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import {
-  View,
-  ActivityIndicator,
-  StyleSheet,
-  StyleProp,
-  ViewStyle,
-  ImageStyle,
-  Dimensions,
-} from 'react-native';
 import { Image, ImageContentFit } from 'expo-image';
-import { markAsImportantImage, addImageToCache } from '../utils/imagePreloader';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Dimensions,
+  ImageStyle,
+  StyleProp,
+  StyleSheet,
+  View,
+  ViewStyle,
+} from 'react-native';
+import { addImageToCache, markAsImportantImage } from '../utils/imagePreloader';
 
 // Get screen dimensions for optimization
 const screenWidth = Dimensions.get('window').width;
@@ -453,7 +453,20 @@ export default function OptimizedImage({
         return 'fill';
       case 'center':
         return 'none';
+      case 'repeat':
+        // React Native's 'repeat' mode doesn't have a direct equivalent in expo-image
+        // Use 'fill' to stretch the image which is the closest behavior
+        if (DEBUG_OPTIMIZED_IMAGE) {
+          console.info(
+            `🖼️ [OptimizedImage] Converting 'repeat' mode to 'fill' for expo-image compatibility`,
+          );
+        }
+        return 'fill';
       default:
+        // Log unexpected resize modes for debugging
+        if (DEBUG_OPTIMIZED_IMAGE) {
+          console.warn(`🖼️ [OptimizedImage] Unknown resize mode: ${mode}, falling back to 'cover'`);
+        }
         return 'cover';
     }
   }

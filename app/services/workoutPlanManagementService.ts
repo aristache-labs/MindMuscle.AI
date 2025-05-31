@@ -1,5 +1,5 @@
-import supabase from './supabase';
 import { format } from 'date-fns';
+import supabase from './supabase';
 import { getUserWorkoutDays } from './workoutPlanCore';
 
 // Type definitions for better type safety
@@ -215,10 +215,10 @@ export const fetchActivePlan = async (
         let avgReps = 10; // Default
         if (repRange.includes('-')) {
           const [min, max] = repRange.split('-').map((num: string) => parseInt(num));
-          if (!isNaN(min) && !isNaN(max)) {
+          if (!Number.isNaN(min) && !Number.isNaN(max)) {
             avgReps = Math.floor((min + max) / 2);
           }
-        } else if (!isNaN(parseInt(repRange))) {
+        } else if (!Number.isNaN(parseInt(repRange))) {
           avgReps = parseInt(repRange);
         }
 
@@ -659,10 +659,10 @@ export const fetchPlanDetails = async (planId: string): Promise<PlanDetails> => 
         let avgReps = 10; // Default
         if (repRange.includes('-')) {
           const [min, max] = repRange.split('-').map((num: string) => parseInt(num));
-          if (!isNaN(min) && !isNaN(max)) {
+          if (!Number.isNaN(min) && !Number.isNaN(max)) {
             avgReps = Math.floor((min + max) / 2);
           }
-        } else if (!isNaN(parseInt(repRange))) {
+        } else if (!Number.isNaN(parseInt(repRange))) {
           avgReps = parseInt(repRange);
         }
 

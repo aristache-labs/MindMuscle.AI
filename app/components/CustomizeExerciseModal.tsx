@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import OptimizedImage from './OptimizedImage';
+import { LinearGradient } from 'expo-linear-gradient';
+import React, { useState } from 'react';
+import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import ChangeExerciseModal from './ChangeExerciseModal';
-import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
+import OptimizedImage from './OptimizedImage';
 
 interface Exercise {
   id: string;
@@ -64,14 +64,15 @@ export default function CustomizeExerciseModal({
   // Helper function to determine the image source safely
   const getImageSource = (exerciseData: Exercise | null) => {
     // Check if we have a valid image URL
+    const trimmedImageUrl = exerciseData?.image_url?.trim();
     const hasValidImageUrl =
-      exerciseData?.image_url &&
-      exerciseData.image_url.trim() !== '' &&
-      exerciseData.image_url !== 'null' &&
-      exerciseData.image_url !== 'undefined';
+      trimmedImageUrl &&
+      trimmedImageUrl !== '' &&
+      trimmedImageUrl !== 'null' &&
+      trimmedImageUrl !== 'undefined';
 
     if (hasValidImageUrl) {
-      return { uri: exerciseData.image_url };
+      return { uri: trimmedImageUrl };
     } else {
       // Use placeholder directly for local assets to prevent any loading attempts
       return require('../../assets/exercises/placeholder.jpg');
@@ -203,7 +204,7 @@ export default function CustomizeExerciseModal({
       }
     } else {
       // Current values don't match a predefined range, find closest
-      const currentAvg = (repsMin + repsMax) / 2;
+      const currentAvg = (Number(repsMin) + Number(repsMax)) / 2;
       let closestIndex = 0;
       let closestDiff = Math.abs((repRanges[0].min + repRanges[0].max) / 2 - currentAvg);
 

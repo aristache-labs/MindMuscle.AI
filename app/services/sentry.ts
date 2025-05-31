@@ -1,6 +1,20 @@
 import * as Sentry from '@sentry/react-native';
 import Constants from 'expo-constants';
 
+/**
+ * Sentry Configuration and Utilities for MindMuscle.AI
+ *
+ * This service provides comprehensive Sentry integration including:
+ * - Error tracking and performance monitoring
+ * - Profiling and mobile replay (production only)
+ * - Structured logging and insights
+ * - Manual testing utilities
+ *
+ * To manually test Sentry functionality in development:
+ * import { SentryTestUtils } from './services/sentry';
+ * SentryTestUtils.runComprehensiveTest();
+ */
+
 // Type definitions for Sentry data collection
 type SentryValue = string | number | boolean | Date | null | undefined;
 
@@ -31,11 +45,15 @@ export function initializeSentry() {
       return;
     }
 
+    // Skip native initialization in development to prevent errors
+    const isExpoGo = Constants.appOwnership === 'expo';
+    const isDevelopment = __DEV__;
+
     Sentry.init({
       dsn: sentryDsn,
 
-      // CRITICAL: Ensure native SDK auto-initialization for profiling
-      autoInitializeNativeSdk: true,
+      // CRITICAL: Disable native SDK auto-initialization in development and Expo Go
+      autoInitializeNativeSdk: !isDevelopment && !isExpoGo,
 
       // Enhanced Data Collection Configuration
       // For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/data-collected/
@@ -48,20 +66,22 @@ export function initializeSentry() {
       // For more information, visit: https://docs.sentry.io/platforms/react-native/tracing/
       tracesSampleRate: __DEV__ ? 1.0 : 0.3, // 100% in dev, 30% in production
 
-      // Mobile Replay Configuration
+      // Mobile Replay Configuration - disable in development to prevent errors
       // For more information, visit: https://docs.sentry.io/platforms/react-native/session-replay/
-      replaysSessionSampleRate: __DEV__ ? 1.0 : 0.1, // 100% in dev, 10% in production
-      replaysOnErrorSampleRate: 1.0, // Always capture replays on errors
+      replaysSessionSampleRate: isDevelopment ? 0 : 0.1, // Disabled in dev, 10% in production
+      replaysOnErrorSampleRate: isDevelopment ? 0 : 1.0, // Disabled in dev, always capture replays on errors in production
 
-      // Enhanced profiling for better insights - FIXED CONFIGURATION
-      profilesSampleRate: __DEV__ ? 1.0 : 0.2, // 100% in dev, 20% in production
+      // Enhanced profiling for better insights - disable in development
+      profilesSampleRate: isDevelopment ? 0 : 0.2, // Disabled in dev, 20% in production
 
-      // IMPORTANT: Enable profiling explicitly
-      _experiments: {
-        profilesSampleRate: __DEV__ ? 1.0 : 0.2,
-        // Additional profiling configurations
-        maxProfileDurationMs: 30000, // 30 seconds max profile duration
-      },
+      // IMPORTANT: Disable profiling experiments in development
+      _experiments: isDevelopment
+        ? {}
+        : {
+            profilesSampleRate: 0.2,
+            // Additional profiling configurations
+            maxProfileDurationMs: 30000, // 30 seconds max profile duration
+          },
 
       // Session tracking - enhanced
       autoSessionTracking: true,
@@ -79,34 +99,39 @@ export function initializeSentry() {
       release: Constants.expoConfig?.version || '1.0.0',
       dist: Constants.expoConfig?.extra?.buildNumber || '1',
 
-      // Enhanced native integration
-      enableNativeCrashHandling: true,
-      enableNativeNagger: __DEV__, // Show native debugging info in dev
-      enableAutoPerformanceTracing: true, // Auto-instrument performance
-      enableWatchdogTerminationTracking: true, // Track app terminations
+      // Enhanced native integration - disable problematic features in development
+      enableNativeCrashHandling: !isDevelopment && !isExpoGo,
+      enableNativeNagger: false, // Disable to prevent console spam
+      enableAutoPerformanceTracing: !isDevelopment, // Disable in dev to prevent errors
+      enableWatchdogTerminationTracking: !isDevelopment && !isExpoGo, // Disable in dev
 
       // Enhanced stack trace and debugging
       attachStacktrace: true,
-      sendClientReports: true,
+      sendClientReports: !isDevelopment, // Disable client reports in development
 
-      // Enhanced integrations with profiling support
+      // Enhanced integrations with conditional loading
       integrations: [
         // React Navigation integration for tracing
         Sentry.reactNavigationIntegration({
           enableTimeToInitialDisplay: true,
         }),
 
-        // Hermes profiling integration for performance profiling
-        Sentry.hermesProfilingIntegration({
-          platformProfilers: true, // Enable both JS and native platform profiling
-        }),
+        // Only include native integrations in production builds
+        ...(isDevelopment || isExpoGo
+          ? []
+          : [
+              // Hermes profiling integration for performance profiling
+              Sentry.hermesProfilingIntegration({
+                platformProfilers: true, // Enable both JS and native platform profiling
+              }),
 
-        // Mobile Replay integration for session recording
-        Sentry.mobileReplayIntegration({
-          maskAllText: true, // Mask all text by default for privacy
-          maskAllImages: true, // Mask all images by default for privacy
-          maskAllVectors: true, // Mask all vector graphics by default for privacy
-        }),
+              // Mobile Replay integration for session recording
+              Sentry.mobileReplayIntegration({
+                maskAllText: true, // Mask all text by default for privacy
+                maskAllImages: true, // Mask all images by default for privacy
+                maskAllVectors: true, // Mask all vector graphics by default for privacy
+              }),
+            ]),
       ],
 
       // Enhanced tracing options for better insights
@@ -284,10 +309,7 @@ export function initializeSentry() {
       console.log('  ⚠️ Note: Profiling requires active transactions to capture data');
       console.log('  ⚠️ Note: Mobile Replay captures user sessions for debugging');
 
-      // Send a test message to verify connection
-      Sentry.captureMessage('Sentry initialized successfully in development mode', 'info');
-
-      // Add initial breadcrumb
+      // Add initial breadcrumb (no test message sent to Sentry dashboard)
       Sentry.addBreadcrumb({
         message:
           'App started with enhanced Sentry configuration including profiling and mobile replay',
@@ -306,9 +328,8 @@ export function initializeSentry() {
         },
       });
 
-      // Test profiling functionality
-      console.log('🔍 Testing Sentry profiling...');
-      testProfilingFunctionality();
+      // Note: Sentry test functions are available via SentryTestUtils.runComprehensiveTest()
+      // if you need to verify Sentry functionality manually
     }
   } catch (error) {
     console.warn('❌ Sentry initialization failed:', error);
@@ -364,9 +385,13 @@ function setupConsoleIntegration() {
   };
 
   console.error = (...args) => {
-    // Send console.error as actual errors to Sentry
     const message = args.join(' ');
-    Sentry.captureMessage(message, 'error');
+
+    // Only send console.error to Sentry if it's not a test message
+    if (!message.includes('Testing console.error integration') && !message.includes('test')) {
+      Sentry.captureMessage(message, 'error');
+    }
+
     Sentry.addBreadcrumb({
       message,
       level: 'error',
@@ -432,14 +457,8 @@ function testProfilingFunctionality() {
         },
       });
 
-      // Capture a message to test the profiling context
-      Sentry.captureMessage('Profiling test completed successfully', 'info');
-
-      // Test console logging integration
-      console.log('Testing console.log integration with Sentry');
-      console.info('Testing console.info integration with Sentry');
-      console.warn('Testing console.warn integration with Sentry');
-      console.error('Testing console.error integration with Sentry');
+      // Note: Test message and console integration tests are disabled by default
+      // to prevent test events in Sentry dashboard. Use SentryTestUtils if needed.
 
       // Add a note about the test component
       console.log('🧪 Sentry Test Component available in app - check dropdown menu "Sentry Test"');

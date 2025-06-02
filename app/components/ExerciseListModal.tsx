@@ -874,34 +874,64 @@ export default function ExerciseListModal({
             {/* Bottom Action Buttons - Only show in customize mode */}
             {isCustomizeMode && (
               <Animated.View
-                style={[styles.bottomActions, { paddingBottom: insets.bottom }, bottomActionsStyle]}
+                style={[
+                  styles.bottomActionsContainer,
+                  { paddingBottom: insets.bottom },
+                  bottomActionsStyle,
+                ]}
               >
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={onAddExercise}
-                  disabled={!onAddExercise}
-                >
-                  <Ionicons name="add-circle-outline" size={20} color={COLORS.primary} />
-                  <Text style={styles.actionButtonText}>Add Exercise</Text>
-                </TouchableOpacity>
+                <View style={styles.pillContainer}>
+                  <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={() => {
+                      try {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      } catch {
+                        // Haptics might not be available
+                      }
+                      onAddExercise?.();
+                    }}
+                    disabled={!onAddExercise}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="add-circle-outline" size={22} color="white" />
+                    <Text style={styles.actionButtonText}>Add Exercise</Text>
+                  </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={onAddSuperset}
-                  disabled={!onAddSuperset}
-                >
-                  <Ionicons name="layers-outline" size={20} color={COLORS.primary} />
-                  <Text style={styles.actionButtonText}>Add Superset</Text>
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={() => {
+                      try {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      } catch {
+                        // Haptics might not be available
+                      }
+                      onAddSuperset?.();
+                    }}
+                    disabled={!onAddSuperset}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="layers-outline" size={22} color="white" />
+                    <Text style={styles.actionButtonText}>Add Superset</Text>
+                  </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={onAddCardio}
-                  disabled={!onAddCardio}
-                >
-                  <Ionicons name="heart-outline" size={20} color={COLORS.primary} />
-                  <Text style={styles.actionButtonText}>Add Cardio</Text>
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={() => {
+                      try {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      } catch {
+                        // Haptics might not be available
+                      }
+                      onAddCardio?.();
+                    }}
+                    disabled={!onAddCardio}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="heart-outline" size={22} color="white" />
+                    <Text style={styles.actionButtonText}>Add Cardio</Text>
+                  </TouchableOpacity>
+                </View>
               </Animated.View>
             )}
           </View>
@@ -1159,28 +1189,46 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 68, 68, 0.1)',
     marginLeft: SPACING.xs,
   },
-  bottomActions: {
+  bottomActionsContainer: {
+    paddingHorizontal: SPACING.xl,
+    paddingTop: SPACING.lg,
+    paddingBottom: SPACING.md,
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+  },
+  pillContainer: {
     flexDirection: 'row',
+    backgroundColor: COLORS.primary,
     paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
-    backgroundColor: COLORS.background,
-    gap: SPACING.sm,
+    paddingVertical: SPACING.sm + 2,
+    borderRadius: 30,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 20,
+    elevation: 15,
+    gap: SPACING.md,
+    alignItems: 'center',
+    justifyContent: 'space-evenly',
+    minWidth: '100%',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   actionButton: {
     flex: 1,
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: SPACING.md,
-    borderRadius: BORDER_RADIUS.md,
-    backgroundColor: COLORS.surfaceLight,
-    borderWidth: 1,
-    borderColor: COLORS.disabled,
-    gap: SPACING.xs,
+    paddingVertical: SPACING.xs,
+    paddingHorizontal: SPACING.xs,
+    gap: SPACING.xs / 3,
   },
   actionButtonText: {
-    color: COLORS.text,
-    fontSize: 14,
-    fontWeight: '500',
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+    opacity: 0.95,
+    letterSpacing: 0.3,
   },
 });

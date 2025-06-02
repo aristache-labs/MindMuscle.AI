@@ -31,7 +31,6 @@ mindmuscle-ai/
 │   ├── (stack)/
 │   │   ├── _layout.tsx
 │   │   ├── settings.tsx
-│   │   ├── exercises-list.tsx
 │   │   ├── plan-details.tsx
 │   │   ├── workout-session.tsx        # Re-exports from features/workout/screens
 │   │   ├── my-plan.tsx

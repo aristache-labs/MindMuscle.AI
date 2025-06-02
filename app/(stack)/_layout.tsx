@@ -26,14 +26,7 @@ export default function StackLayout() {
           headerShown: false,
         }}
       />
-      <Stack.Screen
-        name="exercises-list"
-        options={{
-          headerShown: false,
-          gestureEnabled: true,
-          fullScreenGestureEnabled: true,
-        }}
-      />
+
       <Stack.Screen
         name="my-plan"
         options={{

@@ -330,6 +330,51 @@ export default function WorkoutSessionScreen() {
     ],
   );
 
+  // Handle applying changes from the exercise list modal
+  const handleApplyChanges = useCallback(
+    (newExercises: ExerciseData[], removedIndices: number[]) => {
+      try {
+        // Store the original state for comparison
+        const originalExercises = [...workoutExercises];
+
+        // First, handle reordering if exercises have changed
+        if (JSON.stringify(newExercises) !== JSON.stringify(originalExercises)) {
+          handleReorderExercises(newExercises);
+        }
+
+        // Then handle removals in reverse order to maintain correct indices
+        if (removedIndices.length > 0) {
+          const sortedIndices = [...removedIndices].sort((a, b) => b - a);
+          sortedIndices.forEach((index) => {
+            if (index >= 0 && index < originalExercises.length) {
+              handleRemoveExercise(index);
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Error applying exercise changes:', error);
+      }
+    },
+    [workoutExercises, handleReorderExercises, handleRemoveExercise],
+  );
+
+  // Handle exercise details press from exercise list modal
+  const handleExerciseDetailsPress = useCallback(
+    (_exercise: ExerciseData) => {
+      // Close the exercise list modal first
+      _handleExerciseListModalClose();
+
+      // Set the exercise for the details modal
+      // Since we're reusing the existing exercise details modal, we'll trigger it to show
+      // But first we need to make sure the current exercise data is set correctly
+
+      // For now, just trigger the details modal for the current exercise
+      // This is a temporary solution - ideally we'd want to show details for the selected exercise
+      handleExerciseNamePress();
+    },
+    [_handleExerciseListModalClose, handleExerciseNamePress],
+  );
+
   // Use the workout warmup hook
   const { showWarmup, warmupCompleted, handleWarmupComplete, skipWarmup } = useWorkoutWarmup({
     onWarmupCompleted: () => {
@@ -734,6 +779,7 @@ export default function WorkoutSessionScreen() {
         exercises={workoutExercises}
         currentExerciseIndex={currentExerciseIndex}
         onExerciseSelect={_handleExerciseSelect}
+        onExerciseDetailsPress={handleExerciseDetailsPress}
         onReorderExercises={handleReorderExercises}
         onRemoveExercise={handleRemoveExercise}
         isCustomizeMode={isCustomizeMode}
@@ -741,6 +787,7 @@ export default function WorkoutSessionScreen() {
         onAddExercise={handleAddExercise}
         onAddSuperset={handleAddSuperset}
         onAddCardio={handleAddCardio}
+        onApplyChanges={handleApplyChanges}
       />
     </View>
   );

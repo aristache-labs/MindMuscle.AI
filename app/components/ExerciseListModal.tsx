@@ -34,6 +34,7 @@ interface ExerciseListModalProps {
   exercises: ExerciseData[];
   currentExerciseIndex: number;
   onExerciseSelect: (index: number) => void;
+  onExerciseDetailsPress?: (exercise: ExerciseData) => void;
   onReorderExercises?: (newOrder: ExerciseData[]) => void;
   onRemoveExercise?: (index: number) => void;
   isCustomizeMode?: boolean;
@@ -41,6 +42,7 @@ interface ExerciseListModalProps {
   onAddExercise?: () => void;
   onAddSuperset?: () => void;
   onAddCardio?: () => void;
+  onApplyChanges?: (exercises: ExerciseData[], removedIndices: number[]) => void;
 }
 
 // Custom hook for drag animations
@@ -113,16 +115,72 @@ function useDragDisplacement(
   return { shouldMoveUp, shouldMoveDown };
 }
 
-// Exercise image component
+// Custom hook for customize mode animations
+function useCustomizeModeAnimations(isCustomizeMode: boolean) {
+  const customizeProgress = useSharedValue(0);
+  const cardAnimations = useSharedValue(0);
+
+  React.useEffect(() => {
+    if (isCustomizeMode) {
+      // Start overall customize progress immediately
+      customizeProgress.value = withSpring(1, { damping: 25, stiffness: 300 });
+      // Start card animations with a slight delay for a polished effect
+      cardAnimations.value = withTiming(1, { duration: 350 });
+    } else {
+      // Reverse the animation quickly
+      customizeProgress.value = withSpring(0, { damping: 25, stiffness: 400 });
+      cardAnimations.value = withTiming(0, { duration: 200 });
+    }
+  }, [isCustomizeMode]);
+
+  return { customizeProgress, cardAnimations };
+}
+
+// Exercise image component with animations
 function ExerciseImage({
   exercise,
   isCompleted,
   isCustomizeMode = false,
+  customizeAnimation,
 }: {
   exercise: ExerciseData;
   isCompleted: boolean;
   isCustomizeMode?: boolean;
+  customizeAnimation?: Animated.SharedValue<number>;
 }) {
+  const overlayStyle = useAnimatedStyle(() => {
+    if (!customizeAnimation) return {};
+
+    return {
+      opacity: customizeAnimation.value,
+      transform: [
+        {
+          scale: interpolate(customizeAnimation.value, [0, 1], [0.8, 1], Extrapolation.CLAMP),
+        },
+      ],
+    };
+  });
+
+  const iconStyle = useAnimatedStyle(() => {
+    if (!customizeAnimation) return {};
+
+    return {
+      transform: [
+        {
+          rotate: `${interpolate(
+            customizeAnimation.value,
+            [0, 1],
+            [180, 0],
+            Extrapolation.CLAMP,
+          )}deg`,
+        },
+        {
+          scale: interpolate(customizeAnimation.value, [0, 1], [0.5, 1], Extrapolation.CLAMP),
+        },
+      ],
+    };
+  });
+
   return (
     <View style={styles.exerciseImageContainer}>
       {exercise.image_url ? (
@@ -143,9 +201,11 @@ function ExerciseImage({
       )}
       {isCompleted && <View style={styles.imageOverlay} />}
       {isCustomizeMode && (
-        <View style={styles.customizeOverlay}>
-          <Ionicons name="reorder-three-outline" size={20} color="white" />
-        </View>
+        <Animated.View style={[styles.customizeOverlay, overlayStyle]}>
+          <Animated.View style={iconStyle}>
+            <Ionicons name="reorder-three-outline" size={20} color="white" />
+          </Animated.View>
+        </Animated.View>
       )}
     </View>
   );
@@ -156,6 +216,7 @@ interface DraggableExerciseItemProps {
   index: number;
   currentExerciseIndex: number;
   onExerciseSelect: (index: number) => void;
+  onExerciseDetailsPress?: (exercise: ExerciseData) => void;
   onDragStart: (index: number) => void;
   onDragEnd: (fromIndex: number, toIndex: number) => void;
   onDragUpdate: (draggedIndex: number, currentY: number) => void;
@@ -166,6 +227,7 @@ interface DraggableExerciseItemProps {
   isCustomizeMode?: boolean;
   onRemoveExercise?: (index: number) => void;
   showActiveLabel?: boolean;
+  customizeAnimation?: Animated.SharedValue<number>;
 }
 
 function DraggableExerciseItem({
@@ -173,6 +235,7 @@ function DraggableExerciseItem({
   index,
   currentExerciseIndex,
   onExerciseSelect,
+  onExerciseDetailsPress,
   onDragStart,
   onDragEnd,
   onDragUpdate,
@@ -183,6 +246,7 @@ function DraggableExerciseItem({
   isCustomizeMode,
   onRemoveExercise,
   showActiveLabel = false,
+  customizeAnimation,
 }: DraggableExerciseItemProps) {
   const isActive = index === currentExerciseIndex;
   const isCompleted = index < currentExerciseIndex;
@@ -204,6 +268,37 @@ function DraggableExerciseItem({
     updateDisplacement,
   } = useDragAnimations();
 
+  // Card transition animation for customize mode
+  const cardTransitionStyle = useAnimatedStyle(() => {
+    if (!customizeAnimation) return {};
+
+    return {
+      transform: [
+        {
+          scale: interpolate(customizeAnimation.value, [0, 1], [1, 0.98], Extrapolation.CLAMP),
+        },
+      ],
+      opacity: interpolate(customizeAnimation.value, [0, 1], [1, 0.85], Extrapolation.CLAMP),
+    };
+  });
+
+  // Remove button animation
+  const removeButtonStyle = useAnimatedStyle(() => {
+    if (!customizeAnimation) return { opacity: 0, transform: [{ scale: 0 }] };
+
+    return {
+      opacity: withTiming(customizeAnimation.value, { duration: 300 }),
+      transform: [
+        {
+          scale: withSpring(customizeAnimation.value, { damping: 20, stiffness: 400 }),
+        },
+        {
+          translateX: interpolate(customizeAnimation.value, [0, 1], [20, 0], Extrapolation.CLAMP),
+        },
+      ],
+    };
+  });
+
   // Apply displacement animation
   React.useEffect(() => {
     if (isBeingDragged) return;
@@ -219,9 +314,19 @@ function DraggableExerciseItem({
 
   const handlePress = useCallback(() => {
     if (!isDragging) {
-      onExerciseSelect(index);
+      if (isCustomizeMode) {
+        // In customize mode, do nothing when pressing exercise cards
+        return;
+      } else {
+        // In normal mode, show exercise details modal if available, otherwise select exercise
+        if (onExerciseDetailsPress) {
+          onExerciseDetailsPress(exercise);
+        } else {
+          onExerciseSelect(index);
+        }
+      }
     }
-  }, [isDragging, onExerciseSelect, index]);
+  }, [isDragging, isCustomizeMode, onExerciseDetailsPress, exercise, onExerciseSelect, index]);
 
   const handleRemove = useCallback(() => {
     if (!isDragging && onRemoveExercise) {
@@ -301,7 +406,7 @@ function DraggableExerciseItem({
 
   return (
     <GestureDetector gesture={panGesture}>
-      <Animated.View style={animatedStyle}>
+      <Animated.View style={[animatedStyle, cardTransitionStyle]}>
         <TouchableOpacity
           style={itemStyle}
           onPress={handlePress}
@@ -312,6 +417,7 @@ function DraggableExerciseItem({
             exercise={exercise}
             isCompleted={isCompleted}
             isCustomizeMode={isCustomizeMode}
+            customizeAnimation={customizeAnimation}
           />
 
           <View style={styles.exerciseInfo}>
@@ -332,14 +438,16 @@ function DraggableExerciseItem({
 
           {/* Remove button (only in customize mode) */}
           {isCustomizeMode && onRemoveExercise && (
-            <TouchableOpacity
-              style={styles.customizeButton}
-              onPress={handleRemove}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              disabled={isDragging}
-            >
-              <Ionicons name="trash-outline" size={18} color="#FF4444" />
-            </TouchableOpacity>
+            <Animated.View style={removeButtonStyle}>
+              <TouchableOpacity
+                style={styles.customizeButton}
+                onPress={handleRemove}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                disabled={isDragging}
+              >
+                <Ionicons name="trash-outline" size={18} color="#FF4444" />
+              </TouchableOpacity>
+            </Animated.View>
           )}
         </TouchableOpacity>
       </Animated.View>
@@ -353,6 +461,7 @@ export default function ExerciseListModal({
   exercises,
   currentExerciseIndex,
   onExerciseSelect,
+  onExerciseDetailsPress,
   onReorderExercises,
   onRemoveExercise,
   isCustomizeMode = false,
@@ -360,20 +469,60 @@ export default function ExerciseListModal({
   onAddExercise,
   onAddSuperset,
   onAddCardio,
+  onApplyChanges,
 }: ExerciseListModalProps) {
   const insets = useSafeAreaInsets();
   const [localExercises, setLocalExercises] = React.useState(exercises);
+  const [originalExercises, setOriginalExercises] = React.useState(exercises);
+  const [removedIndices, setRemovedIndices] = React.useState<number[]>([]);
   const [isDragging, setIsDragging] = React.useState(false);
   const [draggedIndex, setDraggedIndex] = React.useState(-1);
   const [dragTargetIndex, setDragTargetIndex] = React.useState(-1);
+  const [hasChanges, setHasChanges] = React.useState(false);
 
   // Modal animation
   const modalAnimation = useSharedValue(0);
 
-  // Update local exercises when prop changes
+  // Customize mode animations
+  const { customizeProgress, cardAnimations } = useCustomizeModeAnimations(isCustomizeMode);
+
+  // Bottom actions sliding animation
+  const bottomActionsStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        {
+          translateY: interpolate(customizeProgress.value, [0, 1], [100, 0], Extrapolation.CLAMP),
+        },
+      ],
+      opacity: customizeProgress.value,
+    };
+  });
+
+  // Header button animation
+  const headerButtonStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        {
+          scale: interpolate(customizeProgress.value, [0, 1], [1, 1.1], Extrapolation.CLAMP),
+        },
+      ],
+    };
+  });
+
+  // Update local exercises when prop changes and reset change tracking
   React.useEffect(() => {
     setLocalExercises(exercises);
+    setOriginalExercises(exercises);
+    setRemovedIndices([]);
+    setHasChanges(false);
   }, [exercises]);
+
+  // Check if there are any changes
+  React.useEffect(() => {
+    const exercisesChanged = JSON.stringify(localExercises) !== JSON.stringify(originalExercises);
+    const hasRemovals = removedIndices.length > 0;
+    setHasChanges(exercisesChanged || hasRemovals);
+  }, [localExercises, originalExercises, removedIndices]);
 
   // Modal entrance animation
   React.useEffect(() => {
@@ -392,6 +541,67 @@ export default function ExerciseListModal({
       setDragTargetIndex(-1);
     }
   }, [visible]);
+
+  // Reset to original state when customize mode is turned off without applying changes
+  React.useEffect(() => {
+    if (!isCustomizeMode && hasChanges) {
+      // Reset to original state if exiting customize mode without applying changes
+      setLocalExercises(originalExercises);
+      setRemovedIndices([]);
+      setHasChanges(false);
+    }
+  }, [isCustomizeMode, hasChanges, originalExercises]);
+
+  const handleClose = useCallback(() => {
+    // Reset to original state when closing without applying changes
+    if (hasChanges) {
+      setLocalExercises(originalExercises);
+      setRemovedIndices([]);
+      setHasChanges(false);
+    }
+    onClose();
+  }, [hasChanges, originalExercises, onClose]);
+
+  const handleApplyChanges = useCallback(() => {
+    if (hasChanges && onApplyChanges) {
+      onApplyChanges(localExercises, removedIndices);
+    }
+
+    // Apply individual changes for backward compatibility
+    if (
+      onReorderExercises &&
+      JSON.stringify(localExercises) !== JSON.stringify(originalExercises)
+    ) {
+      onReorderExercises(localExercises);
+    }
+
+    // Apply removals for backward compatibility
+    if (onRemoveExercise && removedIndices.length > 0) {
+      // Apply removals in reverse order to maintain correct indices
+      [...removedIndices]
+        .sort((a, b) => b - a)
+        .forEach((index) => {
+          onRemoveExercise(index);
+        });
+    }
+
+    // Update original state and reset changes
+    setOriginalExercises(localExercises);
+    setRemovedIndices([]);
+    setHasChanges(false);
+
+    // Exit customize mode
+    onToggleCustomizeMode?.();
+  }, [
+    hasChanges,
+    localExercises,
+    removedIndices,
+    onApplyChanges,
+    onReorderExercises,
+    onRemoveExercise,
+    originalExercises,
+    onToggleCustomizeMode,
+  ]);
 
   const handleDragStart = useCallback(
     (index: number) => {
@@ -438,23 +648,29 @@ export default function ExerciseListModal({
         newExercises.splice(toIndex, 0, movedExercise);
 
         setLocalExercises(newExercises);
-        onReorderExercises?.(newExercises);
+        // Don't call onReorderExercises immediately - wait for apply
       }
     },
-    [localExercises, onReorderExercises, isCustomizeMode],
+    [localExercises, isCustomizeMode],
   );
 
   const handleRemoveExercise = useCallback(
     (index: number) => {
       // Only allow removal in customize mode
-      if (!isCustomizeMode || !onRemoveExercise) return;
+      if (!isCustomizeMode) return;
 
-      onRemoveExercise(index);
+      // Track the original index for later removal
+      const originalIndex = originalExercises.findIndex((ex) => ex.id === localExercises[index].id);
+      if (originalIndex !== -1) {
+        setRemovedIndices((prev) => [...prev, originalIndex]);
+      }
+
       // Update local exercises by removing the exercise at the given index
       const newExercises = localExercises.filter((_, i) => i !== index);
       setLocalExercises(newExercises);
+      // Don't call onRemoveExercise immediately - wait for apply
     },
-    [localExercises, onRemoveExercise, isCustomizeMode],
+    [localExercises, originalExercises, isCustomizeMode],
   );
 
   const modalStyle = useAnimatedStyle(() => {
@@ -493,12 +709,16 @@ export default function ExerciseListModal({
       visible={visible}
       transparent
       animationType="none"
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
       statusBarTranslucent
     >
       <View style={styles.modalOverlay}>
         <Animated.View style={[styles.backdrop, backdropStyle]}>
-          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} activeOpacity={1} />
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            onPress={handleClose}
+            activeOpacity={1}
+          />
         </Animated.View>
 
         <Animated.View style={[styles.modalContainer, modalStyle]}>
@@ -509,7 +729,7 @@ export default function ExerciseListModal({
             {/* Header */}
             <View style={styles.header}>
               <View style={styles.headerSide}>
-                <TouchableOpacity onPress={onClose} style={styles.headerButton}>
+                <TouchableOpacity onPress={handleClose} style={styles.headerButton}>
                   <Ionicons name="close" size={20} color={COLORS.text} />
                 </TouchableOpacity>
               </View>
@@ -521,13 +741,34 @@ export default function ExerciseListModal({
               </View>
 
               <View style={styles.headerSide}>
-                <TouchableOpacity onPress={onToggleCustomizeMode} style={styles.headerButton}>
-                  <Ionicons
-                    name={isCustomizeMode ? 'checkmark' : 'settings-outline'}
-                    size={20}
-                    color={isCustomizeMode ? COLORS.primary : COLORS.text}
-                  />
-                </TouchableOpacity>
+                <Animated.View style={headerButtonStyle}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      try {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      } catch {
+                        // Haptics might not be available
+                      }
+                      if (isCustomizeMode) {
+                        handleApplyChanges();
+                      } else {
+                        onToggleCustomizeMode?.();
+                      }
+                    }}
+                    style={[
+                      styles.headerButton,
+                      isCustomizeMode && hasChanges && styles.doneButton,
+                    ]}
+                  >
+                    <Ionicons
+                      name={isCustomizeMode ? 'checkmark' : 'settings-outline'}
+                      size={20}
+                      color={
+                        isCustomizeMode ? (hasChanges ? '#FFFFFF' : COLORS.primary) : COLORS.text
+                      }
+                    />
+                  </TouchableOpacity>
+                </Animated.View>
               </View>
             </View>
 
@@ -550,6 +791,7 @@ export default function ExerciseListModal({
                         index={index}
                         currentExerciseIndex={currentExerciseIndex}
                         onExerciseSelect={onExerciseSelect}
+                        onExerciseDetailsPress={onExerciseDetailsPress}
                         onDragStart={handleDragStart}
                         onDragEnd={handleDragEnd}
                         onDragUpdate={handleDragUpdate}
@@ -560,6 +802,7 @@ export default function ExerciseListModal({
                         isCustomizeMode={isCustomizeMode}
                         onRemoveExercise={handleRemoveExercise}
                         showActiveLabel={true}
+                        customizeAnimation={cardAnimations}
                       />
                     ))}
                   </View>
@@ -576,6 +819,7 @@ export default function ExerciseListModal({
                         index={currentExerciseIndex}
                         currentExerciseIndex={currentExerciseIndex}
                         onExerciseSelect={onExerciseSelect}
+                        onExerciseDetailsPress={onExerciseDetailsPress}
                         onDragStart={handleDragStart}
                         onDragEnd={handleDragEnd}
                         onDragUpdate={handleDragUpdate}
@@ -586,6 +830,7 @@ export default function ExerciseListModal({
                         isCustomizeMode={isCustomizeMode}
                         onRemoveExercise={handleRemoveExercise}
                         showActiveLabel={false}
+                        customizeAnimation={cardAnimations}
                       />
                     </View>
                   )}
@@ -605,6 +850,7 @@ export default function ExerciseListModal({
                             index={actualIndex}
                             currentExerciseIndex={currentExerciseIndex}
                             onExerciseSelect={onExerciseSelect}
+                            onExerciseDetailsPress={onExerciseDetailsPress}
                             onDragStart={handleDragStart}
                             onDragEnd={handleDragEnd}
                             onDragUpdate={handleDragUpdate}
@@ -615,6 +861,7 @@ export default function ExerciseListModal({
                             isCustomizeMode={isCustomizeMode}
                             onRemoveExercise={handleRemoveExercise}
                             showActiveLabel={false}
+                            customizeAnimation={cardAnimations}
                           />
                         );
                       })}
@@ -626,7 +873,9 @@ export default function ExerciseListModal({
 
             {/* Bottom Action Buttons - Only show in customize mode */}
             {isCustomizeMode && (
-              <View style={[styles.bottomActions, { paddingBottom: insets.bottom }]}>
+              <Animated.View
+                style={[styles.bottomActions, { paddingBottom: insets.bottom }, bottomActionsStyle]}
+              >
                 <TouchableOpacity
                   style={styles.actionButton}
                   onPress={onAddExercise}
@@ -653,7 +902,7 @@ export default function ExerciseListModal({
                   <Ionicons name="heart-outline" size={20} color={COLORS.primary} />
                   <Text style={styles.actionButtonText}>Add Cardio</Text>
                 </TouchableOpacity>
-              </View>
+              </Animated.View>
             )}
           </View>
         </Animated.View>
@@ -741,6 +990,10 @@ const styles = StyleSheet.create({
     height: 32,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  doneButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 16,
   },
   headerCenter: {
     flex: 1,

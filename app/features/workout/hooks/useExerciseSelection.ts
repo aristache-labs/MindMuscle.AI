@@ -1,4 +1,4 @@
-import React, { useState, useCallback, SetStateAction } from 'react';
+import React, { SetStateAction, useCallback, useState } from 'react';
 import workoutPlanService from '../../../services/workoutPlanService';
 import type { ExerciseData, ExerciseSet } from '../types';
 
@@ -95,22 +95,6 @@ export const useExerciseSelection = ({
   const handleCustomizeExercisePress = useCallback(() => {
     setShowCustomizeExerciseModal(true);
   }, []);
-
-  const handleCustomizeExerciseFromList = useCallback(
-    (exerciseIndex: number) => {
-      // Close the exercise list modal first
-      setShowExerciseListModal(false);
-
-      // Set the current exercise index to the selected exercise
-      setCurrentExerciseIndex(exerciseIndex);
-
-      // Open the customize exercise modal after a short delay
-      setTimeout(() => {
-        setShowCustomizeExerciseModal(true);
-      }, 300);
-    },
-    [setCurrentExerciseIndex],
-  );
 
   const handleCustomizeExerciseModalClose = useCallback(() => {
     setShowCustomizeExerciseModal(false);
@@ -424,7 +408,6 @@ export const useExerciseSelection = ({
     handleNextExercisePress,
     handleExerciseSelect,
     handleCustomizeExercisePress,
-    handleCustomizeExerciseFromList,
     handleCustomizeExerciseModalClose,
 
     // Exercise customization

@@ -34,8 +34,148 @@ interface ExerciseListModalProps {
   exercises: ExerciseData[];
   currentExerciseIndex: number;
   onExerciseSelect: (index: number) => void;
-  onCustomizeExercise?: (index: number) => void;
   onReorderExercises?: (newOrder: ExerciseData[]) => void;
+  onRemoveExercise?: (index: number) => void;
+}
+
+// Custom hook for drag animations
+function useDragAnimations() {
+  const translateY = useSharedValue(0);
+  const scale = useSharedValue(1);
+  const opacity = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }, { scale: scale.value }],
+    opacity: opacity.value,
+  }));
+
+  const startDragAnimation = useCallback(() => {
+    scale.value = withSpring(1.05, { damping: 20, stiffness: 400 });
+    opacity.value = withTiming(0.9, { duration: 100 });
+  }, []);
+
+  const endDragAnimation = useCallback(() => {
+    translateY.value = withSpring(0, { damping: 20, stiffness: 300 });
+    scale.value = withSpring(1, { damping: 20, stiffness: 300 });
+    opacity.value = withTiming(1, { duration: 200 });
+  }, []);
+
+  const updateDragPosition = useCallback((y: number) => {
+    translateY.value = y;
+  }, []);
+
+  const updateDisplacement = useCallback((displacement: number) => {
+    translateY.value = withSpring(displacement, { damping: 20, stiffness: 300 });
+  }, []);
+
+  return {
+    animatedStyle,
+    startDragAnimation,
+    endDragAnimation,
+    updateDragPosition,
+    updateDisplacement,
+  };
+}
+
+// Custom hook for drag displacement logic
+function useDragDisplacement(
+  index: number,
+  isDragging: boolean,
+  draggedIndex: number,
+  dragTargetIndex: number,
+  isBeingDragged: boolean,
+) {
+  const shouldMoveUp = useMemo(() => {
+    return (
+      isDragging &&
+      !isBeingDragged &&
+      draggedIndex < index &&
+      index <= dragTargetIndex &&
+      dragTargetIndex > draggedIndex
+    );
+  }, [isDragging, isBeingDragged, draggedIndex, index, dragTargetIndex]);
+
+  const shouldMoveDown = useMemo(() => {
+    return (
+      isDragging &&
+      !isBeingDragged &&
+      draggedIndex > index &&
+      index >= dragTargetIndex &&
+      dragTargetIndex < draggedIndex
+    );
+  }, [isDragging, isBeingDragged, draggedIndex, index, dragTargetIndex]);
+
+  return { shouldMoveUp, shouldMoveDown };
+}
+
+// Exercise status indicator component
+function ExerciseStatusIndicator({
+  isCompleted,
+  isActive,
+  isUpcoming,
+  index,
+}: {
+  isCompleted: boolean;
+  isActive: boolean;
+  isUpcoming: boolean;
+  index: number;
+}) {
+  if (isCompleted) {
+    return (
+      <View style={styles.completedIndicator}>
+        <Ionicons name="checkmark-circle" size={24} color={COLORS.primary} />
+      </View>
+    );
+  }
+
+  if (isActive) {
+    return (
+      <View style={styles.activeIndicator}>
+        <Text style={styles.activeText}>CURRENT</Text>
+      </View>
+    );
+  }
+
+  if (isUpcoming) {
+    return (
+      <View style={styles.upcomingIndicator}>
+        <Text style={styles.upcomingText}>#{index + 1}</Text>
+      </View>
+    );
+  }
+
+  return null;
+}
+
+// Exercise image component
+function ExerciseImage({
+  exercise,
+  isCompleted,
+}: {
+  exercise: ExerciseData;
+  isCompleted: boolean;
+}) {
+  return (
+    <View style={styles.exerciseImageContainer}>
+      {exercise.image_url ? (
+        <OptimizedImage
+          source={{ uri: exercise.image_url }}
+          style={styles.exerciseImage}
+          fallback={require('../../assets/exercises/placeholder.jpg')}
+          resizeMode="cover"
+          cachePolicy="immutable"
+          showLoader={false}
+          priority="normal"
+          debugLabel={`ExerciseList-${exercise.name}`}
+        />
+      ) : (
+        <View style={styles.exercisePlaceholder}>
+          <Ionicons name="barbell-outline" size={24} color={COLORS.placeholder} />
+        </View>
+      )}
+      {isCompleted && <View style={styles.imageOverlay} />}
+    </View>
+  );
 }
 
 interface DraggableExerciseItemProps {
@@ -43,7 +183,6 @@ interface DraggableExerciseItemProps {
   index: number;
   currentExerciseIndex: number;
   onExerciseSelect: (index: number) => void;
-  onCustomizeExercise?: (index: number) => void;
   onDragStart: (index: number) => void;
   onDragEnd: (fromIndex: number, toIndex: number) => void;
   onDragUpdate: (draggedIndex: number, currentY: number) => void;
@@ -51,6 +190,8 @@ interface DraggableExerciseItemProps {
   draggedIndex: number;
   dragTargetIndex: number;
   totalExercises: number;
+  isCustomizeMode?: boolean;
+  onRemoveExercise?: (index: number) => void;
 }
 
 function DraggableExerciseItem({
@@ -58,7 +199,6 @@ function DraggableExerciseItem({
   index,
   currentExerciseIndex,
   onExerciseSelect,
-  onCustomizeExercise,
   onDragStart,
   onDragEnd,
   onDragUpdate,
@@ -66,43 +206,42 @@ function DraggableExerciseItem({
   draggedIndex,
   dragTargetIndex,
   totalExercises,
+  isCustomizeMode,
+  onRemoveExercise,
 }: DraggableExerciseItemProps) {
-  const translateY = useSharedValue(0);
-  const scale = useSharedValue(1);
-  const opacity = useSharedValue(1);
-
   const isActive = index === currentExerciseIndex;
   const isUpcoming = index > currentExerciseIndex;
   const isCompleted = index < currentExerciseIndex;
   const isBeingDragged = isDragging && draggedIndex === index;
 
-  // Simple displacement logic - only move items that need to make space
-  const shouldMoveUp =
-    isDragging &&
-    !isBeingDragged &&
-    draggedIndex < index &&
-    index <= dragTargetIndex &&
-    dragTargetIndex > draggedIndex;
+  const { shouldMoveUp, shouldMoveDown } = useDragDisplacement(
+    index,
+    isDragging,
+    draggedIndex,
+    dragTargetIndex,
+    isBeingDragged,
+  );
 
-  const shouldMoveDown =
-    isDragging &&
-    !isBeingDragged &&
-    draggedIndex > index &&
-    index >= dragTargetIndex &&
-    dragTargetIndex < draggedIndex;
+  const {
+    animatedStyle,
+    startDragAnimation,
+    endDragAnimation,
+    updateDragPosition,
+    updateDisplacement,
+  } = useDragAnimations();
 
-  // Apply smooth displacement animation
+  // Apply displacement animation
   React.useEffect(() => {
     if (isBeingDragged) return;
 
     if (shouldMoveUp) {
-      translateY.value = withSpring(-ITEM_HEIGHT, { damping: 20, stiffness: 300 });
+      updateDisplacement(-ITEM_HEIGHT);
     } else if (shouldMoveDown) {
-      translateY.value = withSpring(ITEM_HEIGHT, { damping: 20, stiffness: 300 });
+      updateDisplacement(ITEM_HEIGHT);
     } else {
-      translateY.value = withSpring(0, { damping: 20, stiffness: 300 });
+      updateDisplacement(0);
     }
-  }, [shouldMoveUp, shouldMoveDown, isBeingDragged]);
+  }, [shouldMoveUp, shouldMoveDown, isBeingDragged, updateDisplacement]);
 
   const handlePress = useCallback(() => {
     if (!isDragging) {
@@ -110,11 +249,11 @@ function DraggableExerciseItem({
     }
   }, [isDragging, onExerciseSelect, index]);
 
-  const handleCustomize = useCallback(() => {
-    if (!isDragging && onCustomizeExercise) {
-      onCustomizeExercise(index);
+  const handleRemove = useCallback(() => {
+    if (!isDragging && onRemoveExercise) {
+      onRemoveExercise(index);
     }
-  }, [isDragging, onCustomizeExercise, index]);
+  }, [isDragging, onRemoveExercise, index]);
 
   const safeHapticFeedback = useCallback((style: Haptics.ImpactFeedbackStyle) => {
     try {
@@ -125,21 +264,23 @@ function DraggableExerciseItem({
   }, []);
 
   const panGesture = useMemo(() => {
+    // Only enable drag gesture when in customize mode
+    if (!isCustomizeMode) {
+      return Gesture.Pan().enabled(false);
+    }
+
     return Gesture.Pan()
       .minDistance(5)
       .onStart(() => {
         'worklet';
         runOnJS(onDragStart)(index);
         runOnJS(safeHapticFeedback)(Haptics.ImpactFeedbackStyle.Medium);
-
-        // Smooth drag start animation
-        scale.value = withSpring(1.05, { damping: 20, stiffness: 400 });
-        opacity.value = withTiming(0.9, { duration: 100 });
+        runOnJS(startDragAnimation)();
       })
       .onUpdate((event) => {
         'worklet';
         if (isBeingDragged) {
-          translateY.value = event.translationY;
+          runOnJS(updateDragPosition)(event.translationY);
           runOnJS(onDragUpdate)(index, event.translationY);
         }
       })
@@ -151,10 +292,7 @@ function DraggableExerciseItem({
         const itemsMoved = Math.round(moveDistance / ITEM_HEIGHT);
         const newIndex = Math.max(0, Math.min(index + itemsMoved, totalExercises - 1));
 
-        // Smooth return animation
-        translateY.value = withSpring(0, { damping: 20, stiffness: 300 });
-        scale.value = withSpring(1, { damping: 20, stiffness: 300 });
-        opacity.value = withTiming(1, { duration: 200 });
+        runOnJS(endDragAnimation)();
 
         if (newIndex !== index) {
           runOnJS(safeHapticFeedback)(Haptics.ImpactFeedbackStyle.Light);
@@ -170,58 +308,42 @@ function DraggableExerciseItem({
     onDragEnd,
     onDragUpdate,
     safeHapticFeedback,
+    startDragAnimation,
+    endDragAnimation,
+    updateDragPosition,
+    isCustomizeMode,
   ]);
 
-  const animatedStyle = useAnimatedStyle(() => {
-    'worklet';
-    return {
-      transform: [{ translateY: translateY.value }, { scale: scale.value }],
-      opacity: opacity.value,
+  const itemStyle = [
+    styles.exerciseItem,
+    isActive && styles.activeExerciseItem,
+    isCompleted && styles.completedExerciseItem,
+    isBeingDragged && styles.draggingItem,
+    {
       zIndex: isBeingDragged ? 1000 : 0,
       elevation: isBeingDragged ? 10 : 0,
-    };
-  });
+    },
+  ];
 
   return (
     <GestureDetector gesture={panGesture}>
       <Animated.View style={animatedStyle}>
         <TouchableOpacity
-          style={[
-            styles.exerciseItem,
-            isActive && styles.activeExerciseItem,
-            isCompleted && styles.completedExerciseItem,
-            isBeingDragged && styles.draggingItem,
-          ]}
+          style={itemStyle}
           onPress={handlePress}
           activeOpacity={0.8}
           disabled={isDragging}
         >
           {/* Drag Handle */}
           <View style={styles.dragHandle}>
-            <Ionicons name="reorder-three-outline" size={20} color={COLORS.placeholder} />
+            <Ionicons
+              name="reorder-three-outline"
+              size={20}
+              color={isCustomizeMode ? COLORS.primary : COLORS.placeholder}
+            />
           </View>
 
-          <View style={styles.exerciseImageContainer}>
-            {exercise.image_url ? (
-              <OptimizedImage
-                source={{ uri: exercise.image_url }}
-                style={styles.exerciseImage}
-                fallback={require('../../assets/exercises/placeholder.jpg')}
-                resizeMode="cover"
-                cachePolicy="immutable"
-                showLoader={false}
-                priority="normal"
-                debugLabel={`ExerciseList-${exercise.name}`}
-              />
-            ) : (
-              <View style={styles.exercisePlaceholder}>
-                <Ionicons name="barbell-outline" size={24} color={COLORS.placeholder} />
-              </View>
-            )}
-
-            {/* Completion overlay */}
-            {isCompleted && <View style={styles.imageOverlay} />}
-          </View>
+          <ExerciseImage exercise={exercise} isCompleted={isCompleted} />
 
           <View style={styles.exerciseInfo}>
             <Text style={[styles.exerciseName, isCompleted && styles.completedText]}>
@@ -234,32 +356,23 @@ function DraggableExerciseItem({
 
           {/* Status indicator */}
           <View style={styles.statusContainer}>
-            {isCompleted && (
-              <View style={styles.completedIndicator}>
-                <Ionicons name="checkmark-circle" size={24} color={COLORS.primary} />
-              </View>
-            )}
-            {isActive && (
-              <View style={styles.activeIndicator}>
-                <Text style={styles.activeText}>CURRENT</Text>
-              </View>
-            )}
-            {isUpcoming && (
-              <View style={styles.upcomingIndicator}>
-                <Text style={styles.upcomingText}>#{index + 1}</Text>
-              </View>
-            )}
+            <ExerciseStatusIndicator
+              isCompleted={isCompleted}
+              isActive={isActive}
+              isUpcoming={isUpcoming}
+              index={index}
+            />
           </View>
 
-          {/* Customize button */}
-          {onCustomizeExercise && (
+          {/* Remove button (only in customize mode) */}
+          {isCustomizeMode && onRemoveExercise && (
             <TouchableOpacity
               style={styles.customizeButton}
-              onPress={handleCustomize}
+              onPress={handleRemove}
               hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               disabled={isDragging}
             >
-              <Ionicons name="settings-outline" size={18} color={COLORS.placeholder} />
+              <Ionicons name="trash-outline" size={18} color="#FF4444" />
             </TouchableOpacity>
           )}
         </TouchableOpacity>
@@ -274,14 +387,15 @@ export default function ExerciseListModal({
   exercises,
   currentExerciseIndex,
   onExerciseSelect,
-  onCustomizeExercise,
   onReorderExercises,
+  onRemoveExercise,
 }: ExerciseListModalProps) {
   const insets = useSafeAreaInsets();
   const [localExercises, setLocalExercises] = React.useState(exercises);
   const [isDragging, setIsDragging] = React.useState(false);
   const [draggedIndex, setDraggedIndex] = React.useState(-1);
   const [dragTargetIndex, setDragTargetIndex] = React.useState(-1);
+  const [isCustomizeMode, setIsCustomizeMode] = React.useState(false);
 
   // Modal animation
   const modalAnimation = useSharedValue(0);
@@ -306,17 +420,27 @@ export default function ExerciseListModal({
       setIsDragging(false);
       setDraggedIndex(-1);
       setDragTargetIndex(-1);
+      setIsCustomizeMode(false);
     }
   }, [visible]);
 
-  const handleDragStart = useCallback((index: number) => {
-    setIsDragging(true);
-    setDraggedIndex(index);
-    setDragTargetIndex(index);
-  }, []);
+  const handleDragStart = useCallback(
+    (index: number) => {
+      // Only allow drag in customize mode
+      if (!isCustomizeMode) return;
+
+      setIsDragging(true);
+      setDraggedIndex(index);
+      setDragTargetIndex(index);
+    },
+    [isCustomizeMode],
+  );
 
   const handleDragUpdate = useCallback(
     (draggedIndex: number, currentY: number) => {
+      // Only allow drag updates in customize mode
+      if (!isCustomizeMode) return;
+
       // Simple calculation - determine target position based on drag distance
       const itemsMoved = Math.round(currentY / ITEM_HEIGHT);
       const newTargetIndex = Math.max(
@@ -325,11 +449,14 @@ export default function ExerciseListModal({
       );
       setDragTargetIndex(newTargetIndex);
     },
-    [localExercises.length],
+    [localExercises.length, isCustomizeMode],
   );
 
   const handleDragEnd = useCallback(
     (fromIndex: number, toIndex: number) => {
+      // Only allow drag end in customize mode
+      if (!isCustomizeMode) return;
+
       // Reset drag state
       setIsDragging(false);
       setDraggedIndex(-1);
@@ -345,7 +472,24 @@ export default function ExerciseListModal({
         onReorderExercises?.(newExercises);
       }
     },
-    [localExercises, onReorderExercises],
+    [localExercises, onReorderExercises, isCustomizeMode],
+  );
+
+  const handleToggleCustomizeMode = useCallback(() => {
+    setIsCustomizeMode(!isCustomizeMode);
+  }, [isCustomizeMode]);
+
+  const handleRemoveExercise = useCallback(
+    (index: number) => {
+      // Only allow removal in customize mode
+      if (!isCustomizeMode || !onRemoveExercise) return;
+
+      onRemoveExercise(index);
+      // Update local exercises by removing the exercise at the given index
+      const newExercises = localExercises.filter((_, i) => i !== index);
+      setLocalExercises(newExercises);
+    },
+    [localExercises, onRemoveExercise, isCustomizeMode],
   );
 
   const modalStyle = useAnimatedStyle(() => {
@@ -391,50 +535,66 @@ export default function ExerciseListModal({
         <Animated.View
           style={[styles.modalContainer, { paddingBottom: insets.bottom }, modalStyle]}
         >
-          {/* Header */}
-          <View style={styles.header}>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Ionicons name="close" size={24} color={COLORS.text} />
-            </TouchableOpacity>
+          <View style={styles.container}>
+            <View style={styles.topGlowLeft} />
+            <View style={styles.topGlowRight} />
+            {/* Header */}
+            <View style={styles.header}>
+              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                <Text style={styles.closeButtonText}>Close</Text>
+              </TouchableOpacity>
 
-            <View style={styles.headerCenter}>
-              <Text style={styles.headerTitle}>Exercise List</Text>
-              <Text style={styles.headerSubtitle}>
-                {localExercises.length} exercises
-                {isDragging && ' • Drag to reorder'}
-              </Text>
+              <View style={styles.headerCenter}>
+                <Text style={styles.headerTitle}>
+                  {isCustomizeMode ? 'CUSTOMIZE LIST' : 'EXERCISE LIST'}
+                </Text>
+                <Text style={styles.headerSubtitle}>
+                  {localExercises.length} exercises
+                  {isDragging
+                    ? ' • Drag to reorder'
+                    : isCustomizeMode
+                      ? ' • Drag to reorder • Tap trash to remove'
+                      : ' • Drag to reorder'}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                onPress={handleToggleCustomizeMode}
+                style={styles.customizeHeaderButton}
+              >
+                <Text style={styles.customizeHeaderButtonText}>
+                  {isCustomizeMode ? 'Done' : 'Customize'}
+                </Text>
+              </TouchableOpacity>
             </View>
 
-            <View style={styles.dragHint}>
-              <Ionicons name="move-outline" size={20} color={COLORS.primary} />
-            </View>
+            {/* Exercise List */}
+            <ScrollView
+              style={styles.exercisesList}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.exercisesListContent}
+              scrollEnabled={!isDragging}
+            >
+              {localExercises.map((exercise, index) => (
+                <DraggableExerciseItem
+                  key={`${exercise.id}-${index}`}
+                  exercise={exercise}
+                  index={index}
+                  currentExerciseIndex={currentExerciseIndex}
+                  onExerciseSelect={onExerciseSelect}
+                  onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
+                  onDragUpdate={handleDragUpdate}
+                  isDragging={isDragging}
+                  draggedIndex={draggedIndex}
+                  dragTargetIndex={dragTargetIndex}
+                  totalExercises={localExercises.length}
+                  isCustomizeMode={isCustomizeMode}
+                  onRemoveExercise={handleRemoveExercise}
+                />
+              ))}
+            </ScrollView>
           </View>
-
-          {/* Exercise List */}
-          <ScrollView
-            style={styles.exercisesList}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.exercisesListContent}
-            scrollEnabled={!isDragging}
-          >
-            {localExercises.map((exercise, index) => (
-              <DraggableExerciseItem
-                key={`${exercise.id}-${index}`}
-                exercise={exercise}
-                index={index}
-                currentExerciseIndex={currentExerciseIndex}
-                onExerciseSelect={onExerciseSelect}
-                onCustomizeExercise={onCustomizeExercise}
-                onDragStart={handleDragStart}
-                onDragEnd={handleDragEnd}
-                onDragUpdate={handleDragUpdate}
-                isDragging={isDragging}
-                draggedIndex={draggedIndex}
-                dragTargetIndex={dragTargetIndex}
-                totalExercises={localExercises.length}
-              />
-            ))}
-          </ScrollView>
         </Animated.View>
       </View>
     </Modal>
@@ -455,21 +615,74 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: BORDER_RADIUS.xl,
     borderTopRightRadius: BORDER_RADIUS.xl,
     height: SCREEN_HEIGHT * 0.85,
-    paddingTop: SPACING.lg,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.15,
     shadowRadius: 20,
     elevation: 20,
   },
+  container: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: COLORS.background,
+    borderTopLeftRadius: BORDER_RADIUS.xl,
+    borderTopRightRadius: BORDER_RADIUS.xl,
+    overflow: 'hidden',
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 10,
+    elevation: 10,
+    borderWidth: 0,
+    borderTopWidth: 0.9,
+    borderColor: COLORS.primary,
+  },
+  topGlowLeft: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 20,
+    height: 20,
+    borderTopLeftRadius: BORDER_RADIUS.xl,
+    backgroundColor: 'transparent',
+    borderLeftWidth: 2,
+    borderTopWidth: 2,
+    borderColor: COLORS.primary,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 15,
+    elevation: 20,
+    zIndex: 10,
+  },
+  topGlowRight: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 20,
+    height: 20,
+    borderTopRightRadius: BORDER_RADIUS.xl,
+    backgroundColor: 'transparent',
+    borderRightWidth: 2,
+    borderTopWidth: 2,
+    borderColor: COLORS.primary,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 15,
+    elevation: 20,
+    zIndex: 10,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.lg,
     paddingBottom: SPACING.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.disabled,
+    borderBottomWidth: 0.2,
+    borderBottomColor: COLORS.primary,
+    backgroundColor: COLORS.background,
   },
   closeButton: {
     width: 40,
@@ -477,25 +690,34 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'flex-start',
   },
+  closeButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
   headerCenter: {
     flex: 1,
     alignItems: 'center',
   },
   headerTitle: {
-    color: COLORS.text,
-    fontSize: 18,
-    fontWeight: '600',
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
   headerSubtitle: {
-    color: COLORS.placeholder,
+    color: '#ccc',
     fontSize: 14,
     marginTop: 2,
+    textAlign: 'center',
   },
-  dragHint: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'flex-end',
+  customizeHeaderButton: {
+    padding: SPACING.sm,
+  },
+  customizeHeaderButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   exercisesList: {
     flex: 1,

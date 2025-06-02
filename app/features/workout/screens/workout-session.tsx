@@ -192,7 +192,6 @@ export default function WorkoutSessionScreen() {
     handleNextExercisePress,
     handleExerciseSelect: _handleExerciseSelect,
     handleCustomizeExercisePress,
-    handleCustomizeExerciseFromList: _handleCustomizeExerciseFromList,
     handleCustomizeExerciseModalClose,
     handleCustomizeExerciseSave,
     handleExerciseChange,
@@ -264,6 +263,65 @@ export default function WorkoutSessionScreen() {
       setUserEnteredValues,
       lastExerciseValues,
       setLastExerciseValues,
+    ],
+  );
+
+  // Handle exercise removal
+  const handleRemoveExercise = useCallback(
+    (index: number) => {
+      if (workoutExercises.length <= 1) {
+        // Don't allow removing the last exercise
+        return;
+      }
+
+      const exerciseToRemove = workoutExercises[index];
+
+      // Remove the exercise from the exercises array
+      const newExercises = workoutExercises.filter((_, i) => i !== index);
+      setWorkoutExercises(newExercises);
+
+      // Remove associated exercise sets
+      const newExerciseSets = { ...workoutExerciseSets };
+      delete newExerciseSets[exerciseToRemove.id];
+      setWorkoutExerciseSets(newExerciseSets);
+
+      // Remove associated state
+      const newExerciseCustomized = { ...exerciseCustomized };
+      delete newExerciseCustomized[exerciseToRemove.id];
+      setExerciseCustomized(newExerciseCustomized);
+
+      const newUserEnteredValues = { ...userEnteredValues };
+      Object.keys(newUserEnteredValues).forEach((key) => {
+        if (key.startsWith(exerciseToRemove.id)) {
+          delete newUserEnteredValues[key];
+        }
+      });
+      setUserEnteredValues(newUserEnteredValues);
+
+      const newLastExerciseValues = { ...lastExerciseValues };
+      delete newLastExerciseValues[exerciseToRemove.exercise_id];
+      setLastExerciseValues(newLastExerciseValues);
+
+      // Adjust current exercise index if necessary
+      if (index <= currentExerciseIndex && currentExerciseIndex > 0) {
+        setCurrentExerciseIndex(currentExerciseIndex - 1);
+      } else if (currentExerciseIndex >= newExercises.length) {
+        setCurrentExerciseIndex(newExercises.length - 1);
+      }
+    },
+    [
+      workoutExercises,
+      workoutExerciseSets,
+      exerciseCustomized,
+      userEnteredValues,
+      lastExerciseValues,
+      currentExerciseIndex,
+      setWorkoutExercises,
+      setWorkoutExerciseSets,
+      setExerciseCustomized,
+      setUserEnteredValues,
+      setLastExerciseValues,
+      setCurrentExerciseIndex,
     ],
   );
 
@@ -671,8 +729,8 @@ export default function WorkoutSessionScreen() {
         exercises={workoutExercises}
         currentExerciseIndex={currentExerciseIndex}
         onExerciseSelect={_handleExerciseSelect}
-        onCustomizeExercise={_handleCustomizeExerciseFromList}
         onReorderExercises={handleReorderExercises}
+        onRemoveExercise={handleRemoveExercise}
       />
     </View>
   );

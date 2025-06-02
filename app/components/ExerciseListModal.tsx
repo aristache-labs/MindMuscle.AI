@@ -117,9 +117,11 @@ function useDragDisplacement(
 function ExerciseImage({
   exercise,
   isCompleted,
+  isCustomizeMode = false,
 }: {
   exercise: ExerciseData;
   isCompleted: boolean;
+  isCustomizeMode?: boolean;
 }) {
   return (
     <View style={styles.exerciseImageContainer}>
@@ -140,6 +142,11 @@ function ExerciseImage({
         </View>
       )}
       {isCompleted && <View style={styles.imageOverlay} />}
+      {isCustomizeMode && (
+        <View style={styles.customizeOverlay}>
+          <Ionicons name="reorder-three-outline" size={20} color="white" />
+        </View>
+      )}
     </View>
   );
 }
@@ -301,14 +308,11 @@ function DraggableExerciseItem({
           activeOpacity={0.8}
           disabled={isDragging}
         >
-          {/* Drag Handle */}
-          {isCustomizeMode && (
-            <View style={styles.dragHandle}>
-              <Ionicons name="reorder-three-outline" size={20} color={COLORS.primary} />
-            </View>
-          )}
-
-          <ExerciseImage exercise={exercise} isCompleted={isCompleted} />
+          <ExerciseImage
+            exercise={exercise}
+            isCompleted={isCompleted}
+            isCustomizeMode={isCustomizeMode}
+          />
 
           <View style={styles.exerciseInfo}>
             <Text style={[styles.exerciseName, isCompleted && styles.completedText]}>
@@ -376,7 +380,7 @@ export default function ExerciseListModal({
     if (visible) {
       modalAnimation.value = withSpring(1, { damping: 20, stiffness: 300 });
     } else {
-      modalAnimation.value = withTiming(0, { duration: 200 });
+      modalAnimation.value = withTiming(0, { duration: 300 });
     }
   }, [visible]);
 
@@ -461,7 +465,7 @@ export default function ExerciseListModal({
           translateY: interpolate(
             modalAnimation.value,
             [0, 1],
-            [SCREEN_HEIGHT * 0.3, 0],
+            [SCREEN_HEIGHT * 0.5, 0],
             Extrapolation.CLAMP,
           ),
         },
@@ -762,55 +766,75 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.lg,
   },
   sectionTitle: {
-    color: COLORS.placeholder,
-    fontSize: 12,
+    color: COLORS.primary,
+    fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 1,
-    marginBottom: SPACING.sm,
-    marginHorizontal: SPACING.lg,
+    letterSpacing: 1.2,
+    marginBottom: SPACING.xs,
+    marginHorizontal: SPACING.md,
+    marginTop: SPACING.sm,
     textTransform: 'uppercase',
+    opacity: 0.9,
   },
   exerciseItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.background,
-    borderRadius: BORDER_RADIUS.lg,
-    padding: SPACING.md,
-    marginHorizontal: SPACING.lg,
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.sm,
+    marginHorizontal: SPACING.md,
     marginBottom: SPACING.sm,
-    minHeight: ITEM_HEIGHT,
-    borderWidth: 1,
-    borderColor: COLORS.disabled,
+    minHeight: 84,
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   activeExerciseItem: {
-    backgroundColor: COLORS.surfaceLight,
+    backgroundColor: 'rgba(124, 58, 237, 0.1)',
     borderColor: COLORS.primary,
+    borderWidth: 1,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   completedExerciseItem: {
-    backgroundColor: COLORS.surfaceLight,
-    opacity: 0.7,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    opacity: 0.6,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   draggingItem: {
-    backgroundColor: COLORS.surfaceLight,
+    backgroundColor: COLORS.surface,
     borderColor: COLORS.primary,
+    borderWidth: 1,
     shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 20,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 12,
+    transform: [{ scale: 1.02 }],
   },
   dragHandle: {
-    paddingRight: SPACING.md,
+    paddingRight: SPACING.sm,
     justifyContent: 'center',
     alignItems: 'center',
+    opacity: 0.6,
   },
   exerciseImageContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: BORDER_RADIUS.md,
+    width: 68,
+    height: 68,
+    borderRadius: BORDER_RADIUS.sm,
     overflow: 'hidden',
-    marginRight: SPACING.md,
+    marginRight: SPACING.sm,
     position: 'relative',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   exerciseImage: {
     width: '100%',
@@ -819,7 +843,7 @@ const styles = StyleSheet.create({
   exercisePlaceholder: {
     width: '100%',
     height: '100%',
-    backgroundColor: COLORS.surfaceLight,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -831,37 +855,57 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
+  customizeOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(8, 8, 8, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   exerciseInfo: {
     flex: 1,
+    paddingVertical: 2,
   },
   exerciseName: {
     color: COLORS.text,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    marginBottom: 4,
+    marginBottom: 3,
+    lineHeight: 18,
   },
   exerciseDetails: {
     color: COLORS.placeholder,
-    fontSize: 14,
+    fontSize: 13,
+    fontWeight: '400',
+    lineHeight: 16,
+    opacity: 0.8,
   },
   completedText: {
-    opacity: 0.6,
+    opacity: 0.5,
   },
   activeLabel: {
     backgroundColor: COLORS.primary,
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: 4,
-    borderRadius: BORDER_RADIUS.sm,
-    marginRight: SPACING.sm,
+    paddingHorizontal: SPACING.xs,
+    paddingVertical: 3,
+    borderRadius: 4,
+    marginRight: SPACING.xs,
   },
   activeLabelText: {
     color: COLORS.background,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '700',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
   },
   customizeButton: {
-    padding: SPACING.sm,
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 68, 68, 0.1)',
     marginLeft: SPACING.xs,
   },
   bottomActions: {

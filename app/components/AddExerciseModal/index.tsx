@@ -145,9 +145,10 @@ const handleSearchOperations = ({
 };
 
 // Custom hook for search state management
-const useSearchState = () => {
+const useSearchState = (onSearchFromStep1?: () => void) => {
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [shouldActivateSearchOnStep2, setShouldActivateSearchOnStep2] = useState(false);
   const searchWidthAnim = useRef(new Animated.Value(40)).current;
   const contentOffsetAnim = useRef(new Animated.Value(0)).current;
   const searchInputRef = useRef<TextInput>(null);
@@ -162,6 +163,16 @@ const useSearchState = () => {
     setSearchQuery,
     SCREEN_WIDTH,
   });
+
+  // Override openSearch for step 1 to navigate to step 2 with all exercises
+  const openSearchWithNavigation = () => {
+    if (onSearchFromStep1) {
+      setShouldActivateSearchOnStep2(true);
+      onSearchFromStep1();
+    } else {
+      searchOperations.openSearch();
+    }
+  };
 
   // Search results header animation
   useEffect(() => {
@@ -193,6 +204,17 @@ const useSearchState = () => {
     };
   }, [isSearchActive, searchQuery]);
 
+  // Auto-activate search when navigating from step 1 search
+  const activateSearchOnStep2 = () => {
+    if (shouldActivateSearchOnStep2) {
+      setShouldActivateSearchOnStep2(false);
+      // Delay to ensure the component is mounted
+      setTimeout(() => {
+        searchOperations.openSearch();
+      }, 100);
+    }
+  };
+
   return {
     isSearchActive,
     setIsSearchActive,
@@ -202,11 +224,15 @@ const useSearchState = () => {
     contentOffsetAnim,
     searchInputRef,
     searchResultsOpacity,
+    shouldActivateSearchOnStep2,
+    setShouldActivateSearchOnStep2,
+    activateSearchOnStep2,
     ...searchOperations,
+    openSearchWithNavigation,
   };
 };
 
-// Enhanced filtering hook
+// Enhanced filtering hook for exercises
 const useExerciseFiltering = (
   exercises: Exercise[],
   searchQuery: string,
@@ -240,104 +266,147 @@ const useExerciseFiltering = (
   return { filteredExercises };
 };
 
+// Muscle group filtering hook
+const useMuscleGroupFiltering = (searchQuery: string, currentView: 'front' | 'back') => {
+  const filteredMuscleGroups = useMemo(() => {
+    const viewFilteredMuscles = muscleGroups.filter((muscle) => muscle.view === currentView);
+
+    if (!searchQuery.trim()) return viewFilteredMuscles;
+
+    const query = searchQuery.toLowerCase().trim();
+    return viewFilteredMuscles.filter((muscle) => {
+      // Check muscle name
+      if (muscle.name.toLowerCase().includes(query)) {
+        return true;
+      }
+
+      // Check aliases
+      const aliases = MUSCLE_GROUP_ALIASES[muscle.name] || [];
+      return aliases.some((alias) => alias.toLowerCase().includes(query));
+    });
+  }, [searchQuery, currentView]);
+
+  return { filteredMuscleGroups };
+};
+
 // Floating Search UI Component
 interface FloatingSearchUIProps {
   searchState: ReturnType<typeof useSearchState>;
   stepTitle: string;
+  currentStep?: number;
 }
 
-const FloatingSearchUI = ({ searchState, stepTitle }: FloatingSearchUIProps) => (
-  <>
-    {/* Floating Search */}
-    <View style={styles.floatingSearchRow}>
-      <Animated.View
-        style={[
-          styles.searchContainer,
-          {
-            width: searchState.isSearchActive ? searchState.searchWidthAnim : 40,
-            flex: searchState.isSearchActive ? 1 : undefined,
-          },
-        ]}
-      >
-        {!searchState.isSearchActive ? (
-          <TouchableOpacity style={styles.searchIconButton} onPress={searchState.openSearch}>
-            <MaterialIcons
-              name="search"
-              size={22}
-              color={searchState.searchQuery.trim() ? COLORS.primary : COLORS.text}
-            />
-            {searchState.searchQuery.trim() !== '' && <View style={styles.activeFilterIndicator} />}
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.activeSearchContainer}>
-            <TouchableOpacity onPress={searchState.handleSearchIconPress}>
+const FloatingSearchUI = ({ searchState, stepTitle, currentStep }: FloatingSearchUIProps) => {
+  const getPlaceholder = () => {
+    if (currentStep === 1) {
+      return 'Search muscle groups...';
+    }
+    return 'Search exercises...';
+  };
+
+  return (
+    <>
+      {/* Floating Search */}
+      <View style={styles.floatingSearchRow}>
+        <Animated.View
+          style={[
+            styles.searchContainer,
+            {
+              width: searchState.isSearchActive ? searchState.searchWidthAnim : 40,
+              flex: searchState.isSearchActive ? 1 : undefined,
+            },
+          ]}
+        >
+          {!searchState.isSearchActive ? (
+            <TouchableOpacity
+              style={styles.searchIconButton}
+              onPress={
+                currentStep === 1 ? searchState.openSearchWithNavigation : searchState.openSearch
+              }
+            >
               <MaterialIcons
                 name="search"
-                size={24}
-                color={COLORS.text}
-                style={styles.searchIconActive}
+                size={22}
+                color={searchState.searchQuery.trim() ? COLORS.primary : COLORS.text}
               />
+              {searchState.searchQuery.trim() !== '' && (
+                <View style={styles.activeFilterIndicator} />
+              )}
             </TouchableOpacity>
-            <TextInput
-              ref={searchState.searchInputRef}
-              style={styles.searchInput}
-              placeholder="Search exercises..."
-              placeholderTextColor="rgba(255,255,255,0.5)"
-              value={searchState.searchQuery}
-              onChangeText={searchState.setSearchQuery}
-              autoFocus={searchState.isSearchActive}
-              returnKeyType="search"
-              onSubmitEditing={searchState.handleSearchSubmit}
-            />
-            <TouchableOpacity onPress={searchState.clearSearch}>
-              <MaterialIcons name="close" size={24} color={COLORS.text} />
-            </TouchableOpacity>
-          </View>
-        )}
-      </Animated.View>
-    </View>
+          ) : (
+            <View style={styles.activeSearchContainer}>
+              <TouchableOpacity onPress={searchState.handleSearchIconPress}>
+                <MaterialIcons
+                  name="search"
+                  size={24}
+                  color={COLORS.text}
+                  style={styles.searchIconActive}
+                />
+              </TouchableOpacity>
+              <TextInput
+                ref={searchState.searchInputRef}
+                style={styles.searchInput}
+                placeholder={getPlaceholder()}
+                placeholderTextColor="rgba(255,255,255,0.5)"
+                value={searchState.searchQuery}
+                onChangeText={searchState.setSearchQuery}
+                autoFocus={searchState.isSearchActive}
+                returnKeyType="search"
+                onSubmitEditing={searchState.handleSearchSubmit}
+              />
+              <TouchableOpacity onPress={searchState.clearSearch}>
+                <MaterialIcons name="close" size={24} color={COLORS.text} />
+              </TouchableOpacity>
+            </View>
+          )}
+        </Animated.View>
+      </View>
 
-    {/* Background Overlay to collapse search */}
-    {searchState.isSearchActive && (
-      <TouchableWithoutFeedback onPress={searchState.collapseSearchUI}>
-        <View style={styles.overlay} />
-      </TouchableWithoutFeedback>
-    )}
+      {/* Background Overlay to collapse search */}
+      {searchState.isSearchActive && (
+        <TouchableWithoutFeedback onPress={searchState.collapseSearchUI}>
+          <View style={styles.overlay} />
+        </TouchableWithoutFeedback>
+      )}
 
-    {/* Floating search results header */}
-    {!searchState.isSearchActive && searchState.searchQuery.trim() !== '' && (
-      <Animated.View
-        style={[
-          styles.searchResultsHeader,
-          {
-            opacity: searchState.searchResultsOpacity,
-            transform: [
-              {
-                translateY: searchState.searchResultsOpacity.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [20, 0],
-                }),
-              },
-            ],
-          },
-        ]}
-      >
-        <Text style={styles.searchResultsText} numberOfLines={1}>
-          Results for "
-          <Text style={styles.queryHighlight} numberOfLines={1} ellipsizeMode="middle">
-            {searchState.searchQuery.length > 15
-              ? searchState.searchQuery.substring(0, 15) + '...'
-              : searchState.searchQuery}
+      {/* Floating search results header */}
+      {!searchState.isSearchActive && searchState.searchQuery.trim() !== '' && (
+        <Animated.View
+          style={[
+            styles.searchResultsHeader,
+            {
+              opacity: searchState.searchResultsOpacity,
+              transform: [
+                {
+                  translateY: searchState.searchResultsOpacity.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [20, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <Text style={styles.searchResultsText} numberOfLines={1}>
+            Results for "
+            <Text style={styles.queryHighlight} numberOfLines={1} ellipsizeMode="middle">
+              {searchState.searchQuery.length > 15
+                ? searchState.searchQuery.substring(0, 15) + '...'
+                : searchState.searchQuery}
+            </Text>
+            " in {stepTitle}
           </Text>
-          " in {stepTitle}
-        </Text>
-        <TouchableOpacity onPress={searchState.clearSearch} style={styles.clearSearchResultsButton}>
-          <MaterialIcons name="close" size={18} color={COLORS.text} />
-        </TouchableOpacity>
-      </Animated.View>
-    )}
-  </>
-);
+          <TouchableOpacity
+            onPress={searchState.clearSearch}
+            style={styles.clearSearchResultsButton}
+          >
+            <MaterialIcons name="close" size={18} color={COLORS.text} />
+          </TouchableOpacity>
+        </Animated.View>
+      )}
+    </>
+  );
+};
 
 // Step components
 const Step1MuscleSelection = ({
@@ -345,11 +414,13 @@ const Step1MuscleSelection = ({
   setCurrentView,
   onMuscleSelect,
   pulseAnim,
+  searchState,
 }: {
   currentView: 'front' | 'back';
   setCurrentView: (view: 'front' | 'back') => void;
   onMuscleSelect: (muscle: string) => void;
   pulseAnim: Animated.Value;
+  searchState: ReturnType<typeof useSearchState>;
 }) => {
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -359,6 +430,9 @@ const Step1MuscleSelection = ({
 
   const frontBodyModel = require('../../../assets/body-model_front.png');
   const backBodyModel = require('../../../assets/body-model_back.png');
+
+  // Use muscle group filtering
+  const { filteredMuscleGroups } = useMuscleGroupFiltering(searchState.searchQuery, currentView);
 
   useEffect(() => {
     if (isImageLoaded) {
@@ -407,8 +481,6 @@ const Step1MuscleSelection = ({
     }
   };
 
-  const filteredMuscles = muscleGroups.filter((muscle) => muscle.view === currentView);
-
   return (
     <View style={styles.stepContainer}>
       <View
@@ -447,7 +519,7 @@ const Step1MuscleSelection = ({
           </View>
 
           {isImageLoaded &&
-            filteredMuscles.map((muscle) => (
+            filteredMuscleGroups.map((muscle) => (
               <MuscleGroupRender
                 key={muscle.id}
                 muscle={muscle}
@@ -456,6 +528,164 @@ const Step1MuscleSelection = ({
               />
             ))}
         </Animated.View>
+      </View>
+
+      {/* Show empty state when search has no results */}
+      {isImageLoaded && searchState.searchQuery.trim() && filteredMuscleGroups.length === 0 && (
+        <View style={styles.emptyContainer}>
+          <MaterialIcons name="search-off" size={48} color="rgba(255,255,255,0.5)" />
+          <Text style={styles.emptyText}>No muscle groups match your search</Text>
+        </View>
+      )}
+    </View>
+  );
+};
+
+// Step for all exercises (when searching from step 1)
+const StepAllExercises = ({
+  selectedExercises,
+  onExerciseToggle,
+  onNext,
+  searchState,
+}: {
+  selectedExercises: Set<string>;
+  onExerciseToggle: (exerciseId: string) => void;
+  onNext: () => void;
+  searchState: ReturnType<typeof useSearchState>;
+}) => {
+  const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Auto-activate search when component mounts from step 1 navigation
+  useEffect(() => {
+    searchState.activateSearchOnStep2();
+  }, []);
+
+  useEffect(() => {
+    const loadAllExercises = async () => {
+      try {
+        setLoading(true);
+        // Load all exercises from all categories
+        const allCategories: ExerciseCategory[] = [
+          'Chest',
+          'Biceps',
+          'Triceps',
+          'Abs',
+          'Shoulders',
+          'Lats',
+          'Quads',
+          'Hamstrings',
+          'Glutes',
+          'Calves',
+          'Forearms',
+          'Lower_back',
+          'Traps',
+          'Obliques',
+          'Adductors',
+          'Abductors',
+          'Cardio',
+        ];
+
+        const allExercises: Exercise[] = [];
+        for (const category of allCategories) {
+          try {
+            const categoryExercises = await exerciseService.getExercisesByCategory(category);
+            allExercises.push(...categoryExercises);
+          } catch (error) {
+            console.warn(`Failed to load exercises for category ${category}:`, error);
+          }
+        }
+
+        setExercises(allExercises);
+      } catch (error) {
+        console.error('Error loading all exercises:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadAllExercises();
+  }, []);
+
+  const { filteredExercises } = useExerciseFiltering(exercises, searchState.searchQuery);
+
+  const emptyComponent = () => (
+    <View style={styles.emptyContainer}>
+      <MaterialIcons name="search-off" size={48} color="rgba(255,255,255,0.5)" />
+      <Text style={styles.emptyText}>
+        {searchState.searchQuery.trim()
+          ? 'No exercises match your search'
+          : 'No exercises available'}
+      </Text>
+    </View>
+  );
+
+  return (
+    <View style={styles.stepContainer}>
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.loadingText}>Loading all exercises...</Text>
+        </View>
+      ) : (
+        <ScrollView style={styles.exerciseGrid} showsVerticalScrollIndicator={false}>
+          <View style={styles.exerciseCardsContainer}>
+            {filteredExercises.length === 0
+              ? emptyComponent()
+              : Array.from({ length: Math.ceil(filteredExercises.length / 2) }).map(
+                  (_, rowIndex) => {
+                    const startIdx = rowIndex * 2;
+                    const rowItems = filteredExercises.slice(startIdx, startIdx + 2);
+
+                    return (
+                      <View key={`row-${rowIndex}`} style={styles.exerciseRow}>
+                        {rowItems.map((exercise) => (
+                          <View key={exercise.id} style={styles.exerciseCardWrapper}>
+                            <ExerciseCard
+                              id={exercise.id}
+                              name={exercise.name}
+                              image={
+                                exercise.image_url
+                                  ? { uri: exercise.image_url }
+                                  : FALLBACK_IMAGE_OBJECT
+                              }
+                              isFavorite={false}
+                              onPress={() => onExerciseToggle(exercise.id)}
+                              onToggleFavorite={() => {}}
+                              useOptimizedImage={true}
+                              hideFavoriteButton={true}
+                            />
+                            {selectedExercises.has(exercise.id) && (
+                              <View style={styles.selectedOverlay}>
+                                <Ionicons
+                                  name="checkmark-circle"
+                                  size={24}
+                                  color={COLORS.primary}
+                                />
+                              </View>
+                            )}
+                          </View>
+                        ))}
+                        {rowItems.length === 1 && <View style={styles.emptyCardSpace} />}
+                      </View>
+                    );
+                  },
+                )}
+          </View>
+        </ScrollView>
+      )}
+
+      <View style={styles.stepActions}>
+        <Text style={styles.summaryText}>Selected Exercises: {selectedExercises.size}</Text>
+
+        <TouchableOpacity
+          style={[styles.nextButton, selectedExercises.size === 0 && styles.nextButtonDisabled]}
+          onPress={onNext}
+          disabled={selectedExercises.size === 0}
+        >
+          <Text style={styles.nextButtonText}>Next</Text>
+          <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -842,14 +1072,12 @@ const Step3Configuration = ({
         ))}
       </ScrollView>
 
-      <View style={styles.summaryFooter}>
-        <View style={styles.stepActions}>
-          <Text style={styles.summaryText}>Selected Exercises: {selectedExercises.length}</Text>
+      <View style={styles.stepActions}>
+        <Text style={styles.summaryText}>Selected Exercises: {selectedExercises.length}</Text>
 
-          <TouchableOpacity style={styles.addAllButton} onPress={onAddAll}>
-            <Text style={styles.addAllButtonText}>Add All</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity style={styles.nextButton} onPress={onAddAll}>
+          <Text style={styles.nextButtonText}>Add All</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -881,20 +1109,11 @@ const useFavoriteLogic = ({
     }
 
     if (showFavorites) {
-      // If currently showing favorites, turn it off and navigate appropriately
+      // If currently showing favorites, turn it off and go back to step 1
       setShowFavorites(false);
-
-      // If we have a selected muscle group, go back to step 2 (exercise selection)
-      // Otherwise, go back to step 1 (muscle selection)
-      if (selectedMuscleGroup && currentStep === 2) {
-        // Stay on step 2 but show regular exercises for the selected muscle group
-        setCurrentStep(2);
-      } else {
-        // Go back to step 1 (muscle selection) when disabling favorites from step 1
-        setCurrentStep(1);
-        setSelectedMuscleGroup('');
-        setSelectedExerciseIds(new Set());
-      }
+      setCurrentStep(1);
+      setSelectedMuscleGroup('');
+      setSelectedExerciseIds(new Set());
     } else {
       // If not showing favorites, turn it on and go to step 2
       setShowFavorites(true);
@@ -926,6 +1145,7 @@ const useFavoriteLogic = ({
 const renderStepContent = ({
   currentStep,
   showFavorites,
+  showAllExercises,
   currentView,
   setCurrentView,
   handleMuscleSelect,
@@ -942,6 +1162,7 @@ const renderStepContent = ({
 }: {
   currentStep: number;
   showFavorites: boolean;
+  showAllExercises: boolean;
   currentView: 'front' | 'back';
   setCurrentView: (view: 'front' | 'back') => void;
   handleMuscleSelect: (muscle: string) => void;
@@ -967,11 +1188,24 @@ const renderStepContent = ({
         setCurrentView={setCurrentView}
         onMuscleSelect={handleMuscleSelect}
         pulseAnim={pulseAnim}
+        searchState={searchState}
       />
     );
   }
 
   if (currentStep === 2 && !showFavorites) {
+    // Show all exercises if coming from search on step 1
+    if (showAllExercises) {
+      return (
+        <StepAllExercises
+          selectedExercises={selectedExerciseIds}
+          onExerciseToggle={handleExerciseToggle}
+          onNext={handleStep2Next}
+          searchState={searchState}
+        />
+      );
+    }
+
     return (
       <Step2ExerciseSelection
         selectedMuscleGroup={selectedMuscleGroup}
@@ -1022,9 +1256,19 @@ export default function AddExerciseModal({
   const [selectedExercises, setSelectedExercises] = useState<SelectedExercise[]>([]);
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [showFavorites, setShowFavorites] = useState(false);
+  const [showAllExercises, setShowAllExercises] = useState(false);
+
+  // Handle search from step 1 - navigate to step 2 with all exercises
+  const handleSearchFromStep1 = useCallback(() => {
+    setShowAllExercises(true);
+    setSelectedMuscleGroup(''); // Clear muscle group selection
+    setShowFavorites(false); // Turn off favorites
+    setCurrentStep(2);
+    setSelectedExerciseIds(new Set()); // Clear previous selections
+  }, []);
 
   // Search state
-  const searchState = useSearchState();
+  const searchState = useSearchState(handleSearchFromStep1);
 
   // Favorite logic
   const favoriteLogic = useFavoriteLogic({
@@ -1068,9 +1312,11 @@ export default function AddExerciseModal({
       setSelectedExercises([]);
       setCurrentView('front');
       setShowFavorites(false);
+      setShowAllExercises(false);
       // Clear search when modal closes
       searchState.setSearchQuery('');
       searchState.setIsSearchActive(false);
+      searchState.setShouldActivateSearchOnStep2(false);
       searchState.searchWidthAnim.setValue(40);
       searchState.contentOffsetAnim.setValue(0);
     }
@@ -1188,17 +1434,23 @@ export default function AddExerciseModal({
 
   const handleBack = useCallback(() => {
     if (currentStep === 2) {
-      // If we're showing favorites, turn off favorites mode and navigate appropriately
+      // If we're showing all exercises (from search), go back to step 1
+      if (showAllExercises) {
+        setShowAllExercises(false);
+        setCurrentStep(1);
+        setSelectedExerciseIds(new Set());
+        // Clear search when going back
+        searchState.setSearchQuery('');
+        searchState.setIsSearchActive(false);
+        searchState.setShouldActivateSearchOnStep2(false);
+        return;
+      }
+
+      // If we're showing favorites, turn off favorites mode and go back to step 1
       if (showFavorites) {
         setShowFavorites(false);
-
-        // If we have a selected muscle group, go back to step 2 with regular exercises
-        // Otherwise, go back to step 1 (muscle selection)
-        if (selectedMuscleGroup) {
-          setCurrentStep(2);
-        } else {
-          setCurrentStep(1);
-        }
+        setCurrentStep(1);
+        setSelectedMuscleGroup('');
         setSelectedExerciseIds(new Set());
       } else {
         // Regular back behavior: go to step 1
@@ -1210,7 +1462,7 @@ export default function AddExerciseModal({
       setCurrentStep(2);
       setSelectedExercises([]);
     }
-  }, [currentStep, showFavorites, selectedMuscleGroup]);
+  }, [currentStep, showFavorites, showAllExercises, selectedMuscleGroup, searchState]);
 
   const handleClose = useCallback(() => {
     console.log('AddExerciseModal: Close button pressed');
@@ -1223,6 +1475,10 @@ export default function AddExerciseModal({
         return `Favorite ${selectedMuscleGroup} Exercises`;
       }
       return 'Favorite Exercises';
+    }
+
+    if (showAllExercises && currentStep === 2) {
+      return 'All Exercises';
     }
 
     switch (currentStep) {
@@ -1317,6 +1573,7 @@ export default function AddExerciseModal({
                   {renderStepContent({
                     currentStep,
                     showFavorites,
+                    showAllExercises,
                     currentView,
                     setCurrentView,
                     handleMuscleSelect,
@@ -1336,9 +1593,13 @@ export default function AddExerciseModal({
             </View>
           </Animated.View>
 
-          {/* Floating Search UI - only show on step 2 */}
-          {currentStep === 2 && (
-            <FloatingSearchUI searchState={searchState} stepTitle={getStepTitle()} />
+          {/* Floating Search UI - show on steps 1 and 2 */}
+          {(currentStep === 1 || currentStep === 2) && (
+            <FloatingSearchUI
+              searchState={searchState}
+              stepTitle={getStepTitle()}
+              currentStep={currentStep}
+            />
           )}
         </View>
       </GestureHandlerRootView>

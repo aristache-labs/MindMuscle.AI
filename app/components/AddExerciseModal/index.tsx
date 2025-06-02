@@ -855,6 +855,160 @@ const Step3Configuration = ({
   );
 };
 
+// Custom hook for favorite functionality
+const useFavoriteLogic = ({
+  currentStep,
+  showFavorites,
+  selectedMuscleGroup,
+  setShowFavorites,
+  setCurrentStep,
+  setSelectedMuscleGroup,
+  setSelectedExerciseIds,
+}: {
+  currentStep: number;
+  showFavorites: boolean;
+  selectedMuscleGroup: string;
+  setShowFavorites: (show: boolean) => void;
+  setCurrentStep: (step: number) => void;
+  setSelectedMuscleGroup: (group: string) => void;
+  setSelectedExerciseIds: (ids: Set<string>) => void;
+}) => {
+  const handleFavoritePress = useCallback(() => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {
+      // Haptics might not be available
+    }
+
+    if (showFavorites) {
+      // If currently showing favorites, turn it off and navigate appropriately
+      setShowFavorites(false);
+
+      // If we have a selected muscle group, go back to step 2 (exercise selection)
+      // Otherwise, go back to step 1 (muscle selection)
+      if (selectedMuscleGroup && currentStep === 2) {
+        // Stay on step 2 but show regular exercises for the selected muscle group
+        setCurrentStep(2);
+      } else {
+        // Go back to step 1 (muscle selection) when disabling favorites from step 1
+        setCurrentStep(1);
+        setSelectedMuscleGroup('');
+        setSelectedExerciseIds(new Set());
+      }
+    } else {
+      // If not showing favorites, turn it on and go to step 2
+      setShowFavorites(true);
+      setCurrentStep(2);
+
+      // If we're on step 1 (no muscle group selected), clear muscle group to show all favorites
+      // If we're on step 2 (muscle group selected), keep the muscle group to show filtered favorites
+      if (currentStep === 1) {
+        setSelectedMuscleGroup('');
+      }
+      // Keep the current selectedMuscleGroup if we're on step 2
+
+      setSelectedExerciseIds(new Set());
+    }
+  }, [
+    showFavorites,
+    selectedMuscleGroup,
+    currentStep,
+    setShowFavorites,
+    setCurrentStep,
+    setSelectedMuscleGroup,
+    setSelectedExerciseIds,
+  ]);
+
+  return { handleFavoritePress };
+};
+
+// Step content renderer
+const renderStepContent = ({
+  currentStep,
+  showFavorites,
+  currentView,
+  setCurrentView,
+  handleMuscleSelect,
+  pulseAnim,
+  selectedMuscleGroup,
+  selectedExerciseIds,
+  handleExerciseToggle,
+  handleStep2Next,
+  searchState,
+  selectedExercises,
+  exercises,
+  handleConfigurationChange,
+  handleAddAll,
+}: {
+  currentStep: number;
+  showFavorites: boolean;
+  currentView: 'front' | 'back';
+  setCurrentView: (view: 'front' | 'back') => void;
+  handleMuscleSelect: (muscle: string) => void;
+  pulseAnim: Animated.Value;
+  selectedMuscleGroup: string;
+  selectedExerciseIds: Set<string>;
+  handleExerciseToggle: (exerciseId: string) => void;
+  handleStep2Next: () => void;
+  searchState: ReturnType<typeof useSearchState>;
+  selectedExercises: SelectedExercise[];
+  exercises: Exercise[];
+  handleConfigurationChange: (
+    exerciseId: string,
+    field: 'sets' | 'reps_range',
+    value: string | number,
+  ) => void;
+  handleAddAll: () => void;
+}) => {
+  if (currentStep === 1) {
+    return (
+      <Step1MuscleSelection
+        currentView={currentView}
+        setCurrentView={setCurrentView}
+        onMuscleSelect={handleMuscleSelect}
+        pulseAnim={pulseAnim}
+      />
+    );
+  }
+
+  if (currentStep === 2 && !showFavorites) {
+    return (
+      <Step2ExerciseSelection
+        selectedMuscleGroup={selectedMuscleGroup}
+        selectedExercises={selectedExerciseIds}
+        onExerciseToggle={handleExerciseToggle}
+        onNext={handleStep2Next}
+        searchState={searchState}
+      />
+    );
+  }
+
+  if (currentStep === 2 && showFavorites) {
+    return (
+      <StepFavorites
+        selectedExercises={selectedExerciseIds}
+        onExerciseToggle={handleExerciseToggle}
+        onNext={handleStep2Next}
+        selectedMuscleGroup={selectedMuscleGroup}
+        searchState={searchState}
+      />
+    );
+  }
+
+  if (currentStep === 3) {
+    return (
+      <Step3Configuration
+        selectedExercises={selectedExercises}
+        _exercises={exercises}
+        onConfigurationChange={handleConfigurationChange}
+        onAddAll={handleAddAll}
+      />
+    );
+  }
+
+  return null;
+};
+
 export default function AddExerciseModal({
   visible,
   onClose,
@@ -871,6 +1025,17 @@ export default function AddExerciseModal({
 
   // Search state
   const searchState = useSearchState();
+
+  // Favorite logic
+  const favoriteLogic = useFavoriteLogic({
+    currentStep,
+    showFavorites,
+    selectedMuscleGroup,
+    setShowFavorites,
+    setCurrentStep,
+    setSelectedMuscleGroup,
+    setSelectedExerciseIds,
+  });
 
   // Animations
   const modalAnimation = useSharedValue(0);
@@ -1123,43 +1288,7 @@ export default function AddExerciseModal({
                   {currentStep !== 3 && (
                     <TouchableOpacity
                       style={styles.headerButton}
-                      onPress={() => {
-                        try {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        } catch {
-                          // Haptics might not be available
-                        }
-
-                        if (showFavorites) {
-                          // If currently showing favorites, turn it off and navigate appropriately
-                          setShowFavorites(false);
-
-                          // If we have a selected muscle group, go back to step 2 (exercise selection)
-                          // Otherwise, go back to step 1 (muscle selection)
-                          if (selectedMuscleGroup && currentStep === 2) {
-                            // Stay on step 2 but show regular exercises for the selected muscle group
-                            setCurrentStep(2);
-                          } else {
-                            // Go back to step 1 (muscle selection) when disabling favorites from step 1
-                            setCurrentStep(1);
-                            setSelectedMuscleGroup('');
-                            setSelectedExerciseIds(new Set());
-                          }
-                        } else {
-                          // If not showing favorites, turn it on and go to step 2
-                          setShowFavorites(true);
-                          setCurrentStep(2);
-
-                          // If we're on step 1 (no muscle group selected), clear muscle group to show all favorites
-                          // If we're on step 2 (muscle group selected), keep the muscle group to show filtered favorites
-                          if (currentStep === 1) {
-                            setSelectedMuscleGroup('');
-                          }
-                          // Keep the current selectedMuscleGroup if we're on step 2
-
-                          setSelectedExerciseIds(new Set());
-                        }
-                      }}
+                      onPress={favoriteLogic.handleFavoritePress}
                     >
                       <Ionicons
                         name={showFavorites ? 'star' : 'star-outline'}
@@ -1185,43 +1314,23 @@ export default function AddExerciseModal({
                     },
                   ]}
                 >
-                  {currentStep === 1 && (
-                    <Step1MuscleSelection
-                      currentView={currentView}
-                      setCurrentView={setCurrentView}
-                      onMuscleSelect={handleMuscleSelect}
-                      pulseAnim={pulseAnim}
-                    />
-                  )}
-
-                  {currentStep === 2 && !showFavorites && (
-                    <Step2ExerciseSelection
-                      selectedMuscleGroup={selectedMuscleGroup}
-                      selectedExercises={selectedExerciseIds}
-                      onExerciseToggle={handleExerciseToggle}
-                      onNext={handleStep2Next}
-                      searchState={searchState}
-                    />
-                  )}
-
-                  {currentStep === 2 && showFavorites && (
-                    <StepFavorites
-                      selectedExercises={selectedExerciseIds}
-                      onExerciseToggle={handleExerciseToggle}
-                      onNext={handleStep2Next}
-                      selectedMuscleGroup={selectedMuscleGroup}
-                      searchState={searchState}
-                    />
-                  )}
-
-                  {currentStep === 3 && (
-                    <Step3Configuration
-                      selectedExercises={selectedExercises}
-                      _exercises={exercises}
-                      onConfigurationChange={handleConfigurationChange}
-                      onAddAll={handleAddAll}
-                    />
-                  )}
+                  {renderStepContent({
+                    currentStep,
+                    showFavorites,
+                    currentView,
+                    setCurrentView,
+                    handleMuscleSelect,
+                    pulseAnim,
+                    selectedMuscleGroup,
+                    selectedExerciseIds,
+                    handleExerciseToggle,
+                    handleStep2Next,
+                    searchState,
+                    selectedExercises,
+                    exercises,
+                    handleConfigurationChange,
+                    handleAddAll,
+                  })}
                 </Animated.View>
               </View>
             </View>

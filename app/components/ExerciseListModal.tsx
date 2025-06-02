@@ -501,9 +501,7 @@ export default function ExerciseListModal({
           <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} activeOpacity={1} />
         </Animated.View>
 
-        <Animated.View
-          style={[styles.modalContainer, { paddingBottom: insets.bottom }, modalStyle]}
-        >
+        <Animated.View style={[styles.modalContainer, modalStyle]}>
           <View style={styles.container}>
             {/* Adding glowing corners */}
             <View style={styles.topGlowLeft} />
@@ -628,7 +626,7 @@ export default function ExerciseListModal({
 
             {/* Bottom Action Buttons - Only show in customize mode */}
             {isCustomizeMode && (
-              <View style={styles.bottomActions}>
+              <View style={[styles.bottomActions, { paddingBottom: insets.bottom }]}>
                 <TouchableOpacity
                   style={styles.actionButton}
                   onPress={onAddExercise}
@@ -912,8 +910,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.md,
-    borderTopWidth: 0.2,
-    borderTopColor: COLORS.primary,
     backgroundColor: COLORS.background,
     gap: SPACING.sm,
   },

@@ -7,11 +7,13 @@ import {
   Dimensions,
   GestureResponderEvent,
   Image,
+  Keyboard,
   Modal,
   ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -33,7 +35,309 @@ import { FALLBACK_IMAGE_OBJECT, muscleGroups } from './constants';
 import { styles } from './styles';
 import { AddExerciseModalProps, ExerciseConfiguration, SelectedExercise } from './types';
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// Map of alternative names for muscle groups to support better search
+const MUSCLE_GROUP_ALIASES: Record<string, string[]> = {
+  Chest: ['pecs', 'pectorals', 'chest muscles'],
+  Biceps: ['bis', 'guns', 'arms'],
+  Triceps: ['tris', 'back of arms'],
+  Abs: ['abdominals', 'six pack', 'core', 'stomach', 'midsection'],
+  Shoulders: ['delts', 'deltoids'],
+  Lats: ['latissimus dorsi', 'wings', 'back'],
+  Quads: ['quadriceps', 'front thighs'],
+  Hamstrings: ['hammies', 'back thighs'],
+  Glutes: ['gluteus maximus', 'butt', 'buttocks'],
+  Calves: ['calf muscles', 'lower legs'],
+  Forearms: ['lower arms'],
+  Lower_back: [
+    'lower back',
+    'erectorspinae',
+    'erector-spinae',
+    'erector',
+    'lower_back',
+    'lowerback',
+  ],
+  Traps: ['trapezius', 'upper back'],
+};
+
+// Search operations helper
+interface SearchOperationsParams {
+  isSearchActive: boolean;
+  searchWidthAnim: Animated.Value;
+  contentOffsetAnim: Animated.Value;
+  searchInputRef: React.RefObject<TextInput | null>;
+  setIsSearchActive: (active: boolean) => void;
+  setSearchQuery: (query: string) => void;
+  SCREEN_WIDTH: number;
+}
+
+const handleSearchOperations = ({
+  isSearchActive,
+  searchWidthAnim,
+  contentOffsetAnim,
+  searchInputRef,
+  setIsSearchActive,
+  setSearchQuery,
+  SCREEN_WIDTH,
+}: SearchOperationsParams) => {
+  const openSearch = () => {
+    setIsSearchActive(true);
+    Animated.timing(searchWidthAnim, {
+      toValue: SCREEN_WIDTH - 32,
+      duration: 300,
+      useNativeDriver: false,
+    }).start(() => {
+      if (searchInputRef.current) {
+        searchInputRef.current.focus();
+      }
+    });
+
+    Animated.timing(contentOffsetAnim, {
+      toValue: 50,
+      duration: 300,
+      useNativeDriver: false,
+    }).start();
+  };
+
+  const collapseSearchUI = () => {
+    Animated.timing(searchWidthAnim, {
+      toValue: 40,
+      duration: 300,
+      useNativeDriver: false,
+    }).start(() => {
+      setIsSearchActive(false);
+    });
+
+    Animated.timing(contentOffsetAnim, {
+      toValue: 0,
+      duration: 300,
+      useNativeDriver: false,
+    }).start();
+  };
+
+  const clearSearch = () => {
+    setSearchQuery('');
+    collapseSearchUI();
+  };
+
+  const handleSearchIconPress = () => {
+    if (isSearchActive) {
+      collapseSearchUI();
+    } else {
+      openSearch();
+    }
+  };
+
+  const handleSearchSubmit = () => {
+    if (searchInputRef.current) {
+      searchInputRef.current.blur();
+    }
+  };
+
+  return {
+    openSearch,
+    collapseSearchUI,
+    clearSearch,
+    handleSearchIconPress,
+    handleSearchSubmit,
+  };
+};
+
+// Custom hook for search state management
+const useSearchState = () => {
+  const [isSearchActive, setIsSearchActive] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchWidthAnim = useRef(new Animated.Value(40)).current;
+  const contentOffsetAnim = useRef(new Animated.Value(0)).current;
+  const searchInputRef = useRef<TextInput>(null);
+  const searchResultsOpacity = useRef(new Animated.Value(0)).current;
+
+  const searchOperations = handleSearchOperations({
+    isSearchActive,
+    searchWidthAnim,
+    contentOffsetAnim,
+    searchInputRef,
+    setIsSearchActive,
+    setSearchQuery,
+    SCREEN_WIDTH,
+  });
+
+  // Search results header animation
+  useEffect(() => {
+    if (!isSearchActive && searchQuery.trim() !== '') {
+      Animated.timing(searchResultsOpacity, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(searchResultsOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [isSearchActive, searchQuery]);
+
+  // Keyboard dismiss listener
+  useEffect(() => {
+    const keyboardDidHideListener = Keyboard.addListener('keyboardDidHide', () => {
+      if (isSearchActive && searchQuery.trim() !== '') {
+        searchOperations.collapseSearchUI();
+      }
+    });
+
+    return () => {
+      keyboardDidHideListener.remove();
+    };
+  }, [isSearchActive, searchQuery]);
+
+  return {
+    isSearchActive,
+    setIsSearchActive,
+    searchQuery,
+    setSearchQuery,
+    searchWidthAnim,
+    contentOffsetAnim,
+    searchInputRef,
+    searchResultsOpacity,
+    ...searchOperations,
+  };
+};
+
+// Enhanced filtering hook
+const useExerciseFiltering = (
+  exercises: Exercise[],
+  searchQuery: string,
+  _selectedMuscleGroup?: string,
+) => {
+  const matchesMuscleGroup = useCallback((exercise: Exercise, query: string): boolean => {
+    if (exercise.muscle_group && exercise.muscle_group.toLowerCase().includes(query)) {
+      return true;
+    }
+
+    if (exercise.muscle_group) {
+      const aliases = MUSCLE_GROUP_ALIASES[exercise.muscle_group as ExerciseCategory] || [];
+      return aliases.some((alias) => alias.toLowerCase().includes(query));
+    }
+
+    return false;
+  }, []);
+
+  const filteredExercises = useMemo(() => {
+    if (!searchQuery.trim()) return exercises;
+
+    const query = searchQuery.toLowerCase().trim();
+    return exercises.filter(
+      (ex) =>
+        ex.name.toLowerCase().includes(query) ||
+        (ex.muscle_group && ex.muscle_group.toLowerCase().includes(query)) ||
+        matchesMuscleGroup(ex, query),
+    );
+  }, [exercises, searchQuery, matchesMuscleGroup]);
+
+  return { filteredExercises };
+};
+
+// Floating Search UI Component
+interface FloatingSearchUIProps {
+  searchState: ReturnType<typeof useSearchState>;
+  stepTitle: string;
+}
+
+const FloatingSearchUI = ({ searchState, stepTitle }: FloatingSearchUIProps) => (
+  <>
+    {/* Floating Search */}
+    <View style={styles.floatingSearchRow}>
+      <Animated.View
+        style={[
+          styles.searchContainer,
+          {
+            width: searchState.isSearchActive ? searchState.searchWidthAnim : 40,
+            flex: searchState.isSearchActive ? 1 : undefined,
+          },
+        ]}
+      >
+        {!searchState.isSearchActive ? (
+          <TouchableOpacity style={styles.searchIconButton} onPress={searchState.openSearch}>
+            <MaterialIcons
+              name="search"
+              size={22}
+              color={searchState.searchQuery.trim() ? COLORS.primary : COLORS.text}
+            />
+            {searchState.searchQuery.trim() !== '' && <View style={styles.activeFilterIndicator} />}
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.activeSearchContainer}>
+            <TouchableOpacity onPress={searchState.handleSearchIconPress}>
+              <MaterialIcons
+                name="search"
+                size={24}
+                color={COLORS.text}
+                style={styles.searchIconActive}
+              />
+            </TouchableOpacity>
+            <TextInput
+              ref={searchState.searchInputRef}
+              style={styles.searchInput}
+              placeholder="Search exercises..."
+              placeholderTextColor="rgba(255,255,255,0.5)"
+              value={searchState.searchQuery}
+              onChangeText={searchState.setSearchQuery}
+              autoFocus={searchState.isSearchActive}
+              returnKeyType="search"
+              onSubmitEditing={searchState.handleSearchSubmit}
+            />
+            <TouchableOpacity onPress={searchState.clearSearch}>
+              <MaterialIcons name="close" size={24} color={COLORS.text} />
+            </TouchableOpacity>
+          </View>
+        )}
+      </Animated.View>
+    </View>
+
+    {/* Background Overlay to collapse search */}
+    {searchState.isSearchActive && (
+      <TouchableWithoutFeedback onPress={searchState.collapseSearchUI}>
+        <View style={styles.overlay} />
+      </TouchableWithoutFeedback>
+    )}
+
+    {/* Floating search results header */}
+    {!searchState.isSearchActive && searchState.searchQuery.trim() !== '' && (
+      <Animated.View
+        style={[
+          styles.searchResultsHeader,
+          {
+            opacity: searchState.searchResultsOpacity,
+            transform: [
+              {
+                translateY: searchState.searchResultsOpacity.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [20, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <Text style={styles.searchResultsText} numberOfLines={1}>
+          Results for "
+          <Text style={styles.queryHighlight} numberOfLines={1} ellipsizeMode="middle">
+            {searchState.searchQuery.length > 15
+              ? searchState.searchQuery.substring(0, 15) + '...'
+              : searchState.searchQuery}
+          </Text>
+          " in {stepTitle}
+        </Text>
+        <TouchableOpacity onPress={searchState.clearSearch} style={styles.clearSearchResultsButton}>
+          <MaterialIcons name="close" size={18} color={COLORS.text} />
+        </TouchableOpacity>
+      </Animated.View>
+    )}
+  </>
+);
 
 // Step components
 const Step1MuscleSelection = ({
@@ -161,18 +465,17 @@ const Step2ExerciseSelection = ({
   selectedMuscleGroup,
   selectedExercises,
   onExerciseToggle,
-  onBack,
   onNext,
+  searchState,
 }: {
   selectedMuscleGroup: string;
   selectedExercises: Set<string>;
   onExerciseToggle: (exerciseId: string) => void;
-  onBack: () => void;
   onNext: () => void;
+  searchState: ReturnType<typeof useSearchState>;
 }) => {
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     const loadExercises = async () => {
@@ -196,26 +499,25 @@ const Step2ExerciseSelection = ({
     loadExercises();
   }, [selectedMuscleGroup]);
 
-  const filteredExercises = useMemo(() => {
-    if (!searchQuery.trim()) return exercises;
-    return exercises.filter((exercise) =>
-      exercise.name.toLowerCase().includes(searchQuery.toLowerCase()),
-    );
-  }, [exercises, searchQuery]);
+  const { filteredExercises } = useExerciseFiltering(
+    exercises,
+    searchState.searchQuery,
+    selectedMuscleGroup,
+  );
+
+  const emptyComponent = () => (
+    <View style={styles.emptyContainer}>
+      <MaterialIcons name="search-off" size={48} color="rgba(255,255,255,0.5)" />
+      <Text style={styles.emptyText}>
+        {searchState.searchQuery.trim()
+          ? 'No exercises match your search'
+          : 'No exercises available'}
+      </Text>
+    </View>
+  );
 
   return (
     <View style={styles.stepContainer}>
-      <View style={styles.searchContainer}>
-        <MaterialIcons name="search" size={20} color={COLORS.placeholder} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search exercises..."
-          placeholderTextColor={COLORS.placeholder}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-      </View>
-
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={COLORS.primary} />
@@ -224,45 +526,53 @@ const Step2ExerciseSelection = ({
       ) : (
         <ScrollView style={styles.exerciseGrid} showsVerticalScrollIndicator={false}>
           <View style={styles.exerciseCardsContainer}>
-            {Array.from({ length: Math.ceil(filteredExercises.length / 2) }).map((_, rowIndex) => {
-              const startIdx = rowIndex * 2;
-              const rowItems = filteredExercises.slice(startIdx, startIdx + 2);
+            {filteredExercises.length === 0
+              ? emptyComponent()
+              : Array.from({ length: Math.ceil(filteredExercises.length / 2) }).map(
+                  (_, rowIndex) => {
+                    const startIdx = rowIndex * 2;
+                    const rowItems = filteredExercises.slice(startIdx, startIdx + 2);
 
-              return (
-                <View key={`row-${rowIndex}`} style={styles.exerciseRow}>
-                  {rowItems.map((exercise) => (
-                    <View key={exercise.id} style={styles.exerciseCardWrapper}>
-                      <ExerciseCard
-                        id={exercise.id}
-                        name={exercise.name}
-                        image={
-                          exercise.image_url ? { uri: exercise.image_url } : FALLBACK_IMAGE_OBJECT
-                        }
-                        isFavorite={false}
-                        onPress={() => onExerciseToggle(exercise.id)}
-                        onToggleFavorite={() => {}}
-                        useOptimizedImage={true}
-                      />
-                      {selectedExercises.has(exercise.id) && (
-                        <View style={styles.selectedOverlay}>
-                          <Ionicons name="checkmark-circle" size={24} color={COLORS.primary} />
-                        </View>
-                      )}
-                    </View>
-                  ))}
-                  {rowItems.length === 1 && <View style={styles.emptyCardSpace} />}
-                </View>
-              );
-            })}
+                    return (
+                      <View key={`row-${rowIndex}`} style={styles.exerciseRow}>
+                        {rowItems.map((exercise) => (
+                          <View key={exercise.id} style={styles.exerciseCardWrapper}>
+                            <ExerciseCard
+                              id={exercise.id}
+                              name={exercise.name}
+                              image={
+                                exercise.image_url
+                                  ? { uri: exercise.image_url }
+                                  : FALLBACK_IMAGE_OBJECT
+                              }
+                              isFavorite={false}
+                              onPress={() => onExerciseToggle(exercise.id)}
+                              onToggleFavorite={() => {}}
+                              useOptimizedImage={true}
+                              hideFavoriteButton={true}
+                            />
+                            {selectedExercises.has(exercise.id) && (
+                              <View style={styles.selectedOverlay}>
+                                <Ionicons
+                                  name="checkmark-circle"
+                                  size={24}
+                                  color={COLORS.primary}
+                                />
+                              </View>
+                            )}
+                          </View>
+                        ))}
+                        {rowItems.length === 1 && <View style={styles.emptyCardSpace} />}
+                      </View>
+                    );
+                  },
+                )}
           </View>
         </ScrollView>
       )}
 
       <View style={styles.stepActions}>
-        <TouchableOpacity style={styles.backButton} onPress={onBack}>
-          <Ionicons name="arrow-back" size={20} color={COLORS.text} />
-          <Text style={styles.backButtonText}>Back</Text>
-        </TouchableOpacity>
+        <Text style={styles.summaryText}>Selected Exercises: {selectedExercises.size}</Text>
 
         <TouchableOpacity
           style={[styles.nextButton, selectedExercises.size === 0 && styles.nextButtonDisabled]}
@@ -280,19 +590,18 @@ const Step2ExerciseSelection = ({
 const StepFavorites = ({
   selectedExercises,
   onExerciseToggle,
-  onBack,
   onNext,
   selectedMuscleGroup,
+  searchState,
 }: {
   selectedExercises: Set<string>;
   onExerciseToggle: (exerciseId: string) => void;
-  onBack: () => void;
   onNext: () => void;
   selectedMuscleGroup?: string;
+  searchState: ReturnType<typeof useSearchState>;
 }) => {
   const [favoriteExercises, setFavoriteExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     const loadFavoriteExercises = async () => {
@@ -325,14 +634,16 @@ const StepFavorites = ({
     loadFavoriteExercises();
   }, [selectedMuscleGroup]);
 
-  const filteredExercises = useMemo(() => {
-    if (!searchQuery.trim()) return favoriteExercises;
-    return favoriteExercises.filter((exercise) =>
-      exercise.name.toLowerCase().includes(searchQuery.toLowerCase()),
-    );
-  }, [favoriteExercises, searchQuery]);
+  const { filteredExercises } = useExerciseFiltering(
+    favoriteExercises,
+    searchState.searchQuery,
+    selectedMuscleGroup,
+  );
 
   const getEmptyStateText = () => {
+    if (searchState.searchQuery.trim()) {
+      return 'No favorite exercises match your search';
+    }
     if (selectedMuscleGroup) {
       return `No favorite ${selectedMuscleGroup.toLowerCase()} exercises found`;
     }
@@ -340,82 +651,80 @@ const StepFavorites = ({
   };
 
   const getEmptyStateSubtext = () => {
+    if (searchState.searchQuery.trim()) {
+      return 'Try adjusting your search terms';
+    }
     if (selectedMuscleGroup) {
       return `Mark ${selectedMuscleGroup.toLowerCase()} exercises as favorites to see them here`;
     }
     return 'Mark exercises as favorites to see them here';
   };
 
+  const emptyComponent = () => (
+    <View style={styles.emptyFavoritesContainer}>
+      <Ionicons name="star-outline" size={64} color={COLORS.placeholder} />
+      <Text style={styles.emptyFavoritesTitle}>{getEmptyStateText()}</Text>
+      <Text style={styles.emptyFavoritesText}>{getEmptyStateSubtext()}</Text>
+    </View>
+  );
+
   return (
     <View style={styles.stepContainer}>
-      <View style={styles.searchContainer}>
-        <MaterialIcons name="search" size={20} color={COLORS.placeholder} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder={
-            selectedMuscleGroup
-              ? `Search ${selectedMuscleGroup.toLowerCase()} favorites...`
-              : 'Search favorite exercises...'
-          }
-          placeholderTextColor={COLORS.placeholder}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-      </View>
-
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={COLORS.primary} />
           <Text style={styles.loadingText}>Loading favorite exercises...</Text>
         </View>
-      ) : filteredExercises.length === 0 ? (
-        <View style={styles.emptyFavoritesContainer}>
-          <Ionicons name="star-outline" size={64} color={COLORS.placeholder} />
-          <Text style={styles.emptyFavoritesTitle}>{getEmptyStateText()}</Text>
-          <Text style={styles.emptyFavoritesText}>{getEmptyStateSubtext()}</Text>
-        </View>
       ) : (
         <ScrollView style={styles.exerciseGrid} showsVerticalScrollIndicator={false}>
           <View style={styles.exerciseCardsContainer}>
-            {Array.from({ length: Math.ceil(filteredExercises.length / 2) }).map((_, rowIndex) => {
-              const startIdx = rowIndex * 2;
-              const rowItems = filteredExercises.slice(startIdx, startIdx + 2);
+            {filteredExercises.length === 0
+              ? emptyComponent()
+              : Array.from({ length: Math.ceil(filteredExercises.length / 2) }).map(
+                  (_, rowIndex) => {
+                    const startIdx = rowIndex * 2;
+                    const rowItems = filteredExercises.slice(startIdx, startIdx + 2);
 
-              return (
-                <View key={`row-${rowIndex}`} style={styles.exerciseRow}>
-                  {rowItems.map((exercise) => (
-                    <View key={exercise.id} style={styles.exerciseCardWrapper}>
-                      <ExerciseCard
-                        id={exercise.id}
-                        name={exercise.name}
-                        image={
-                          exercise.image_url ? { uri: exercise.image_url } : FALLBACK_IMAGE_OBJECT
-                        }
-                        isFavorite={true}
-                        onPress={() => onExerciseToggle(exercise.id)}
-                        onToggleFavorite={() => {}}
-                        useOptimizedImage={true}
-                      />
-                      {selectedExercises.has(exercise.id) && (
-                        <View style={styles.selectedOverlay}>
-                          <Ionicons name="checkmark-circle" size={24} color={COLORS.primary} />
-                        </View>
-                      )}
-                    </View>
-                  ))}
-                  {rowItems.length === 1 && <View style={styles.emptyCardSpace} />}
-                </View>
-              );
-            })}
+                    return (
+                      <View key={`row-${rowIndex}`} style={styles.exerciseRow}>
+                        {rowItems.map((exercise) => (
+                          <View key={exercise.id} style={styles.exerciseCardWrapper}>
+                            <ExerciseCard
+                              id={exercise.id}
+                              name={exercise.name}
+                              image={
+                                exercise.image_url
+                                  ? { uri: exercise.image_url }
+                                  : FALLBACK_IMAGE_OBJECT
+                              }
+                              isFavorite={true}
+                              onPress={() => onExerciseToggle(exercise.id)}
+                              onToggleFavorite={() => {}}
+                              useOptimizedImage={true}
+                              hideFavoriteButton={true}
+                            />
+                            {selectedExercises.has(exercise.id) && (
+                              <View style={styles.selectedOverlay}>
+                                <Ionicons
+                                  name="checkmark-circle"
+                                  size={24}
+                                  color={COLORS.primary}
+                                />
+                              </View>
+                            )}
+                          </View>
+                        ))}
+                        {rowItems.length === 1 && <View style={styles.emptyCardSpace} />}
+                      </View>
+                    );
+                  },
+                )}
           </View>
         </ScrollView>
       )}
 
       <View style={styles.stepActions}>
-        <TouchableOpacity style={styles.backButton} onPress={onBack}>
-          <Ionicons name="arrow-back" size={20} color={COLORS.text} />
-          <Text style={styles.backButtonText}>Back</Text>
-        </TouchableOpacity>
+        <Text style={styles.summaryText}>Selected Exercises: {selectedExercises.size}</Text>
 
         <TouchableOpacity
           style={[styles.nextButton, selectedExercises.size === 0 && styles.nextButtonDisabled]}
@@ -434,7 +743,6 @@ const Step3Configuration = ({
   selectedExercises,
   _exercises,
   onConfigurationChange,
-  onBack,
   onAddAll,
 }: {
   selectedExercises: SelectedExercise[];
@@ -444,7 +752,6 @@ const Step3Configuration = ({
     field: 'sets' | 'reps_range',
     value: string | number,
   ) => void;
-  onBack: () => void;
   onAddAll: () => void;
 }) => {
   return (
@@ -536,13 +843,8 @@ const Step3Configuration = ({
       </ScrollView>
 
       <View style={styles.summaryFooter}>
-        <Text style={styles.summaryText}>Selected Exercises: {selectedExercises.length}</Text>
-
         <View style={styles.stepActions}>
-          <TouchableOpacity style={styles.backButton} onPress={onBack}>
-            <Ionicons name="arrow-back" size={20} color={COLORS.text} />
-            <Text style={styles.backButtonText}>Back</Text>
-          </TouchableOpacity>
+          <Text style={styles.summaryText}>Selected Exercises: {selectedExercises.length}</Text>
 
           <TouchableOpacity style={styles.addAllButton} onPress={onAddAll}>
             <Text style={styles.addAllButtonText}>Add All</Text>
@@ -566,6 +868,9 @@ export default function AddExerciseModal({
   const [selectedExercises, setSelectedExercises] = useState<SelectedExercise[]>([]);
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [showFavorites, setShowFavorites] = useState(false);
+
+  // Search state
+  const searchState = useSearchState();
 
   // Animations
   const modalAnimation = useSharedValue(0);
@@ -597,6 +902,12 @@ export default function AddExerciseModal({
       setSelectedExerciseIds(new Set());
       setSelectedExercises([]);
       setCurrentView('front');
+      setShowFavorites(false);
+      // Clear search when modal closes
+      searchState.setSearchQuery('');
+      searchState.setIsSearchActive(false);
+      searchState.searchWidthAnim.setValue(40);
+      searchState.contentOffsetAnim.setValue(0);
     }
   }, [visible]);
 
@@ -652,15 +963,22 @@ export default function AddExerciseModal({
     try {
       setCurrentStep(3);
 
-      // Load full exercise data for selected exercises
-      let categoryKey = selectedMuscleGroup;
-      if (selectedMuscleGroup === 'Lower back') {
-        categoryKey = 'Lower_back';
-      }
+      let exerciseData: Exercise[] = [];
 
-      const exerciseData = await exerciseService.getExercisesByCategory(
-        categoryKey as ExerciseCategory,
-      );
+      if (showFavorites) {
+        // If we're in favorites mode, get all favorite exercises
+        exerciseData = await exerciseService.getFavoriteExercises();
+      } else {
+        // Load full exercise data for selected muscle group
+        let categoryKey = selectedMuscleGroup;
+        if (selectedMuscleGroup === 'Lower back') {
+          categoryKey = 'Lower_back';
+        }
+
+        exerciseData = await exerciseService.getExercisesByCategory(
+          categoryKey as ExerciseCategory,
+        );
+      }
 
       const selected = exerciseData
         .filter((ex) => selectedExerciseIds.has(ex.id))
@@ -675,7 +993,7 @@ export default function AddExerciseModal({
     } catch (error) {
       console.error('Error loading exercise data:', error);
     }
-  }, [selectedMuscleGroup, selectedExerciseIds]);
+  }, [selectedMuscleGroup, selectedExerciseIds, showFavorites]);
 
   const handleConfigurationChange = useCallback(
     (exerciseId: string, field: 'sets' | 'reps_range', value: string | number) => {
@@ -705,13 +1023,29 @@ export default function AddExerciseModal({
 
   const handleBack = useCallback(() => {
     if (currentStep === 2) {
-      setCurrentStep(1);
-      setSelectedExerciseIds(new Set());
+      // If we're showing favorites, turn off favorites mode and navigate appropriately
+      if (showFavorites) {
+        setShowFavorites(false);
+
+        // If we have a selected muscle group, go back to step 2 with regular exercises
+        // Otherwise, go back to step 1 (muscle selection)
+        if (selectedMuscleGroup) {
+          setCurrentStep(2);
+        } else {
+          setCurrentStep(1);
+        }
+        setSelectedExerciseIds(new Set());
+      } else {
+        // Regular back behavior: go to step 1
+        setCurrentStep(1);
+        setSelectedMuscleGroup('');
+        setSelectedExerciseIds(new Set());
+      }
     } else if (currentStep === 3) {
       setCurrentStep(2);
       setSelectedExercises([]);
     }
-  }, [currentStep]);
+  }, [currentStep, showFavorites, selectedMuscleGroup]);
 
   const handleClose = useCallback(() => {
     console.log('AddExerciseModal: Close button pressed');
@@ -720,6 +1054,9 @@ export default function AddExerciseModal({
 
   const getStepTitle = () => {
     if (showFavorites && currentStep === 2) {
+      if (selectedMuscleGroup) {
+        return `Favorite ${selectedMuscleGroup} Exercises`;
+      }
       return 'Favorite Exercises';
     }
 
@@ -740,7 +1077,7 @@ export default function AddExerciseModal({
       visible={visible}
       transparent
       animationType="none"
-      onRequestClose={handleClose}
+      onRequestClose={currentStep === 1 && !showFavorites ? handleClose : handleBack}
       statusBarTranslucent
     >
       <GestureHandlerRootView style={{ flex: 1 }}>
@@ -757,8 +1094,15 @@ export default function AddExerciseModal({
               {/* Header */}
               <View style={[styles.header, { paddingTop: Math.max(insets.top - 50, 5) }]}>
                 <View style={styles.headerLeft}>
-                  <TouchableOpacity onPress={handleClose} style={styles.headerButton}>
-                    <Ionicons name="close" size={24} color={COLORS.text} />
+                  <TouchableOpacity
+                    onPress={currentStep === 1 && !showFavorites ? handleClose : handleBack}
+                    style={styles.headerButton}
+                  >
+                    <Ionicons
+                      name={currentStep === 1 && !showFavorites ? 'close' : 'arrow-back'}
+                      size={24}
+                      color={COLORS.text}
+                    />
                   </TouchableOpacity>
                 </View>
 
@@ -775,99 +1119,118 @@ export default function AddExerciseModal({
                 </View>
 
                 <View style={styles.headerRight}>
-                  <TouchableOpacity
-                    style={styles.headerButton}
-                    onPress={() => {
-                      try {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      } catch {
-                        // Haptics might not be available
-                      }
+                  {/* Only show favorite button on steps 1 and 2 */}
+                  {currentStep !== 3 && (
+                    <TouchableOpacity
+                      style={styles.headerButton}
+                      onPress={() => {
+                        try {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        } catch {
+                          // Haptics might not be available
+                        }
 
-                      if (showFavorites) {
-                        // If currently showing favorites, turn it off and navigate appropriately
-                        setShowFavorites(false);
+                        if (showFavorites) {
+                          // If currently showing favorites, turn it off and navigate appropriately
+                          setShowFavorites(false);
 
-                        // If we have a selected muscle group, go back to step 2 (exercise selection)
-                        // Otherwise, go back to step 1 (muscle selection)
-                        if (selectedMuscleGroup && currentStep === 2) {
-                          // Stay on step 2 but show regular exercises for the selected muscle group
-                          setCurrentStep(2);
+                          // If we have a selected muscle group, go back to step 2 (exercise selection)
+                          // Otherwise, go back to step 1 (muscle selection)
+                          if (selectedMuscleGroup && currentStep === 2) {
+                            // Stay on step 2 but show regular exercises for the selected muscle group
+                            setCurrentStep(2);
+                          } else {
+                            // Go back to step 1 (muscle selection) when disabling favorites from step 1
+                            setCurrentStep(1);
+                            setSelectedMuscleGroup('');
+                            setSelectedExerciseIds(new Set());
+                          }
                         } else {
-                          // Go back to step 1 (muscle selection)
-                          setCurrentStep(1);
-                          setSelectedMuscleGroup('');
+                          // If not showing favorites, turn it on and go to step 2
+                          setShowFavorites(true);
+                          setCurrentStep(2);
+
+                          // If we're on step 1 (no muscle group selected), clear muscle group to show all favorites
+                          // If we're on step 2 (muscle group selected), keep the muscle group to show filtered favorites
+                          if (currentStep === 1) {
+                            setSelectedMuscleGroup('');
+                          }
+                          // Keep the current selectedMuscleGroup if we're on step 2
+
                           setSelectedExerciseIds(new Set());
                         }
-                      } else {
-                        // If not showing favorites, turn it on and go to step 2
-                        setShowFavorites(true);
-                        if (currentStep === 1) {
-                          setCurrentStep(2);
-                        }
-                      }
-                    }}
-                  >
-                    <Ionicons
-                      name={showFavorites ? 'star' : 'star-outline'}
-                      size={24}
-                      color={showFavorites ? '#FFD700' : COLORS.text}
-                    />
-                  </TouchableOpacity>
+                      }}
+                    >
+                      <Ionicons
+                        name={showFavorites ? 'star' : 'star-outline'}
+                        size={24}
+                        color={showFavorites ? '#FFD700' : COLORS.text}
+                      />
+                    </TouchableOpacity>
+                  )}
                 </View>
               </View>
 
               {/* Content */}
               <View style={styles.content}>
-                {currentStep === 1 && (
-                  <Step1MuscleSelection
-                    currentView={currentView}
-                    setCurrentView={setCurrentView}
-                    onMuscleSelect={handleMuscleSelect}
-                    pulseAnim={pulseAnim}
-                  />
-                )}
+                <Animated.View
+                  style={[
+                    styles.animatedContentContainer,
+                    {
+                      transform: [
+                        {
+                          translateY: searchState.contentOffsetAnim,
+                        },
+                      ],
+                    },
+                  ]}
+                >
+                  {currentStep === 1 && (
+                    <Step1MuscleSelection
+                      currentView={currentView}
+                      setCurrentView={setCurrentView}
+                      onMuscleSelect={handleMuscleSelect}
+                      pulseAnim={pulseAnim}
+                    />
+                  )}
 
-                {currentStep === 2 && !showFavorites && (
-                  <Step2ExerciseSelection
-                    selectedMuscleGroup={selectedMuscleGroup}
-                    selectedExercises={selectedExerciseIds}
-                    onExerciseToggle={handleExerciseToggle}
-                    onBack={handleBack}
-                    onNext={handleStep2Next}
-                  />
-                )}
+                  {currentStep === 2 && !showFavorites && (
+                    <Step2ExerciseSelection
+                      selectedMuscleGroup={selectedMuscleGroup}
+                      selectedExercises={selectedExerciseIds}
+                      onExerciseToggle={handleExerciseToggle}
+                      onNext={handleStep2Next}
+                      searchState={searchState}
+                    />
+                  )}
 
-                {currentStep === 2 && showFavorites && (
-                  <StepFavorites
-                    selectedExercises={selectedExerciseIds}
-                    onExerciseToggle={handleExerciseToggle}
-                    onBack={() => {
-                      setShowFavorites(false);
-                      // If we have a selected muscle group, stay on step 2 but show regular exercises
-                      // Otherwise, go back to step 1
-                      if (!selectedMuscleGroup) {
-                        setCurrentStep(1);
-                        setSelectedExerciseIds(new Set());
-                      }
-                    }}
-                    onNext={handleStep2Next}
-                    selectedMuscleGroup={selectedMuscleGroup}
-                  />
-                )}
+                  {currentStep === 2 && showFavorites && (
+                    <StepFavorites
+                      selectedExercises={selectedExerciseIds}
+                      onExerciseToggle={handleExerciseToggle}
+                      onNext={handleStep2Next}
+                      selectedMuscleGroup={selectedMuscleGroup}
+                      searchState={searchState}
+                    />
+                  )}
 
-                {currentStep === 3 && (
-                  <Step3Configuration
-                    selectedExercises={selectedExercises}
-                    _exercises={exercises}
-                    onConfigurationChange={handleConfigurationChange}
-                    onBack={handleBack}
-                    onAddAll={handleAddAll}
-                  />
-                )}
+                  {currentStep === 3 && (
+                    <Step3Configuration
+                      selectedExercises={selectedExercises}
+                      _exercises={exercises}
+                      onConfigurationChange={handleConfigurationChange}
+                      onAddAll={handleAddAll}
+                    />
+                  )}
+                </Animated.View>
               </View>
             </View>
           </Animated.View>
+
+          {/* Floating Search UI - only show on step 2 */}
+          {currentStep === 2 && (
+            <FloatingSearchUI searchState={searchState} stepTitle={getStepTitle()} />
+          )}
         </View>
       </GestureHandlerRootView>
     </Modal>

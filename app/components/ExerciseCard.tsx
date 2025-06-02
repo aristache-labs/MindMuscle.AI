@@ -22,6 +22,7 @@ interface ExerciseCardProps {
   onPress: (exerciseId: string) => void;
   onToggleFavorite: (exerciseId: string) => void;
   useOptimizedImage?: boolean;
+  hideFavoriteButton?: boolean;
 }
 
 const { width } = Dimensions.get('window');
@@ -53,6 +54,7 @@ const arePropsEqual = (prevProps: ExerciseCardProps, nextProps: ExerciseCardProp
     prevProps.id === nextProps.id &&
     prevProps.name === nextProps.name &&
     prevProps.isFavorite === nextProps.isFavorite &&
+    prevProps.hideFavoriteButton === nextProps.hideFavoriteButton &&
     imageEquals
   );
 };
@@ -66,6 +68,7 @@ const ExerciseCard = memo(
     onPress,
     onToggleFavorite,
     useOptimizedImage = true,
+    hideFavoriteButton = false,
   }: ExerciseCardProps) => {
     const handlePress = useCallback(() => {
       onPress(id);
@@ -110,17 +113,19 @@ const ExerciseCard = memo(
               )}
 
               {/* Favorite button overlay */}
-              <TouchableOpacity
-                style={styles.favoriteButton}
-                onPress={handleToggleFavorite}
-                activeOpacity={0.7}
-              >
-                <MaterialIcons
-                  name={isFavorite ? 'star' : 'star-outline'}
-                  size={20}
-                  color={isFavorite ? '#FFD700' : 'rgba(255,255,255,0.8)'}
-                />
-              </TouchableOpacity>
+              {!hideFavoriteButton && (
+                <TouchableOpacity
+                  style={styles.favoriteButton}
+                  onPress={handleToggleFavorite}
+                  activeOpacity={0.7}
+                >
+                  <MaterialIcons
+                    name={isFavorite ? 'star' : 'star-outline'}
+                    size={20}
+                    color={isFavorite ? '#FFD700' : 'rgba(255,255,255,0.8)'}
+                  />
+                </TouchableOpacity>
+              )}
             </View>
 
             <View style={styles.textContainer}>

@@ -36,6 +36,11 @@ interface ExerciseListModalProps {
   onExerciseSelect: (index: number) => void;
   onReorderExercises?: (newOrder: ExerciseData[]) => void;
   onRemoveExercise?: (index: number) => void;
+  isCustomizeMode?: boolean;
+  onToggleCustomizeMode?: () => void;
+  onAddExercise?: () => void;
+  onAddSuperset?: () => void;
+  onAddCardio?: () => void;
 }
 
 // Custom hook for drag animations
@@ -108,45 +113,6 @@ function useDragDisplacement(
   return { shouldMoveUp, shouldMoveDown };
 }
 
-// Exercise status indicator component
-function ExerciseStatusIndicator({
-  isCompleted,
-  isActive,
-  isUpcoming,
-  index,
-}: {
-  isCompleted: boolean;
-  isActive: boolean;
-  isUpcoming: boolean;
-  index: number;
-}) {
-  if (isCompleted) {
-    return (
-      <View style={styles.completedIndicator}>
-        <Ionicons name="checkmark-circle" size={24} color={COLORS.primary} />
-      </View>
-    );
-  }
-
-  if (isActive) {
-    return (
-      <View style={styles.activeIndicator}>
-        <Text style={styles.activeText}>CURRENT</Text>
-      </View>
-    );
-  }
-
-  if (isUpcoming) {
-    return (
-      <View style={styles.upcomingIndicator}>
-        <Text style={styles.upcomingText}>#{index + 1}</Text>
-      </View>
-    );
-  }
-
-  return null;
-}
-
 // Exercise image component
 function ExerciseImage({
   exercise,
@@ -192,6 +158,7 @@ interface DraggableExerciseItemProps {
   totalExercises: number;
   isCustomizeMode?: boolean;
   onRemoveExercise?: (index: number) => void;
+  showActiveLabel?: boolean;
 }
 
 function DraggableExerciseItem({
@@ -208,9 +175,9 @@ function DraggableExerciseItem({
   totalExercises,
   isCustomizeMode,
   onRemoveExercise,
+  showActiveLabel = false,
 }: DraggableExerciseItemProps) {
   const isActive = index === currentExerciseIndex;
-  const isUpcoming = index > currentExerciseIndex;
   const isCompleted = index < currentExerciseIndex;
   const isBeingDragged = isDragging && draggedIndex === index;
 
@@ -335,13 +302,11 @@ function DraggableExerciseItem({
           disabled={isDragging}
         >
           {/* Drag Handle */}
-          <View style={styles.dragHandle}>
-            <Ionicons
-              name="reorder-three-outline"
-              size={20}
-              color={isCustomizeMode ? COLORS.primary : COLORS.placeholder}
-            />
-          </View>
+          {isCustomizeMode && (
+            <View style={styles.dragHandle}>
+              <Ionicons name="reorder-three-outline" size={20} color={COLORS.primary} />
+            </View>
+          )}
 
           <ExerciseImage exercise={exercise} isCompleted={isCompleted} />
 
@@ -350,19 +315,16 @@ function DraggableExerciseItem({
               {exercise.name}
             </Text>
             <Text style={[styles.exerciseDetails, isCompleted && styles.completedText]}>
-              {exercise.sets} sets × {exercise.reps_range} reps
+              {exercise.sets || 0} sets × {exercise.reps_range} reps
             </Text>
           </View>
 
-          {/* Status indicator */}
-          <View style={styles.statusContainer}>
-            <ExerciseStatusIndicator
-              isCompleted={isCompleted}
-              isActive={isActive}
-              isUpcoming={isUpcoming}
-              index={index}
-            />
-          </View>
+          {/* Active label for current exercise */}
+          {showActiveLabel && isActive && (
+            <View style={styles.activeLabel}>
+              <Text style={styles.activeLabelText}>CURRENT</Text>
+            </View>
+          )}
 
           {/* Remove button (only in customize mode) */}
           {isCustomizeMode && onRemoveExercise && (
@@ -389,13 +351,17 @@ export default function ExerciseListModal({
   onExerciseSelect,
   onReorderExercises,
   onRemoveExercise,
+  isCustomizeMode = false,
+  onToggleCustomizeMode,
+  onAddExercise,
+  onAddSuperset,
+  onAddCardio,
 }: ExerciseListModalProps) {
   const insets = useSafeAreaInsets();
   const [localExercises, setLocalExercises] = React.useState(exercises);
   const [isDragging, setIsDragging] = React.useState(false);
   const [draggedIndex, setDraggedIndex] = React.useState(-1);
   const [dragTargetIndex, setDragTargetIndex] = React.useState(-1);
-  const [isCustomizeMode, setIsCustomizeMode] = React.useState(false);
 
   // Modal animation
   const modalAnimation = useSharedValue(0);
@@ -420,7 +386,6 @@ export default function ExerciseListModal({
       setIsDragging(false);
       setDraggedIndex(-1);
       setDragTargetIndex(-1);
-      setIsCustomizeMode(false);
     }
   }, [visible]);
 
@@ -475,10 +440,6 @@ export default function ExerciseListModal({
     [localExercises, onReorderExercises, isCustomizeMode],
   );
 
-  const handleToggleCustomizeMode = useCallback(() => {
-    setIsCustomizeMode(!isCustomizeMode);
-  }, [isCustomizeMode]);
-
   const handleRemoveExercise = useCallback(
     (index: number) => {
       // Only allow removal in customize mode
@@ -519,6 +480,10 @@ export default function ExerciseListModal({
     };
   });
 
+  // Separate active and upcoming exercises
+  const currentExercise = localExercises[currentExerciseIndex];
+  const upcomingExercises = localExercises.slice(currentExerciseIndex + 1);
+
   return (
     <Modal
       visible={visible}
@@ -536,64 +501,158 @@ export default function ExerciseListModal({
           style={[styles.modalContainer, { paddingBottom: insets.bottom }, modalStyle]}
         >
           <View style={styles.container}>
+            {/* Adding glowing corners */}
             <View style={styles.topGlowLeft} />
             <View style={styles.topGlowRight} />
             {/* Header */}
             <View style={styles.header}>
-              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                <Text style={styles.closeButtonText}>Close</Text>
-              </TouchableOpacity>
+              <View style={styles.headerSide}>
+                <TouchableOpacity onPress={onClose} style={styles.headerButton}>
+                  <Ionicons name="close" size={20} color={COLORS.text} />
+                </TouchableOpacity>
+              </View>
 
               <View style={styles.headerCenter}>
                 <Text style={styles.headerTitle}>
-                  {isCustomizeMode ? 'CUSTOMIZE LIST' : 'EXERCISE LIST'}
-                </Text>
-                <Text style={styles.headerSubtitle}>
-                  {localExercises.length} exercises
-                  {isDragging
-                    ? ' • Drag to reorder'
-                    : isCustomizeMode
-                      ? ' • Drag to reorder • Tap trash to remove'
-                      : ' • Drag to reorder'}
+                  {isCustomizeMode ? 'Customize List' : 'Exercise List'}
                 </Text>
               </View>
 
-              <TouchableOpacity
-                onPress={handleToggleCustomizeMode}
-                style={styles.customizeHeaderButton}
-              >
-                <Text style={styles.customizeHeaderButtonText}>
-                  {isCustomizeMode ? 'Done' : 'Customize'}
-                </Text>
-              </TouchableOpacity>
+              <View style={styles.headerSide}>
+                <TouchableOpacity onPress={onToggleCustomizeMode} style={styles.headerButton}>
+                  <Ionicons
+                    name={isCustomizeMode ? 'checkmark' : 'settings-outline'}
+                    size={20}
+                    color={isCustomizeMode ? COLORS.primary : COLORS.text}
+                  />
+                </TouchableOpacity>
+              </View>
             </View>
 
-            {/* Exercise List */}
+            {/* Content */}
             <ScrollView
-              style={styles.exercisesList}
+              style={styles.content}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.exercisesListContent}
+              contentContainerStyle={styles.contentContainer}
               scrollEnabled={!isDragging}
             >
-              {localExercises.map((exercise, index) => (
-                <DraggableExerciseItem
-                  key={`${exercise.id}-${index}`}
-                  exercise={exercise}
-                  index={index}
-                  currentExerciseIndex={currentExerciseIndex}
-                  onExerciseSelect={onExerciseSelect}
-                  onDragStart={handleDragStart}
-                  onDragEnd={handleDragEnd}
-                  onDragUpdate={handleDragUpdate}
-                  isDragging={isDragging}
-                  draggedIndex={draggedIndex}
-                  dragTargetIndex={dragTargetIndex}
-                  totalExercises={localExercises.length}
-                  isCustomizeMode={isCustomizeMode}
-                  onRemoveExercise={handleRemoveExercise}
-                />
-              ))}
+              {isCustomizeMode ? (
+                <>
+                  {/* Customize Mode: All Exercises List with drag/drop */}
+                  <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>ALL EXERCISES ({localExercises.length})</Text>
+                    {localExercises.map((exercise, index) => (
+                      <DraggableExerciseItem
+                        key={`exercise-${exercise.id}-${index}`}
+                        exercise={exercise}
+                        index={index}
+                        currentExerciseIndex={currentExerciseIndex}
+                        onExerciseSelect={onExerciseSelect}
+                        onDragStart={handleDragStart}
+                        onDragEnd={handleDragEnd}
+                        onDragUpdate={handleDragUpdate}
+                        isDragging={isDragging}
+                        draggedIndex={draggedIndex}
+                        dragTargetIndex={dragTargetIndex}
+                        totalExercises={localExercises.length}
+                        isCustomizeMode={isCustomizeMode}
+                        onRemoveExercise={handleRemoveExercise}
+                        showActiveLabel={true}
+                      />
+                    ))}
+                  </View>
+                </>
+              ) : (
+                <>
+                  {/* Normal Mode: Active Exercise Section */}
+                  {currentExercise && (
+                    <View style={styles.section}>
+                      <Text style={styles.sectionTitle}>ACTIVE EXERCISE</Text>
+                      <DraggableExerciseItem
+                        key={`active-${currentExercise.id}-${currentExerciseIndex}`}
+                        exercise={currentExercise}
+                        index={currentExerciseIndex}
+                        currentExerciseIndex={currentExerciseIndex}
+                        onExerciseSelect={onExerciseSelect}
+                        onDragStart={handleDragStart}
+                        onDragEnd={handleDragEnd}
+                        onDragUpdate={handleDragUpdate}
+                        isDragging={isDragging}
+                        draggedIndex={draggedIndex}
+                        dragTargetIndex={dragTargetIndex}
+                        totalExercises={localExercises.length}
+                        isCustomizeMode={isCustomizeMode}
+                        onRemoveExercise={handleRemoveExercise}
+                        showActiveLabel={false}
+                      />
+                    </View>
+                  )}
+
+                  {/* Normal Mode: Upcoming Exercises Section */}
+                  {upcomingExercises.length > 0 && (
+                    <View style={styles.section}>
+                      <Text style={styles.sectionTitle}>
+                        UPCOMING EXERCISES ({upcomingExercises.length})
+                      </Text>
+                      {upcomingExercises.map((exercise, upcomingIndex) => {
+                        const actualIndex = currentExerciseIndex + 1 + upcomingIndex;
+                        return (
+                          <DraggableExerciseItem
+                            key={`upcoming-${exercise.id}-${actualIndex}`}
+                            exercise={exercise}
+                            index={actualIndex}
+                            currentExerciseIndex={currentExerciseIndex}
+                            onExerciseSelect={onExerciseSelect}
+                            onDragStart={handleDragStart}
+                            onDragEnd={handleDragEnd}
+                            onDragUpdate={handleDragUpdate}
+                            isDragging={isDragging}
+                            draggedIndex={draggedIndex}
+                            dragTargetIndex={dragTargetIndex}
+                            totalExercises={localExercises.length}
+                            isCustomizeMode={isCustomizeMode}
+                            onRemoveExercise={handleRemoveExercise}
+                            showActiveLabel={false}
+                          />
+                        );
+                      })}
+                    </View>
+                  )}
+                </>
+              )}
             </ScrollView>
+
+            {/* Bottom Action Buttons - Only show in customize mode */}
+            {isCustomizeMode && (
+              <View style={styles.bottomActions}>
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={onAddExercise}
+                  disabled={!onAddExercise}
+                >
+                  <Ionicons name="add-circle-outline" size={20} color={COLORS.primary} />
+                  <Text style={styles.actionButtonText}>Add Exercise</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={onAddSuperset}
+                  disabled={!onAddSuperset}
+                >
+                  <Ionicons name="layers-outline" size={20} color={COLORS.primary} />
+                  <Text style={styles.actionButtonText}>Add Superset</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={onAddCardio}
+                  disabled={!onAddCardio}
+                >
+                  <Ionicons name="heart-outline" size={20} color={COLORS.primary} />
+                  <Text style={styles.actionButtonText}>Add Cardio</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         </Animated.View>
       </View>
@@ -614,7 +673,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
     borderTopLeftRadius: BORDER_RADIUS.xl,
     borderTopRightRadius: BORDER_RADIUS.xl,
-    height: SCREEN_HEIGHT * 0.85,
+    height: SCREEN_HEIGHT * 0.94,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.15,
@@ -625,106 +684,91 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     backgroundColor: COLORS.background,
-    borderTopLeftRadius: BORDER_RADIUS.xl,
-    borderTopRightRadius: BORDER_RADIUS.xl,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
     overflow: 'hidden',
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 10,
-    elevation: 10,
     borderWidth: 0,
     borderTopWidth: 0.9,
     borderColor: COLORS.primary,
   },
   topGlowLeft: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    width: 20,
-    height: 20,
-    borderTopLeftRadius: BORDER_RADIUS.xl,
+    top: -0.7,
+    left: -0.2,
+    width: 13,
+    height: 13,
+    borderTopLeftRadius: 12,
     backgroundColor: 'transparent',
-    borderLeftWidth: 2,
-    borderTopWidth: 2,
+    borderLeftWidth: 0.9,
+    borderTopWidth: 0.9,
     borderColor: COLORS.primary,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 15,
-    elevation: 20,
-    zIndex: 10,
+    elevation: 15,
+    zIndex: 1,
   },
   topGlowRight: {
     position: 'absolute',
-    top: 0,
-    right: 0,
-    width: 20,
-    height: 20,
-    borderTopRightRadius: BORDER_RADIUS.xl,
+    top: -0.7,
+    right: -0.2,
+    width: 13,
+    height: 13,
+    borderTopRightRadius: 12,
     backgroundColor: 'transparent',
-    borderRightWidth: 2,
-    borderTopWidth: 2,
+    borderRightWidth: 0.9,
+    borderTopWidth: 0.9,
     borderColor: COLORS.primary,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 15,
-    elevation: 20,
-    zIndex: 10,
+    elevation: 15,
+    zIndex: 1,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.lg,
-    paddingBottom: SPACING.lg,
+    padding: 16,
     borderBottomWidth: 0.2,
     borderBottomColor: COLORS.primary,
     backgroundColor: COLORS.background,
+    position: 'relative',
   },
-  closeButton: {
-    width: 40,
-    height: 40,
+  headerSide: {
+    width: 50,
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'flex-start',
   },
-  closeButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+  headerButton: {
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   headerCenter: {
     flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  headerSubtitle: {
-    color: '#ccc',
-    fontSize: 14,
-    marginTop: 2,
-    textAlign: 'center',
-  },
-  customizeHeaderButton: {
-    padding: SPACING.sm,
-  },
-  customizeHeaderButtonText: {
-    color: '#fff',
+    color: COLORS.text,
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '500',
+    textAlign: 'center',
   },
-  exercisesList: {
+  content: {
     flex: 1,
   },
-  exercisesListContent: {
+  contentContainer: {
     paddingVertical: SPACING.md,
     paddingBottom: SPACING.xl,
+  },
+  section: {
+    marginBottom: SPACING.lg,
+  },
+  sectionTitle: {
+    color: COLORS.placeholder,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginBottom: SPACING.sm,
+    marginHorizontal: SPACING.lg,
+    textTransform: 'uppercase',
   },
   exerciseItem: {
     flexDirection: 'row',
@@ -754,11 +798,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 20,
     elevation: 20,
-  },
-  displacedItem: {
-    backgroundColor: COLORS.surfaceLight,
-    borderColor: COLORS.primary,
-    opacity: 0.9,
   },
   dragHandle: {
     paddingRight: SPACING.md,
@@ -808,40 +847,47 @@ const styles = StyleSheet.create({
   completedText: {
     opacity: 0.6,
   },
-  statusContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: SPACING.sm,
-    minWidth: 60,
-  },
-  completedIndicator: {
-    padding: 4,
-  },
-  activeIndicator: {
+  activeLabel: {
     backgroundColor: COLORS.primary,
     paddingHorizontal: SPACING.sm,
     paddingVertical: 4,
     borderRadius: BORDER_RADIUS.sm,
+    marginRight: SPACING.sm,
   },
-  activeText: {
+  activeLabelText: {
     color: COLORS.background,
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
-  upcomingIndicator: {
-    backgroundColor: COLORS.surfaceLight,
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: 4,
-    borderRadius: BORDER_RADIUS.sm,
-  },
-  upcomingText: {
-    color: COLORS.placeholder,
-    fontSize: 12,
-    fontWeight: '500',
-  },
   customizeButton: {
     padding: SPACING.sm,
     marginLeft: SPACING.xs,
+  },
+  bottomActions: {
+    flexDirection: 'row',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    borderTopWidth: 0.2,
+    borderTopColor: COLORS.primary,
+    backgroundColor: COLORS.background,
+    gap: SPACING.sm,
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
+    backgroundColor: COLORS.surfaceLight,
+    borderWidth: 1,
+    borderColor: COLORS.disabled,
+    gap: SPACING.xs,
+  },
+  actionButtonText: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '500',
   },
 });

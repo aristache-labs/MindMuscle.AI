@@ -185,6 +185,7 @@ export default function WorkoutSessionScreen() {
     showExerciseListModal: _showExerciseListModal,
     showCustomizeExerciseModal,
     initialSelectedExercise: _initialSelectedExercise,
+    isCustomizeMode,
     handleExerciseNamePress,
     handleExerciseDetailsModalClose,
     handleExerciseListPress,
@@ -193,8 +194,12 @@ export default function WorkoutSessionScreen() {
     handleExerciseSelect: _handleExerciseSelect,
     handleCustomizeExercisePress,
     handleCustomizeExerciseModalClose,
+    handleToggleCustomizeMode,
     handleCustomizeExerciseSave,
     handleExerciseChange,
+    handleAddExercise,
+    handleAddSuperset,
+    handleAddCardio,
   } = useExerciseSelection({
     exercises: workoutExercises,
     setExercises: setWorkoutExercises,
@@ -731,6 +736,11 @@ export default function WorkoutSessionScreen() {
         onExerciseSelect={_handleExerciseSelect}
         onReorderExercises={handleReorderExercises}
         onRemoveExercise={handleRemoveExercise}
+        isCustomizeMode={isCustomizeMode}
+        onToggleCustomizeMode={handleToggleCustomizeMode}
+        onAddExercise={handleAddExercise}
+        onAddSuperset={handleAddSuperset}
+        onAddCardio={handleAddCardio}
       />
     </View>
   );

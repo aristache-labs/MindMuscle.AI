@@ -48,6 +48,7 @@ export const useExerciseSelection = ({
   const [showExerciseListModal, setShowExerciseListModal] = useState(false);
   const [showCustomizeExerciseModal, setShowCustomizeExerciseModal] = useState(false);
   const [initialSelectedExercise, setInitialSelectedExercise] = useState<number | null>(null);
+  const [isCustomizeMode, setIsCustomizeMode] = useState(false);
 
   // Handle exercise details modal
   const handleExerciseNamePress = useCallback(() => {
@@ -67,6 +68,7 @@ export const useExerciseSelection = ({
   const handleExerciseListModalClose = useCallback(() => {
     setShowExerciseListModal(false);
     setInitialSelectedExercise(null);
+    setIsCustomizeMode(false); // Reset customize mode when modal closes
   }, []);
 
   const handleNextExercisePress = useCallback(() => {
@@ -98,6 +100,27 @@ export const useExerciseSelection = ({
 
   const handleCustomizeExerciseModalClose = useCallback(() => {
     setShowCustomizeExerciseModal(false);
+  }, []);
+
+  // Handle customize mode toggle
+  const handleToggleCustomizeMode = useCallback(() => {
+    setIsCustomizeMode(!isCustomizeMode);
+  }, [isCustomizeMode]);
+
+  // Handle action buttons (placeholders for now)
+  const handleAddExercise = useCallback(() => {
+    // TODO: Implement add exercise functionality
+    console.log('Add Exercise pressed');
+  }, []);
+
+  const handleAddSuperset = useCallback(() => {
+    // TODO: Implement add superset functionality
+    console.log('Add Superset pressed');
+  }, []);
+
+  const handleAddCardio = useCallback(() => {
+    // TODO: Implement add cardio functionality
+    console.log('Add Cardio pressed');
   }, []);
 
   const handleCustomizeExerciseSave = useCallback(
@@ -399,6 +422,8 @@ export const useExerciseSelection = ({
     setShowCustomizeExerciseModal,
     initialSelectedExercise,
     setInitialSelectedExercise,
+    isCustomizeMode,
+    setIsCustomizeMode,
 
     // Modal handlers
     handleExerciseNamePress,
@@ -409,10 +434,16 @@ export const useExerciseSelection = ({
     handleExerciseSelect,
     handleCustomizeExercisePress,
     handleCustomizeExerciseModalClose,
+    handleToggleCustomizeMode,
 
     // Exercise customization
     handleCustomizeExerciseSave,
     handleExerciseChange,
+
+    // Action handlers
+    handleAddExercise,
+    handleAddSuperset,
+    handleAddCardio,
   };
 };
 export default function disablewarn() {

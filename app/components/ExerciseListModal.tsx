@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback } from 'react';
+import * as Haptics from 'expo-haptics';
+import React, { useCallback, useMemo } from 'react';
 import {
   Dimensions,
   Modal,
@@ -26,7 +27,6 @@ import OptimizedImage from './OptimizedImage';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const ITEM_HEIGHT = 88;
-const _DRAG_THRESHOLD = 10;
 
 interface ExerciseListModalProps {
   visible: boolean;
@@ -46,8 +46,10 @@ interface DraggableExerciseItemProps {
   onCustomizeExercise?: (index: number) => void;
   onDragStart: (index: number) => void;
   onDragEnd: (fromIndex: number, toIndex: number) => void;
+  onDragUpdate: (draggedIndex: number, currentY: number) => void;
   isDragging: boolean;
   draggedIndex: number;
+  dragTargetIndex: number;
   totalExercises: number;
 }
 
@@ -59,13 +61,14 @@ function DraggableExerciseItem({
   onCustomizeExercise,
   onDragStart,
   onDragEnd,
+  onDragUpdate,
   isDragging,
   draggedIndex,
+  dragTargetIndex,
   totalExercises,
 }: DraggableExerciseItemProps) {
   const translateY = useSharedValue(0);
   const scale = useSharedValue(1);
-  const zIndex = useSharedValue(0);
   const opacity = useSharedValue(1);
 
   const isActive = index === currentExerciseIndex;
@@ -73,44 +76,115 @@ function DraggableExerciseItem({
   const isCompleted = index < currentExerciseIndex;
   const isBeingDragged = isDragging && draggedIndex === index;
 
-  const panGesture = Gesture.Pan()
-    .onStart(() => {
-      runOnJS(onDragStart)(index);
+  // Simple displacement logic - only move items that need to make space
+  const shouldMoveUp =
+    isDragging &&
+    !isBeingDragged &&
+    draggedIndex < index &&
+    index <= dragTargetIndex &&
+    dragTargetIndex > draggedIndex;
 
-      // Simple drag start animation
-      scale.value = withSpring(1.05);
-      zIndex.value = 1000;
-      opacity.value = withTiming(0.9);
-    })
-    .onUpdate((event) => {
-      translateY.value = event.translationY;
-    })
-    .onEnd((event) => {
-      const moveDistance = event.translationY;
-      const itemsMoved = Math.round(moveDistance / ITEM_HEIGHT);
-      const newIndex = Math.max(0, Math.min(index + itemsMoved, totalExercises - 1));
+  const shouldMoveDown =
+    isDragging &&
+    !isBeingDragged &&
+    draggedIndex > index &&
+    index >= dragTargetIndex &&
+    dragTargetIndex < draggedIndex;
 
-      runOnJS(onDragEnd)(index, newIndex);
+  // Apply smooth displacement animation
+  React.useEffect(() => {
+    if (isBeingDragged) return;
 
-      // Simple return animation
-      translateY.value = withSpring(0);
-      scale.value = withSpring(1);
-      zIndex.value = withTiming(0);
-      opacity.value = withTiming(1);
-    });
+    if (shouldMoveUp) {
+      translateY.value = withSpring(-ITEM_HEIGHT, { damping: 20, stiffness: 300 });
+    } else if (shouldMoveDown) {
+      translateY.value = withSpring(ITEM_HEIGHT, { damping: 20, stiffness: 300 });
+    } else {
+      translateY.value = withSpring(0, { damping: 20, stiffness: 300 });
+    }
+  }, [shouldMoveUp, shouldMoveDown, isBeingDragged]);
 
-  // Simplified animation style
+  const handlePress = useCallback(() => {
+    if (!isDragging) {
+      onExerciseSelect(index);
+    }
+  }, [isDragging, onExerciseSelect, index]);
+
+  const handleCustomize = useCallback(() => {
+    if (!isDragging && onCustomizeExercise) {
+      onCustomizeExercise(index);
+    }
+  }, [isDragging, onCustomizeExercise, index]);
+
+  const safeHapticFeedback = useCallback((style: Haptics.ImpactFeedbackStyle) => {
+    try {
+      Haptics.impactAsync(style);
+    } catch {
+      // Haptics might not be available on all devices
+    }
+  }, []);
+
+  const panGesture = useMemo(() => {
+    return Gesture.Pan()
+      .minDistance(5)
+      .onStart(() => {
+        'worklet';
+        runOnJS(onDragStart)(index);
+        runOnJS(safeHapticFeedback)(Haptics.ImpactFeedbackStyle.Medium);
+
+        // Smooth drag start animation
+        scale.value = withSpring(1.05, { damping: 20, stiffness: 400 });
+        opacity.value = withTiming(0.9, { duration: 100 });
+      })
+      .onUpdate((event) => {
+        'worklet';
+        if (isBeingDragged) {
+          translateY.value = event.translationY;
+          runOnJS(onDragUpdate)(index, event.translationY);
+        }
+      })
+      .onEnd((event) => {
+        'worklet';
+        if (!isBeingDragged) return;
+
+        const moveDistance = event.translationY;
+        const itemsMoved = Math.round(moveDistance / ITEM_HEIGHT);
+        const newIndex = Math.max(0, Math.min(index + itemsMoved, totalExercises - 1));
+
+        // Smooth return animation
+        translateY.value = withSpring(0, { damping: 20, stiffness: 300 });
+        scale.value = withSpring(1, { damping: 20, stiffness: 300 });
+        opacity.value = withTiming(1, { duration: 200 });
+
+        if (newIndex !== index) {
+          runOnJS(safeHapticFeedback)(Haptics.ImpactFeedbackStyle.Light);
+        }
+
+        runOnJS(onDragEnd)(index, newIndex);
+      });
+  }, [
+    index,
+    isBeingDragged,
+    totalExercises,
+    onDragStart,
+    onDragEnd,
+    onDragUpdate,
+    safeHapticFeedback,
+  ]);
+
   const animatedStyle = useAnimatedStyle(() => {
+    'worklet';
     return {
       transform: [{ translateY: translateY.value }, { scale: scale.value }],
-      zIndex: zIndex.value,
       opacity: opacity.value,
+      zIndex: isBeingDragged ? 1000 : 0,
+      elevation: isBeingDragged ? 10 : 0,
     };
   });
 
   return (
     <GestureDetector gesture={panGesture}>
-      <Animated.View style={[animatedStyle]}>
+      <Animated.View style={animatedStyle}>
         <TouchableOpacity
           style={[
             styles.exerciseItem,
@@ -118,8 +192,9 @@ function DraggableExerciseItem({
             isCompleted && styles.completedExerciseItem,
             isBeingDragged && styles.draggingItem,
           ]}
-          onPress={() => onExerciseSelect(index)}
+          onPress={handlePress}
           activeOpacity={0.8}
+          disabled={isDragging}
         >
           {/* Drag Handle */}
           <View style={styles.dragHandle}>
@@ -180,8 +255,9 @@ function DraggableExerciseItem({
           {onCustomizeExercise && (
             <TouchableOpacity
               style={styles.customizeButton}
-              onPress={() => onCustomizeExercise(index)}
+              onPress={handleCustomize}
               hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              disabled={isDragging}
             >
               <Ionicons name="settings-outline" size={18} color={COLORS.placeholder} />
             </TouchableOpacity>
@@ -205,9 +281,7 @@ export default function ExerciseListModal({
   const [localExercises, setLocalExercises] = React.useState(exercises);
   const [isDragging, setIsDragging] = React.useState(false);
   const [draggedIndex, setDraggedIndex] = React.useState(-1);
-
-  // Shared values for drag coordination (simplified)
-  // Removed complex displacement tracking to prevent crashes
+  const [dragTargetIndex, setDragTargetIndex] = React.useState(-1);
 
   // Modal animation
   const modalAnimation = useSharedValue(0);
@@ -226,60 +300,80 @@ export default function ExerciseListModal({
     }
   }, [visible]);
 
+  // Reset drag state when modal closes
+  React.useEffect(() => {
+    if (!visible) {
+      setIsDragging(false);
+      setDraggedIndex(-1);
+      setDragTargetIndex(-1);
+    }
+  }, [visible]);
+
   const handleDragStart = useCallback((index: number) => {
     setIsDragging(true);
     setDraggedIndex(index);
+    setDragTargetIndex(index);
   }, []);
+
+  const handleDragUpdate = useCallback(
+    (draggedIndex: number, currentY: number) => {
+      // Simple calculation - determine target position based on drag distance
+      const itemsMoved = Math.round(currentY / ITEM_HEIGHT);
+      const newTargetIndex = Math.max(
+        0,
+        Math.min(draggedIndex + itemsMoved, localExercises.length - 1),
+      );
+      setDragTargetIndex(newTargetIndex);
+    },
+    [localExercises.length],
+  );
 
   const handleDragEnd = useCallback(
     (fromIndex: number, toIndex: number) => {
-      try {
-        setIsDragging(false);
-        setDraggedIndex(-1);
+      // Reset drag state
+      setIsDragging(false);
+      setDraggedIndex(-1);
+      setDragTargetIndex(-1);
 
-        if (
-          fromIndex !== toIndex &&
-          toIndex >= 0 &&
-          toIndex < localExercises.length &&
-          fromIndex >= 0 &&
-          fromIndex < localExercises.length
-        ) {
-          const newExercises = [...localExercises];
-          const [movedExercise] = newExercises.splice(fromIndex, 1);
-          newExercises.splice(toIndex, 0, movedExercise);
+      // Only reorder if position actually changed
+      if (fromIndex !== toIndex && toIndex >= 0 && toIndex < localExercises.length) {
+        const newExercises = [...localExercises];
+        const [movedExercise] = newExercises.splice(fromIndex, 1);
+        newExercises.splice(toIndex, 0, movedExercise);
 
-          setLocalExercises(newExercises);
-          onReorderExercises?.(newExercises);
-        }
-      } catch {
-        // Reset state on error
-        setIsDragging(false);
-        setDraggedIndex(-1);
+        setLocalExercises(newExercises);
+        onReorderExercises?.(newExercises);
       }
     },
     [localExercises, onReorderExercises],
   );
 
-  const modalStyle = useAnimatedStyle(() => ({
-    transform: [
-      {
-        translateY: interpolate(
-          modalAnimation.value,
-          [0, 1],
-          [SCREEN_HEIGHT * 0.3, 0],
-          Extrapolation.CLAMP,
-        ),
-      },
-      {
-        scale: interpolate(modalAnimation.value, [0, 1], [0.95, 1], Extrapolation.CLAMP),
-      },
-    ],
-    opacity: modalAnimation.value,
-  }));
+  const modalStyle = useAnimatedStyle(() => {
+    'worklet';
+    return {
+      transform: [
+        {
+          translateY: interpolate(
+            modalAnimation.value,
+            [0, 1],
+            [SCREEN_HEIGHT * 0.3, 0],
+            Extrapolation.CLAMP,
+          ),
+        },
+        {
+          scale: interpolate(modalAnimation.value, [0, 1], [0.95, 1], Extrapolation.CLAMP),
+        },
+      ],
+      opacity: modalAnimation.value,
+    };
+  });
 
-  const backdropStyle = useAnimatedStyle(() => ({
-    opacity: modalAnimation.value * 0.6,
-  }));
+  const backdropStyle = useAnimatedStyle(() => {
+    'worklet';
+    return {
+      opacity: modalAnimation.value * 0.6,
+    };
+  });
 
   return (
     <Modal
@@ -305,7 +399,10 @@ export default function ExerciseListModal({
 
             <View style={styles.headerCenter}>
               <Text style={styles.headerTitle}>Exercise List</Text>
-              <Text style={styles.headerSubtitle}>{localExercises.length} exercises</Text>
+              <Text style={styles.headerSubtitle}>
+                {localExercises.length} exercises
+                {isDragging && ' • Drag to reorder'}
+              </Text>
             </View>
 
             <View style={styles.dragHint}>
@@ -330,8 +427,10 @@ export default function ExerciseListModal({
                 onCustomizeExercise={onCustomizeExercise}
                 onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
+                onDragUpdate={handleDragUpdate}
                 isDragging={isDragging}
                 draggedIndex={draggedIndex}
+                dragTargetIndex={dragTargetIndex}
                 totalExercises={localExercises.length}
               />
             ))}
@@ -429,10 +528,15 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surfaceLight,
     borderColor: COLORS.primary,
     shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 16,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  displacedItem: {
+    backgroundColor: COLORS.surfaceLight,
+    borderColor: COLORS.primary,
+    opacity: 0.9,
   },
   dragHandle: {
     paddingRight: SPACING.md,

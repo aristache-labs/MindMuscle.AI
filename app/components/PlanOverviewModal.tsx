@@ -1,19 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import {
-  StyleSheet,
-  View,
-  Modal,
-  Dimensions,
-  Platform,
   Animated,
+  Dimensions,
+  Modal,
+  Platform,
+  StyleSheet,
   TouchableOpacity,
+  View,
 } from 'react-native';
-import { Text, IconButton, Portal, Provider } from 'react-native-paper';
 import { GestureHandlerRootView, ScrollView } from 'react-native-gesture-handler';
-import { COLORS, SPACING } from '../constants/theme';
-import { useAuth } from '../store/AuthContext';
-import supabase from '../services/supabase';
+import { IconButton, Portal, Provider, Text } from 'react-native-paper';
 import OptimizedImage from '../components/OptimizedImage';
+import { COLORS, SPACING } from '../constants/theme';
+import supabase from '../services/supabase';
+import { useAuth } from '../store/AuthContext';
 import ExerciseDetailsModal from './ExerciseDetailsModal';
 
 // Define interfaces for database query results
@@ -54,6 +54,15 @@ interface WeekData {
   description: string;
   days: number;
   isActive?: boolean;
+  isCompleted?: boolean; // New field for completion status
+}
+
+// New interface for completion tracking
+interface CompletionData {
+  completedWorkouts: number;
+  currentWeek: number;
+  completedWorkoutsByWeekAndDay: Record<string, boolean>; // "week_day" -> completed
+  completedWeeks: Set<number>; // Set of completed week numbers
 }
 
 interface Props {
@@ -97,6 +106,78 @@ export default function PlanOverviewModal({
   // Create a local state for weeks to avoid directly mutating props
   const [localWeeks, setLocalWeeks] = useState<WeekData[]>([]);
 
+  // New state for completion tracking
+  const [completionData, setCompletionData] = useState<CompletionData>({
+    completedWorkouts: 0,
+    currentWeek: 1,
+    completedWorkoutsByWeekAndDay: {},
+    completedWeeks: new Set(),
+  });
+  const [isLoadingCompletion, setIsLoadingCompletion] = useState(false);
+
+  // Function to fetch completion data
+  const fetchCompletionData = async () => {
+    if (!activePlanId || !user?.id) return;
+
+    setIsLoadingCompletion(true);
+    try {
+      // Fetch active plan data for current progress
+      const { data: activePlanData, error: activePlanError } = await supabase
+        .from('user_active_plans')
+        .select('completed_workouts, current_week')
+        .eq('user_id', user.id)
+        .eq('plan_id', activePlanId)
+        .eq('is_active', true)
+        .single();
+
+      if (activePlanError) {
+        console.error('Error fetching active plan data:', activePlanError);
+        return;
+      }
+
+      // Fetch all completed workouts for this plan
+      const { data: completedWorkouts, error: completedError } = await supabase
+        .from('user_workout_history')
+        .select('workout_day, cycle_week, completed_at')
+        .eq('user_id', user.id)
+        .eq('plan_id', activePlanId);
+
+      if (completedError) {
+        console.error('Error fetching completed workouts:', completedError);
+        return;
+      }
+
+      // Process completion data
+      const completedWorkoutsByWeekAndDay: Record<string, boolean> = {};
+      const completedWeeks = new Set<number>();
+
+      if (completedWorkouts && completedWorkouts.length > 0) {
+        completedWorkouts.forEach((workout) => {
+          // Create a unique key combining cycle week and workout day
+          const weekDayKey = `${workout.cycle_week}_${workout.workout_day}`;
+          completedWorkoutsByWeekAndDay[weekDayKey] = true;
+
+          // Calculate if a week is completed based on workout frequency
+          const weekWorkouts = completedWorkouts.filter((w) => w.cycle_week === workout.cycle_week);
+          if (weekWorkouts.length >= planWorkoutFrequency) {
+            completedWeeks.add(workout.cycle_week);
+          }
+        });
+      }
+
+      setCompletionData({
+        completedWorkouts: activePlanData?.completed_workouts || 0,
+        currentWeek: activePlanData?.current_week || 1,
+        completedWorkoutsByWeekAndDay,
+        completedWeeks,
+      });
+    } catch (error) {
+      console.error('Error fetching completion data:', error);
+    } finally {
+      setIsLoadingCompletion(false);
+    }
+  };
+
   // Initialize local weeks when weeks prop changes or when modal becomes visible
   useEffect(() => {
     if (visible && weeks && weeks.length > 0) {
@@ -105,11 +186,20 @@ export default function PlanOverviewModal({
         ...week,
         // Ensure days is at least planWorkoutFrequency
         days: Math.max(week.days || 0, planWorkoutFrequency),
+        // Mark week as completed if it's in the completed weeks set
+        isCompleted: completionData.completedWeeks.has(week.number),
       }));
 
       setLocalWeeks(updatedWeeks);
     }
-  }, [weeks, visible, planWorkoutFrequency]);
+  }, [weeks, visible, planWorkoutFrequency, completionData.completedWeeks]);
+
+  // Fetch completion data when modal becomes visible
+  useEffect(() => {
+    if (visible && activePlanId && user?.id) {
+      fetchCompletionData();
+    }
+  }, [visible, activePlanId, user?.id]);
 
   // Run animation when visibility changes
   useEffect(() => {
@@ -135,6 +225,13 @@ export default function PlanOverviewModal({
     inputRange: [0, 1],
     outputRange: [Dimensions.get('window').height, 0],
   });
+
+  // Function to check if a specific workout day is completed
+  const isWorkoutDayCompleted = (weekNumber: number, dayNumber: number): boolean => {
+    // Create the same unique key used when storing completion data
+    const weekDayKey = `${weekNumber}_${dayNumber}`;
+    return completionData.completedWorkoutsByWeekAndDay[weekDayKey] || false;
+  };
 
   // Function to handle exercise press - updated to show modal instead of navigating
   const handleExercisePress = (exercise: Exercise) => {
@@ -262,6 +359,18 @@ export default function PlanOverviewModal({
 
                 {planSubtitle ? <Text style={styles.planSubtitle}>{planSubtitle}</Text> : null}
 
+                {/* Progress Summary */}
+                {!isLoadingCompletion && (
+                  <View style={styles.progressSummary}>
+                    <Text style={styles.progressText}>
+                      {`${completionData.completedWorkouts} of ${planWorkoutFrequency * 5} workouts completed`}
+                    </Text>
+                    <Text style={styles.progressSubtext}>
+                      {`Week ${completionData.currentWeek} of 5 • ${completionData.completedWeeks.size} weeks completed`}
+                    </Text>
+                  </View>
+                )}
+
                 <GestureHandlerRootView style={styles.gestureRoot}>
                   <ScrollView
                     style={styles.scrollView}
@@ -273,9 +382,19 @@ export default function PlanOverviewModal({
                       // Show exercises for selected day
                       <View style={styles.exercisesContainer}>
                         <View style={styles.exercisesHeader}>
-                          <Text style={styles.exercisesTitle}>
-                            {`Week ${selectedDay.weekNumber} - Day ${selectedDay.dayNumber}`}
-                          </Text>
+                          <View style={styles.exercisesHeaderLeft}>
+                            <Text style={styles.exercisesTitle}>
+                              {`Week ${selectedDay.weekNumber} - Day ${selectedDay.dayNumber}`}
+                            </Text>
+                            {isWorkoutDayCompleted(
+                              selectedDay.weekNumber,
+                              selectedDay.dayNumber,
+                            ) && (
+                              <View style={styles.completedBadge}>
+                                <Text style={styles.completedBadgeText}>✓ COMPLETED</Text>
+                              </View>
+                            )}
+                          </View>
                           <TouchableOpacity
                             style={styles.backButton}
                             onPress={() => setSelectedDay(null)}
@@ -351,6 +470,9 @@ export default function PlanOverviewModal({
                         {localWeeks.length > 0 ? <View style={styles.timelineLine} /> : null}
 
                         {localWeeks.map((week) => {
+                          const isWeekCompleted = week.isCompleted || false;
+                          const isCurrentWeek = week.number === currentWeek;
+
                           return (
                             <View key={`week-${week.number}`} style={styles.weekContainer}>
                               {/* Timeline dot */}
@@ -359,25 +481,36 @@ export default function PlanOverviewModal({
                                   style={[
                                     styles.timelineDot,
                                     { backgroundColor: week.color },
-                                    week.number === currentWeek && styles.activeTimelineDot,
+                                    isCurrentWeek && styles.activeTimelineDot,
+                                    isWeekCompleted && styles.completedTimelineDot,
                                   ]}
-                                />
+                                >
+                                  {isWeekCompleted && (
+                                    <Text style={styles.timelineDotCheck}>✓</Text>
+                                  )}
+                                </View>
                               </View>
 
                               {/* Week content */}
                               <View
                                 style={[
                                   styles.weekContent,
-                                  week.number === currentWeek && styles.activeWeekContent,
+                                  isCurrentWeek && styles.activeWeekContent,
+                                  isWeekCompleted && styles.completedWeekContent,
                                 ]}
                               >
                                 <View style={styles.weekHeader}>
                                   <View
                                     style={[styles.weekIndicator, { backgroundColor: week.color }]}
                                   />
-                                  <Text
-                                    style={styles.weekTitle}
-                                  >{`Week ${week.number} - ${week.name}`}</Text>
+                                  <Text style={styles.weekTitle}>
+                                    {`Week ${week.number} - ${week.name}`}
+                                  </Text>
+                                  {isWeekCompleted && (
+                                    <View style={styles.weekCompletedBadge}>
+                                      <Text style={styles.weekCompletedBadgeText}>COMPLETED</Text>
+                                    </View>
+                                  )}
                                 </View>
 
                                 {week.description ? (
@@ -391,15 +524,36 @@ export default function PlanOverviewModal({
                                   showsHorizontalScrollIndicator={false}
                                   contentContainerStyle={styles.daysScrollContent}
                                 >
-                                  {Array.from({ length: week.days }).map((_, i) => (
-                                    <TouchableOpacity
-                                      key={`day-${i + 1}`}
-                                      style={styles.dayButton}
-                                      onPress={() => handleDayPress(week.number, i + 1)}
-                                    >
-                                      <Text style={styles.dayButtonText}>{`Day ${i + 1}`}</Text>
-                                    </TouchableOpacity>
-                                  ))}
+                                  {Array.from({ length: week.days }).map((_, i) => {
+                                    const dayNumber = i + 1;
+                                    const isDayCompleted = isWorkoutDayCompleted(
+                                      week.number,
+                                      dayNumber,
+                                    );
+
+                                    return (
+                                      <TouchableOpacity
+                                        key={`day-${dayNumber}`}
+                                        style={[
+                                          styles.dayButton,
+                                          isDayCompleted && styles.completedDayButton,
+                                        ]}
+                                        onPress={() => handleDayPress(week.number, dayNumber)}
+                                      >
+                                        <Text
+                                          style={[
+                                            styles.dayButtonText,
+                                            isDayCompleted && styles.completedDayButtonText,
+                                          ]}
+                                        >
+                                          {`Day ${dayNumber}`}
+                                        </Text>
+                                        {isDayCompleted && (
+                                          <Text style={styles.dayButtonCheck}>✓</Text>
+                                        )}
+                                      </TouchableOpacity>
+                                    );
+                                  })}
                                 </ScrollView>
                               </View>
                             </View>
@@ -568,6 +722,28 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 16,
   },
+  // New progress summary styles
+  progressSummary: {
+    backgroundColor: '#1a1d29',
+    marginHorizontal: 16,
+    marginBottom: 8,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(123, 105, 238, 0.3)',
+  },
+  progressText: {
+    fontSize: 14,
+    color: '#fff',
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  progressSubtext: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.7)',
+    textAlign: 'center',
+  },
   scrollView: {
     flex: 1,
   },
@@ -618,6 +794,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     marginTop: 0, // Adjusted for better vertical alignment
     zIndex: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   activeTimelineDot: {
     borderWidth: 1.5,
@@ -625,6 +803,18 @@ const styles = StyleSheet.create({
     width: 16,
     height: 16,
     borderRadius: 8,
+  },
+  // New completed timeline dot styles
+  completedTimelineDot: {
+    backgroundColor: '#4CAF50', // Green for completed
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+  },
+  timelineDotCheck: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
   weekContent: {
     flex: 1,
@@ -637,6 +827,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#24293E',
     borderWidth: 1,
     borderColor: COLORS.primary, // Use primary color for active week border
+  },
+  // New completed week content styles
+  completedWeekContent: {
+    backgroundColor: '#1e2a1e', // Slightly green tint for completed weeks
   },
   weekHeader: {
     flexDirection: 'row',
@@ -653,6 +847,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: '#fff',
+    flex: 1,
+  },
+  // New week completed badge styles
+  weekCompletedBadge: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 8,
+  },
+  weekCompletedBadgeText: {
+    fontSize: 10,
+    color: '#fff',
+    fontWeight: 'bold',
   },
   weekDescription: {
     marginBottom: 10,
@@ -684,6 +892,12 @@ const styles = StyleSheet.create({
     marginBottom: 2,
     minWidth: 70,
     alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  // New completed day button styles
+  completedDayButton: {
+    backgroundColor: '#4CAF50',
   },
   scrollIndicator: {
     position: 'absolute',
@@ -704,6 +918,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#fff',
   },
+  // New completed day button text styles
+  completedDayButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  dayButtonCheck: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 4,
+  },
   footerText: {
     fontSize: 12,
     color: 'rgba(255, 255, 255, 0.6)',
@@ -723,10 +948,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
+  exercisesHeaderLeft: {
+    flex: 1,
+  },
   exercisesTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
+    marginBottom: 4,
+  },
+  // New completed badge styles for exercise header
+  completedBadge: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    alignSelf: 'flex-start',
+  },
+  completedBadgeText: {
+    fontSize: 10,
+    color: '#fff',
+    fontWeight: 'bold',
   },
   backButton: {
     backgroundColor: COLORS.primary,

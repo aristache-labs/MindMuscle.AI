@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { Button } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AddExerciseModal from '../../../components/AddExerciseModal';
 import CustomizeExerciseModal from '../../../components/CustomizeExerciseModal';
 import ExerciseDetailsModal from '../../../components/ExerciseDetailsModal';
 import ExerciseListModal from '../../../components/ExerciseListModal';
@@ -184,6 +185,7 @@ export default function WorkoutSessionScreen() {
     showExerciseDetailsModal,
     showExerciseListModal: _showExerciseListModal,
     showCustomizeExerciseModal,
+    showAddExerciseModal,
     initialSelectedExercise: _initialSelectedExercise,
     isCustomizeMode,
     handleExerciseNamePress,
@@ -195,6 +197,9 @@ export default function WorkoutSessionScreen() {
     handleCustomizeExercisePress,
     handleCustomizeExerciseModalClose,
     handleToggleCustomizeMode,
+    handleAddExercisePress: _handleAddExercisePress,
+    handleAddExerciseModalClose,
+    handleAddExercises,
     handleCustomizeExerciseSave,
     handleExerciseChange,
     handleAddExercise,
@@ -788,6 +793,13 @@ export default function WorkoutSessionScreen() {
         onAddSuperset={handleAddSuperset}
         onAddCardio={handleAddCardio}
         onApplyChanges={handleApplyChanges}
+      />
+
+      {/* Add Exercise Modal */}
+      <AddExerciseModal
+        visible={showAddExerciseModal}
+        onClose={handleAddExerciseModalClose}
+        onAddExercises={handleAddExercises}
       />
     </View>
   );

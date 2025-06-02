@@ -47,8 +47,10 @@ export const useExerciseSelection = ({
   const [showExerciseDetailsModal, setShowExerciseDetailsModal] = useState(false);
   const [showExerciseListModal, setShowExerciseListModal] = useState(false);
   const [showCustomizeExerciseModal, setShowCustomizeExerciseModal] = useState(false);
+  const [showAddExerciseModal, setShowAddExerciseModal] = useState(false);
   const [initialSelectedExercise, setInitialSelectedExercise] = useState<number | null>(null);
   const [isCustomizeMode, setIsCustomizeMode] = useState(false);
+  const [isInAddExerciseFlow, setIsInAddExerciseFlow] = useState(false);
 
   // Handle exercise details modal
   const handleExerciseNamePress = useCallback(() => {
@@ -68,8 +70,11 @@ export const useExerciseSelection = ({
   const handleExerciseListModalClose = useCallback(() => {
     setShowExerciseListModal(false);
     setInitialSelectedExercise(null);
-    setIsCustomizeMode(false); // Reset customize mode when modal closes
-  }, []);
+    // Only reset customize mode if we're not in an add exercise flow
+    if (!isInAddExerciseFlow) {
+      setIsCustomizeMode(false);
+    }
+  }, [isInAddExerciseFlow]);
 
   const handleNextExercisePress = useCallback(() => {
     if (currentExerciseIndex < exercises.length - 1) {
@@ -107,11 +112,102 @@ export const useExerciseSelection = ({
     setIsCustomizeMode(!isCustomizeMode);
   }, [isCustomizeMode]);
 
-  // Handle action buttons (placeholders for now)
-  const handleAddExercise = useCallback(() => {
-    // TODO: Implement add exercise functionality
-    console.log('Add Exercise pressed');
+  // Handle add exercise modal
+  const handleAddExercisePress = useCallback(() => {
+    console.log('AddExercise: Starting add exercise flow');
+    // Set flag to indicate we're in an add exercise flow
+    setIsInAddExerciseFlow(true);
+    // Close the exercise list modal first to avoid modal stacking issues
+    setShowExerciseListModal(false);
+    // Small delay to ensure the first modal is closed before opening the second
+    setTimeout(() => {
+      console.log('AddExercise: Opening AddExerciseModal');
+      setShowAddExerciseModal(true);
+    }, 100);
   }, []);
+
+  const handleAddExerciseModalClose = useCallback(() => {
+    console.log('AddExercise: Closing AddExerciseModal');
+    setShowAddExerciseModal(false);
+    // Clear the add exercise flow flag
+    setIsInAddExerciseFlow(false);
+    // Reopen the exercise list modal after closing the add exercise modal
+    setTimeout(() => {
+      console.log('AddExercise: Reopening ExerciseListModal');
+      setShowExerciseListModal(true);
+    }, 100);
+  }, []);
+
+  const handleAddExercises = useCallback(
+    (
+      exerciseConfigurations: {
+        exerciseId: string;
+        name: string;
+        sets: number;
+        reps_range: string;
+        image_url?: string;
+        muscle_group: string;
+        primary_muscles?: string[];
+        requires_weight?: boolean;
+      }[],
+    ) => {
+      // Convert exercise configurations to ExerciseData format
+      const newExercises: ExerciseData[] = exerciseConfigurations.map((config, _index) => ({
+        id: config.exerciseId,
+        exercise_id: config.exerciseId, // Add required exercise_id field
+        name: config.name,
+        sets: config.sets,
+        reps_range: config.reps_range,
+        image_url: config.image_url,
+        muscle_group: config.muscle_group,
+        primary_muscles: config.primary_muscles || [],
+        requires_weight: config.requires_weight || false,
+        instructions: [], // Default empty instructions
+        equipment: '', // Default empty equipment
+        difficulty: '', // Default empty difficulty
+        order: exercises.length + _index, // Add required order field
+        workout_day: 1, // Add required workout_day field (default to 1)
+      }));
+
+      // Add new exercises to the current exercise list
+      setExercises((prev) => [...prev, ...newExercises]);
+
+      // Initialize exercise sets for each new exercise
+      setExerciseSets((prev) => {
+        const newSets = { ...prev };
+        newExercises.forEach((exercise) => {
+          if (!newSets[exercise.id]) {
+            newSets[exercise.id] = Array.from({ length: exercise.sets }, (_, index) => ({
+              id: `${exercise.id}-set-${index + 1}`,
+              setNumber: index + 1,
+              weight: '',
+              reps: exercise.reps_range,
+              isCompleted: false,
+            }));
+          }
+        });
+        return newSets;
+      });
+
+      // Close the add exercise modal
+      setShowAddExerciseModal(false);
+
+      // Clear the add exercise flow flag
+      setIsInAddExerciseFlow(false);
+
+      // Reopen the exercise list modal to show the updated list
+      setTimeout(() => {
+        console.log('AddExercise: Exercises added successfully, reopening ExerciseListModal');
+        setShowExerciseListModal(true);
+      }, 100);
+    },
+    [exercises, setExercises, setExerciseSets],
+  );
+
+  // Handle action buttons (legacy for compatibility)
+  const handleAddExercise = useCallback(() => {
+    handleAddExercisePress();
+  }, [handleAddExercisePress]);
 
   const handleAddSuperset = useCallback(() => {
     // TODO: Implement add superset functionality
@@ -420,10 +516,14 @@ export const useExerciseSelection = ({
     setShowExerciseListModal,
     showCustomizeExerciseModal,
     setShowCustomizeExerciseModal,
+    showAddExerciseModal,
+    setShowAddExerciseModal,
     initialSelectedExercise,
     setInitialSelectedExercise,
     isCustomizeMode,
     setIsCustomizeMode,
+    isInAddExerciseFlow,
+    setIsInAddExerciseFlow,
 
     // Modal handlers
     handleExerciseNamePress,
@@ -435,6 +535,9 @@ export const useExerciseSelection = ({
     handleCustomizeExercisePress,
     handleCustomizeExerciseModalClose,
     handleToggleCustomizeMode,
+    handleAddExercisePress,
+    handleAddExerciseModalClose,
+    handleAddExercises,
 
     // Exercise customization
     handleCustomizeExerciseSave,

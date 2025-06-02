@@ -1,17 +1,17 @@
+import { MaterialIcons } from '@expo/vector-icons';
 import React, { memo, useCallback } from 'react';
 import {
-  StyleSheet,
-  View,
-  TouchableOpacity,
   Dimensions,
-  ViewStyle,
-  TextStyle,
-  ImageStyle,
   Image,
+  ImageStyle,
+  StyleSheet,
+  TextStyle,
+  TouchableOpacity,
+  View,
+  ViewStyle,
 } from 'react-native';
-import { Text, Surface } from 'react-native-paper';
-import { COLORS, BORDER_RADIUS, SPACING } from '../constants/theme';
-import { MaterialIcons } from '@expo/vector-icons';
+import { Surface, Text } from 'react-native-paper';
+import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import OptimizedImage from './OptimizedImage';
 
 interface ExerciseCardProps {
@@ -91,43 +91,45 @@ const ExerciseCard = memo(
 
     return (
       <Surface style={styles.card} elevation={2}>
-        <TouchableOpacity style={styles.cardContent} onPress={handlePress} activeOpacity={0.7}>
-          <View style={styles.imageContainer}>
-            {useOptimizedImage ? (
-              <OptimizedImage
-                source={imageSource}
-                style={styles.exerciseImage}
-                fallback={require('../../assets/exercises/placeholder.jpg')}
-                resizeMode="cover"
-                cachePolicy="immutable"
-                testID={`exercise-card-${id}`}
-                isImportant={true}
-                showLoader={false}
-              />
-            ) : (
-              <Image source={imageSource} style={styles.exerciseImage} resizeMode="cover" />
-            )}
+        <View style={styles.cardContentWrapper}>
+          <TouchableOpacity style={styles.cardContent} onPress={handlePress} activeOpacity={0.7}>
+            <View style={styles.imageContainer}>
+              {useOptimizedImage ? (
+                <OptimizedImage
+                  source={imageSource}
+                  style={styles.exerciseImage}
+                  fallback={require('../../assets/exercises/placeholder.jpg')}
+                  resizeMode="cover"
+                  cachePolicy="immutable"
+                  testID={`exercise-card-${id}`}
+                  isImportant={true}
+                  showLoader={false}
+                />
+              ) : (
+                <Image source={imageSource} style={styles.exerciseImage} resizeMode="cover" />
+              )}
 
-            {/* Favorite button overlay */}
-            <TouchableOpacity
-              style={styles.favoriteButton}
-              onPress={handleToggleFavorite}
-              activeOpacity={0.7}
-            >
-              <MaterialIcons
-                name={isFavorite ? 'star' : 'star-outline'}
-                size={20}
-                color={isFavorite ? '#FFD700' : 'rgba(255,255,255,0.8)'}
-              />
-            </TouchableOpacity>
-          </View>
+              {/* Favorite button overlay */}
+              <TouchableOpacity
+                style={styles.favoriteButton}
+                onPress={handleToggleFavorite}
+                activeOpacity={0.7}
+              >
+                <MaterialIcons
+                  name={isFavorite ? 'star' : 'star-outline'}
+                  size={20}
+                  color={isFavorite ? '#FFD700' : 'rgba(255,255,255,0.8)'}
+                />
+              </TouchableOpacity>
+            </View>
 
-          <View style={styles.textContainer}>
-            <Text style={styles.exerciseName} numberOfLines={2} ellipsizeMode="tail">
-              {name}
-            </Text>
-          </View>
-        </TouchableOpacity>
+            <View style={styles.textContainer}>
+              <Text style={styles.exerciseName} numberOfLines={2} ellipsizeMode="tail">
+                {name}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        </View>
       </Surface>
     );
   },
@@ -136,6 +138,7 @@ const ExerciseCard = memo(
 
 interface Styles {
   card: ViewStyle;
+  cardContentWrapper: ViewStyle;
   cardContent: ViewStyle;
   imageContainer: ViewStyle;
   exerciseImage: ImageStyle;
@@ -151,6 +154,10 @@ const styles = StyleSheet.create<Styles>({
     marginVertical: 6,
     borderRadius: BORDER_RADIUS.md,
     backgroundColor: COLORS.surface,
+  },
+  cardContentWrapper: {
+    flex: 1,
+    borderRadius: BORDER_RADIUS.md,
     overflow: 'hidden',
   },
   cardContent: {

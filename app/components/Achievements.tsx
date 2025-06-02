@@ -1,19 +1,19 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { format } from 'date-fns';
+import { router } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  StyleSheet,
-  View,
-  ScrollView,
-  Pressable,
-  Modal,
   ActivityIndicator,
   Alert,
+  Modal,
   Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
 } from 'react-native';
-import { Text, useTheme, IconButton, Button, Surface, Divider } from 'react-native-paper';
-import { router } from 'expo-router';
+import { Button, Divider, IconButton, Surface, Text, useTheme } from 'react-native-paper';
 import { COLORS } from '../constants/theme';
-import { format } from 'date-fns';
-import { achievementService, Achievement, UserAchievement } from '../services/achievements';
+import { Achievement, achievementService, UserAchievement } from '../services/achievements';
 import { useAuth } from '../store/AuthContext';
 import InitialLoadingScreen from './InitialLoadingScreen';
 
@@ -131,14 +131,14 @@ export default function Achievements() {
                 style={styles.achievementCard}
                 onPress={() => handleAchievementPress(userAchievement)}
               >
-                <Surface
-                  style={[
-                    styles.achievementSurface,
-                    !userAchievement.is_completed && styles.achievementLocked,
-                  ]}
-                  elevation={2}
-                >
-                  <View style={styles.achievementOverflow}>
+                <View style={styles.achievementOverflow}>
+                  <Surface
+                    style={[
+                      styles.achievementSurface,
+                      !userAchievement.is_completed && styles.achievementLocked,
+                    ]}
+                    elevation={2}
+                  >
                     <View style={styles.achievementContent}>
                       <View
                         style={[
@@ -170,8 +170,8 @@ export default function Achievements() {
                       </Text>
                       {renderProgress(userAchievement)}
                     </View>
-                  </View>
-                </Surface>
+                  </Surface>
+                </View>
               </Pressable>
             ))}
           </View>

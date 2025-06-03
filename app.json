@@ -4,7 +4,7 @@
     "name": "MindMuscle.AI",
     "slug": "mindmuscle-ai",
     "owner": "pateutz",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -97,9 +97,8 @@
         "@sentry/react-native/expo",
         {
           "url": "https://sentry.io/",
-          "note": "Use SENTRY_AUTH_TOKEN env to authenticate with Sentry.",
-          "project": "testreact",
-          "organization": "testmind-zb"
+          "project": "mind-muscle-ai",
+          "organization": "mindmuscleai"
         }
       ],
       [
@@ -122,22 +121,20 @@
       "expo-web-browser",
       "expo-secure-store"
     ],
-    "scheme": "testreact",
+    "scheme": "mindmuscle-ai",
     "extra": {
-      "sentryDsn": "https://e0ba77028738bd1dae789d1b11d04739@o4509415311278080.ingest.de.sentry.io/4509415314882640",
+      "sentryDsn": "https://95ca621b3a918874f6289b653a3e3f6a@o4509201331978240.ingest.de.sentry.io/4509201333092432",
       "environment": "development",
+      "router": {},
       "eas": {
-        "projectId": "4509415314882640"
-      },
-      "router": {}
+        "projectId": "9858a5f6-fb78-441d-a3f8-baf6348ed857"
+      }
     },
     "runtimeVersion": {
       "policy": "appVersion"
     },
     "updates": {
       "url": "https://u.expo.dev/9858a5f6-fb78-441d-a3f8-baf6348ed857"
-    },
-    "entryPoint": ".vscode\\exponentIndex.js"
-  },
-  "name": "testreact"
+    }
+  }
 }

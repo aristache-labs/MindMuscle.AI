@@ -4,6 +4,8 @@ A React Native Expo application for AI-powered fitness coaching and progress tra
 
 ## Bugs to fix later
 
+- On resume workout if the workout was customized it revert back on default exercise list and shows the warmup popup, need to be disabled because is resume is suppose to be done the warmpup.
+
 ## Later requirements implementation
 
 - WatermelondDB offline with the Supabase database

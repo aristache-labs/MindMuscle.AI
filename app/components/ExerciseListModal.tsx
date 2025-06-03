@@ -398,6 +398,11 @@ function DraggableExerciseItem({
     isActive && styles.activeExerciseItem,
     isCompleted && styles.completedExerciseItem,
     isBeingDragged && styles.draggingItem,
+  ];
+
+  const containerStyle = [
+    animatedStyle,
+    cardTransitionStyle,
     {
       zIndex: isBeingDragged ? 1000 : 0,
       elevation: isBeingDragged ? 10 : 0,
@@ -406,7 +411,7 @@ function DraggableExerciseItem({
 
   return (
     <GestureDetector gesture={panGesture}>
-      <Animated.View style={[animatedStyle, cardTransitionStyle]}>
+      <Animated.View style={containerStyle}>
         <TouchableOpacity
           style={itemStyle}
           onPress={handlePress}

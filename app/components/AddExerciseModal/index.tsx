@@ -973,27 +973,31 @@ const StepFavorites = ({
 const Step3Configuration = ({
   selectedExercises,
   _exercises,
-  onConfigurationChange,
+  _onConfigurationChange,
   onAddAll,
 }: {
   selectedExercises: SelectedExercise[];
   _exercises: Exercise[];
-  onConfigurationChange: (
+  _onConfigurationChange: (
     exerciseId: string,
     field: 'sets' | 'reps_range',
     value: string | number,
   ) => void;
   onAddAll: () => void;
 }) => {
-  const [localExercises, setLocalExercises] = useState(selectedExercises);
+  const [localExercises, setLocalExercises] = useState(selectedExercises || []);
   const [isDragging, setIsDragging] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState(-1);
   const [dragTargetIndex, setDragTargetIndex] = useState(-1);
+  const [isInitialized, setIsInitialized] = useState(false);
 
-  // Update local exercises when prop changes
+  // Only initialize once when the component mounts
   useEffect(() => {
-    setLocalExercises(selectedExercises);
-  }, [selectedExercises]);
+    if (!isInitialized && selectedExercises && selectedExercises.length > 0) {
+      setLocalExercises(selectedExercises);
+      setIsInitialized(true);
+    }
+  }, [selectedExercises, isInitialized]);
 
   const handleDragStart = useCallback((index: number) => {
     setIsDragging(true);
@@ -1005,13 +1009,11 @@ const Step3Configuration = ({
     (draggedIndex: number, currentY: number) => {
       // Simple calculation - determine target position based on drag distance
       const itemsMoved = Math.round(currentY / ITEM_HEIGHT);
-      const newTargetIndex = Math.max(
-        0,
-        Math.min(draggedIndex + itemsMoved, localExercises.length - 1),
-      );
+      const exerciseCount = localExercises?.length || 0;
+      const newTargetIndex = Math.max(0, Math.min(draggedIndex + itemsMoved, exerciseCount - 1));
       setDragTargetIndex(newTargetIndex);
     },
-    [localExercises.length],
+    [localExercises?.length],
   );
 
   const handleDragEnd = useCallback(
@@ -1021,8 +1023,13 @@ const Step3Configuration = ({
       setDraggedIndex(-1);
       setDragTargetIndex(-1);
 
-      // Only reorder if position actually changed
-      if (fromIndex !== toIndex && toIndex >= 0 && toIndex < localExercises.length) {
+      // Only reorder if position actually changed and localExercises exists
+      if (
+        localExercises &&
+        fromIndex !== toIndex &&
+        toIndex >= 0 &&
+        toIndex < localExercises.length
+      ) {
         const newExercises = [...localExercises];
         const [movedExercise] = newExercises.splice(fromIndex, 1);
         newExercises.splice(toIndex, 0, movedExercise);
@@ -1035,8 +1042,10 @@ const Step3Configuration = ({
 
   const handleRemoveExercise = useCallback(
     (index: number) => {
-      const newExercises = localExercises.filter((_, i) => i !== index);
-      setLocalExercises(newExercises);
+      if (localExercises) {
+        const newExercises = localExercises.filter((_, i) => i !== index);
+        setLocalExercises(newExercises);
+      }
     },
     [localExercises],
   );
@@ -1044,11 +1053,12 @@ const Step3Configuration = ({
   const handleConfigurationChangeLocal = useCallback(
     (exerciseId: string, field: 'sets' | 'reps_range', value: string | number) => {
       setLocalExercises((prev) =>
-        prev.map((ex) => (ex.id === exerciseId ? { ...ex, [field]: value } : ex)),
+        (prev || []).map((ex) => (ex.id === exerciseId ? { ...ex, [field]: value } : ex)),
       );
-      onConfigurationChange(exerciseId, field, value);
+      // Don't call onConfigurationChange here to avoid triggering parent re-renders
+      // The parent will get the updated exercises when onAddAll is called
     },
-    [onConfigurationChange],
+    [],
   );
 
   return (
@@ -1058,9 +1068,9 @@ const Step3Configuration = ({
         showsVerticalScrollIndicator={false}
         scrollEnabled={!isDragging}
       >
-        {localExercises.map((exercise, index) => (
+        {(localExercises || []).map((exercise, index) => (
           <DraggableConfigurationItem
-            key={`config-${exercise.id}-${index}`}
+            key={exercise.id}
             exercise={exercise}
             index={index}
             onConfigurationChange={handleConfigurationChangeLocal}
@@ -1071,18 +1081,21 @@ const Step3Configuration = ({
             isDragging={isDragging}
             draggedIndex={draggedIndex}
             dragTargetIndex={dragTargetIndex}
-            totalExercises={localExercises.length}
+            totalExercises={localExercises?.length || 0}
           />
         ))}
       </ScrollView>
 
       <View style={styles.stepActions}>
-        <Text style={styles.summaryText}>Selected Exercises: {localExercises.length}</Text>
+        <Text style={styles.summaryText}>Selected Exercises: {localExercises?.length || 0}</Text>
 
         <TouchableOpacity
-          style={[styles.nextButton, localExercises.length === 0 && styles.nextButtonDisabled]}
+          style={[
+            styles.nextButton,
+            (localExercises?.length || 0) === 0 && styles.nextButtonDisabled,
+          ]}
           onPress={() => onAddAll()}
-          disabled={localExercises.length === 0}
+          disabled={(localExercises?.length || 0) === 0}
         >
           <Text style={styles.nextButtonText}>Add All</Text>
         </TouchableOpacity>
@@ -1242,7 +1255,7 @@ const renderStepContent = ({
       <Step3Configuration
         selectedExercises={selectedExercises}
         _exercises={exercises}
-        onConfigurationChange={handleConfigurationChange}
+        _onConfigurationChange={handleConfigurationChange}
         onAddAll={handleAddAll}
       />
     );

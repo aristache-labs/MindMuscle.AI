@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Text, TouchableOpacity, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -17,10 +17,18 @@ import { SelectedExercise } from '../types';
 const ITEM_HEIGHT = 100;
 
 // Custom hook for drag animations
-function useDragAnimations() {
-  const translateY = useSharedValue(0);
-  const scale = useSharedValue(1);
-  const opacity = useSharedValue(1);
+function useDragAnimations(exerciseId: string, isBeingDragged: boolean) {
+  // Use refs to persist shared values across re-renders
+  const translateYRef = useRef(useSharedValue(0));
+  const scaleRef = useRef(useSharedValue(1));
+  const opacityRef = useRef(useSharedValue(1));
+  const isAnimatingRef = useRef(useSharedValue(false));
+
+  // Get the current shared values
+  const translateY = translateYRef.current;
+  const scale = scaleRef.current;
+  const opacity = opacityRef.current;
+  const isAnimating = isAnimatingRef.current;
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }, { scale: scale.value }],
@@ -28,23 +36,34 @@ function useDragAnimations() {
   }));
 
   const startDragAnimation = useCallback(() => {
+    isAnimating.value = true;
     scale.value = withSpring(1.05, { damping: 20, stiffness: 400 });
     opacity.value = withTiming(0.9, { duration: 100 });
-  }, []);
+  }, [scale, opacity, isAnimating]);
 
   const endDragAnimation = useCallback(() => {
+    isAnimating.value = false;
     translateY.value = withSpring(0, { damping: 20, stiffness: 300 });
     scale.value = withSpring(1, { damping: 20, stiffness: 300 });
     opacity.value = withTiming(1, { duration: 200 });
-  }, []);
+  }, [translateY, scale, opacity, isAnimating]);
 
-  const updateDragPosition = useCallback((y: number) => {
-    translateY.value = y;
-  }, []);
+  const updateDragPosition = useCallback(
+    (y: number) => {
+      translateY.value = y;
+    },
+    [translateY],
+  );
 
-  const updateDisplacement = useCallback((displacement: number) => {
-    translateY.value = withSpring(displacement, { damping: 20, stiffness: 300 });
-  }, []);
+  const updateDisplacement = useCallback(
+    (displacement: number) => {
+      // Only update displacement if not currently being dragged
+      if (!isBeingDragged && !isAnimating.value) {
+        translateY.value = withSpring(displacement, { damping: 20, stiffness: 300 });
+      }
+    },
+    [isBeingDragged, translateY, isAnimating],
+  );
 
   return {
     animatedStyle,
@@ -133,11 +152,13 @@ export default function DraggableConfigurationItem({
     endDragAnimation,
     updateDragPosition,
     updateDisplacement,
-  } = useDragAnimations();
+  } = useDragAnimations(exercise.id, isBeingDragged);
 
   // Apply displacement animation
   useEffect(() => {
-    if (isBeingDragged) return;
+    // Only apply displacement animations if this item is NOT being dragged
+    // and no dragging operation is happening at all
+    if (isBeingDragged || isDragging) return;
 
     if (shouldMoveUp) {
       updateDisplacement(-ITEM_HEIGHT);
@@ -146,7 +167,7 @@ export default function DraggableConfigurationItem({
     } else {
       updateDisplacement(0);
     }
-  }, [shouldMoveUp, shouldMoveDown, isBeingDragged, updateDisplacement]);
+  }, [shouldMoveUp, shouldMoveDown, isBeingDragged, isDragging, updateDisplacement]);
 
   const handleRemove = useCallback(() => {
     if (!isDragging) {

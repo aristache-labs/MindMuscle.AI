@@ -1,88 +1,175 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, ScrollView, Dimensions, Pressable, Image, Modal, ActivityIndicator, Platform, Animated, Easing } from 'react-native';
-import { Text, Surface, Chip, useTheme, IconButton, Button, Provider } from 'react-native-paper';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Animated,
+  Dimensions,
+  Easing,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
+import { Button, IconButton, Provider, Surface, Text, useTheme } from 'react-native-paper';
 
-import { Calendar } from 'react-native-calendars';
-import { format, addMonths } from 'date-fns';
-import { COLORS, SPACING, HEADER_HEIGHT } from '../constants/theme';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Stack, router } from 'expo-router';
+import { format } from 'date-fns';
 import * as ImagePicker from 'expo-image-picker';
-import { useAuth } from '../store/AuthContext';
-import { achievementService, Achievement, UserAchievement } from '../services/achievements';
-import measurementService, { MeasurementCategory} from '../services/measurements';
+import { Stack } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import ExerciseGraphModal from '../components/ExerciseGraphModal';
+import ExerciseGraphs, { ExerciseData } from '../components/ExerciseGraphs';
+import { GeneralHeader } from '../components/GeneralHeader';
+import HowToMeasureModal from '../components/HowToMeasureModal';
+import { AchievementsSection } from '../components/insights/AchievementsSection';
+import { BeforeAfterPhotos } from '../components/insights/BeforeAfterPhotos';
+import { StatsOverview } from '../components/insights/StatsOverview';
+import { WorkoutCalendar } from '../components/insights/WorkoutCalendar';
 import MeasurementModal from '../components/MeasurementModal';
 import MeasurementsGraph from '../components/MeasurementsGraph';
-import HowToMeasureModal from '../components/HowToMeasureModal';
-import ExerciseGraphs, { ExerciseData } from '../components/ExerciseGraphs';
-import ExerciseGraphModal from '../components/ExerciseGraphModal';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useMeasurements } from '../store/MeasurementsContext';
-import { GeneralHeader } from '../components/GeneralHeader';
-import firebaseProgressPhotoService, { ProgressPhoto } from '../services/firebaseProgressPhotos';
-import OptimizedImage from '../components/OptimizedImage';
+import { COLORS, HEADER_HEIGHT, SPACING } from '../constants/theme';
 import useImagePreloader from '../hooks/useImagePreloader';
-import { markAsImportantImage, ImagePriority } from '../utils/imagePreloader';
+import { Achievement, achievementService, UserAchievement } from '../services/achievements';
+import exerciseService from '../services/exerciseService';
+import firebaseProgressPhotoService, { ProgressPhoto } from '../services/firebaseProgressPhotos';
+import { MeasurementCategory } from '../services/measurements';
+import supabase from '../services/supabase';
+import { useAuth } from '../store/AuthContext';
+import { useMeasurements } from '../store/MeasurementsContext';
+import { markAsImportantImage } from '../utils/imagePreloader';
 
-const TIME_FILTERS = [
-  { label: '1W', value: '1w' },
-  { label: '1M', value: '1m' },
-  { label: '6M', value: '6m' },
-  { label: '1Y', value: '1y' },
-  { label: 'All', value: 'all' },
-];
+interface DisplayProgressPhoto {
+  id: string;
+  url: string;
+  date: string;
+}
 
-const SAMPLE_EXERCISES: ExerciseData[] = [
-  {
-    id: '1',
-    name: 'Dumbbell Bench Press',
-    unit: 'kg',
-    data: [
-      { date: '08.02', value: 8 },
-      { date: '02.11', value: 15 },
-      { date: '27.07', value: 28 },
-      { date: '21.04', value: 36 },
-    ]
-  },
-  {
-    id: '2',
-    name: 'Seated Dumbbell Overhead Press',
-    unit: 'kg',
-    data: [
-      { date: '07.02', value: 8 },
-      { date: '02.11', value: 16 },
-      { date: '27.07', value: 24 },
-      { date: '21.04', value: 26 },
-    ]
+// Add proper TypeScript interfaces for exercise records
+interface UserExerciseRecord {
+  exercise_id: string;
+  weight: number | null;
+  reps: number | null;
+  created_at: string;
+  user_workout_history:
+    | {
+        completed_at: string;
+      }
+    | Array<{
+        completed_at: string;
+      }>;
+}
+
+// Helper function to convert ProgressPhoto to DisplayProgressPhoto
+const convertProgressPhotoToDisplayPhoto = (
+  photo: ProgressPhoto | undefined,
+): DisplayProgressPhoto | undefined => {
+  if (!photo) return undefined;
+  return {
+    id: photo.id,
+    url: photo.url,
+    date: photo.date.toISOString(),
+  };
+};
+
+// Helper functions for photo management
+const requestCameraPermissions = async (): Promise<boolean> => {
+  const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (status !== 'granted') {
+    alert('Sorry, we need camera roll permissions to make this work!');
+    return false;
   }
-];
+  return true;
+};
+
+const deleteExistingPhoto = async (
+  type: 'before' | 'after',
+  beforePhoto: ProgressPhoto | undefined,
+  afterPhoto: ProgressPhoto | undefined,
+  userId: string,
+  setBeforePhoto: React.Dispatch<React.SetStateAction<ProgressPhoto | undefined>>,
+  setAfterPhoto: React.Dispatch<React.SetStateAction<ProgressPhoto | undefined>>,
+): Promise<void> => {
+  const hasExistingPhoto =
+    (type === 'before' && beforePhoto?.id) || (type === 'after' && afterPhoto?.id);
+
+  if (!hasExistingPhoto) return;
+
+  const photoToDelete = type === 'before' ? beforePhoto : afterPhoto;
+
+  if (photoToDelete?.id) {
+    console.log(`Deleting existing ${type} photo with ID: ${photoToDelete.id}`);
+    await firebaseProgressPhotoService.deletePhoto(userId, photoToDelete.id);
+
+    if (type === 'before') {
+      setBeforePhoto(undefined);
+    } else {
+      setAfterPhoto(undefined);
+    }
+  }
+};
+
+const pickAndUploadImage = async (
+  type: 'before' | 'after',
+  userId: string,
+  setBeforePhoto: React.Dispatch<React.SetStateAction<ProgressPhoto | undefined>>,
+  setAfterPhoto: React.Dispatch<React.SetStateAction<ProgressPhoto | undefined>>,
+): Promise<void> => {
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    allowsEditing: true,
+    aspect: [3, 4],
+    quality: 0.8,
+  });
+
+  if (result.canceled || !result.assets || result.assets.length === 0) {
+    return;
+  }
+
+  console.log(`Uploading new ${type} photo from URI: ${result.assets[0].uri.substring(0, 50)}...`);
+
+  const photo = await firebaseProgressPhotoService.uploadPhoto(
+    userId,
+    type,
+    result.assets[0].uri,
+    new Date(),
+  );
+
+  console.log(`Successfully uploaded ${type} photo with ID: ${photo.id}`);
+
+  if (type === 'before') {
+    setBeforePhoto(photo);
+  } else {
+    setAfterPhoto(photo);
+  }
+};
 
 export default function InsightsScreen() {
   const theme = useTheme();
   const { user } = useAuth();
-  const { 
-    measurements, 
+  const {
+    measurements,
     measurementHistory,
     loading: measurementsLoading,
     addMeasurement,
-    deleteMeasurement,
-    refreshMeasurements
+    deleteMeasurement: _deleteMeasurement,
+    refreshMeasurements,
   } = useMeasurements();
-  const insets = useSafeAreaInsets();
+  const _insets = useSafeAreaInsets();
   const [selectedFilter, setSelectedFilter] = useState('1w');
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [key, setKey] = useState(0);
   const [beforePhoto, setBeforePhoto] = useState<ProgressPhoto | undefined>();
   const [afterPhoto, setAfterPhoto] = useState<ProgressPhoto | undefined>();
   const [isLoading, setIsLoading] = useState(false);
-  const [imageLoadError, setImageLoadError] = useState({ before: false, after: false });
+  const [_imageLoadError, setImageLoadError] = useState({ before: false, after: false });
   const [selectedAchievement, setSelectedAchievement] = useState<Achievement | null>(null);
   const [completedAchievements, setCompletedAchievements] = useState<UserAchievement[]>([]);
   const [randomAchievements, setRandomAchievements] = useState<Achievement[]>([]);
   const [achievementsLoading, setAchievementsLoading] = useState(true);
   const [selectedMeasurement, setSelectedMeasurement] = useState<MeasurementCategory | null>(null);
   const [showHowToMeasure, setShowHowToMeasure] = useState(false);
-  const [exercises, setExercises] = useState<ExerciseData[]>(SAMPLE_EXERCISES);
+  const [exercises, setExercises] = useState<ExerciseData[]>([]);
   const [selectedExercise, setSelectedExercise] = useState<ExerciseData | undefined>();
   const [showExerciseModal, setShowExerciseModal] = useState(false);
 
@@ -99,10 +186,10 @@ export default function InsightsScreen() {
   }, [beforePhoto?.url, afterPhoto?.url]);
 
   // Use the image preloader hook to preload progress photos
-  const { loaded: photosLoaded } = useImagePreloader(progressPhotosToPreload, {
+  const { loaded: _photosLoaded } = useImagePreloader(progressPhotosToPreload, {
     priority: 'high',
     debugLabel: 'InsightsProgressPhotos',
-    skipIfCached: true
+    skipIfCached: true,
   });
 
   // Mark progress photos as important to keep them in memory
@@ -156,21 +243,22 @@ export default function InsightsScreen() {
     if (user?.id) {
       loadSavedPhotos();
       loadAchievements();
+      loadExerciseData();
     }
   }, [user?.id]);
 
   const loadAchievements = async () => {
     if (!user?.id) return;
-    
+
     try {
       setAchievementsLoading(true);
       const completed = await achievementService.getUserCompletedAchievements(user.id);
       setCompletedAchievements(completed.slice(0, 3));
-      
+
       // Calculate how many random achievements we need
       const completedCount = completed.length;
       const randomCount = Math.max(0, 3 - completedCount);
-      
+
       if (randomCount > 0) {
         const random = await achievementService.getRandomAchievements(user.id, randomCount);
         setRandomAchievements(random);
@@ -186,20 +274,20 @@ export default function InsightsScreen() {
 
   const loadSavedPhotos = async () => {
     if (!user?.id) return;
-    
+
     try {
       setIsLoading(true);
       const latestPhotos = await firebaseProgressPhotoService.getLatestPhotos(user.id);
-      
+
       // Only update state if the URLs have changed to avoid unnecessary re-renders
       if (latestPhotos.before?.url !== beforePhoto?.url) {
         setBeforePhoto(latestPhotos.before);
       }
-      
+
       if (latestPhotos.after?.url !== afterPhoto?.url) {
         setAfterPhoto(latestPhotos.after);
       }
-      
+
       // Preload the photos immediately when we get them
       if (latestPhotos.before?.url) {
         markAsImportantImage(latestPhotos.before.url);
@@ -214,73 +302,120 @@ export default function InsightsScreen() {
     }
   };
 
+  const loadExerciseData = async () => {
+    if (!user?.id) return;
+
+    try {
+      // Get user's exercise records from the database with exercise details
+      const { data: exerciseRecords, error } = await supabase
+        .from('user_exercise_records')
+        .select(
+          `
+          exercise_id,
+          weight,
+          reps,
+          created_at,
+          user_workout_history!inner(
+            completed_at
+          )
+        `,
+        )
+        .eq('user_workout_history.user_id', user.id)
+        .eq('completed', true)
+        .not('weight', 'is', null)
+        .neq('weight', 0)
+        .order('user_workout_history(completed_at)', { ascending: true });
+
+      if (error) {
+        console.error('Error loading exercise data:', error);
+        setExercises([]);
+        return;
+      }
+
+      if (!exerciseRecords || exerciseRecords.length === 0) {
+        setExercises([]);
+        return;
+      }
+
+      // Get exercise details for the exercise IDs
+      const _exerciseIds = [
+        ...new Set(exerciseRecords.map((record: UserExerciseRecord) => record.exercise_id)),
+      ];
+      const exercises = await exerciseService.getAllExercises();
+      const exerciseMap = new Map(exercises.map((ex) => [ex.id, ex.name]));
+
+      // Group records by exercise and transform data
+      const exerciseDataMap = new Map<string, ExerciseData>();
+
+      exerciseRecords.forEach((record: UserExerciseRecord) => {
+        const exerciseId = record.exercise_id;
+        const exerciseName = exerciseMap.get(exerciseId) || 'Unknown Exercise';
+
+        if (!exerciseDataMap.has(exerciseId)) {
+          exerciseDataMap.set(exerciseId, {
+            id: exerciseId,
+            name: exerciseName,
+            unit: 'kg',
+            data: [],
+          });
+        }
+
+        const exerciseData = exerciseDataMap.get(exerciseId)!;
+        const workoutHistory = Array.isArray(record.user_workout_history)
+          ? record.user_workout_history[0]
+          : record.user_workout_history;
+
+        exerciseData.data.push({
+          date: format(new Date(workoutHistory.completed_at), 'dd.MM'),
+          value: record.weight || 0,
+        });
+      });
+
+      // Convert map to array and limit to most recent exercises
+      const exerciseDataArray = Array.from(exerciseDataMap.values())
+        .filter((ex) => ex.data.length > 0)
+        .slice(0, 10); // Limit to 10 exercises for performance
+
+      setExercises(exerciseDataArray);
+    } catch (error) {
+      console.error('Error loading exercise data:', error);
+      setExercises([]);
+    }
+  };
+
   const cleanupAndPickImage = async (type: 'before' | 'after') => {
     if (!user?.id) {
       alert('Please sign in to add progress photos');
       return;
     }
 
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    
-    if (status !== 'granted') {
-      alert('Sorry, we need camera roll permissions to make this work!');
-      return;
-    }
+    const hasPermissions = await requestCameraPermissions();
+    if (!hasPermissions) return;
 
-    // Delete existing photo if it exists
     try {
-      if ((type === 'before' && beforePhoto?.id) || (type === 'after' && afterPhoto?.id)) {
-        setIsLoading(true);
-        const photoToDelete = type === 'before' ? beforePhoto : afterPhoto;
-        
-        if (photoToDelete?.id) {
-          console.log(`Deleting existing ${type} photo with ID: ${photoToDelete.id}`);
-          await firebaseProgressPhotoService.deletePhoto(user.id, photoToDelete.id);
-          
-          // Clear the state for the deleted photo type
-          if (type === 'before') {
-            setBeforePhoto(undefined);
-          } else {
-            setAfterPhoto(undefined);
-          }
-        }
+      setIsLoading(true);
+
+      // Delete existing photo if it exists
+      try {
+        await deleteExistingPhoto(
+          type,
+          beforePhoto,
+          afterPhoto,
+          user.id,
+          setBeforePhoto,
+          setAfterPhoto,
+        );
+      } catch (error) {
+        console.error('Error deleting existing photo:', error);
+        // Continue with uploading a new photo even if deletion failed
       }
-    } catch (error) {
-      console.error('Error deleting existing photo:', error);
-      // Continue with uploading a new photo even if deletion failed
-    }
 
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [3, 4],
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        try {
-          setIsLoading(true);
-          console.log(`Uploading new ${type} photo from URI: ${result.assets[0].uri.substring(0, 50)}...`);
-          
-          const photo = await firebaseProgressPhotoService.uploadPhoto(
-            user.id,
-            type,
-            result.assets[0].uri,
-            new Date()
-          );
-          
-          console.log(`Successfully uploaded ${type} photo with ID: ${photo.id}`);
-          
-          if (type === 'before') {
-            setBeforePhoto(photo);
-          } else {
-            setAfterPhoto(photo);
-          }
-        } catch (error) {
-          console.error('Error uploading photo:', error);
-          alert('Failed to upload photo. Please try again.');
-        }
+      // Pick and upload new image
+      try {
+        await pickAndUploadImage(type, user.id, setBeforePhoto, setAfterPhoto);
+      } catch (error) {
+        console.error('Error uploading photo:', error);
+        alert('Failed to upload photo. Please try again.');
       }
     } catch (pickError) {
       console.error('Error picking image:', pickError);
@@ -294,13 +429,6 @@ export default function InsightsScreen() {
     cleanupAndPickImage(type);
   };
 
-  // Mark dates that have workouts
-  const markedDates = {
-    '2025-04-01': { marked: true, dotColor: theme.colors.primary },
-    '2025-04-02': { marked: true, dotColor: theme.colors.primary },
-    '2025-04-04': { marked: true, dotColor: theme.colors.primary },
-  };
-
   const handleMonthChange = (date: { timestamp: number }) => {
     setCalendarDate(new Date(date.timestamp));
   };
@@ -308,12 +436,8 @@ export default function InsightsScreen() {
   const handleTodayPress = () => {
     const today = new Date();
     setCalendarDate(today);
-    setKey(prev => prev + 1);
+    setKey((prev) => prev + 1);
   };
-
-  const today = new Date();
-  const minDate = format(today, 'yyyy-MM-dd');
-  const maxDate = format(addMonths(today, 12), 'yyyy-MM-dd');
 
   const handleAchievementPress = (achievement: UserAchievement) => {
     setSelectedAchievement(achievement.achievement || null);
@@ -327,7 +451,11 @@ export default function InsightsScreen() {
     if (!user?.id || !selectedMeasurement) return;
 
     try {
-      await addMeasurement(selectedMeasurement, value, selectedMeasurement === 'WEIGHT' ? 'kg' : 'cm');
+      await addMeasurement(
+        selectedMeasurement,
+        value,
+        selectedMeasurement === 'WEIGHT' ? 'kg' : 'cm',
+      );
       setSelectedMeasurement(null);
     } catch (error) {
       console.error('Error saving measurement:', error);
@@ -335,7 +463,7 @@ export default function InsightsScreen() {
   };
 
   // No need to use useImagePreloader as all images are already preloaded during splash screen
-  const imagesPreloaded = true; // All images are already preloaded
+  const _imagesPreloaded = true; // All images are already preloaded
 
   const handleAddExercise = () => {
     setSelectedExercise(undefined);
@@ -343,7 +471,7 @@ export default function InsightsScreen() {
   };
 
   const handleExercisePress = (exerciseId: string) => {
-    const exercise = exercises.find(e => e.id === exerciseId);
+    const exercise = exercises.find((e) => e.id === exerciseId);
     if (exercise) {
       setSelectedExercise(exercise);
       setShowExerciseModal(true);
@@ -353,11 +481,9 @@ export default function InsightsScreen() {
   const handleSaveExercise = (exerciseData: Partial<ExerciseData>) => {
     if (exerciseData.id) {
       // Update existing exercise
-      setExercises(prev => prev.map(e => 
-        e.id === exerciseData.id 
-          ? { ...e, ...exerciseData } 
-          : e
-      ));
+      setExercises((prev) =>
+        prev.map((e) => (e.id === exerciseData.id ? { ...e, ...exerciseData } : e)),
+      );
     } else {
       // Add new exercise
       const newExercise: ExerciseData = {
@@ -366,12 +492,12 @@ export default function InsightsScreen() {
         data: exerciseData.data!,
         unit: exerciseData.unit,
       };
-      setExercises(prev => [...prev, newExercise]);
+      setExercises((prev) => [...prev, newExercise]);
     }
   };
 
   const handleDeleteExercise = (exerciseId: string) => {
-    setExercises(prev => prev.filter(e => e.id !== exerciseId));
+    setExercises((prev) => prev.filter((e) => e.id !== exerciseId));
   };
 
   const handleSetGoal = (exerciseId: string) => {
@@ -387,7 +513,7 @@ export default function InsightsScreen() {
             headerShown: false,
           }}
         />
-        
+
         <Animated.View style={{ flex: 1, transform: [{ scale: scaleAnim }] }}>
           <GeneralHeader
             title="Insights"
@@ -408,305 +534,42 @@ export default function InsightsScreen() {
               </View>
             }
           />
-          <ScrollView 
-            style={styles.scrollView} 
+          <ScrollView
+            style={styles.scrollView}
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ 
+            contentContainerStyle={{
               paddingTop: HEADER_HEIGHT + SPACING.xxl,
-              paddingBottom: 100
+              paddingBottom: 100,
             }}
           >
             {/* Time Period Filter and Stats Overview */}
-            <Surface style={styles.combinedStatsContainer} elevation={2}>
-              {/* Time Filters */}
-              <View style={styles.filterContainer}>
-                {TIME_FILTERS.map((filter) => (
-                  <Chip
-                    key={filter.value}
-                    selected={selectedFilter === filter.value}
-                    onPress={() => setSelectedFilter(filter.value)}
-                    style={[
-                      styles.filterChip,
-                      selectedFilter === filter.value && { backgroundColor: theme.colors.primary }
-                    ]}
-                    textStyle={[
-                      styles.filterChipText,
-                      selectedFilter === filter.value && { color: '#fff' }
-                    ]}
-                  >
-                    {filter.label}
-                  </Chip>
-                ))}
-              </View>
-
-              <View style={styles.statsDivider} />
-
-              {/* Stats Overview */}
-              <View style={styles.statsOverview}>
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>12</Text>
-                  <Text style={styles.statLabel}>Number of{'\n'}Workouts</Text>
-                </View>
-                <View style={styles.statDivider} />
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>11</Text>
-                  <Text style={styles.statLabel}>Hours at{'\n'}the Gym</Text>
-                </View>
-                <View style={styles.statDivider} />
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>32.9K</Text>
-                  <Text style={styles.statLabel}>Total Weight{'\n'}Lifted (kg)</Text>
-                </View>
-              </View>
-            </Surface>
+            <StatsOverview selectedFilter={selectedFilter} onFilterChange={setSelectedFilter} />
 
             {/* Calendar */}
-            <Surface style={styles.calendarContainer} elevation={2}>
-              <View style={styles.calendarHeader}>
-                <View style={{ flex: 1 }}>
-                  <Pressable 
-                    onPress={handleTodayPress}
-                    style={({ pressed }) => [
-                      styles.todayButtonContainer,
-                      pressed && styles.todayButtonPressed
-                    ]}
-                  >
-                    <Text style={styles.todayButton}>Today</Text>
-                  </Pressable>
-                </View>
-                <Text style={[styles.sectionTitle, {flex: 1, paddingRight: '20%',}]}>YOUR WORKOUTS</Text>
-                <View style={{ flex: 1 }} />
-              </View>
-              <Calendar
-                markingType="custom"
-                key={key}
-                current={format(calendarDate, 'yyyy-MM-dd')}
-                minDate={minDate}
-                maxDate={maxDate}
-                onMonthChange={handleMonthChange}
-                markedDates={{
-                  ...markedDates,
-                  [format(new Date(), 'yyyy-MM-dd')]: {
-                    customStyles: {
-                      container: {
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      },
-                      text: {
-                        fontSize: 20,
-                        fontWeight: '700',
-                        color: COLORS.primary,
-                      }
-                    }
-                  }
-                }}
-                enableSwipeMonths={true}
-                hideExtraDays={true}
-                onDayPress={(day: { dateString: string }) => {
-                }}
-                theme={{
-                  backgroundColor: 'transparent',
-                  calendarBackground: 'transparent',
-                  textSectionTitleColor: COLORS.onSurface,
-                  selectedDayBackgroundColor: COLORS.primary,
-                  selectedDayTextColor: '#fff',
-                  todayTextColor: COLORS.primary,
-                  dayTextColor: COLORS.onSurface,
-                  textDisabledColor: COLORS.disabled,
-                  dotColor: COLORS.primary,
-                  monthTextColor: COLORS.onSurface,
-                  textDayFontSize: 16,
-                  textMonthFontSize: 18,
-                  textDayHeaderFontSize: 14,
-                  todayButtonFontFamily: 'System',
-                  textDayFontWeight: '400',
-                  todayButtonFontSize: 24,
-                  arrowColor: COLORS.primary,
-                }}
-              />
-            </Surface>
+            <WorkoutCalendar
+              calendarDate={calendarDate}
+              calendarKey={key}
+              onMonthChange={handleMonthChange}
+              onTodayPress={handleTodayPress}
+            />
 
             {/* Before and After Section */}
-            <Surface style={styles.beforeAfterContainer} elevation={2}>
-              <Text style={styles.sectionTitle}>BEFORE AND AFTER</Text>
-              <View style={styles.photoComparisonContainer}>
-                {/* Before Photo */}
-                <View style={styles.photoColumn}>
-                  <Pressable 
-                    onPress={() => handlePhotoPress('before')} 
-                    style={styles.photoFrame}
-                  >
-                    {beforePhoto && beforePhoto.url ? (
-                      <OptimizedImage
-                        source={{ uri: beforePhoto.url }}
-                        style={styles.photo}
-                        resizeMode="cover"
-                        priority="high"
-                        cachePolicy="immutable"
-                        isImportant={true}
-                        showLoader={true}
-                        loaderColor={theme.colors.primary}
-                        fallback={require('../../assets/placeholder.jpg')}
-                        onError={() => {
-                          console.log('Before photo error loading');
-                          setImageLoadError(prev => ({ ...prev, before: true }));
-                        }}
-                      />
-                    ) : (
-                      <View style={[styles.addPhotoButton, isLoading && styles.disabled]}>
-                        <IconButton 
-                          icon="camera-plus" 
-                          size={32} 
-                          iconColor={theme.colors.primary} 
-                        />
-                        <Text style={[styles.addPhotoText, { color: theme.colors.primary }]}>
-                          Add Photo
-                        </Text>
-                      </View>
-                    )}
-                  </Pressable>
-                  <Text style={styles.photoLabel}>BEFORE</Text>
-                  {beforePhoto && beforePhoto.date && (
-                    <Text style={styles.photoDate}>
-                      {format(new Date(beforePhoto.date), 'MMMM, yyyy')}
-                    </Text>
-                  )}
-                </View>
-
-                {/* Arrow Icon */}
-                <View style={styles.arrowContainer}>
-                  <View style={styles.purpleDot}>
-                    <IconButton 
-                      icon="arrow-right" 
-                      iconColor="#fff"
-                      size={20}
-                    />
-                  </View>
-                </View>
-
-                {/* After Photo */}
-                <View style={styles.photoColumn}>
-                  <Pressable 
-                    onPress={() => handlePhotoPress('after')} 
-                    style={styles.photoFrame}
-                  >
-                    {afterPhoto && afterPhoto.url ? (
-                      <OptimizedImage
-                        source={{ uri: afterPhoto.url }}
-                        style={styles.photo}
-                        resizeMode="cover"
-                        priority="high"
-                        cachePolicy="immutable"
-                        isImportant={true}
-                        showLoader={true}
-                        loaderColor={theme.colors.primary}
-                        fallback={require('../../assets/placeholder.jpg')}
-                        onError={() => {
-                          console.log('After photo error loading');
-                          setImageLoadError(prev => ({ ...prev, after: true }));
-                        }}
-                      />
-                    ) : (
-                      <View style={[styles.addPhotoButton, isLoading && styles.disabled]}>
-                        <IconButton 
-                          icon="camera-plus" 
-                          size={32} 
-                          iconColor={theme.colors.primary} 
-                        />
-                        <Text style={[styles.addPhotoText, { color: theme.colors.primary }]}>
-                          Add Photo
-                        </Text>
-                      </View>
-                    )}
-                  </Pressable>
-                  <Text style={styles.photoLabel}>AFTER</Text>
-                  {afterPhoto && afterPhoto.date && (
-                    <Text style={styles.photoDate}>
-                      {format(new Date(afterPhoto.date), 'MMMM, yyyy')}
-                    </Text>
-                  )}
-                </View>
-              </View>
-            </Surface>
+            <BeforeAfterPhotos
+              beforePhoto={convertProgressPhotoToDisplayPhoto(beforePhoto)}
+              afterPhoto={convertProgressPhotoToDisplayPhoto(afterPhoto)}
+              isLoading={isLoading}
+              onPhotoPress={handlePhotoPress}
+              onImageError={(type) => setImageLoadError((prev) => ({ ...prev, [type]: true }))}
+            />
 
             {/* Achievements Section */}
-            <Surface style={styles.achievementsContainer} elevation={2}>
-              <View style={styles.sectionHeader}>
-                <View style={styles.headerSide} />
-                <View style={styles.titleContainer}>
-                  <Text style={styles.sectionTitle}>ACHIEVEMENTS</Text>
-                </View>
-                <View style={styles.headerSide}>
-                  <Button
-                    mode="text"
-                    textColor="#6B4EFF"
-                    style={styles.moreButton}
-                    labelStyle={styles.moreButtonLabel}
-                    onPress={() => router.push('/achievements')}
-                  >
-                    More
-                  </Button>
-                </View>
-              </View>
-              <View style={styles.achievementsGrid}>
-                {achievementsLoading ? (
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
-                ) : completedAchievements.length > 0 || randomAchievements.length > 0 ? (
-                  <>
-                    {completedAchievements.map((userAchievement) => (
-                      <Pressable
-                        key={userAchievement.id}
-                        style={styles.achievementCard}
-                        onPress={() => handleAchievementPress(userAchievement)}
-                      >
-                        <View style={styles.achievementContent}>
-                          <View style={styles.achievementIconContainer}>
-                            <IconButton
-                              icon={userAchievement.achievement?.icon || 'trophy'}
-                              size={24}
-                              iconColor="#f9e009"
-                            />
-                          </View>
-                          <Text style={styles.achievementLabel}>
-                            {userAchievement.achievement?.title}
-                          </Text>
-                          {userAchievement.completed_at && (
-                            <Text style={styles.achievementDate}>
-                              {format(new Date(userAchievement.completed_at), 'MMM dd, yyyy')}
-                            </Text>
-                          )}
-                        </View>
-                      </Pressable>
-                    ))}
-                    {randomAchievements.map((achievement) => (
-                      <Pressable
-                        key={achievement.id}
-                        style={[styles.achievementCard, styles.achievementLocked]}
-                        onPress={() => setSelectedAchievement(achievement)}
-                      >
-                        <View style={styles.achievementContent}>
-                          <View style={[styles.achievementIconContainer, styles.achievementIconLocked]}>
-                            <IconButton
-                              icon={achievement.icon || 'trophy'}
-                              size={24}
-                              iconColor="#666"
-                            />
-                          </View>
-                          <Text style={[styles.achievementLabel, styles.achievementTextLocked]}>
-                            {achievement.title}
-                          </Text>
-                          <Text style={[styles.achievementDate, styles.achievementTextLocked]}>
-                            Not completed yet
-                          </Text>
-                        </View>
-                      </Pressable>
-                    ))}
-                  </>
-                ) : (
-                  <Text style={styles.noAchievementsText}>No achievements completed yet</Text>
-                )}
-              </View>
-            </Surface>
+            <AchievementsSection
+              achievementsLoading={achievementsLoading}
+              completedAchievements={completedAchievements}
+              randomAchievements={randomAchievements}
+              onAchievementPress={handleAchievementPress}
+              onRandomAchievementPress={(achievement) => setSelectedAchievement(achievement)}
+            />
 
             {/* Measurements Section */}
             <Surface style={styles.measurementsContainer} elevation={2}>
@@ -751,10 +614,7 @@ export default function InsightsScreen() {
               animationType="fade"
               onRequestClose={() => setSelectedAchievement(null)}
             >
-              <Pressable 
-                style={styles.modalOverlay}
-                onPress={() => setSelectedAchievement(null)}
-              >
+              <Pressable style={styles.modalOverlay} onPress={() => setSelectedAchievement(null)}>
                 <View style={styles.modalContainer}>
                   <Pressable style={styles.modalContent}>
                     <View style={styles.modalHeader}>
@@ -766,26 +626,46 @@ export default function InsightsScreen() {
                         onPress={() => setSelectedAchievement(null)}
                       />
                     </View>
-                    
+
                     {selectedAchievement && (
                       <View style={styles.achievementDetail}>
-                        <View style={[styles.achievementIconLarge, { backgroundColor: selectedAchievement.icon_background_color }]}>
-                          <IconButton
-                            icon={selectedAchievement.icon}
-                            size={40}
-                            iconColor="#000"
-                          />
+                        <View
+                          style={[
+                            styles.achievementIconLarge,
+                            { backgroundColor: selectedAchievement.icon_background_color },
+                          ]}
+                        >
+                          <IconButton icon={selectedAchievement.icon} size={40} iconColor="#000" />
                         </View>
                         <Text style={styles.achievementTitle}>{selectedAchievement.title}</Text>
-                        <Text style={styles.achievementDescription}>{selectedAchievement.description}</Text>
+                        <Text style={styles.achievementDescription}>
+                          {selectedAchievement.description}
+                        </Text>
                         {selectedAchievement.total_progress && (
                           <Text style={styles.achievementProgress}>
-                            Progress: {completedAchievements.find(a => a.achievement?.id === selectedAchievement.id)?.current_progress || 0}/{selectedAchievement.total_progress}
+                            Progress:{' '}
+                            {completedAchievements.find(
+                              (a) => a.achievement?.id === selectedAchievement.id,
+                            )?.current_progress || 0}
+                            /{selectedAchievement.total_progress}
                           </Text>
                         )}
-                        {completedAchievements.find(a => a.achievement?.id === selectedAchievement.id)?.completed_at && (
+                        {completedAchievements.find(
+                          (a) => a.achievement?.id === selectedAchievement.id,
+                        )?.completed_at && (
                           <Text style={styles.achievementDate}>
-                            Completed on {format(new Date(completedAchievements.find(a => a.achievement?.id === selectedAchievement.id)?.completed_at!), 'MMM dd, yyyy')}
+                            Completed on{' '}
+                            {(() => {
+                              const completedAchievement = completedAchievements.find(
+                                (a) => a.achievement?.id === selectedAchievement.id,
+                              );
+                              return completedAchievement?.completed_at
+                                ? format(
+                                    new Date(completedAchievement.completed_at),
+                                    'MMM dd, yyyy',
+                                  )
+                                : '';
+                            })()}
                           </Text>
                         )}
                         <Button
@@ -835,24 +715,24 @@ export default function InsightsScreen() {
   );
 }
 
-const getMeasurementIcon = (category: MeasurementCategory): string => {
+const _getMeasurementIcon = (category: MeasurementCategory): string => {
   switch (category) {
     case 'WEIGHT':
       return 'weight';
     case 'BICEPS':
       return 'arm-flex';
     case 'ABS':
-      return 'human-male';
+      return 'stomach';
     case 'WAIST':
-      return 'human-male';
+      return 'tape-measure';
     case 'CHEST':
-      return 'human-male';
+      return 'human-male-board';
     case 'SHLDRS':
-      return 'human-male';
+      return 'account-box';
     case 'THIGH':
-      return 'human-male';
+      return 'human-male-height';
     case 'CALF':
-      return 'human-male';
+      return 'foot-print';
     default:
       return 'ruler';
   }
@@ -1012,7 +892,7 @@ const styles = StyleSheet.create({
   },
   photoFrame: {
     width: '100%',
-    aspectRatio: 3/4,
+    aspectRatio: 3 / 4,
     borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: COLORS.surface,
@@ -1118,7 +998,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     borderRadius: 12,
     backgroundColor: COLORS.background,
-
   },
   achievementContent: {
     flex: 1,
@@ -1354,4 +1233,4 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     alignItems: 'center',
   },
-}); 
+});

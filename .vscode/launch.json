@@ -1,21 +1,105 @@
 {
-    "version": "0.2.0",
-    "configurations": [
-        
-      {
-        "name": "Debug Android (Expo)",
-        "type": "expo",
-        "request": "launch",
-        "platform": "android",
-
-      },
-      {
-        "name": "Debug iOS (Expo)",
-        "type": "expo",
-        "request": "launch",
-        "platform": "ios",
-
-      }
-    ]
-  }
-  
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Expo iOS (LAN)",
+      "request": "launch",
+      "type": "reactnativedirect",
+      "cwd": "${workspaceFolder}",
+      "platform": "exponent",
+      "expoHostType": "lan",
+      "trace": "log",
+      "enableDebug": true,
+      "sourceMaps": true,
+      "sourceMapRenames": false,
+      "skipFiles": ["<node_internals>/**", "node_modules/**"]
+    },
+    {
+      "type": "expo",
+      "request": "attach",
+      "name": "Attach to Expo Go (iOS on LAN)",
+      "projectRoot": "${workspaceFolder}",
+      "bundlerHost": "${input:windowsIP}"
+    },
+    {
+      "type": "expo",
+      "request": "attach",
+      "name": "Attach to Expo Go (iOS on LAN)",
+      "projectRoot": "${workspaceFolder}",
+      "bundlerHost": "${input:windowsIP}"
+    },
+    {
+      "name": "Attach to Expo Dev Client (iOS, Windows LAN)",
+      "request": "attach",
+      "type": "reactnative",
+      "cwd": "${workspaceFolder}",
+      "address": "${input:windowsIP}",
+      "port": 8081,
+      "sourceMaps": true,
+      "skipFiles": ["<node_internals>/**", "node_modules/**"]
+    },
+    {
+      "name": "Debug iOS Simulator (Mac Remote)",
+      "request": "attach",
+      "type": "reactnativedirect",
+      "cwd": "${workspaceFolder}",
+      "platform": "ios",
+      "trace": "log",
+      "sourceMaps": true,
+      "sourceMapRenames": false,
+      "address": "${input:macIP}",
+      "port": 8081,
+      "skipFiles": ["<node_internals>/**", "node_modules/**"]
+    },
+    {
+      "name": "Debug Android Hermes",
+      "request": "launch",
+      "type": "reactnativedirect",
+      "cwd": "${workspaceFolder}",
+      "platform": "android",
+      "trace": "log",
+      "enableDebug": true,
+      "sourceMaps": true,
+      "sourceMapRenames": false,
+      "skipFiles": ["<node_internals>/**", "node_modules/**"]
+    },
+    {
+      "name": "Attach to Metro (Any Platform)",
+      "request": "attach",
+      "type": "reactnativedirect",
+      "cwd": "${workspaceFolder}",
+      "trace": "log",
+      "sourceMaps": true,
+      "sourceMapRenames": false,
+      "address": "localhost",
+      "port": 8081,
+      "skipFiles": ["<node_internals>/**", "node_modules/**"]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "windowsIP",
+      "description": "Enter your Windows machine IP address (where Metro is running)",
+      "default": "192.168.1.13",
+      "type": "promptString"
+    },
+    {
+      "id": "macIP",
+      "description": "Enter the Mac IP address (if using Mac for iOS Simulator)",
+      "default": "192.168.1.101",
+      "type": "promptString"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Debug Expo iOS + Android (LAN)",
+      "configurations": ["Debug Expo iOS (LAN)", "Attach to Expo Go (iOS on LAN)"],
+      "stopAll": true
+    },
+    {
+      "name": "Debug All Platforms",
+      "configurations": ["Debug Expo iOS (LAN)", "Debug Android Hermes"],
+      "stopAll": true
+    }
+  ]
+}

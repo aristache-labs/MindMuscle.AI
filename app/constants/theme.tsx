@@ -92,11 +92,7 @@ export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
   const colorScheme = useColorScheme();
   const theme = colorScheme === 'dark' ? darkTheme : lightTheme;
 
-  return (
-    <PaperProvider theme={theme}>
-      {children}
-    </PaperProvider>
-  );
+  return <PaperProvider theme={theme}>{children}</PaperProvider>;
 };
 
 export default {
@@ -105,4 +101,4 @@ export default {
   FONT_SIZES,
   BORDER_RADIUS,
   ThemeProvider,
-}; 
+};

@@ -12,7 +12,7 @@ alwaysApply: true
 
 ## Project Folder Structure
 
-Regularly update this folder structure each time you create, modify, or delete a file or folder. (Latest: Updated with complete current project structure including all files and directories):
+Regularly update this folder structure each time you create, modify, or delete a file or folder. (Latest: Updated with feature-based architecture and workout feature module):
 
 ```
 mindmuscle-ai/
@@ -31,9 +31,8 @@ mindmuscle-ai/
 │   ├── (stack)/
 │   │   ├── _layout.tsx
 │   │   ├── settings.tsx
-│   │   ├── exercises-list.tsx
 │   │   ├── plan-details.tsx
-│   │   ├── workout-session.tsx        # Updated with auto-fill consistency fixes
+│   │   ├── workout-session.tsx        # Re-exports from features/workout/screens
 │   │   ├── my-plan.tsx
 │   │   ├── plans.tsx
 │   │   ├── ai-coaching.tsx
@@ -91,6 +90,36 @@ mindmuscle-ai/
 │   │   ├── fast-image-caching-guide.md
 │   │   ├── image-caching-implementation.md
 │   │   └── react-query-usage.md
+│   ├── features/
+│   │   └── workout/
+│   │       ├── index.ts              # Feature exports
+│   │       ├── components/
+│   │       │   ├── index.ts
+│   │       │   ├── WorkoutHeader.tsx
+│   │       │   ├── WorkoutExerciseCard.tsx
+│   │       │   ├── WorkoutExerciseSetRow.tsx
+│   │       │   ├── WorkoutTimerTabs.tsx
+│   │       │   ├── WorkoutExitModal.tsx
+│   │       │   └── WorkoutWarmupModal.tsx
+│   │       ├── docs/
+│   │       │   ├── README.md
+│   │       │   └── workout-hooks-refactor.md
+│   │       ├── examples/
+│   │       │   └── WorkoutSessionExample.tsx
+│   │       ├── hooks/
+│   │       │   ├── index.ts
+│   │       │   ├── useWorkoutTimer.ts
+│   │       │   ├── useExerciseSets.ts
+│   │       │   ├── useWorkoutState.ts
+│   │       │   ├── useWorkoutNavigation.ts
+│   │       │   ├── useWorkoutCompletion.ts
+│   │       │   └── useExerciseCustomization.ts
+│   │       ├── screens/
+│   │       │   └── workout-session.tsx
+│   │       ├── types/
+│   │       │   └── index.ts
+│   │       └── utils/
+│   │           └── index.ts
 │   ├── hooks/
 │   │   ├── useDatabase.ts
 │   │   ├── useDebounce.ts
@@ -222,23 +251,47 @@ mindmuscle-ai/
 - Use SplashScreenManager for proper application initialization and asset preloading.
 - The bottom tab navigation is hidden on specific screens for a cleaner UI.
 - The ExerciseMaxWeightGraph component displays exercise progress data from the user_exercise_records table.
-- workout-session.tsx has been updated with consistent auto-fill behavior for customized exercises.
+- workout-session.tsx now re-exports from the features/workout/screens directory for better organization.
 - All modals (CustomizeExerciseModal, ExerciseListModal, etc.) are properly organized in the components directory.
 - Services are comprehensive and include Firebase, Supabase, and local database functionality.
 - Context providers handle global state management for auth, coaching, gamification, measurements, profile, and tasks.
 - Utils include debugging, image preloading, muscle highlighting, and secure storage functionality.
 - Assets are organized by category (exercises, measurements, navigation, profile) with appropriate subdirectories.
 
+### Feature-Based Architecture
+
+The project now follows a feature-based architecture pattern where related functionality is grouped together:
+
+**Features Directory (`app/features/`)**:
+- **workout/**: Complete workout feature module with its own components, hooks, types, screens, and documentation
+  - `components/`: Workout-specific UI components (WorkoutHeader, WorkoutExerciseCard, etc.)
+  - `hooks/`: Workout-related custom hooks (useWorkoutTimer, useExerciseSets, etc.)
+  - `screens/`: Workout screens (workout-session.tsx)
+  - `types/`: Workout-specific TypeScript types
+  - `utils/`: Workout utility functions
+  - `docs/`: Feature documentation and refactoring guides
+  - `examples/`: Example implementations and usage patterns
+
 ### Key Features by Directory
 
-**Components**: UI components including modals, graphs, timers, and specialized workout components
+**Components**: Shared UI components including modals, graphs, timers, and general-purpose components
+**Features**: Feature-based modules with their own components, hooks, types, and screens
 **Services**: Backend integration, data management, and external API connections
 **Store**: React Context providers for global state management
 **Utils**: Utility functions for debugging, image handling, security, and muscle highlighting
-**Hooks**: Custom React hooks for database, exercises, image preloading, and debouncing
+**Hooks**: Shared custom React hooks for database, exercises, image preloading, and debouncing
 **Constants**: Theme configuration and loading messages
-**Types**: TypeScript type definitions for exercises and global types
+**Types**: Global TypeScript type definitions
 **Assets**: Static assets organized by functionality (exercises, measurements, navigation)
+
+### Feature Development Guidelines
+
+- When creating new features, follow the established pattern in `app/features/workout/`
+- Each feature should have its own directory with subdirectories for components, hooks, types, utils, screens, docs, and examples
+- Feature exports should be centralized through an `index.ts` file at the feature root
+- Screen components in the main routing directories should re-export from the appropriate feature when possible
+- Feature-specific components and hooks should be kept within the feature directory
+- Shared functionality should remain in the global `app/components/` and `app/hooks/` directories
 
 ---
 

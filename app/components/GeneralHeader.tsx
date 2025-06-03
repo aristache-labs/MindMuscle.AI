@@ -1,6 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { View, Text, StyleSheet, ViewStyle } from 'react-native';
 import { useRouter } from 'expo-router';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { Divider } from 'react-native-paper';
@@ -10,28 +9,20 @@ interface GeneralHeaderProps {
   icon?: React.ReactNode;
   onSettingsPress?: () => void;
   rightElement?: React.ReactNode;
-  style?: any;
+  style?: ViewStyle;
 }
 
-export function GeneralHeader({ 
-  title, 
-  icon, 
-  onSettingsPress, 
-  rightElement, 
-  style
-}: GeneralHeaderProps) {
-  const router = useRouter();
+export function GeneralHeader({ title, icon, rightElement, style }: GeneralHeaderProps) {
+  const _router = useRouter();
 
   return (
-    <View style={[styles.headerContainer, style]}> 
+    <View style={[styles.headerContainer, style]}>
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           {icon && <View style={styles.headerIcon}>{icon}</View>}
           <Text style={styles.headerTitle}>{title}</Text>
         </View>
-        <View style={styles.headerRight}>
-          {rightElement}
-        </View>
+        <View style={styles.headerRight}>{rightElement}</View>
       </View>
       <Divider style={styles.divider} />
     </View>
@@ -84,4 +75,4 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     height: 0.5,
   },
-}); 
+});

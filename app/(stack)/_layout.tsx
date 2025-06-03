@@ -26,14 +26,7 @@ export default function StackLayout() {
           headerShown: false,
         }}
       />
-      <Stack.Screen
-        name="exercises-list"
-        options={{
-          headerShown: false,
-          gestureEnabled: true,
-          fullScreenGestureEnabled: true,
-        }}
-      />
+
       <Stack.Screen
         name="my-plan"
         options={{
@@ -41,7 +34,7 @@ export default function StackLayout() {
           gestureEnabled: false,
           fullScreenGestureEnabled: false,
         }}
-      /> 
+      />
 
       <Stack.Screen
         name="ai-coaching"
@@ -59,7 +52,7 @@ export default function StackLayout() {
           fullScreenGestureEnabled: false,
         }}
       />
-       <Stack.Screen
+      <Stack.Screen
         name="custom"
         options={{
           headerShown: false,
@@ -97,4 +90,4 @@ export default function StackLayout() {
       />
     </Stack>
   );
-} 
+}

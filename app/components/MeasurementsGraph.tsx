@@ -9,7 +9,6 @@ interface Props {
   onMeasurementPress: (category: MeasurementCategory) => void;
 }
 
-const PURPLE_COLOR = '#6c47ff';
 const FADED_PURPLE = 'rgba(107, 78, 255, 0.15)';
 
 const getCategoryColor = (category: string): string => {
@@ -35,14 +34,14 @@ const getCategoryColor = (category: string): string => {
 
 const getProgressIndicator = (currentValue: number, previousValue: number | null) => {
   if (previousValue === null) return null;
-  
+
   const difference = currentValue - previousValue;
   if (Math.abs(difference) < 0.01) return null; // No significant change
-  
+
   return {
     icon: difference > 0 ? 'arrow-up' : 'arrow-down',
     color: difference > 0 ? '#4CAF50' : '#F44336', // Green for increase, Red for decrease
-    value: Math.abs(difference).toFixed(1)
+    value: Math.abs(difference).toFixed(1),
   };
 };
 
@@ -190,7 +189,7 @@ export default function MeasurementsGraph({ measurements, onMeasurementPress }: 
   const maxValue = Math.max(
     ...Object.entries(measurements)
       .filter(([category]) => category !== 'WEIGHT')
-      .map(([_, measurement]) => measurement?.value || 0)
+      .map(([_, measurement]) => measurement?.value || 0),
   );
 
   // Calculate the scale factor for the bars (max height 240)
@@ -208,7 +207,7 @@ export default function MeasurementsGraph({ measurements, onMeasurementPress }: 
   return (
     <View style={styles.container}>
       {/* Weight Display */}
-      <Pressable 
+      <Pressable
         style={styles.weightContainer}
         onPress={() => {
           onMeasurementPress('WEIGHT');
@@ -225,8 +224,13 @@ export default function MeasurementsGraph({ measurements, onMeasurementPress }: 
       {allZero ? (
         <View style={styles.placeholderWrapper}>
           <Text style={styles.placeholderText}>No measurements yet!</Text>
-          <Text style={styles.placeholderSubtext}>Start tracking your progress by adding your first measurement.</Text>
-          <Pressable style={styles.addMeasurementButton} onPress={() => onMeasurementPress(firstMuscleGroup as MeasurementCategory)}>
+          <Text style={styles.placeholderSubtext}>
+            Start tracking your progress by adding your first measurement.
+          </Text>
+          <Pressable
+            style={styles.addMeasurementButton}
+            onPress={() => onMeasurementPress(firstMuscleGroup as MeasurementCategory)}
+          >
             <Text style={styles.addMeasurementButtonText}>Add Measurement</Text>
           </Pressable>
         </View>
@@ -239,9 +243,9 @@ export default function MeasurementsGraph({ measurements, onMeasurementPress }: 
               .filter(([category]) => category !== 'WEIGHT')
               .map(([category, measurement]) => {
                 const value = measurement?.value || 25;
-                const height = allZero ? 0 : (value * scale + MIN_BAR_HEIGHT);
+                const height = allZero ? 0 : value * scale + MIN_BAR_HEIGHT;
                 const categoryColor = getCategoryColor(category);
-                
+
                 // Get the previous measurement value
                 const previousValue = measurement?.previous_value ?? null;
                 const progress = getProgressIndicator(value, previousValue);
@@ -253,19 +257,24 @@ export default function MeasurementsGraph({ measurements, onMeasurementPress }: 
                     onPress={() => onMeasurementPress(category as MeasurementCategory)}
                   >
                     {/* Value above the bar, moving with the bar height */}
-                    <View style={{ position: 'absolute', left: 0, right: 0, bottom: height + 6, alignItems: 'center', zIndex: 5 }} pointerEvents="none">
-                      <Text style={[styles.valueAboveBar, { color: categoryColor }]}> 
+                    <View
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        right: 0,
+                        bottom: height + 6,
+                        alignItems: 'center',
+                        zIndex: 5,
+                      }}
+                      pointerEvents="none"
+                    >
+                      <Text style={[styles.valueAboveBar, { color: categoryColor }]}>
                         {value.toFixed(1)}
                       </Text>
                     </View>
                     {/* Bar */}
-                    <View style={[styles.barWrapper, { height: 230 }]}> 
-                      <View 
-                        style={[
-                          styles.bar, 
-                          { height: `${(height / 240) * 100}%` }
-                        ]}
-                      >
+                    <View style={[styles.barWrapper, { height: 230 }]}>
+                      <View style={[styles.bar, { height: `${(height / 240) * 100}%` }]}>
                         {/* Arrow icon inside the bar, top center, moves with bar height */}
                         {progress && (
                           <IconButton
@@ -286,7 +295,10 @@ export default function MeasurementsGraph({ measurements, onMeasurementPress }: 
 
                     {/* Labels */}
                     <View style={styles.labelContainer}>
-                      <Text style={[styles.measurementLabel, { color: categoryColor }]} numberOfLines={1}>
+                      <Text
+                        style={[styles.measurementLabel, { color: categoryColor }]}
+                        numberOfLines={1}
+                      >
                         {category}
                       </Text>
                     </View>
@@ -298,4 +310,4 @@ export default function MeasurementsGraph({ measurements, onMeasurementPress }: 
       )}
     </View>
   );
-} 
+}

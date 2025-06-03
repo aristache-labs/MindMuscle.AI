@@ -1,27 +1,28 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Image, Dimensions, TouchableOpacity, Pressable } from 'react-native';
-import { Text, Card, Button, IconButton, useTheme, Chip } from 'react-native-paper';
-import { useAuth } from '../store/AuthContext';
-import { COLORS, SPACING, BORDER_RADIUS, HEADER_HEIGHT } from '../constants/theme';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
-import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
+import React, { useEffect, useState } from 'react';
+import { Dimensions, ScrollView, StyleSheet, View } from 'react-native';
+import { Button, Text, useTheme } from 'react-native-paper';
 import { MenuHeader } from '../components/MenuHeader';
+import { COLORS, HEADER_HEIGHT } from '../constants/theme';
+import { useSentryAuthTracking } from '../hooks/useSentryDataCollection';
+import { useAuth } from '../store/AuthContext';
 
 // Import content components
-import MyPlanScreen from '../(stack)/my-plan';
-import SingleWorkoutScreen from '../(stack)/single-workout';
 import AiCoachingScreen from '../(stack)/ai-coaching';
 import CustomScreen from '../(stack)/custom';
+import MyPlanScreen from '../(stack)/my-plan';
+import SingleWorkoutScreen from '../(stack)/single-workout';
 
-const { width } = Dimensions.get('window');
+const { width: _width } = Dimensions.get('window');
 
 export default function HomeScreen() {
   const { user, isLoading, signOut } = useAuth();
   const [selectedOption, setSelectedOption] = useState('My Plan');
   const params = useLocalSearchParams();
-  const theme = useTheme();
-  
+  const _theme = useTheme();
+  const sentry = useSentryAuthTracking('HomeScreen');
+
   // Set My Plan as default option, and handle navigation with params
   useEffect(() => {
     // Check if selectedOption is passed in params
@@ -31,24 +32,29 @@ export default function HomeScreen() {
       setSelectedOption('My Plan');
     }
   }, [params]);
-  
-  const fullName = React.useMemo(() => {
+
+  const _fullName = React.useMemo(() => {
     if (isLoading) return '...';
-    return user?.user_metadata?.name  || 'User';
+    return user?.user_metadata?.name || 'User';
   }, [user, isLoading]);
 
-  const handleLogout = async () => {
+  const _handleLogout = async () => {
     try {
+      sentry.trackLogout();
       await signOut();
-      router.replace('(auth)/login');
+      router.replace('/(auth)/login');
     } catch (error) {
       console.error('Logout error:', error);
+      sentry.captureException(error as Error, {
+        context: 'logout_navigation',
+        attempted_route: '/(auth)/login',
+      });
     }
   };
 
   // Function to render the appropriate content based on the selected option
   const renderContent = () => {
-    switch(selectedOption) {
+    switch (selectedOption) {
       case 'My Plan':
         return <MyPlanScreen embedded={true} />;
       case 'Single Workout':
@@ -57,6 +63,7 @@ export default function HomeScreen() {
         return <AiCoachingScreen embedded={true} />;
       case 'Custom':
         return <CustomScreen embedded={true} />;
+
       default:
         return renderHomeContent();
     }
@@ -64,13 +71,13 @@ export default function HomeScreen() {
 
   // Home content component
   const renderHomeContent = () => (
-    <ScrollView 
-      style={styles.scrollView} 
+    <ScrollView
+      style={styles.scrollView}
       showsVerticalScrollIndicator={false}
       contentContainerStyle={[styles.scrollViewContent, { paddingTop: HEADER_HEIGHT }]}
     >
       <View style={styles.headerSpacer} />
-      
+
       <View style={styles.infoCard}>
         <Text style={styles.infoTitle}>Welcome to MindMuscle.AI</Text>
         <Text style={styles.infoText}>
@@ -98,7 +105,8 @@ export default function HomeScreen() {
           mode="contained"
           style={styles.startButton}
           labelStyle={styles.startButtonLabel}
-          onPress={() => setSelectedOption('My Plan')}>
+          onPress={() => setSelectedOption('My Plan')}
+        >
           START MY PLAN
         </Button>
       </View>
@@ -107,9 +115,9 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      <MenuHeader 
-        currentOption={selectedOption} 
-        onOptionSelect={(option) => setSelectedOption(option)} 
+      <MenuHeader
+        currentOption={selectedOption}
+        onOptionSelect={(option) => setSelectedOption(option)}
       />
       {renderContent()}
     </View>
@@ -122,7 +130,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   headerSpacer: {
-    height: 30, 
+    height: 30,
   },
   scrollView: {
     flex: 1,
@@ -182,4 +190,4 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-}); 
+});

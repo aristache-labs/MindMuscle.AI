@@ -1,39 +1,29 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { AppState, AppStateStatus, Platform } from 'react-native';
-import * as SplashScreen from 'expo-splash-screen';
-import InitialLoadingScreen from './InitialLoadingScreen';
-import { useAuth } from '../store/AuthContext';
 import * as Network from 'expo-network';
-import supabase from '../services/supabase';
-// Safely import Firebase-related modules
-let firebaseProgressPhotoService: any = null;
-let storage: any = null;
-let ref: any = null;
-let listAll: any = null;
-let getDownloadURL: any = null;
-import { Asset } from 'expo-asset';
+import * as SplashScreen from 'expo-splash-screen';
+import React, { useEffect, useRef, useState } from 'react';
+import { AppState, AppStateStatus, Platform } from 'react-native';
 import { LOADING_MESSAGES } from '../constants/loadingMessages';
-import { 
-  safePreloadImages, 
-  PreloadStrategy, 
-  strategicPreloadImages, 
-  preloadAllSvgAssets,
-  markAsImportantImage as markImageAsImportant
-} from '../utils/imagePreloader';
 import exerciseService from '../services/exerciseService';
+import supabase from '../services/supabase';
+import { useAuth } from '../store/AuthContext';
+import { safeAsyncFireAndForget } from '../utils/asyncErrorHandler';
 import logger from '../utils/logger';
+import InitialLoadingScreen from './InitialLoadingScreen';
+
 // Define storage bucket constants for compatibility with previous code
 export const STORAGE_BUCKETS = {
   PROGRESS_PHOTOS: 'progress-photos',
   PLANS: 'plans',
-  EXERCISES: 'exercises'
+  EXERCISES: 'exercises',
 };
+
 // Define interfaces for file metadata
 export interface StorageFile {
   name: string;
   id: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
+
 // Define static images to preload (moved from imagePreloader.ts)
 export const STATIC_IMAGES = {
   measurements: {
@@ -48,78 +38,161 @@ export const STATIC_IMAGES = {
   },
   bodyModel: {
     front: require('../../assets/body-model_front.png'),
-    back: require('../../assets/body-model_back.png')
+    back: require('../../assets/body-model_back.png'),
   },
   placeholders: {
-    exercise: require('../../assets/exercises/placeholder.jpg')
-  }
+    exercise: require('../../assets/exercises/placeholder.jpg'),
+  },
 };
-// Track important image URLs
-const IMPORTANT_IMAGE_URLS = new Set<string>();
+
 // Debug flag to control logging
 const DEBUG_SPLASH_SCREEN = __DEV__ && false;
+
 // Define resources to be preloaded, organized by priority
 const PRELOAD_CONFIG = {
   BATCH_SIZE: 5,
   TIMEOUT: {
-    STATIC_ASSETS: 3000,    // 3 seconds max for static assets
-    REMOTE_IMAGES: 5000,    // 5 seconds max for remote images
-    DATA: 3000,             // 3 seconds max for data loading
-    USER_DATA: 3000,        // 3 seconds max for user data
-    TOTAL: 15000,           // 15 seconds total maximum
-  }
+    STATIC_ASSETS: 3000, // 3 seconds max for static assets
+    REMOTE_IMAGES: 5000, // 5 seconds max for remote images
+    DATA: 3000, // 3 seconds max for data loading
+    USER_DATA: 3000, // 3 seconds max for user data
+    TOTAL: 15000, // 15 seconds total maximum
+  },
 };
+
+// Define types for global cache
+interface ExercisesCache {
+  all: unknown[];
+  lastUpdated: number;
+}
+
+interface UserFavoritesCache {
+  favoriteExerciseIds: string[];
+  lastUpdated: number;
+}
+
+interface GlobalCache {
+  exercisesCache?: ExercisesCache;
+  userFavoritesCache?: UserFavoritesCache;
+}
+
+// Track splash screen state to prevent multiple operations
+const splashScreenState = {
+  isShown: false,
+  isHidden: false,
+  preventAutoHideCalled: false,
+};
+
 // Safely attempt to prevent auto-hide with error handling
-const safelyPreventAutoHide = async () => {
+const safelyPreventAutoHide = async (): Promise<void> => {
   try {
-    if (Platform.OS !== 'web') {
-      if (typeof SplashScreen.preventAutoHideAsync === 'function') {
-        await SplashScreen.preventAutoHideAsync();
-        logger.debugComponent('SPLASH_SCREEN', 'preventAutoHideAsync called successfully');
-      } else {
-        logger.warn('SplashScreen.preventAutoHideAsync is not a function');
-      }
+    // Skip splash screen management in web or if running in Expo Go
+    if (Platform.OS === 'web') {
+      logger.debugComponent('SPLASH_SCREEN', 'Skipping splash screen on web platform');
+      return;
+    }
+
+    // Check if already called
+    if (splashScreenState.preventAutoHideCalled) {
+      logger.debugComponent('SPLASH_SCREEN', 'preventAutoHideAsync already called, skipping');
+      return;
+    }
+
+    // Check if we're running in Expo Go (development)
+    const isExpoGo = typeof SplashScreen?.preventAutoHideAsync !== 'function';
+
+    if (isExpoGo) {
+      logger.debugComponent(
+        'SPLASH_SCREEN',
+        'Running in Expo Go - splash screen management limited',
+      );
+      return;
+    }
+
+    if (typeof SplashScreen.preventAutoHideAsync === 'function') {
+      await SplashScreen.preventAutoHideAsync();
+      splashScreenState.preventAutoHideCalled = true;
+      splashScreenState.isShown = true;
+      logger.debugComponent('SPLASH_SCREEN', 'preventAutoHideAsync called successfully');
+    } else {
+      logger.warn('SplashScreen.preventAutoHideAsync is not available');
     }
   } catch (error) {
     logger.warn('Error with splash screen prevention:', { context: { error: String(error) } });
   }
 };
+
 // Safely attempt to hide with error handling
-const safelyHideSplashScreen = async () => {
+const safelyHideSplashScreen = async (): Promise<void> => {
   try {
-    if (Platform.OS !== 'web') {
-      if (typeof SplashScreen.hideAsync === 'function') {
-        await SplashScreen.hideAsync();
-        logger.debugComponent('SPLASH_SCREEN', 'hideAsync called successfully');
-      } else {
-        logger.warn('SplashScreen.hideAsync is not a function');
-      }
+    // Skip splash screen management in web or if running in Expo Go
+    if (Platform.OS === 'web') {
+      logger.debugComponent('SPLASH_SCREEN', 'Skipping splash screen hide on web platform');
+      return;
+    }
+
+    // Check if already hidden or never shown
+    if (splashScreenState.isHidden || !splashScreenState.isShown) {
+      logger.debugComponent(
+        'SPLASH_SCREEN',
+        'Splash screen already hidden or never shown, skipping',
+      );
+      return;
+    }
+
+    // Check if we're running in Expo Go (development)
+    const isExpoGo = typeof SplashScreen?.hideAsync !== 'function';
+
+    if (isExpoGo) {
+      logger.debugComponent('SPLASH_SCREEN', 'Running in Expo Go - splash screen hide limited');
+      return;
+    }
+
+    if (typeof SplashScreen.hideAsync === 'function') {
+      await SplashScreen.hideAsync();
+      splashScreenState.isHidden = true;
+      logger.debugComponent('SPLASH_SCREEN', 'hideAsync called successfully');
+    } else {
+      logger.warn('SplashScreen.hideAsync is not available');
     }
   } catch (error) {
     logger.warn('Error hiding splash screen:', { context: { error: String(error) } });
   }
 };
-// Execute once on module load
-if (Platform.OS !== 'web') {
-  safelyPreventAutoHide().catch(err => {
-    console.warn('Initial splash screen setup failed:', err);
-  });
+
+// Execute once on module load - only in production builds
+if (Platform.OS !== 'web' && typeof SplashScreen?.preventAutoHideAsync === 'function') {
+  // Add a small delay to ensure the native module is fully initialized
+  setTimeout(() => {
+    safeAsyncFireAndForget(() => safelyPreventAutoHide(), {
+      errorPrefix: 'Initial splash screen setup failed',
+      context: { location: 'module_load' },
+    });
+  }, 100);
 }
+
 export default function SplashScreenManager({ children }: { children: React.ReactNode }) {
   const [appReady, setAppReady] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const [progress, setProgress] = useState(0);
   const [loadingMessage, setLoadingMessage] = useState(LOADING_MESSAGES.START);
   const isMounted = useRef(true);
-  const { user, isLoading: authLoading } = useAuth();
+  const { user } = useAuth();
   const totalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (DEBUG_SPLASH_SCREEN) console.log('🚀 SplashScreenManager component mounting - initial render');
-    
-    // Prevent auto-hide on component mount
-    safelyPreventAutoHide();
-    
+    if (DEBUG_SPLASH_SCREEN)
+      console.log('🚀 SplashScreenManager component mounting - initial render');
+
+    // Prevent auto-hide on component mount with better error handling
+    // Add a small delay to ensure proper initialization order
+    setTimeout(() => {
+      safeAsyncFireAndForget(() => safelyPreventAutoHide(), {
+        errorPrefix: 'Component mount splash screen setup failed',
+        context: { location: 'component_mount' },
+      });
+    }, 50);
+
     // Set up total timeout as a safety net
     totalTimeoutRef.current = setTimeout(() => {
       if (isMounted.current) {
@@ -131,11 +204,23 @@ export default function SplashScreenManager({ children }: { children: React.Reac
     // Listen for app state changes
     const subscription = AppState.addEventListener('change', handleAppStateChange);
 
+    // Initialize splash screen with comprehensive error handling
     const initSplashScreen = async () => {
       try {
         await prepare();
       } catch (e) {
         console.error('Error in splash screen setup:', e);
+        // Log to Sentry if available, but don't let it crash the app
+        try {
+          if (typeof logger?.error === 'function') {
+            logger.error(
+              'SplashScreen initialization failed',
+              e instanceof Error ? e : new Error(String(e)),
+            );
+          }
+        } catch (logError) {
+          console.warn('Failed to log splash screen error:', logError);
+        }
       } finally {
         // Regardless of errors, we need to finish loading
         if (isMounted.current) {
@@ -144,7 +229,11 @@ export default function SplashScreenManager({ children }: { children: React.Reac
       }
     };
 
-    initSplashScreen();
+    // Use safeAsyncFireAndForget to prevent unhandled promise rejections
+    safeAsyncFireAndForget(() => initSplashScreen(), {
+      errorPrefix: 'SplashScreen initialization failed',
+      context: { location: 'useEffect_init' },
+    });
 
     return () => {
       isMounted.current = false;
@@ -173,17 +262,19 @@ export default function SplashScreenManager({ children }: { children: React.Reac
   // Track loading progress with enhanced logging
   const updateProgress = (value: number, message?: string, source?: string) => {
     if (!isMounted.current) return;
-    
+
     setProgress((prev) => {
       const newProgress = Math.min(prev + value, 0.95);
-      
+
       if (DEBUG_SPLASH_SCREEN) {
         const percentComplete = (newProgress * 100).toFixed(1);
-        console.log(`⏱️ [SplashScreenManager] Progress update: ${percentComplete}% (added ${(value * 100).toFixed(1)}%)${source ? ` from ${source}` : ''}`);
+        console.log(
+          `⏱️ [SplashScreenManager] Progress update: ${percentComplete}% (added ${(value * 100).toFixed(1)}%)${source ? ` from ${source}` : ''}`,
+        );
       }
       return newProgress;
     });
-    
+
     if (message) {
       setLoadingMessage(message);
       if (DEBUG_SPLASH_SCREEN) {
@@ -193,7 +284,7 @@ export default function SplashScreenManager({ children }: { children: React.Reac
   };
 
   // Simplified static image preloading
-  const preloadStaticImages = async () => {
+  const preloadStaticImages = async (): Promise<boolean> => {
     try {
       updateProgress(0.1, LOADING_MESSAGES.STATIC_ASSETS, 'staticAssets');
       // Add any critical static assets here
@@ -205,31 +296,33 @@ export default function SplashScreenManager({ children }: { children: React.Reac
   };
 
   // Simplified data loading
-  const preloadApplicationData = async () => {
+  const preloadApplicationData = async (): Promise<boolean> => {
     try {
       updateProgress(0.2, LOADING_MESSAGES.CONTENT, 'data');
-      
+
       // Load essential app data with timeout
-      const exercisesPromise = exerciseService.getAllExercises().catch(err => {
+      const exercisesPromise = exerciseService.getAllExercises().catch((err) => {
         console.warn('Failed to load exercises:', err);
         return [];
       });
 
       const exercises = await Promise.race([
         exercisesPromise,
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Data loading timeout')), PRELOAD_CONFIG.TIMEOUT.DATA)
-        )
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Data loading timeout')), PRELOAD_CONFIG.TIMEOUT.DATA),
+        ),
       ]);
 
       // Store in global cache for immediate access
-      (global as any).exercisesCache = {
-        all: exercises || [],
-        lastUpdated: Date.now()
+      (global as GlobalCache).exercisesCache = {
+        all: Array.isArray(exercises) ? exercises : [],
+        lastUpdated: Date.now(),
       };
-      
+
       if (DEBUG_SPLASH_SCREEN) {
-        console.log(`📊 Preloaded ${(exercises as any[])?.length || 0} total exercises`);
+        console.log(
+          `📊 Preloaded ${Array.isArray(exercises) ? exercises.length : 0} total exercises`,
+        );
       }
 
       return true;
@@ -240,10 +333,10 @@ export default function SplashScreenManager({ children }: { children: React.Reac
   };
 
   // Simplified user data loading
-  const preloadUserData = async (userId: string) => {
+  const preloadUserData = async (userId: string): Promise<boolean> => {
     try {
       updateProgress(0.1, LOADING_MESSAGES.USER_CONTENT, 'userData');
-      
+
       // Load user-specific data with timeout
       const userDataPromise = (async () => {
         try {
@@ -251,11 +344,13 @@ export default function SplashScreenManager({ children }: { children: React.Reac
             .from('user_favorite_exercises')
             .select('exercise_id')
             .eq('user_id', userId);
-            
+
           if (favoriteExercises) {
-            (global as any).userFavoritesCache = {
-              favoriteExerciseIds: favoriteExercises.map((fav: any) => fav.exercise_id),
-              lastUpdated: Date.now()
+            (global as GlobalCache).userFavoritesCache = {
+              favoriteExerciseIds: favoriteExercises.map(
+                (fav: { exercise_id: string }) => fav.exercise_id,
+              ),
+              lastUpdated: Date.now(),
             };
           }
         } catch (error) {
@@ -265,9 +360,12 @@ export default function SplashScreenManager({ children }: { children: React.Reac
 
       await Promise.race([
         userDataPromise,
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('User data timeout')), PRELOAD_CONFIG.TIMEOUT.USER_DATA)
-        )
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error('User data timeout')),
+            PRELOAD_CONFIG.TIMEOUT.USER_DATA,
+          ),
+        ),
       ]);
 
       return true;
@@ -278,7 +376,7 @@ export default function SplashScreenManager({ children }: { children: React.Reac
   };
 
   // Refresh essential data when app comes to foreground
-  const refreshEssentialData = async () => {
+  const refreshEssentialData = async (): Promise<void> => {
     if (DEBUG_SPLASH_SCREEN) {
       console.log(`🔄 [SplashScreenManager] Refreshing essential data in background`);
     }
@@ -294,98 +392,109 @@ export default function SplashScreenManager({ children }: { children: React.Reac
     }
   };
 
-  // Simplified prepare function
-  const prepare = async () => {
+  // Phase 1: Preload static assets
+  const executePhase1 = async (): Promise<void> => {
+    if (DEBUG_SPLASH_SCREEN) {
+      console.log('📦 [SplashScreenManager] Phase 1: Preloading static assets...');
+    }
+    try {
+      await Promise.race([
+        preloadStaticImages(),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error('Static assets timeout')),
+            PRELOAD_CONFIG.TIMEOUT.STATIC_ASSETS,
+          ),
+        ),
+      ]);
+      if (DEBUG_SPLASH_SCREEN) {
+        console.log('✅ [SplashScreenManager] Phase 1 completed');
+      }
+    } catch (err) {
+      console.warn('⚠️ [SplashScreenManager] Phase 1 timed out:', err);
+      updateProgress(0.1, LOADING_MESSAGES.CONTENT, 'staticAssetsFallback');
+    }
+  };
+
+  // Phase 2: Preload data
+  const executePhase2 = async (): Promise<void> => {
+    if (DEBUG_SPLASH_SCREEN) {
+      console.log('📊 [SplashScreenManager] Phase 2: Preloading data...');
+    }
+    try {
+      await Promise.race([
+        preloadApplicationData(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Data loading timeout')), PRELOAD_CONFIG.TIMEOUT.DATA),
+        ),
+      ]);
+      if (DEBUG_SPLASH_SCREEN) {
+        console.log('✅ [SplashScreenManager] Phase 2 completed');
+      }
+    } catch (err) {
+      console.warn('⚠️ [SplashScreenManager] Phase 2 timed out:', err);
+      updateProgress(0.2, LOADING_MESSAGES.AUTHENTICATED, 'dataFallback');
+    }
+  };
+
+  // Phase 3: Load user-specific content if signed in
+  const executePhase3 = async (): Promise<void> => {
+    if (user) {
+      if (DEBUG_SPLASH_SCREEN) {
+        console.log('👤 [SplashScreenManager] Phase 3: Preloading user data...');
+      }
+      try {
+        await Promise.race([
+          preloadUserData(user.id),
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error('User data timeout')),
+              PRELOAD_CONFIG.TIMEOUT.USER_DATA,
+            ),
+          ),
+        ]);
+        if (DEBUG_SPLASH_SCREEN) {
+          console.log('✅ [SplashScreenManager] Phase 3 completed');
+        }
+      } catch (err) {
+        console.warn('⚠️ [SplashScreenManager] Phase 3 timed out:', err);
+        updateProgress(0.1, LOADING_MESSAGES.AUTHENTICATED, 'userDataFallback');
+      }
+    } else {
+      if (DEBUG_SPLASH_SCREEN) {
+        console.log('👤 [SplashScreenManager] No user, skipping Phase 3');
+      }
+    }
+  };
+
+  // Simplified prepare function with reduced complexity
+  const prepare = async (): Promise<void> => {
     try {
       if (DEBUG_SPLASH_SCREEN) {
-        console.log('🚀 [SplashScreenManager] Starting app preparation at', new Date().toISOString());
+        console.log(
+          '🚀 [SplashScreenManager] Starting app preparation at',
+          new Date().toISOString(),
+        );
       }
 
       // Give a small delay to ensure splash screen is displayed
       if (DEBUG_SPLASH_SCREEN) {
         console.log('⏳ [SplashScreenManager] Initial delay...');
       }
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise((resolve) => setTimeout(resolve, 200));
 
-      // Try to hide the native splash screen to show our custom loading screen
-      if (Platform.OS !== 'web') {
-        try {
-          if (typeof SplashScreen.hideAsync === 'function') {
-            if (DEBUG_SPLASH_SCREEN) {
-              console.log('🎭 [SplashScreenManager] Hiding native splash screen...');
-            }
-            await SplashScreen.hideAsync();
-            if (DEBUG_SPLASH_SCREEN) {
-              console.log('✅ [SplashScreenManager] Native splash screen hidden');
-            }
-          }
-        } catch (splashError) {
-          console.warn('❌ [SplashScreenManager] Error hiding native splash screen:', splashError);
-        }
-      }
-
-      // Phase 1: Preload static assets
+      // Note: We don't hide the native splash screen here anymore
+      // It will be hidden only when the app is fully ready in finishLoading()
       if (DEBUG_SPLASH_SCREEN) {
-        console.log('📦 [SplashScreenManager] Phase 1: Preloading static assets...');
-      }
-      try {
-        await Promise.race([
-          preloadStaticImages(),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Static assets timeout')), PRELOAD_CONFIG.TIMEOUT.STATIC_ASSETS)
-          )
-        ]);
-        if (DEBUG_SPLASH_SCREEN) {
-          console.log('✅ [SplashScreenManager] Phase 1 completed');
-        }
-      } catch (err) {
-        console.warn('⚠️ [SplashScreenManager] Phase 1 timed out:', err);
-        updateProgress(0.1, LOADING_MESSAGES.CONTENT, 'staticAssetsFallback');
+        console.log(
+          '🎭 [SplashScreenManager] Keeping native splash screen visible during loading...',
+        );
       }
 
-      // Phase 2: Preload data
-      if (DEBUG_SPLASH_SCREEN) {
-        console.log('📊 [SplashScreenManager] Phase 2: Preloading data...');
-      }
-      try {
-        await Promise.race([
-          preloadApplicationData(),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Data loading timeout')), PRELOAD_CONFIG.TIMEOUT.DATA)
-          )
-        ]);
-        if (DEBUG_SPLASH_SCREEN) {
-          console.log('✅ [SplashScreenManager] Phase 2 completed');
-        }
-      } catch (err) {
-        console.warn('⚠️ [SplashScreenManager] Phase 2 timed out:', err);
-        updateProgress(0.2, LOADING_MESSAGES.AUTHENTICATED, 'dataFallback');
-      }
-
-      // Phase 3: Load user-specific content if signed in
-      if (user) {
-        if (DEBUG_SPLASH_SCREEN) {
-          console.log('👤 [SplashScreenManager] Phase 3: Preloading user data...');
-        }
-        try {
-          await Promise.race([
-            preloadUserData(user.id),
-            new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('User data timeout')), PRELOAD_CONFIG.TIMEOUT.USER_DATA)
-            )
-          ]);
-          if (DEBUG_SPLASH_SCREEN) {
-            console.log('✅ [SplashScreenManager] Phase 3 completed');
-          }
-        } catch (err) {
-          console.warn('⚠️ [SplashScreenManager] Phase 3 timed out:', err);
-          updateProgress(0.1, LOADING_MESSAGES.AUTHENTICATED, 'userDataFallback');
-        }
-      } else {
-        if (DEBUG_SPLASH_SCREEN) {
-          console.log('👤 [SplashScreenManager] No user, skipping Phase 3');
-        }
-      }
+      // Execute phases sequentially
+      await executePhase1();
+      await executePhase2();
+      await executePhase3();
 
       // Complete progress
       if (DEBUG_SPLASH_SCREEN) {
@@ -396,7 +505,6 @@ export default function SplashScreenManager({ children }: { children: React.Reac
       if (DEBUG_SPLASH_SCREEN) {
         console.log('🏁 [SplashScreenManager] App preparation completed successfully');
       }
-
     } catch (e) {
       console.error('❌ [SplashScreenManager] Error preparing app:', e);
     }
@@ -409,7 +517,7 @@ export default function SplashScreenManager({ children }: { children: React.Reac
       }
       return;
     }
-    
+
     if (DEBUG_SPLASH_SCREEN) {
       console.log('🏁 [SplashScreenManager] finishLoading called - starting finish process');
     }
@@ -429,7 +537,7 @@ export default function SplashScreenManager({ children }: { children: React.Reac
     }
     setAppReady(true);
     setProgress(1);
-    
+
     // Add a small delay to show completion, then hide splash
     setTimeout(() => {
       if (isMounted.current) {
@@ -437,11 +545,15 @@ export default function SplashScreenManager({ children }: { children: React.Reac
           console.log('🎭 [SplashScreenManager] Hiding splash screen');
         }
         setShowSplash(false);
-        setTimeout(() => {
-          if (DEBUG_SPLASH_SCREEN) {
-            console.log('🔚 [SplashScreenManager] Calling safelyHideSplashScreen');
+
+        // Hide the native splash screen after our custom loading screen is hidden
+        setTimeout(async () => {
+          if (isMounted.current) {
+            if (DEBUG_SPLASH_SCREEN) {
+              console.log('🔚 [SplashScreenManager] Calling safelyHideSplashScreen');
+            }
+            await safelyHideSplashScreen();
           }
-          safelyHideSplashScreen();
         }, 100);
       } else {
         if (DEBUG_SPLASH_SCREEN) {
@@ -461,11 +573,16 @@ export default function SplashScreenManager({ children }: { children: React.Reac
   // Render the app with loading screen when needed
   if (!appReady || showSplash) {
     if (DEBUG_SPLASH_SCREEN) {
-      console.log('Rendering InitialLoadingScreen with progress:', progress, 'and message:', loadingMessage);
+      console.log(
+        'Rendering InitialLoadingScreen with progress:',
+        progress,
+        'and message:',
+        loadingMessage,
+      );
     }
     return (
-      <InitialLoadingScreen 
-        progressValue={progress} 
+      <InitialLoadingScreen
+        progressValue={progress}
         message={loadingMessage}
         onFinish={onFinishLoading}
         showProgress={true}
@@ -474,4 +591,4 @@ export default function SplashScreenManager({ children }: { children: React.Reac
   }
 
   return <>{children}</>;
-} 
+}

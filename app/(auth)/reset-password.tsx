@@ -1,56 +1,201 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, KeyboardAvoidingView, Platform, Pressable, TouchableWithoutFeedback, Keyboard } from 'react-native';
-import { Text, TextInput, HelperText, ActivityIndicator } from 'react-native-paper';
-import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
+import { router } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  TouchableWithoutFeedback,
+  View,
+} from 'react-native';
+import { ActivityIndicator, HelperText, Text, TextInput } from 'react-native-paper';
+import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import supabase from '../services/supabase';
 
-export default function ResetPasswordScreen() {
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+// Custom hook for password validation
+function usePasswordValidation() {
   const [error, setError] = useState('');
-  const [focusedInput, setFocusedInput] = useState('');
 
-  const validateInputs = () => {
+  const validateInputs = (password: string, confirmPassword: string) => {
     if (!password.trim()) {
       setError('Password is required');
       return false;
     }
-    if (password.length < 6) {
+    if (password.trim().length < 6) {
       setError('Password must be at least 6 characters');
       return false;
     }
-    if (password !== confirmPassword) {
+    if (password.trim() !== confirmPassword.trim()) {
       setError('Passwords do not match');
       return false;
     }
     return true;
   };
 
-  const handleResetPassword = async () => {
-    if (!validateInputs()) return;
+  const clearError = () => setError('');
 
+  return { error, setError, validateInputs, clearError };
+}
+
+// Custom hook for password reset logic
+function usePasswordReset() {
+  const [isLoading, setIsLoading] = useState(false);
+
+  const resetPassword = async (password: string) => {
     setIsLoading(true);
-    setError('');
-
     try {
       const { error: updateError } = await supabase.auth.updateUser({
-        password: password
+        password: password,
       });
 
       if (updateError) throw updateError;
-
-      // Password updated successfully
       router.replace('/(auth)/login');
+      return { success: true };
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to reset password');
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to reset password',
+      };
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  return { isLoading, resetPassword };
+}
+
+// Reusable Password Input Component
+interface PasswordInputProps {
+  placeholder: string;
+  value: string;
+  onChangeText: (text: string) => void;
+  icon: string;
+  focusedInput: string;
+  inputName: string;
+  onFocus: (name: string) => void;
+  onBlur: () => void;
+  showPassword: boolean;
+  onTogglePassword: () => void;
+  isLoading: boolean;
+  hasError: boolean;
+}
+
+function PasswordInput({
+  placeholder,
+  value,
+  onChangeText,
+  icon,
+  focusedInput,
+  inputName,
+  onFocus,
+  onBlur,
+  showPassword,
+  onTogglePassword,
+  isLoading,
+  hasError,
+}: PasswordInputProps) {
+  const isFocused = focusedInput === inputName;
+  return (
+    <View style={[styles.inputContainer, isFocused && styles.inputContainerFocused]}>
+      <TextInput
+        mode="flat"
+        placeholder={placeholder}
+        value={value}
+        onChangeText={onChangeText}
+        secureTextEntry={!showPassword}
+        textContentType="oneTimeCode"
+        style={styles.input}
+        placeholderTextColor="#666"
+        textColor={isFocused ? '#fff' : '#666'}
+        cursorColor="#6c47ff"
+        underlineColor="transparent"
+        activeUnderlineColor="#6c47ff"
+        selectionColor="rgba(108, 71, 255, 0.3)"
+        left={<TextInput.Icon icon={icon} color={isFocused ? '#6c47ff' : '#666'} />}
+        right={
+          <TextInput.Icon
+            icon={showPassword ? 'eye-off' : 'eye'}
+            color={isFocused ? '#6c47ff' : '#666'}
+            onPress={onTogglePassword}
+          />
+        }
+        theme={{
+          colors: {
+            background: '#1A1A1A',
+            primary: '#6c47ff',
+          },
+        }}
+        onFocus={() => onFocus(inputName)}
+        onBlur={onBlur}
+        error={hasError}
+        disabled={isLoading}
+      />
+    </View>
+  );
+}
+
+// Reset Button Component
+interface ResetButtonProps {
+  onPress: () => void;
+  isLoading: boolean;
+}
+
+function ResetButton({ onPress, isLoading }: ResetButtonProps) {
+  return (
+    <Pressable style={styles.resetButtonContainer} onPress={onPress} disabled={isLoading}>
+      <LinearGradient
+        colors={['#6c47ff', '#8469ff']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={[styles.resetButton, isLoading && styles.resetButtonDisabled]}
+      >
+        {isLoading ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.resetButtonText}>Reset Password</Text>
+        )}
+      </LinearGradient>
+    </Pressable>
+  );
+}
+
+export default function ResetPasswordScreen() {
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [focusedInput, setFocusedInput] = useState('');
+
+  const isMountedRef = useRef(true);
+  const { error, setError, validateInputs, clearError } = usePasswordValidation();
+  const { isLoading, resetPassword } = usePasswordReset();
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const handlePasswordChange = (text: string) => {
+    setPassword(text);
+    clearError();
+  };
+
+  const handleConfirmPasswordChange = (text: string) => {
+    setConfirmPassword(text);
+    clearError();
+  };
+
+  const handleResetPassword = async () => {
+    if (!validateInputs(password, confirmPassword)) return;
+
+    clearError();
+    const result = await resetPassword(password);
+    if (!result.success && result.error && isMountedRef.current) {
+      setError(result.error);
     }
   };
 
@@ -71,83 +216,35 @@ export default function ResetPasswordScreen() {
           </Text>
 
           <View style={styles.form}>
-            <View style={[styles.inputContainer, focusedInput === 'password' && styles.inputContainerFocused]}>
-              <TextInput
-                mode="flat"
-                placeholder="New Password"
-                value={password}
-                onChangeText={(text) => {
-                  setPassword(text);
-                  setError('');
-                }}
-                secureTextEntry={!showPassword}
-                textContentType="oneTimeCode"
-                style={styles.input}
-                placeholderTextColor="#666"
-                textColor={focusedInput === 'password' ? '#fff' : '#666'}
-                cursorColor="#6c47ff"
-                underlineColor="transparent"
-                activeUnderlineColor="#6c47ff"
-                selectionColor="rgba(108, 71, 255, 0.3)"
-                left={<TextInput.Icon icon="lock" color={focusedInput === 'password' ? '#6c47ff' : '#666'} />}
-                right={
-                  <TextInput.Icon
-                    icon={showPassword ? 'eye-off' : 'eye'}
-                    color={focusedInput === 'password' ? '#6c47ff' : '#666'}
-                    onPress={() => setShowPassword(!showPassword)}
-                  />
-                }
-                theme={{
-                  colors: {
-                    background: '#1A1A1A',
-                    primary: '#6c47ff',
-                  },
-                }}
-                onFocus={() => setFocusedInput('password')}
-                onBlur={() => setFocusedInput('')}
-                error={!!error}
-                disabled={isLoading}
-              />
-            </View>
+            <PasswordInput
+              placeholder="New Password"
+              value={password}
+              onChangeText={handlePasswordChange}
+              icon="lock"
+              focusedInput={focusedInput}
+              inputName="password"
+              onFocus={setFocusedInput}
+              onBlur={() => setFocusedInput('')}
+              showPassword={showPassword}
+              onTogglePassword={() => setShowPassword(!showPassword)}
+              isLoading={isLoading}
+              hasError={!!error}
+            />
 
-            <View style={[styles.inputContainer, focusedInput === 'confirmPassword' && styles.inputContainerFocused]}>
-              <TextInput
-                mode="flat"
-                placeholder="Confirm New Password"
-                value={confirmPassword}
-                onChangeText={(text) => {
-                  setConfirmPassword(text);
-                  setError('');
-                }}
-                secureTextEntry={!showConfirmPassword}
-                textContentType="oneTimeCode"
-                style={styles.input}
-                placeholderTextColor="#666"
-                textColor={focusedInput === 'confirmPassword' ? '#fff' : '#666'}
-                cursorColor="#6c47ff"
-                underlineColor="transparent"
-                activeUnderlineColor="#6c47ff"
-                selectionColor="rgba(108, 71, 255, 0.3)"
-                left={<TextInput.Icon icon="lock-check" color={focusedInput === 'confirmPassword' ? '#6c47ff' : '#666'} />}
-                right={
-                  <TextInput.Icon
-                    icon={showConfirmPassword ? 'eye-off' : 'eye'}
-                    color={focusedInput === 'confirmPassword' ? '#6c47ff' : '#666'}
-                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-                  />
-                }
-                theme={{
-                  colors: {
-                    background: '#1A1A1A',
-                    primary: '#6c47ff',
-                  },
-                }}
-                onFocus={() => setFocusedInput('confirmPassword')}
-                onBlur={() => setFocusedInput('')}
-                error={!!error}
-                disabled={isLoading}
-              />
-            </View>
+            <PasswordInput
+              placeholder="Confirm New Password"
+              value={confirmPassword}
+              onChangeText={handleConfirmPasswordChange}
+              icon="lock-check"
+              focusedInput={focusedInput}
+              inputName="confirmPassword"
+              onFocus={setFocusedInput}
+              onBlur={() => setFocusedInput('')}
+              showPassword={showConfirmPassword}
+              onTogglePassword={() => setShowConfirmPassword(!showConfirmPassword)}
+              isLoading={isLoading}
+              hasError={!!error}
+            />
 
             {error && (
               <HelperText type="error" style={styles.errorText}>
@@ -155,24 +252,7 @@ export default function ResetPasswordScreen() {
               </HelperText>
             )}
 
-            <Pressable
-              style={styles.resetButtonContainer}
-              onPress={handleResetPassword}
-              disabled={isLoading}
-            >
-              <LinearGradient
-                colors={['#6c47ff', '#8469ff']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={[styles.resetButton, isLoading && styles.resetButtonDisabled]}
-              >
-                {isLoading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.resetButtonText}>Reset Password</Text>
-                )}
-              </LinearGradient>
-            </Pressable>
+            <ResetButton onPress={handleResetPassword} isLoading={isLoading} />
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -246,4 +326,4 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-}); 
+});

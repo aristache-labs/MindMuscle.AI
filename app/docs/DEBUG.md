@@ -18,20 +18,21 @@ Debugging is controlled through a simple configuration file at `app/utils/debugC
 3. Save the file and restart the app
 
 Example configuration:
+
 ```typescript
 export const DEBUG_CONFIG = {
   // Master switch - enables all debugging when true
   GLOBAL: false,
-  
+
   // Component-specific debug flags
-  SPLASH_SCREEN: false,  // Set to true to enable splash screen debugging
+  SPLASH_SCREEN: false, // Set to true to enable splash screen debugging
   IMAGE_PRELOADER: false,
   NETWORK: false,
   AUTH: false,
   WORKOUT: false,
   DATA_SYNC: false,
   PERFORMANCE: false,
-  API: false
+  API: false,
 };
 ```
 
@@ -93,20 +94,24 @@ loggers.performance.debug('Render time', () => `${Date.now() - startTime}ms`);
 ## Best Practices
 
 1. **Use the right log level:**
+
    - `debug`: For detailed information useful during development
    - `info`: For general information about app operation
    - `warn`: For potential issues that don't break functionality
    - `error`: For critical errors that need immediate attention
 
 2. **Use component-specific logging:**
+
    - Always specify which component is generating the log
    - This makes it easier to filter logs when troubleshooting
 
 3. **Include context with errors:**
+
    - Provide relevant data when logging errors
    - This helps with troubleshooting production issues via Sentry
 
 4. **Use lazy evaluation for expensive computations:**
+
    - Wrap complex log data in callback functions
    - This prevents performance impact when debugging is disabled
 
@@ -117,6 +122,7 @@ loggers.performance.debug('Render time', () => `${Date.now() - startTime}ms`);
 ## Production Behavior
 
 In production builds:
+
 - All debug logs are disabled automatically
 - Warning and error logs are sent to Sentry
 - Console output is suppressed
@@ -124,8 +130,9 @@ In production builds:
 ## Implementation Details
 
 The debugging system is implemented in:
+
 - `app/utils/logger.ts` - The core logging functionality
 - `app/utils/debugHelpers.ts` - Convenience functions
 - `app/components/DebugControls.tsx` - UI for toggling debug settings
 
-Debug settings are persisted in AsyncStorage and survive app restarts. 
+Debug settings are persisted in AsyncStorage and survive app restarts.

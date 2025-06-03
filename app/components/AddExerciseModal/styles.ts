@@ -332,13 +332,13 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
   },
   controlValue: {
-    minWidth: 28,
+    minWidth: 36,
     height: 28,
     borderRadius: 14,
     backgroundColor: COLORS.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: 6,
   },
   controlValueText: {
     color: '#FFFFFF',

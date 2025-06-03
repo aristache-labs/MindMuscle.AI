@@ -16,6 +16,38 @@ import { SelectedExercise } from '../types';
 
 const ITEM_HEIGHT = 100;
 
+// Predefined rep ranges
+const REP_RANGES = [
+  '1-3',
+  '3-5',
+  '4-6',
+  '6-8',
+  '8-10',
+  '10-12',
+  '12-15',
+  '15-20',
+  '20-25',
+  '25-30',
+];
+
+// Helper functions for rep range cycling
+const getCurrentRepRangeIndex = (currentRange: string): number => {
+  const index = REP_RANGES.indexOf(currentRange);
+  return index !== -1 ? index : REP_RANGES.indexOf('8-10'); // Default to '8-10'
+};
+
+const getNextRepRange = (currentRange: string): string => {
+  const currentIndex = getCurrentRepRangeIndex(currentRange);
+  const nextIndex = (currentIndex + 1) % REP_RANGES.length;
+  return REP_RANGES[nextIndex];
+};
+
+const getPreviousRepRange = (currentRange: string): string => {
+  const currentIndex = getCurrentRepRangeIndex(currentRange);
+  const prevIndex = currentIndex === 0 ? REP_RANGES.length - 1 : currentIndex - 1;
+  return REP_RANGES[prevIndex];
+};
+
 // Custom hook for drag animations
 function useDragAnimations(exerciseId: string, isBeingDragged: boolean) {
   // Use refs to persist shared values across re-renders
@@ -307,19 +339,15 @@ export default function DraggableConfigurationItem({
               </View>
             </View>
 
-            {/* Reps Control */}
+            {/* Reps Control - Cycles through predefined ranges */}
             <View style={styles.controlGroup}>
               <Text style={styles.controlLabel}>Reps</Text>
               <View style={styles.controlRow}>
                 <TouchableOpacity
                   style={styles.controlButton}
                   onPress={() => {
-                    const currentReps = exercise.reps_range.includes('-')
-                      ? exercise.reps_range
-                      : parseInt(exercise.reps_range) || 8;
-                    const newReps =
-                      typeof currentReps === 'number' ? Math.max(1, currentReps - 1) : '8-10';
-                    onConfigurationChange(exercise.id, 'reps_range', newReps.toString());
+                    const newReps = getPreviousRepRange(exercise.reps_range);
+                    onConfigurationChange(exercise.id, 'reps_range', newReps);
                   }}
                   disabled={isDragging}
                 >
@@ -333,11 +361,8 @@ export default function DraggableConfigurationItem({
                 <TouchableOpacity
                   style={styles.controlButton}
                   onPress={() => {
-                    const currentReps = exercise.reps_range.includes('-')
-                      ? exercise.reps_range
-                      : parseInt(exercise.reps_range) || 8;
-                    const newReps = typeof currentReps === 'number' ? currentReps + 1 : '8-10';
-                    onConfigurationChange(exercise.id, 'reps_range', newReps.toString());
+                    const newReps = getNextRepRange(exercise.reps_range);
+                    onConfigurationChange(exercise.id, 'reps_range', newReps);
                   }}
                   disabled={isDragging}
                 >

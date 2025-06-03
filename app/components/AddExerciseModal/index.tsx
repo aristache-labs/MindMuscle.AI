@@ -29,13 +29,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../../constants/theme';
 import exerciseService, { Exercise, ExerciseCategory } from '../../services/exerciseService';
 import ExerciseCard from '../ExerciseCard';
-import OptimizedImage from '../OptimizedImage';
+import DraggableConfigurationItem from './components/DraggableConfigurationItem';
 import { MuscleGroupRender } from './components/MuscleMarkers';
 import { FALLBACK_IMAGE_OBJECT, muscleGroups } from './constants';
 import { styles } from './styles';
 import { AddExerciseModalProps, ExerciseConfiguration, SelectedExercise } from './types';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
+const ITEM_HEIGHT = 100;
 
 // Map of alternative names for muscle groups to support better search
 const MUSCLE_GROUP_ALIASES: Record<string, string[]> = {
@@ -984,98 +985,105 @@ const Step3Configuration = ({
   ) => void;
   onAddAll: () => void;
 }) => {
+  const [localExercises, setLocalExercises] = useState(selectedExercises);
+  const [isDragging, setIsDragging] = useState(false);
+  const [draggedIndex, setDraggedIndex] = useState(-1);
+  const [dragTargetIndex, setDragTargetIndex] = useState(-1);
+
+  // Update local exercises when prop changes
+  useEffect(() => {
+    setLocalExercises(selectedExercises);
+  }, [selectedExercises]);
+
+  const handleDragStart = useCallback((index: number) => {
+    setIsDragging(true);
+    setDraggedIndex(index);
+    setDragTargetIndex(index);
+  }, []);
+
+  const handleDragUpdate = useCallback(
+    (draggedIndex: number, currentY: number) => {
+      // Simple calculation - determine target position based on drag distance
+      const itemsMoved = Math.round(currentY / ITEM_HEIGHT);
+      const newTargetIndex = Math.max(
+        0,
+        Math.min(draggedIndex + itemsMoved, localExercises.length - 1),
+      );
+      setDragTargetIndex(newTargetIndex);
+    },
+    [localExercises.length],
+  );
+
+  const handleDragEnd = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      // Reset drag state
+      setIsDragging(false);
+      setDraggedIndex(-1);
+      setDragTargetIndex(-1);
+
+      // Only reorder if position actually changed
+      if (fromIndex !== toIndex && toIndex >= 0 && toIndex < localExercises.length) {
+        const newExercises = [...localExercises];
+        const [movedExercise] = newExercises.splice(fromIndex, 1);
+        newExercises.splice(toIndex, 0, movedExercise);
+
+        setLocalExercises(newExercises);
+      }
+    },
+    [localExercises],
+  );
+
+  const handleRemoveExercise = useCallback(
+    (index: number) => {
+      const newExercises = localExercises.filter((_, i) => i !== index);
+      setLocalExercises(newExercises);
+    },
+    [localExercises],
+  );
+
+  const handleConfigurationChangeLocal = useCallback(
+    (exerciseId: string, field: 'sets' | 'reps_range', value: string | number) => {
+      setLocalExercises((prev) =>
+        prev.map((ex) => (ex.id === exerciseId ? { ...ex, [field]: value } : ex)),
+      );
+      onConfigurationChange(exerciseId, field, value);
+    },
+    [onConfigurationChange],
+  );
+
   return (
     <View style={styles.stepContainer}>
-      <ScrollView style={styles.configurationList} showsVerticalScrollIndicator={false}>
-        {selectedExercises.map((exercise) => (
-          <View key={exercise.id} style={styles.configurationItem}>
-            <View style={styles.exerciseImageContainer}>
-              <OptimizedImage
-                source={
-                  exercise.image_url
-                    ? { uri: exercise.image_url }
-                    : require('../../../assets/exercises/placeholder.jpg')
-                }
-                style={styles.exerciseImage}
-                fallback={require('../../../assets/exercises/placeholder.jpg')}
-                resizeMode="cover"
-                cachePolicy="immutable"
-                showLoader={false}
-                priority="normal"
-                debugLabel={`ConfigurationExercise-${exercise.name}`}
-              />
-            </View>
-
-            <View style={styles.exerciseInfo}>
-              <Text style={styles.exerciseName}>{exercise.name}</Text>
-
-              <View style={styles.configurationControls}>
-                <View style={styles.controlGroup}>
-                  <Text style={styles.controlLabel}>sets</Text>
-                  <View style={styles.numberControl}>
-                    <TouchableOpacity
-                      style={styles.controlButton}
-                      onPress={() =>
-                        onConfigurationChange(exercise.id, 'sets', Math.max(1, exercise.sets - 1))
-                      }
-                    >
-                      <Ionicons name="remove" size={16} color={COLORS.text} />
-                    </TouchableOpacity>
-                    <Text style={styles.controlValue}>{exercise.sets}</Text>
-                    <TouchableOpacity
-                      style={styles.controlButton}
-                      onPress={() => onConfigurationChange(exercise.id, 'sets', exercise.sets + 1)}
-                    >
-                      <Ionicons name="add" size={16} color={COLORS.text} />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                <View style={styles.controlGroup}>
-                  <Text style={styles.controlLabel}>reps</Text>
-                  <View style={styles.numberControl}>
-                    <TouchableOpacity
-                      style={styles.controlButton}
-                      onPress={() => {
-                        const currentReps = exercise.reps_range.includes('-')
-                          ? exercise.reps_range
-                          : parseInt(exercise.reps_range) || 8;
-                        const newReps =
-                          typeof currentReps === 'number' ? Math.max(1, currentReps - 1) : '8-10';
-                        onConfigurationChange(exercise.id, 'reps_range', newReps.toString());
-                      }}
-                    >
-                      <Ionicons name="remove" size={16} color={COLORS.text} />
-                    </TouchableOpacity>
-                    <Text style={styles.controlValue}>{exercise.reps_range}</Text>
-                    <TouchableOpacity
-                      style={styles.controlButton}
-                      onPress={() => {
-                        const currentReps = exercise.reps_range.includes('-')
-                          ? exercise.reps_range
-                          : parseInt(exercise.reps_range) || 8;
-                        const newReps = typeof currentReps === 'number' ? currentReps + 1 : '8-10';
-                        onConfigurationChange(exercise.id, 'reps_range', newReps.toString());
-                      }}
-                    >
-                      <Ionicons name="add" size={16} color={COLORS.text} />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-            </View>
-
-            <TouchableOpacity style={styles.menuButton}>
-              <Ionicons name="ellipsis-vertical" size={16} color={COLORS.placeholder} />
-            </TouchableOpacity>
-          </View>
+      <ScrollView
+        style={styles.configurationList}
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={!isDragging}
+      >
+        {localExercises.map((exercise, index) => (
+          <DraggableConfigurationItem
+            key={`config-${exercise.id}-${index}`}
+            exercise={exercise}
+            index={index}
+            onConfigurationChange={handleConfigurationChangeLocal}
+            onRemoveExercise={handleRemoveExercise}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onDragUpdate={handleDragUpdate}
+            isDragging={isDragging}
+            draggedIndex={draggedIndex}
+            dragTargetIndex={dragTargetIndex}
+            totalExercises={localExercises.length}
+          />
         ))}
       </ScrollView>
 
       <View style={styles.stepActions}>
-        <Text style={styles.summaryText}>Selected Exercises: {selectedExercises.length}</Text>
+        <Text style={styles.summaryText}>Selected Exercises: {localExercises.length}</Text>
 
-        <TouchableOpacity style={styles.nextButton} onPress={onAddAll}>
+        <TouchableOpacity
+          style={[styles.nextButton, localExercises.length === 0 && styles.nextButtonDisabled]}
+          onPress={() => onAddAll()}
+          disabled={localExercises.length === 0}
+        >
           <Text style={styles.nextButtonText}>Add All</Text>
         </TouchableOpacity>
       </View>

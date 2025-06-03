@@ -239,72 +239,121 @@ export const styles = StyleSheet.create({
   // Step 3: Configuration Styles
   configurationList: {
     flex: 1,
-    paddingHorizontal: SPACING.lg,
+    paddingHorizontal: SPACING.md,
     paddingTop: SPACING.lg,
   },
   configurationItem: {
-    backgroundColor: COLORS.surface,
-    borderRadius: BORDER_RADIUS.md,
-    padding: SPACING.md,
-    marginBottom: SPACING.sm,
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.sm,
+    marginBottom: SPACING.sm,
+    minHeight: 100,
     borderWidth: 0.5,
     borderColor: 'rgba(255, 255, 255, 0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
+  // Exercise image container
   exerciseImageContainer: {
-    width: 60,
-    height: 60,
+    width: 68,
+    height: 68,
     borderRadius: BORDER_RADIUS.sm,
     overflow: 'hidden',
-    marginRight: SPACING.md,
+    marginRight: SPACING.sm,
+    position: 'relative',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   exerciseImage: {
     width: '100%',
     height: '100%',
   },
-  exerciseInfo: {
+  // Main content container (exercise info + controls)
+  exerciseMainContent: {
     flex: 1,
+    justifyContent: 'space-between',
+  },
+  // Exercise info section (takes remaining space)
+  exerciseInfoSection: {
+    paddingVertical: 2,
+    marginBottom: SPACING.xs,
   },
   exerciseName: {
     color: COLORS.text,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    marginBottom: SPACING.xs,
+    marginBottom: 3,
+    lineHeight: 18,
   },
-  configurationControls: {
+  exerciseCurrentSet: {
+    color: COLORS.placeholder,
+    fontSize: 13,
+    fontWeight: '400',
+    lineHeight: 16,
+    opacity: 0.8,
+  },
+  // Configuration controls
+  exerciseControlsContainer: {
     flexDirection: 'row',
-    gap: SPACING.lg,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.md,
   },
   controlGroup: {
     alignItems: 'center',
+    gap: 4,
   },
   controlLabel: {
-    color: COLORS.placeholder,
-    fontSize: 12,
+    color: COLORS.text,
+    fontSize: 10,
     fontWeight: '500',
-    marginBottom: SPACING.xs / 2,
+    textAlign: 'center',
+    marginBottom: 2,
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
-  numberControl: {
+  controlRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: BORDER_RADIUS.sm,
-    paddingHorizontal: SPACING.xs,
+    gap: 6,
   },
   controlButton: {
-    width: 28,
-    height: 28,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: COLORS.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   controlValue: {
-    color: COLORS.text,
-    fontSize: 14,
-    fontWeight: '600',
-    minWidth: 30,
+    minWidth: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  controlValueText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: 'bold',
     textAlign: 'center',
+  },
+  deleteButton: {
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 68, 68, 0.1)',
+    marginLeft: SPACING.xs,
   },
   menuButton: {
     width: 32,
@@ -520,5 +569,48 @@ export const styles = StyleSheet.create({
   // Animated content container for search offset
   animatedContentContainer: {
     flex: 1,
+  },
+
+  // Drag and Drop Styles for Step 3
+  draggingConfigurationItem: {
+    backgroundColor: COLORS.surface,
+    borderColor: COLORS.primary,
+    borderWidth: 1,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 12,
+    transform: [{ scale: 1.02 }],
+  },
+
+  dragHandleOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: BORDER_RADIUS.sm,
+  },
+
+  // Drag overlay on exercise image
+  dragOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(8, 8, 8, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dragOverlayHandle: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

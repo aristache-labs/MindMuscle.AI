@@ -38,7 +38,7 @@ import {
   Plan,
   WorkoutDay,
 } from '../types';
-import { updatePausedWorkoutWithCustomizations } from '../utils';
+import { calculateWorkoutStats, updatePausedWorkoutWithCustomizations } from '../utils';
 
 // Loading Screen Component
 const LoadingScreen: React.FC<{ embedded: boolean }> = ({ embedded }) => {
@@ -74,6 +74,137 @@ const NoPlanScreen: React.FC<{ embedded: boolean }> = ({ embedded }) => {
   );
 };
 
+// Helper function to determine if paused workout matches current day
+const isPausedWorkoutActive = (
+  hasPausedWorkout: boolean,
+  pausedWorkout: PausedWorkout | null,
+  activeDay: number | null,
+): boolean => {
+  return hasPausedWorkout && pausedWorkout !== null && pausedWorkout.workoutDay === activeDay;
+};
+
+// Helper function to get exercises to display
+const getExercisesToDisplay = (
+  hasPausedWorkout: boolean,
+  pausedWorkout: PausedWorkout | null,
+  activeDay: number | null,
+  workoutDay: WorkoutDay | null,
+): Exercise[] => {
+  const isPausedActive = isPausedWorkoutActive(hasPausedWorkout, pausedWorkout, activeDay);
+  return isPausedActive ? pausedWorkout!.exercises : workoutDay?.exercises || [];
+};
+
+// Helper function to get workout stats to display
+const getWorkoutStatsToDisplay = (
+  hasPausedWorkout: boolean,
+  pausedWorkout: PausedWorkout | null,
+  activeDay: number | null,
+  workoutDay: WorkoutDay | null,
+) => {
+  const isPausedActive = isPausedWorkoutActive(hasPausedWorkout, pausedWorkout, activeDay);
+
+  if (isPausedActive) {
+    const pausedWorkoutStats = calculateWorkoutStats(pausedWorkout!.exercises);
+    return {
+      exercises: pausedWorkoutStats.exerciseCount,
+      duration: pausedWorkoutStats.duration,
+      calories: pausedWorkoutStats.calories,
+    };
+  }
+
+  return {
+    exercises: workoutDay?.total_exercises || 0,
+    duration: workoutDay?.estimated_duration || 0,
+    calories: workoutDay?.total_calories || 0,
+  };
+};
+
+// Helper component for active workout day view
+const ActiveWorkoutDayView: React.FC<{
+  activeDay: number;
+  getWorkoutDayByNumber: (day: number | null) => WorkoutDay | null;
+  isWorkoutCompleted: boolean;
+  completedWorkoutData: CompletedWorkoutData | null;
+  onRedoWorkout: () => void;
+  selectedDate: Date;
+  plan: Plan;
+  cycleProgress: CycleProgress | null;
+  onPlanOverviewPress: () => void;
+  onEditPlanPress: () => void;
+  hasPausedWorkout: boolean;
+  pausedWorkout: PausedWorkout | null;
+  renderExerciseItem: ({ item, index }: { item: Exercise; index: number }) => React.ReactElement;
+}> = ({
+  activeDay,
+  getWorkoutDayByNumber,
+  isWorkoutCompleted,
+  completedWorkoutData,
+  onRedoWorkout,
+  selectedDate,
+  plan,
+  cycleProgress,
+  onPlanOverviewPress,
+  onEditPlanPress,
+  hasPausedWorkout,
+  pausedWorkout,
+  renderExerciseItem,
+}) => {
+  const workoutDay = getWorkoutDayByNumber(activeDay);
+
+  if (isWorkoutCompleted) {
+    return (
+      <CompletedWorkoutView
+        completedWorkoutData={completedWorkoutData}
+        workoutDay={workoutDay}
+        onRedoWorkout={onRedoWorkout}
+      />
+    );
+  }
+
+  const exercisesToDisplay = getExercisesToDisplay(
+    hasPausedWorkout,
+    pausedWorkout,
+    activeDay,
+    workoutDay,
+  );
+
+  const statsToDisplay = getWorkoutStatsToDisplay(
+    hasPausedWorkout,
+    pausedWorkout,
+    activeDay,
+    workoutDay,
+  );
+
+  return (
+    <>
+      <WorkoutHeader
+        selectedDate={selectedDate}
+        planSubtitle={plan.subtitle}
+        cycleProgress={cycleProgress}
+        onPlanOverviewPress={onPlanOverviewPress}
+        onEditPlanPress={onEditPlanPress}
+      />
+
+      <View style={styles.workoutContainer}>
+        <WorkoutStatsRow
+          exercises={statsToDisplay.exercises}
+          duration={statsToDisplay.duration}
+          calories={statsToDisplay.calories}
+        />
+
+        <View style={styles.exercisesContainer}>
+          <FlatList
+            data={exercisesToDisplay}
+            keyExtractor={(item) => item.id}
+            renderItem={renderExerciseItem}
+            scrollEnabled={false}
+          />
+        </View>
+      </View>
+    </>
+  );
+};
+
 // Workout Content Component
 const WorkoutContent: React.FC<{
   isDateSelectionLoading: boolean;
@@ -91,6 +222,8 @@ const WorkoutContent: React.FC<{
   onRedoWorkout: () => void;
   onPlanOverviewPress: () => void;
   onEditPlanPress: () => void;
+  hasPausedWorkout: boolean;
+  pausedWorkout: PausedWorkout | null;
 }> = ({
   isDateSelectionLoading,
   isViewingLockedWeek,
@@ -107,6 +240,8 @@ const WorkoutContent: React.FC<{
   onRedoWorkout,
   onPlanOverviewPress,
   onEditPlanPress,
+  hasPausedWorkout,
+  pausedWorkout,
 }) => {
   if (isDateSelectionLoading) {
     return <DateSelectionLoadingComponent />;
@@ -121,44 +256,25 @@ const WorkoutContent: React.FC<{
     );
   }
 
-  if (activeDay !== null && getWorkoutDayByNumber(activeDay)) {
-    if (isWorkoutCompleted) {
-      return (
-        <CompletedWorkoutView
-          completedWorkoutData={completedWorkoutData}
-          workoutDay={getWorkoutDayByNumber(activeDay)}
-          onRedoWorkout={onRedoWorkout}
-        />
-      );
-    }
+  const hasActiveWorkoutDay = activeDay !== null && getWorkoutDayByNumber(activeDay);
 
+  if (hasActiveWorkoutDay) {
     return (
-      <>
-        <WorkoutHeader
-          selectedDate={selectedDate}
-          planSubtitle={plan.subtitle}
-          cycleProgress={cycleProgress}
-          onPlanOverviewPress={onPlanOverviewPress}
-          onEditPlanPress={onEditPlanPress}
-        />
-
-        <View style={styles.workoutContainer}>
-          <WorkoutStatsRow
-            exercises={getWorkoutDayByNumber(activeDay)?.total_exercises || 0}
-            duration={getWorkoutDayByNumber(activeDay)?.estimated_duration || 0}
-            calories={getWorkoutDayByNumber(activeDay)?.total_calories || 0}
-          />
-
-          <View style={styles.exercisesContainer}>
-            <FlatList
-              data={getWorkoutDayByNumber(activeDay)?.exercises || []}
-              keyExtractor={(item) => item.id}
-              renderItem={renderExerciseItem}
-              scrollEnabled={false}
-            />
-          </View>
-        </View>
-      </>
+      <ActiveWorkoutDayView
+        activeDay={activeDay!}
+        getWorkoutDayByNumber={getWorkoutDayByNumber}
+        isWorkoutCompleted={isWorkoutCompleted}
+        completedWorkoutData={completedWorkoutData}
+        onRedoWorkout={onRedoWorkout}
+        selectedDate={selectedDate}
+        plan={plan}
+        cycleProgress={cycleProgress}
+        onPlanOverviewPress={onPlanOverviewPress}
+        onEditPlanPress={onEditPlanPress}
+        hasPausedWorkout={hasPausedWorkout}
+        pausedWorkout={pausedWorkout}
+        renderExerciseItem={renderExerciseItem}
+      />
     );
   }
 
@@ -552,6 +668,8 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
           onRedoWorkout={handleRedoWorkout}
           onPlanOverviewPress={handlePlanOverviewPress}
           onEditPlanPress={handleEditPlanPress}
+          hasPausedWorkout={hasPausedWorkout}
+          pausedWorkout={pausedWorkout}
         />
       </ScrollView>
 

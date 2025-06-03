@@ -20,7 +20,7 @@ web-build/
 /coverage
 /node_modules
 .env.local
-
+sentry.properties
 .env.local
 
 .env.local

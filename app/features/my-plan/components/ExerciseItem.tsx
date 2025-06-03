@@ -1,10 +1,10 @@
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { Text, TouchableOpacity, View } from 'react-native';
 import { Icon } from 'react-native-paper';
 import OptimizedImage from '../../../components/OptimizedImage';
+import { styles } from '../styles';
 import { Exercise, PausedWorkout } from '../types';
 import { getMuscleTagColor, getMuscleTagName } from '../utils';
-import { styles } from '../styles';
 
 interface ExerciseSet {
   isCompleted: boolean;
@@ -43,18 +43,6 @@ const getDefaultDisplayData = (item: Exercise): ExerciseDisplayData => ({
   primaryMuscles: item.primary_muscles || [],
 });
 
-// Helper function to get paused exercise display data
-const getPausedExerciseDisplayData = (
-  pausedExercise: Exercise,
-  item: Exercise,
-): ExerciseDisplayData => ({
-  sets: pausedExercise.sets || item.sets,
-  repsRange: pausedExercise.reps_range || item.reps_range,
-  name: pausedExercise.name || item.name,
-  imageUrl: pausedExercise.image_url || item.image_url,
-  primaryMuscles: pausedExercise.primary_muscles || item.primary_muscles || [],
-});
-
 // Helper function to determine exercise state and display data
 const getExerciseStateData = (
   item: Exercise,
@@ -67,19 +55,29 @@ const getExerciseStateData = (
     return { state: 'normal', displayData: defaultDisplayData };
   }
 
-  const pausedExerciseIndex = pausedWorkout.exercises.findIndex((e: Exercise) => e.id === item.id);
+  // Check if this is actually a paused workout exercise by looking at the exercise data structure
+  // If we're showing paused workout exercises, the item IS the paused exercise
+  const isPausedWorkoutExercise = pausedWorkout.exercises.some((e: Exercise) => e.id === item.id);
 
-  if (pausedExerciseIndex === -1) {
+  if (!isPausedWorkoutExercise) {
     return { state: 'normal', displayData: defaultDisplayData };
   }
 
-  const pausedExercise = pausedWorkout.exercises[pausedExerciseIndex];
+  // Find the index of this exercise in the paused workout
+  const pausedExerciseIndex = pausedWorkout.exercises.findIndex((e: Exercise) => e.id === item.id);
   const isCurrentExercise = pausedExerciseIndex === pausedWorkout.currentExerciseIndex;
-  const exerciseSets: ExerciseSet[] = pausedWorkout.exerciseSets[pausedExercise.id] || [];
+  const exerciseSets: ExerciseSet[] = pausedWorkout.exerciseSets[item.id] || [];
   const isCompleted =
     exerciseSets.length > 0 && exerciseSets.every((set: ExerciseSet) => set.isCompleted);
 
-  const displayData = getPausedExerciseDisplayData(pausedExercise, item);
+  // Since item is already the paused exercise, use its data directly
+  const displayData: ExerciseDisplayData = {
+    sets: item.sets,
+    repsRange: item.reps_range,
+    name: item.name,
+    imageUrl: item.image_url,
+    primaryMuscles: item.primary_muscles || [],
+  };
 
   if (isCompleted) {
     return { state: 'completed', displayData };

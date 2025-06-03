@@ -983,7 +983,7 @@ const Step3Configuration = ({
     field: 'sets' | 'reps_range',
     value: string | number,
   ) => void;
-  onAddAll: () => void;
+  onAddAll: (exercises: SelectedExercise[]) => void;
 }) => {
   const [localExercises, setLocalExercises] = useState(selectedExercises || []);
   const [isDragging, setIsDragging] = useState(false);
@@ -1094,7 +1094,7 @@ const Step3Configuration = ({
             styles.nextButton,
             (localExercises?.length || 0) === 0 && styles.nextButtonDisabled,
           ]}
-          onPress={() => onAddAll()}
+          onPress={() => onAddAll(localExercises || [])}
           disabled={(localExercises?.length || 0) === 0}
         >
           <Text style={styles.nextButtonText}>Add All</Text>
@@ -1200,7 +1200,7 @@ const renderStepContent = ({
     field: 'sets' | 'reps_range',
     value: string | number,
   ) => void;
-  handleAddAll: () => void;
+  handleAddAll: (exercises: SelectedExercise[]) => void;
 }) => {
   if (currentStep === 1) {
     return (
@@ -1436,22 +1436,25 @@ export default function AddExerciseModal({
     [],
   );
 
-  const handleAddAll = useCallback(() => {
-    const exerciseConfigurations: ExerciseConfiguration[] = selectedExercises.map((exercise) => ({
-      exerciseId: exercise.id,
-      name: exercise.name,
-      sets: exercise.sets,
-      reps_range: exercise.reps_range,
-      image_url: exercise.image_url,
-      muscle_group: exercise.muscle_group || selectedMuscleGroup,
-      primary_muscles: exercise.primary_muscles,
-      requires_weight: exercise.requires_weight,
-    }));
+  const handleAddAll = useCallback(
+    (exercisesToAdd: SelectedExercise[]) => {
+      const exerciseConfigurations: ExerciseConfiguration[] = exercisesToAdd.map((exercise) => ({
+        exerciseId: exercise.id,
+        name: exercise.name,
+        sets: exercise.sets,
+        reps_range: exercise.reps_range,
+        image_url: exercise.image_url,
+        muscle_group: exercise.muscle_group || selectedMuscleGroup,
+        primary_muscles: exercise.primary_muscles,
+        requires_weight: exercise.requires_weight,
+      }));
 
-    console.log('AddExerciseModal: Adding exercises:', exerciseConfigurations);
-    onAddExercises(exerciseConfigurations);
-    onClose();
-  }, [selectedExercises, selectedMuscleGroup, onAddExercises, onClose]);
+      console.log('AddExerciseModal: Adding exercises:', exerciseConfigurations);
+      onAddExercises(exerciseConfigurations);
+      onClose();
+    },
+    [selectedMuscleGroup, onAddExercises, onClose],
+  );
 
   const handleBack = useCallback(() => {
     if (currentStep === 2) {

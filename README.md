@@ -2,12 +2,16 @@
 
 A React Native Expo application for AI-powered fitness coaching and progress tracking, featuring secure computation with Supabase MPC and Sentry.io MPC.
 
+## Bugs to fix later
+
 ## Later requirements implementation
-  - WatermelondDB offline with the Supabase database
+
+- WatermelondDB offline with the Supabase database
 
 ## Features
 
 - 🤖 AI Coaching
+
   - Personalized workout advice through OpenAI integration
   - Real-time coaching feedback
   - Session history tracking
@@ -16,6 +20,7 @@ A React Native Expo application for AI-powered fitness coaching and progress tra
   - Error monitoring with Sentry.io MPC
 
 - 🎯 Exercise Management
+
   - Comprehensive exercise library
   - Advanced exercise timer with customizable intervals
   - Exercise categorization and filtering
@@ -25,6 +30,7 @@ A React Native Expo application for AI-powered fitness coaching and progress tra
   - Exercise graphs and statistics
 
 - 📊 Progress Tracking
+
   - Detailed workout logging
   - Performance metrics visualization
   - Body measurements tracking
@@ -33,6 +39,7 @@ A React Native Expo application for AI-powered fitness coaching and progress tra
   - Performance analytics dashboard
 
 - 🧠 Insights & Analytics
+
   - AI-generated workout insights
   - Performance trend analysis
   - Personalized recommendations
@@ -41,6 +48,7 @@ A React Native Expo application for AI-powered fitness coaching and progress tra
   - Weekly/monthly performance summaries
 
 - 🎮 Gamification System
+
   - Dynamic achievement system
   - Progress-based rewards
   - Motivation features
@@ -49,6 +57,7 @@ A React Native Expo application for AI-powered fitness coaching and progress tra
   - Badge collection system
 
 - 👤 User Profile & Authentication
+
   - Secure authentication system
   - Profile management
   - Fitness goals tracking
@@ -148,7 +157,7 @@ We use community-maintained polyfills for Node.js modules:
 - **Date Handling**: date-fns
 - **Language**: TypeScript
 - **Testing**: Jest and React Native Testing Library
-- **Performance**: 
+- **Performance**:
   - Optimized image loading
   - Gesture handling
   - Memoization
@@ -158,11 +167,13 @@ We use community-maintained polyfills for Node.js modules:
 
 1. Clone the repository
 2. Install dependencies:
+
    ```bash
    npm install
    ```
 
 3. Set up environment variables:
+
    - Copy `.env.example` to `.env`
    - Configure required keys:
      ```
@@ -173,6 +184,7 @@ We use community-maintained polyfills for Node.js modules:
      ```
 
 4. Start the development server:
+
    ```bash
    npm start
    ```
@@ -186,25 +198,29 @@ We use community-maintained polyfills for Node.js modules:
 
 ## Development Guidelines
 
-- **Code Style**: 
+- **Code Style**:
+
   - Follow TypeScript strict mode
   - Use functional components with hooks
   - Implement proper error boundaries
   - Follow React Native best practices
 
-- **State Management**: 
+- **State Management**:
+
   - Use Context API for global state
   - Implement proper type safety
   - Follow proper state initialization
   - Handle loading and error states
 
-- **Navigation**: 
+- **Navigation**:
+
   - Follow Expo Router conventions
   - Implement proper deep linking
   - Handle navigation state
   - Manage navigation history
 
 - **Security**:
+
   - Secure API key storage
   - Data encryption at rest
   - Proper authentication flow
@@ -238,7 +254,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - React Native Paper contributors
 - Supabase team
 - OpenAI team
-- All contributors to this project 
+- All contributors to this project
 
 ## Sentry Setup
 
@@ -250,6 +266,7 @@ To properly configure Sentry for error monitoring:
    SENTRY_DSN=your_sentry_dsn
    ```
 3. For CI/CD builds, you have two options:
+
    - Option 1: Authenticate with Sentry CLI:
      ```
      npx @sentry/cli login
@@ -263,4 +280,4 @@ To properly configure Sentry for error monitoring:
 4. For manual source map uploads, use:
    ```
    npx @sentry/cli releases files <release_name> upload-sourcemaps <path_to_sourcemaps>
-   ``` 
+   ```

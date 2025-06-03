@@ -62,8 +62,8 @@ function useDragAnimations() {
   }, []);
 
   const endDragAnimation = useCallback(() => {
-    translateY.value = withSpring(0, { damping: 20, stiffness: 300 });
-    scale.value = withSpring(1, { damping: 20, stiffness: 300 });
+    translateY.value = withTiming(0, { duration: 200 });
+    scale.value = withTiming(1, { duration: 200 });
     opacity.value = withTiming(1, { duration: 200 });
   }, []);
 
@@ -72,7 +72,7 @@ function useDragAnimations() {
   }, []);
 
   const updateDisplacement = useCallback((displacement: number) => {
-    translateY.value = withSpring(displacement, { damping: 20, stiffness: 300 });
+    translateY.value = withTiming(displacement, { duration: 200 });
   }, []);
 
   return {

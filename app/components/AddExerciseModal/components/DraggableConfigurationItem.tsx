@@ -62,21 +62,40 @@ function useDragAnimations() {
   const startDragAnimation = useCallback(() => {
     scale.value = withSpring(1.05, { damping: 20, stiffness: 400 });
     opacity.value = withTiming(0.9, { duration: 100 });
-  }, []);
+  }, [scale, opacity]);
 
-  const endDragAnimation = useCallback(() => {
-    translateY.value = withSpring(0, { damping: 20, stiffness: 300 });
-    scale.value = withSpring(1, { damping: 20, stiffness: 300 });
-    opacity.value = withTiming(1, { duration: 200 });
-  }, []);
+  const endDragAnimation = useCallback(
+    (immediate = false) => {
+      if (immediate) {
+        translateY.value = 0;
+        scale.value = 1;
+        opacity.value = 1;
+      } else {
+        translateY.value = withTiming(0, { duration: 200 });
+        scale.value = withTiming(1, { duration: 200 });
+        opacity.value = withTiming(1, { duration: 200 });
+      }
+    },
+    [translateY, scale, opacity],
+  );
 
-  const updateDragPosition = useCallback((y: number) => {
-    translateY.value = y;
-  }, []);
+  const updateDragPosition = useCallback(
+    (y: number) => {
+      translateY.value = y;
+    },
+    [translateY],
+  );
 
-  const updateDisplacement = useCallback((displacement: number) => {
-    translateY.value = withSpring(displacement, { damping: 20, stiffness: 300 });
-  }, []);
+  const updateDisplacement = useCallback(
+    (displacement: number, immediate = false) => {
+      if (immediate) {
+        translateY.value = displacement;
+      } else {
+        translateY.value = withTiming(displacement, { duration: 200 });
+      }
+    },
+    [translateY],
+  );
 
   return {
     animatedStyle,
@@ -172,14 +191,20 @@ export default function DraggableConfigurationItem({
     // Only apply displacement animations if this item is NOT being dragged
     if (isBeingDragged) return;
 
+    // If a drag operation is active globally (isDragging is true),
+    // other items should snap to their displaced positions.
+    const snapDuringActiveDrag = isDragging;
+
     if (shouldMoveUp) {
-      updateDisplacement(-ITEM_HEIGHT);
+      updateDisplacement(-ITEM_HEIGHT, snapDuringActiveDrag);
     } else if (shouldMoveDown) {
-      updateDisplacement(ITEM_HEIGHT);
+      updateDisplacement(ITEM_HEIGHT, snapDuringActiveDrag);
     } else {
-      updateDisplacement(0);
+      // If not moving up or down (e.g., drag ended for all items, or this item is not displaced)
+      // Snap to zero immediately.
+      updateDisplacement(0, true);
     }
-  }, [shouldMoveUp, shouldMoveDown, isBeingDragged, updateDisplacement]);
+  }, [shouldMoveUp, shouldMoveDown, isBeingDragged, updateDisplacement, isDragging]);
 
   const handleRemove = useCallback(() => {
     if (!isDragging) {
@@ -205,14 +230,14 @@ export default function DraggableConfigurationItem({
         runOnJS(safeHapticFeedback)(Haptics.ImpactFeedbackStyle.Medium);
         runOnJS(startDragAnimation)();
       })
-      .onUpdate((event: any) => {
+      .onUpdate((event) => {
         'worklet';
         if (isBeingDragged) {
           runOnJS(updateDragPosition)(event.translationY);
           runOnJS(onDragUpdate)(index, event.translationY);
         }
       })
-      .onEnd((event: any) => {
+      .onEnd((event) => {
         'worklet';
         if (!isBeingDragged) return;
 
@@ -220,7 +245,7 @@ export default function DraggableConfigurationItem({
         const itemsMoved = Math.round(moveDistance / ITEM_HEIGHT);
         const newIndex = Math.max(0, Math.min(index + itemsMoved, totalExercises - 1));
 
-        runOnJS(endDragAnimation)();
+        runOnJS(endDragAnimation)(false); // Use false to animate smoothly instead of snapping
 
         if (newIndex !== index) {
           runOnJS(safeHapticFeedback)(Haptics.ImpactFeedbackStyle.Light);
@@ -252,118 +277,118 @@ export default function DraggableConfigurationItem({
   ];
 
   return (
-    <Animated.View style={containerStyle}>
-      <View style={itemStyle}>
-        {/* Exercise image with drag overlay */}
-        <View style={styles.exerciseImageContainer}>
-          <OptimizedImage
-            source={
-              exercise.image_url
-                ? { uri: exercise.image_url }
-                : require('../../../../assets/exercises/placeholder.jpg')
-            }
-            style={styles.exerciseImage}
-            fallback={require('../../../../assets/exercises/placeholder.jpg')}
-            resizeMode="cover"
-            cachePolicy="immutable"
-            showLoader={false}
-            priority="normal"
-            debugLabel={`ConfigurationExercise-${exercise.name}`}
-          />
-          {/* Drag overlay on image */}
-          <View style={styles.dragOverlay}>
-            <GestureDetector gesture={dragHandlePanGesture}>
+    <GestureDetector gesture={dragHandlePanGesture}>
+      <Animated.View style={containerStyle}>
+        <View style={itemStyle}>
+          {/* Exercise image with drag overlay */}
+          <View style={styles.exerciseImageContainer}>
+            <OptimizedImage
+              source={
+                exercise.image_url
+                  ? { uri: exercise.image_url }
+                  : require('../../../../assets/exercises/placeholder.jpg')
+              }
+              style={styles.exerciseImage}
+              fallback={require('../../../../assets/exercises/placeholder.jpg')}
+              resizeMode="cover"
+              cachePolicy="immutable"
+              showLoader={false}
+              priority="normal"
+              debugLabel={`ConfigurationExercise-${exercise.name}`}
+            />
+            {/* Drag overlay on image */}
+            <View style={styles.dragOverlay}>
               <View style={styles.dragOverlayHandle}>
                 <Ionicons name="reorder-three-outline" size={20} color="rgba(255, 255, 255, 0.8)" />
               </View>
-            </GestureDetector>
-          </View>
-        </View>
-
-        {/* Main content area - exercise info and controls */}
-        <View style={styles.exerciseMainContent}>
-          {/* Exercise info */}
-          <View style={styles.exerciseInfoSection}>
-            <Text style={styles.exerciseName} numberOfLines={2}>
-              {exercise.name}
-            </Text>
-            <Text style={styles.exerciseCurrentSet}>
-              Current: {exercise.sets} sets × {exercise.reps_range} reps
-            </Text>
-          </View>
-
-          {/* Configuration controls */}
-          <View style={styles.exerciseControlsContainer}>
-            {/* Sets Control */}
-            <View style={styles.controlGroup}>
-              <Text style={styles.controlLabel}>Sets</Text>
-              <View style={styles.controlRow}>
-                <TouchableOpacity
-                  style={styles.controlButton}
-                  onPress={() =>
-                    onConfigurationChange(exercise.id, 'sets', Math.max(1, exercise.sets - 1))
-                  }
-                  disabled={isDragging}
-                >
-                  <Ionicons name="remove" size={12} color="#FFFFFF" />
-                </TouchableOpacity>
-                <View style={styles.controlValue}>
-                  <Text style={styles.controlValueText}>{exercise.sets}</Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.controlButton}
-                  onPress={() => onConfigurationChange(exercise.id, 'sets', exercise.sets + 1)}
-                  disabled={isDragging}
-                >
-                  <Ionicons name="add" size={12} color="#FFFFFF" />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Reps Control - Cycles through predefined ranges */}
-            <View style={styles.controlGroup}>
-              <Text style={styles.controlLabel}>Reps</Text>
-              <View style={styles.controlRow}>
-                <TouchableOpacity
-                  style={styles.controlButton}
-                  onPress={() => {
-                    const newReps = getPreviousRepRange(exercise.reps_range);
-                    onConfigurationChange(exercise.id, 'reps_range', newReps);
-                  }}
-                  disabled={isDragging}
-                >
-                  <Ionicons name="remove" size={12} color="#FFFFFF" />
-                </TouchableOpacity>
-                <View style={styles.controlValue}>
-                  <Text style={styles.controlValueText} numberOfLines={1}>
-                    {exercise.reps_range}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.controlButton}
-                  onPress={() => {
-                    const newReps = getNextRepRange(exercise.reps_range);
-                    onConfigurationChange(exercise.id, 'reps_range', newReps);
-                  }}
-                  disabled={isDragging}
-                >
-                  <Ionicons name="add" size={12} color="#FFFFFF" />
-                </TouchableOpacity>
-              </View>
             </View>
           </View>
-        </View>
 
-        {/* Delete Button */}
-        <TouchableOpacity
-          style={styles.deleteButton}
-          onPress={handleRemove}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          disabled={isDragging}
-        >
-          <Ionicons name="trash-outline" size={16} color="#FF4444" />
-        </TouchableOpacity>
-      </View>
-    </Animated.View>
+          {/* Main content area - exercise info and controls */}
+          <View style={styles.exerciseMainContent}>
+            {/* Exercise info */}
+            <View style={styles.exerciseInfoSection}>
+              <Text style={styles.exerciseName} numberOfLines={2}>
+                {exercise.name}
+              </Text>
+              <Text style={styles.exerciseCurrentSet}>
+                Current: {exercise.sets} sets × {exercise.reps_range} reps
+              </Text>
+            </View>
+
+            {/* Configuration controls */}
+            <View style={styles.exerciseControlsContainer}>
+              {/* Sets Control */}
+              <View style={styles.controlGroup}>
+                <Text style={styles.controlLabel}>Sets</Text>
+                <View style={styles.controlRow}>
+                  <TouchableOpacity
+                    style={styles.controlButton}
+                    onPress={() =>
+                      onConfigurationChange(exercise.id, 'sets', Math.max(1, exercise.sets - 1))
+                    }
+                    disabled={isDragging}
+                  >
+                    <Ionicons name="remove" size={12} color="#FFFFFF" />
+                  </TouchableOpacity>
+                  <View style={styles.controlValue}>
+                    <Text style={styles.controlValueText}>{exercise.sets}</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.controlButton}
+                    onPress={() => onConfigurationChange(exercise.id, 'sets', exercise.sets + 1)}
+                    disabled={isDragging}
+                  >
+                    <Ionicons name="add" size={12} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Reps Control - Cycles through predefined ranges */}
+              <View style={styles.controlGroup}>
+                <Text style={styles.controlLabel}>Reps</Text>
+                <View style={styles.controlRow}>
+                  <TouchableOpacity
+                    style={styles.controlButton}
+                    onPress={() => {
+                      const newReps = getPreviousRepRange(exercise.reps_range);
+                      onConfigurationChange(exercise.id, 'reps_range', newReps);
+                    }}
+                    disabled={isDragging}
+                  >
+                    <Ionicons name="remove" size={12} color="#FFFFFF" />
+                  </TouchableOpacity>
+                  <View style={styles.controlValue}>
+                    <Text style={styles.controlValueText} numberOfLines={1}>
+                      {exercise.reps_range}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.controlButton}
+                    onPress={() => {
+                      const newReps = getNextRepRange(exercise.reps_range);
+                      onConfigurationChange(exercise.id, 'reps_range', newReps);
+                    }}
+                    disabled={isDragging}
+                  >
+                    <Ionicons name="add" size={12} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </View>
+
+          {/* Delete Button */}
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={handleRemove}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            disabled={isDragging}
+          >
+            <Ionicons name="trash-outline" size={16} color="#FF4444" />
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
+    </GestureDetector>
   );
 }

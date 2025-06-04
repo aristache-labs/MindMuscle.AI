@@ -13,7 +13,6 @@
   "services/**",
   "store/**",
   "types/**",
-  "utils/**",
   "validation/**",
   "docs/**",
   "**/constants.ts",

@@ -11,6 +11,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { logger } from '../utils/logger';
 import { CircleBackground, TabBarBackground } from '../components/NavigationBackgrounds';
 import {
   DumbbellIcon,
@@ -21,7 +22,6 @@ import {
 } from '../components/NavigationIcons';
 import { COLORS } from '../constants/theme';
 import { useAuth } from '../store/AuthContext';
-import { logger } from '../utils/logger';
 
 // List of screens that should hide the tab bar
 const HIDE_TAB_BAR_SCREENS = [

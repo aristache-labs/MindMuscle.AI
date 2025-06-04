@@ -1,5 +1,5 @@
-import logger from './logger';
 import { DebugFlags } from './debugConfig';
+import logger from './logger';
 
 /**
  * Helper function for conditional debug logging in components

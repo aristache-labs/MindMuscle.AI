@@ -13,10 +13,10 @@ import {
   View,
 } from 'react-native';
 import { HelperText, Text, TextInput } from 'react-native-paper';
+import secureStorage from '../utils/secureStorage';
 import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import { useNavigationDebounce } from '../hooks/useDebounce';
 import { useAuth } from '../store/AuthContext';
-import secureStorage from '../utils/secureStorage';
 
 // Keys for secure storage
 const SAVED_EMAIL_KEY = 'mindmuscle_saved_email';

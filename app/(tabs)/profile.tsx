@@ -95,7 +95,7 @@ export default function ProfileScreen() {
 
       // First check if it's in the user metadata (fastest)
       if (user.user_metadata?.avatar_url) {
-        const avatarUri = user.user_metadata.avatar_url;
+        const avatarUri = user.user_metadata.avatar_url as string;
         // Only update if the URL has changed
         if (avatarUrl !== avatarUri) {
           setAvatarUrl(avatarUri);
@@ -175,7 +175,8 @@ export default function ProfileScreen() {
   }, [pathname, hasLoadedForCurrentVisit, isRefreshing, refreshData]);
 
   // Get user's full name and email from metadata, fallback to defaults if not set
-  const userFullName = user?.user_metadata?.name || user?.email?.split('@')[0] || 'User';
+  const userFullName =
+    (user?.user_metadata?.name as string) || user?.email?.split('@')[0] || 'User';
   const userEmail = user?.email || '';
 
   const _handleEditProfile = () => {

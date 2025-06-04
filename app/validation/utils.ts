@@ -191,8 +191,8 @@ export function validateArray<T>(
 }
 
 // Helper to validate partial objects (for updates) - only works with ZodObject
-export function validatePartial<T extends Record<string, any>>(
-  schema: z.ZodObject<any>,
+export function validatePartial<T extends Record<string, unknown>>(
+  schema: z.ZodObject<z.ZodRawShape>,
   data: unknown,
   context?: string,
 ): ValidationResult<Partial<T>> {
@@ -240,7 +240,9 @@ export function validateAndTransform<TInput, TOutput>(
 }
 
 // Helper to create form validation hooks - only works with ZodObject
-export function createFormValidator<T extends Record<string, any>>(schema: z.ZodObject<any>) {
+export function createFormValidator<T extends Record<string, unknown>>(
+  schema: z.ZodObject<z.ZodRawShape>,
+) {
   return {
     validate: (data: unknown) => safeValidate(schema, data),
     validateField: (fieldName: keyof T, value: unknown) => {
@@ -306,7 +308,9 @@ export function validateEnvVar<T>(
 }
 
 // Helper to create type-safe database query validators
-export function createQueryValidator<T extends Record<string, any>>(schema: z.ZodObject<any>) {
+export function createQueryValidator<T extends Record<string, unknown>>(
+  schema: z.ZodObject<z.ZodRawShape>,
+) {
   return {
     validateInsert: (data: unknown) => validateOrThrow(schema, data, 'database insert'),
     validateUpdate: (data: unknown) => validatePartial<T>(schema, data, 'database update'),

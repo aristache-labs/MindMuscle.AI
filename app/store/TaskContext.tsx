@@ -1,7 +1,7 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import supabase from '../services/supabase';
 import { PostgrestError } from '@supabase/supabase-js';
+import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
 import { logger } from '../utils/logger';
+import supabase from '../services/supabase';
 
 export interface Task {
   id: string;

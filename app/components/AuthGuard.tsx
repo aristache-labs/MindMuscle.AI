@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
 import { Redirect, usePathname } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { logger } from '../utils/logger';
 import { useAuth } from '../store/AuthContext';
 import InitialLoadingScreen from './InitialLoadingScreen';
-import { logger } from '../utils/logger';
 
 // Debug settings for AuthGuard
 const DEBUG_MODE = false; // Enable extended authentication loading screen

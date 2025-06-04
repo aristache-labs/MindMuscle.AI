@@ -18,7 +18,7 @@ import { ThemedNumberPicker } from '../components/ThemedNumberPicker';
 import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import supabase from '../services/supabase';
 import { validationService } from '../services/validationService';
-import { useAuth } from '../store/AuthContext';
+import { useAuth, UserProfile } from '../store/AuthContext';
 import { useMeasurements } from '../store/MeasurementsContext';
 import { logger } from '../utils/logger';
 import { ProfileUpdateSchema } from '../validation/schemas';
@@ -33,20 +33,11 @@ interface FormData {
   height: string;
 }
 
-interface User {
-  id: string;
-  email?: string;
-  full_name?: string;
-  user_metadata?: {
-    name?: string;
-    dateOfBirth?: string;
-    gender?: string;
-    weight?: number;
-    height?: number;
-    preferred_weight_unit?: 'KG' | 'LB';
-    preferred_height_unit?: 'CM' | 'INCH';
-    [key: string]: string | number | boolean | null | undefined;
-  };
+// Helper function to safely get user metadata values
+function getUserMetadataValue<T>(user: UserProfile | null, key: string, defaultValue: T): T {
+  if (!user?.user_metadata) return defaultValue;
+  const value = user.user_metadata[key];
+  return value !== undefined && value !== null ? (value as T) : defaultValue;
 }
 
 const genderOptions = [
@@ -56,28 +47,28 @@ const genderOptions = [
 ];
 
 // Custom hook for form data management
-function useFormData(user: User | null) {
+function useFormData(user: UserProfile | null) {
   const [formData, setFormData] = useState<FormData>({
-    fullName: user?.user_metadata?.name || '',
+    fullName: getUserMetadataValue(user, 'name', ''),
     email: user?.email || '',
-    dateOfBirth: user?.user_metadata?.dateOfBirth
-      ? new Date(user.user_metadata.dateOfBirth)
+    dateOfBirth: getUserMetadataValue(user, 'dateOfBirth', null)
+      ? new Date(getUserMetadataValue(user, 'dateOfBirth', ''))
       : new Date('1990-01-01'),
-    gender: (user?.user_metadata?.gender as FormData['gender']) || '',
-    weight: user?.user_metadata?.weight?.toString() || '',
-    height: user?.user_metadata?.height?.toString() || '',
+    gender: getUserMetadataValue(user, 'gender', '') as FormData['gender'],
+    weight: getUserMetadataValue(user, 'weight', 0).toString() || '',
+    height: getUserMetadataValue(user, 'height', 0).toString() || '',
   });
 
   return { formData, setFormData };
 }
 
 // Custom hook for unit preferences
-function useUnitPreferences(user: User | null) {
+function useUnitPreferences(user: UserProfile | null) {
   const [weightUnit, setWeightUnit] = useState<'KG' | 'LB'>(
-    user?.user_metadata?.preferred_weight_unit || 'KG',
+    getUserMetadataValue(user, 'preferred_weight_unit', 'KG') as 'KG' | 'LB',
   );
   const [heightUnit, setHeightUnit] = useState<'CM' | 'INCH'>(
-    user?.user_metadata?.preferred_height_unit || 'CM',
+    getUserMetadataValue(user, 'preferred_height_unit', 'CM') as 'CM' | 'INCH',
   );
 
   return { weightUnit, setWeightUnit, heightUnit, setHeightUnit };
@@ -106,7 +97,7 @@ function useUIState() {
 }
 
 // Custom hook for data loading
-function useDataLoading(user: User | null, refreshMeasurements: () => Promise<void>) {
+function useDataLoading(user: UserProfile | null, refreshMeasurements: () => Promise<void>) {
   const isMounted = useRef(false);
 
   useEffect(() => {

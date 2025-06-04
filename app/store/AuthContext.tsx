@@ -21,7 +21,7 @@ export interface UserProfile {
   id: string;
   email: string;
   full_name?: string;
-  user_metadata?: { [key: string]: any };
+  user_metadata?: Record<string, unknown>;
 }
 
 interface AuthContextType {
@@ -40,7 +40,7 @@ interface AuthContextType {
   error: AuthError | null;
   clearError: () => void;
   refreshUser: () => Promise<void>;
-  updateUserMetadata: (metadata: { [key: string]: any }) => Promise<void>;
+  updateUserMetadata: (metadata: Record<string, unknown>) => Promise<void>;
   user: UserProfile | null;
 }
 
@@ -290,12 +290,13 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
             throw sessionError;
           }
           setSession(newSession);
-        } catch (sessionErr: any) {
+        } catch (sessionErr: unknown) {
           // If we can't get a session but we have a user, something is wrong with the session
           // We should reset the auth state
-          if (sessionErr.name === 'AuthSessionMissingError') {
+          const error = sessionErr as Error;
+          if (error.name === 'AuthSessionMissingError') {
             logger.warn('Auth session missing while having user data, clearing session state', {
-              context: { error: sessionErr.message },
+              context: { error: error.message },
             });
             setSession(null);
             return;
@@ -303,8 +304,9 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
           throw sessionErr;
         }
       }
-    } catch (err: any) {
-      const error = err instanceof Error ? err : new Error(err?.message || 'Unknown error');
+    } catch (err: unknown) {
+      const error =
+        err instanceof Error ? err : new Error((err as Error)?.message || 'Unknown error');
       logger.error('Error refreshing user data:', error);
       throw error;
     } finally {
@@ -312,7 +314,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     }
   };
 
-  const updateUserMetadata = async (metadata: { [key: string]: any }) => {
+  const updateUserMetadata = async (metadata: Record<string, unknown>) => {
     try {
       setIsLoading(true);
       const {
@@ -338,8 +340,9 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
         }
         setSession(newSession);
       }
-    } catch (err: any) {
-      const error = err instanceof Error ? err : new Error(err?.message || 'Unknown error');
+    } catch (err: unknown) {
+      const error =
+        err instanceof Error ? err : new Error((err as Error)?.message || 'Unknown error');
       logger.error('Error updating user metadata:', error);
       throw error;
     } finally {

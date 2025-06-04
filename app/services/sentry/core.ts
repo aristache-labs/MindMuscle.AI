@@ -185,12 +185,14 @@ export function initializeSentry(navigationIntegration?: unknown) {
   try {
     // Suppress Sentry's promise package warning by ensuring Promise.allSettled is available
     if (!Promise.allSettled) {
-      Promise.allSettled = function (promises) {
+      Promise.allSettled = function <T>(
+        promises: readonly (T | PromiseLike<T>)[],
+      ): Promise<PromiseSettledResult<T>[]> {
         return Promise.all(
-          promises.map((promise) =>
+          promises.map((promise: T | PromiseLike<T>) =>
             Promise.resolve(promise)
-              .then((value) => ({ status: 'fulfilled', value }))
-              .catch((reason) => ({ status: 'rejected', reason })),
+              .then((value): PromiseFulfilledResult<T> => ({ status: 'fulfilled' as const, value }))
+              .catch((reason): PromiseRejectedResult => ({ status: 'rejected' as const, reason })),
           ),
         );
       };

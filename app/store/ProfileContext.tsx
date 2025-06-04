@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { validationService } from '../services/validationService';
 import { logger } from '../utils/logger';
+import { validationService } from '../services/validationService';
 
 interface Profile {
   name: string;

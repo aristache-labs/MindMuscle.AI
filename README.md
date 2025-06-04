@@ -117,8 +117,8 @@ mindmuscle-ai/
 │   │   ├── ProgressContext   # Progress tracking state
 │   │   ├── ProgressPhotosContext# Photos management
 │   │   └── TaskContext       # Workout scheduling
-│   ├── types/                 # TypeScript definitions
-│   └── utils/                 # Utility functions
+│   └── types/                 # TypeScript definitions
+├── utils/                     # Utility functions (moved to root level)
 ├── assets/                    # Static assets
 │   ├── exercises/            # Exercise images
 │   └── measurements/         # Measurement reference images

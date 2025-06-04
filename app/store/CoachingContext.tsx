@@ -1,11 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, ReactNode, useContext, useEffect, useState } from 'react';
+import { logger } from '../utils/logger';
 import AICoachingService, {
   CoachingContext as AICoachingContextData,
   CoachingSession,
 } from '../services/aiCoaching';
 import { validationService } from '../services/validationService';
-import { logger } from '../utils/logger';
 import { useAuth } from './AuthContext';
 
 interface CoachingState {

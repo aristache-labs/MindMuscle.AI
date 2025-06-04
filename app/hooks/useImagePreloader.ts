@@ -8,6 +8,7 @@ import {
   type Source,
   type Priority,
 } from '../utils/imagePreloader';
+import { useSentryDataCollection } from './useSentryDataCollection';
 
 // Cache for already preloaded images
 const preloadedImagesCache = new Map<string, boolean>();
@@ -58,6 +59,12 @@ export default function useImagePreloader(
   // Use a ref to track if preloading has started to prevent duplicate loading
   const preloadingStarted = useRef(false);
 
+  // Sentry integration
+  const sentry = useSentryDataCollection({
+    componentName: 'useImagePreloader',
+    autoSetUser: false,
+  });
+
   // Convert priority string to appropriate priority
   const imagePriority = (() => {
     switch (priority) {
@@ -89,6 +96,13 @@ export default function useImagePreloader(
     // Skip if already started or no sources
     if (preloadingStarted.current || !Array.isArray(sources) || sources.length === 0) {
       if (!Array.isArray(sources) || sources.length === 0) {
+        sentry.addBreadcrumb({
+          message: 'Image preloader: No sources provided',
+          category: 'image-preloader',
+          level: 'debug',
+          data: { debugLabel },
+        });
+
         setStatus({
           loaded: true,
           error: null,
@@ -127,8 +141,52 @@ export default function useImagePreloader(
       ? nonSvgUris.filter((uri) => !preloadedImagesCache.has(uri))
       : nonSvgUris;
 
+    // Track preloading initialization
+    sentry.addBreadcrumb({
+      message: 'Image preloader initialized',
+      category: 'image-preloader',
+      level: 'info',
+      data: {
+        debugLabel,
+        totalSources: sources.length,
+        filteredSources: filteredSources.length,
+        uris: uris.length,
+        nonSvgUris: nonSvgUris.length,
+        skippedSvgCount,
+        urisToLoad: urisToLoad.length,
+        priority,
+        batchSize,
+        skipIfCached,
+        disableSvgLoading,
+      },
+    });
+
+    sentry.setContext('image_preloader', {
+      debugLabel,
+      totalSources: sources.length,
+      urisToLoad: urisToLoad.length,
+      priority,
+      batchSize,
+      fastImageAvailable: isFastImageAvailable,
+    });
+
     // If all images are already preloaded, return early
     if (urisToLoad.length === 0) {
+      const cacheHitDuration = Date.now();
+
+      sentry.trackPerformance('image_preloader_cache_hit', 0, 'ms');
+
+      sentry.addBreadcrumb({
+        message: 'All images already cached',
+        category: 'image-preloader',
+        level: 'info',
+        data: {
+          debugLabel,
+          totalImages: uris.length,
+          skippedSvgCount,
+        },
+      });
+
       setStatus({
         loaded: true,
         error: null,
@@ -137,8 +195,8 @@ export default function useImagePreloader(
         completedCount: uris.length,
         totalCount: uris.length,
         timing: {
-          startTime: Date.now(),
-          endTime: Date.now(),
+          startTime: cacheHitDuration,
+          endTime: cacheHitDuration,
           duration: 0,
         },
       });
@@ -167,6 +225,18 @@ export default function useImagePreloader(
       );
     }
 
+    sentry.addBreadcrumb({
+      message: 'Image preloading started',
+      category: 'image-preloader',
+      level: 'info',
+      data: {
+        debugLabel,
+        imagesToLoad: urisToLoad.length,
+        priority,
+        skippedSvgCount,
+      },
+    });
+
     // Preload function
     const preloadImages = async () => {
       try {
@@ -178,42 +248,97 @@ export default function useImagePreloader(
 
         let completedCount = skippedSvgCount; // Start with SVGs counted as completed
 
+        sentry.addBreadcrumb({
+          message: 'Processing image batches',
+          category: 'image-preloader',
+          level: 'debug',
+          data: {
+            debugLabel,
+            batchCount: batches.length,
+            batchSize,
+          },
+        });
+
         // Process each batch
-        for (const batch of batches) {
-          // Convert to sources format
-          const sources: Source[] = batch.map((uri) => ({
-            uri,
-            priority: imagePriority as Priority,
-          }));
+        for (const [batchIndex, batch] of batches.entries()) {
+          const batchStartTime = Date.now();
 
-          // Use our safe preload function
-          await safePreloadImages(sources);
+          try {
+            // Convert to sources format
+            const sources: Source[] = batch.map((uri) => ({
+              uri,
+              priority: imagePriority as Priority,
+            }));
 
-          // Add to cache
-          batch.forEach((uri) => {
-            preloadedImagesCache.set(uri, true);
-          });
+            // Use our safe preload function
+            await safePreloadImages(sources);
 
-          // Update progress
-          completedCount += batch.length;
-          const progress = Math.min(completedCount / uris.length, 1);
+            const batchDuration = Date.now() - batchStartTime;
 
-          setStatus((prev) => ({
-            ...prev,
-            progress,
-            completedCount,
-          }));
+            sentry.trackPerformance(`image_batch_${batchIndex}_duration`, batchDuration, 'ms');
 
-          if (DEBUG_IMAGE_PRELOADER) {
-            console.log(
-              `⏱️ [${debugLabel}] Batch completed: ${completedCount}/${uris.length} (${(progress * 100).toFixed(1)}%)`,
-            );
+            // Add to cache
+            batch.forEach((uri) => {
+              preloadedImagesCache.set(uri, true);
+            });
+
+            // Update progress
+            completedCount += batch.length;
+            const progress = Math.min(completedCount / uris.length, 1);
+
+            setStatus((prev) => ({
+              ...prev,
+              progress,
+              completedCount,
+            }));
+
+            sentry.addBreadcrumb({
+              message: 'Image batch completed',
+              category: 'image-preloader',
+              level: 'debug',
+              data: {
+                debugLabel,
+                batchIndex: batchIndex + 1,
+                totalBatches: batches.length,
+                batchSize: batch.length,
+                completedCount,
+                totalCount: uris.length,
+                progress: (progress * 100).toFixed(1),
+                batchDuration,
+              },
+            });
+
+            if (DEBUG_IMAGE_PRELOADER) {
+              console.log(
+                `⏱️ [${debugLabel}] Batch completed: ${completedCount}/${uris.length} (${(progress * 100).toFixed(1)}%)`,
+              );
+            }
+          } catch (batchError) {
+            const batchDuration = Date.now() - batchStartTime;
+
+            sentry.captureException(batchError as Error, {
+              image_batch_failed: true,
+              debugLabel,
+              batchIndex,
+              batchSize: batch.length,
+              batchDuration,
+            });
+
+            // Continue with next batch instead of failing completely
+            console.warn(`Batch ${batchIndex} failed, continuing with next batch:`, batchError);
           }
         }
 
         // All loaded successfully
         const endTime = Date.now();
         const duration = endTime - startTime;
+
+        sentry.trackPerformance('image_preloader_total_duration', duration, 'ms');
+        sentry.trackPerformance(
+          'image_preloader_images_per_second',
+          (urisToLoad.length / duration) * 1000,
+          'images/sec',
+        );
 
         setStatus((prev) => ({
           ...prev,
@@ -227,6 +352,29 @@ export default function useImagePreloader(
           },
         }));
 
+        sentry.addBreadcrumb({
+          message: 'Image preloading completed successfully',
+          category: 'image-preloader',
+          level: 'info',
+          data: {
+            debugLabel,
+            totalImages: uris.length,
+            loadedImages: urisToLoad.length,
+            skippedSvgCount,
+            duration,
+            imagesPerSecond: ((urisToLoad.length / duration) * 1000).toFixed(2),
+            fastImageUsed: isFastImageAvailable,
+          },
+        });
+
+        sentry.setContext('image_preloader_result', {
+          success: true,
+          totalImages: uris.length,
+          loadedImages: urisToLoad.length,
+          duration,
+          debugLabel,
+        });
+
         if (DEBUG_IMAGE_PRELOADER) {
           console.log(
             `✅ [${debugLabel}] All images preloaded in ${duration}ms using ${isFastImageAvailable ? 'FastImage' : 'Asset'}`,
@@ -235,6 +383,16 @@ export default function useImagePreloader(
       } catch (err) {
         // Handle error
         const error = err instanceof Error ? err.message : 'Unknown preloading error';
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+
+        sentry.captureException(err as Error, {
+          image_preloader_failed: true,
+          debugLabel,
+          totalImages: uris.length,
+          imagesToLoad: urisToLoad.length,
+          duration,
+        });
 
         setStatus((prev) => ({
           ...prev,
@@ -242,10 +400,23 @@ export default function useImagePreloader(
           error,
           timing: {
             ...prev.timing!,
-            endTime: Date.now(),
-            duration: Date.now() - startTime,
+            endTime,
+            duration,
           },
         }));
+
+        sentry.addBreadcrumb({
+          message: 'Image preloading failed',
+          category: 'image-preloader',
+          level: 'error',
+          data: {
+            debugLabel,
+            error,
+            duration,
+            totalImages: uris.length,
+            imagesToLoad: urisToLoad.length,
+          },
+        });
 
         if (DEBUG_IMAGE_PRELOADER) {
           console.log(`❌ [${debugLabel}] Error preloading images:`, error);

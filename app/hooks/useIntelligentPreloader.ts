@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { InteractionManager, AppState, AppStateStatus } from 'react-native';
 import { strategicPreloadImages, PreloadStrategy, clearImageCache } from '../utils/imagePreloader';
+import { useSentryDataCollection } from './useSentryDataCollection';
 
 export interface IntelligentPreloaderOptions {
   /**
@@ -136,6 +137,17 @@ export default function useIntelligentPreloader(
     debug = false,
   } = options;
 
+  // Initialize Sentry monitoring
+  const {
+    setContext,
+    addBreadcrumb,
+    captureException,
+    trackUserAction: _trackUserAction, // eslint-disable-line no-unused-vars
+    setTag,
+  } = useSentryDataCollection({
+    componentName: 'useIntelligentPreloader',
+  });
+
   // State tracking
   const [criticalImagesLoaded, setCriticalImagesLoaded] = useState(0);
   const [anticipatoryImagesLoaded, setAnticipatoryImagesLoaded] = useState(0);
@@ -147,19 +159,108 @@ export default function useIntelligentPreloader(
   const currentScreen = useRef(screenId);
   const totalImagesRef = useRef(0);
 
+  // Sentry monitoring refs
+  const preloadStartTime = useRef<number>(Date.now());
+  const predictionAccuracy = useRef<{ correct: number; total: number }>({ correct: 0, total: 0 });
+  const cacheHitRate = useRef<{ hits: number; misses: number }>({ hits: 0, misses: 0 });
+
+  // Set initial Sentry context
+  useEffect(() => {
+    setContext('intelligent_preloader', {
+      screen_id: screenId,
+      cache_management: cacheManagement,
+      predictive_loading_enabled: enablePredictiveLoading,
+      total_images: images.length,
+    });
+
+    setTag('preloader_screen', screenId);
+    setTag('cache_strategy', cacheManagement);
+
+    addBreadcrumb({
+      message: 'Intelligent preloader initialized',
+      category: 'preloader',
+      level: 'info',
+      data: {
+        screen_id: screenId,
+        image_count: images.length,
+        cache_strategy: cacheManagement,
+      },
+    });
+
+    preloadStartTime.current = Date.now();
+  }, [screenId, cacheManagement, enablePredictiveLoading, images.length]);
+
   // Update current screen if it changes
   useEffect(() => {
-    currentScreen.current = screenId;
+    if (currentScreen.current !== screenId) {
+      // Track screen transition prediction accuracy
+      const previousScreen = currentScreen.current;
+      const predictedScreens = PREDICTIVE_NAVIGATION[previousScreen] || [];
+      const wasCorrectPrediction = predictedScreens.includes(screenId);
+
+      predictionAccuracy.current.total += 1;
+      if (wasCorrectPrediction) {
+        predictionAccuracy.current.correct += 1;
+      }
+
+      // Log prediction accuracy
+      const accuracy =
+        predictionAccuracy.current.total > 0
+          ? (predictionAccuracy.current.correct / predictionAccuracy.current.total) * 100
+          : 0;
+
+      addBreadcrumb({
+        message: 'Screen transition tracked',
+        category: 'navigation',
+        level: 'info',
+        data: {
+          from_screen: previousScreen,
+          to_screen: screenId,
+          was_predicted: wasCorrectPrediction,
+          prediction_accuracy: accuracy,
+        },
+      });
+
+      setContext('prediction_accuracy', {
+        correct_predictions: predictionAccuracy.current.correct,
+        total_predictions: predictionAccuracy.current.total,
+        accuracy_percentage: accuracy,
+      });
+
+      currentScreen.current = screenId;
+    }
   }, [screenId]);
 
   // Monitor app state for background/foreground transitions
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      addBreadcrumb({
+        message: `App state changed to ${nextAppState}`,
+        category: 'app-lifecycle',
+        level: 'info',
+        data: {
+          new_state: nextAppState,
+          cache_strategy: cacheManagement,
+        },
+      });
+
       if (nextAppState === 'active' && cacheManagement === 'aggressive') {
         // Clear cache when returning to foreground in aggressive mode
-        clearImageCache().catch((err) => {
-          console.warn('Failed to clear image cache:', err);
-        });
+        clearImageCache()
+          .then(() => {
+            addBreadcrumb({
+              message: 'Cache cleared on app foreground',
+              category: 'cache',
+              level: 'info',
+            });
+          })
+          .catch((err) => {
+            captureException(new Error('Failed to clear image cache'), {
+              cache_strategy: cacheManagement,
+              app_state: nextAppState,
+              original_error: err.message,
+            });
+          });
       }
     };
 
@@ -188,7 +289,7 @@ export default function useIntelligentPreloader(
     return images;
   };
 
-  // Helper function to handle SVG-only images
+  // Helper function to handle SVG-only images with monitoring
   const handleSvgOnlyImages = (
     svgCount: number,
     totalImages: number,
@@ -197,11 +298,21 @@ export default function useIntelligentPreloader(
     debugMessage: string,
   ): boolean => {
     if (svgCount > 0) {
-      setLoaded(svgCount);
-      setProgress((prev) => prev + progressWeight);
+      addBreadcrumb({
+        message: `SVG images detected: ${debugMessage}`,
+        category: 'preloader',
+        level: 'debug',
+        data: {
+          svg_count: svgCount,
+          total_images: totalImages,
+          progress_weight: progressWeight,
+        },
+      });
+
       if (debug) {
-        console.log(debugMessage);
+        console.log(`[IntelligentPreloader] ${debugMessage}: ${svgCount} SVGs detected`);
       }
+      setLoaded(svgCount);
       return true;
     }
     return false;
@@ -209,9 +320,26 @@ export default function useIntelligentPreloader(
 
   // Helper function to preload anticipatory images
   const preloadAnticipatoryImages = async (nextScreens: string[]) => {
+    const startTime = Date.now();
     const nextScreenImages = collectImagesFromScreens(nextScreens);
 
+    addBreadcrumb({
+      message: 'Starting anticipatory image preload',
+      category: 'preloader',
+      level: 'info',
+      data: {
+        predicted_screens: nextScreens.join(', '),
+        image_count: nextScreenImages.length,
+      },
+    });
+
     if (nextScreenImages.length === 0) {
+      addBreadcrumb({
+        message: 'No images found for predicted screens',
+        category: 'preloader',
+        level: 'warning',
+        data: { predicted_screens: nextScreens.join(', ') },
+      });
       if (debug) {
         console.log('🔍 No images found for predicted screens');
       }
@@ -240,25 +368,60 @@ export default function useIntelligentPreloader(
       setProgress((prev) => prev + svgProgress * 0.2);
     }
 
-    // Preload the next screen images with medium priority
-    await strategicPreloadImages(
-      imagesToLoad,
-      PreloadStrategy.ANTICIPATORY,
-      undefined,
-      (progress, completed, _total) => {
-        if (completed) {
-          setAnticipatoryImagesLoaded(completed + svgCount);
-          setProgress(
-            0.7 + ((progress * nextScreenImages.length + svgCount) / nextScreenImages.length) * 0.2,
-          );
-        }
-      },
-    );
-
-    if (debug) {
-      console.log(
-        `✅ Loaded ${imagesToLoad.length} anticipatory images (+ ${svgCount} SVGs) for screens: ${nextScreens.join(', ')}`,
+    try {
+      // Preload the next screen images with medium priority
+      await strategicPreloadImages(
+        imagesToLoad,
+        PreloadStrategy.ANTICIPATORY,
+        undefined,
+        (progress, completed) => {
+          if (completed) {
+            setAnticipatoryImagesLoaded(completed + svgCount);
+            setProgress(
+              0.7 +
+                ((progress * nextScreenImages.length + svgCount) / nextScreenImages.length) * 0.2,
+            );
+          }
+        },
       );
+
+      const duration = Date.now() - startTime;
+      addBreadcrumb({
+        message: 'Anticipatory image preload completed',
+        category: 'preloader',
+        level: 'info',
+        data: {
+          duration_ms: duration,
+          images_loaded: imagesToLoad.length,
+          svg_count: svgCount,
+          predicted_screens: nextScreens.join(', '),
+        },
+      });
+
+      // Track cache hit rate
+      cacheHitRate.current.hits += imagesToLoad.length;
+      setContext('cache_performance', {
+        hit_rate:
+          cacheHitRate.current.hits / (cacheHitRate.current.hits + cacheHitRate.current.misses),
+        total_hits: cacheHitRate.current.hits,
+        total_misses: cacheHitRate.current.misses,
+      });
+
+      if (debug) {
+        console.log(
+          `✅ Loaded ${imagesToLoad.length} anticipatory images (+ ${svgCount} SVGs) for screens: ${nextScreens.join(', ')}`,
+        );
+      }
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      captureException(error as Error, {
+        operation: 'anticipatory_preload',
+        duration_ms: duration,
+        image_count: imagesToLoad.length,
+        predicted_screens: nextScreens.join(', '),
+      });
+
+      cacheHitRate.current.misses += imagesToLoad.length;
     }
   };
 
@@ -313,7 +476,7 @@ export default function useIntelligentPreloader(
       prefetchImagesToLoad,
       PreloadStrategy.PREFETCH,
       undefined,
-      (progress, completed, _total) => {
+      (progress, completed) => {
         if (completed) {
           setPrefetchImagesLoaded(completed + prefetchSvgCount);
           setProgress(
@@ -379,7 +542,7 @@ export default function useIntelligentPreloader(
         imagesToLoad,
         PreloadStrategy.CRITICAL,
         undefined,
-        (progress, completed, _total) => {
+        (progress, completed) => {
           if (completed) {
             // Add SVG count to completed images
             setCriticalImagesLoaded(completed + svgCount);

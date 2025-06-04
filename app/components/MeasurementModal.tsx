@@ -62,7 +62,7 @@ const CATEGORY_ICONS: Record<MeasurementCategory, CategoryIcon> = {
     type: 'image',
     source: require('../../assets/measurements/instructions/chest-instruction.png'),
   },
-  SHLDRS: {
+  SHOULDERS: {
     type: 'image',
     source: require('../../assets/measurements/instructions/shoulders-instruction.png'),
   },

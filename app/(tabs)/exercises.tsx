@@ -11,6 +11,7 @@ import {
   Pressable,
   ScrollView,
   Image,
+  Platform,
 } from 'react-native';
 import { Text, IconButton, Surface } from 'react-native-paper';
 import { COLORS, BORDER_RADIUS, HEADER_HEIGHT } from '../constants/theme';
@@ -19,6 +20,7 @@ import { GeneralHeader } from '../components/GeneralHeader';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SentryDataCollection, SentryLogger, SentryAutoInstrumentation } from '../services/sentry';
 
 interface MuscleGroup {
   id: number;
@@ -229,7 +231,34 @@ const MuscleMarker = ({ muscle, pulseAnim, onPress }: MuscleMarkerProps) => {
           : {},
         markerStyle as ViewStyle,
       ]}
-      onPress={() => onPress(muscle.name)}
+      onPress={() => {
+        try {
+          SentryDataCollection.addBreadcrumb({
+            message: `Muscle marker clicked: ${muscle.name}`,
+            category: 'user-interaction',
+            level: 'info',
+            data: {
+              component: 'MuscleMarker',
+              action: 'marker_click',
+              muscle_name: muscle.name,
+              muscle_id: muscle.id,
+              muscle_view: muscle.view,
+              is_cardio: isCardio,
+              platform: Platform.OS,
+            },
+          });
+
+          onPress(muscle.name);
+        } catch (error) {
+          SentryDataCollection.captureException(error as Error, {
+            component: 'MuscleMarker',
+            action: 'marker_click_error',
+            muscle_name: muscle.name,
+            platform: Platform.OS,
+          });
+          onPress(muscle.name);
+        }
+      }}
     >
       {isCardio ? (
         <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
@@ -267,7 +296,33 @@ const MuscleText = ({ muscle, onPress }: MuscleTextProps) => (
       muscle.textPosition as ViewStyle,
       muscle.textPosition.right ? styles.textRight : styles.textLeft,
     ]}
-    onPress={() => onPress(muscle.name)}
+    onPress={() => {
+      try {
+        SentryDataCollection.addBreadcrumb({
+          message: `Muscle text clicked: ${muscle.name}`,
+          category: 'user-interaction',
+          level: 'info',
+          data: {
+            component: 'MuscleText',
+            action: 'text_click',
+            muscle_name: muscle.name,
+            muscle_id: muscle.id,
+            muscle_view: muscle.view,
+            platform: Platform.OS,
+          },
+        });
+
+        onPress(muscle.name);
+      } catch (error) {
+        SentryDataCollection.captureException(error as Error, {
+          component: 'MuscleText',
+          action: 'text_click_error',
+          muscle_name: muscle.name,
+          platform: Platform.OS,
+        });
+        onPress(muscle.name);
+      }
+    }}
   >
     <Text style={styles.markerText}>{muscle.name}</Text>
   </TouchableOpacity>
@@ -292,7 +347,35 @@ const ClickableZone = ({ muscle, onPress }: ClickableZoneProps) => (
         zIndex: 5,
       } as ViewStyle,
     ]}
-    onPress={() => onPress(muscle.name)}
+    onPress={() => {
+      try {
+        SentryDataCollection.addBreadcrumb({
+          message: `Muscle clickable zone pressed: ${muscle.name}`,
+          category: 'user-interaction',
+          level: 'info',
+          data: {
+            component: 'ClickableZone',
+            action: 'zone_click',
+            muscle_name: muscle.name,
+            muscle_id: muscle.id,
+            muscle_view: muscle.view,
+            zone_width: calculateClickableZoneWidth(muscle),
+            zone_left: calculateClickableZoneLeft(muscle),
+            platform: Platform.OS,
+          },
+        });
+
+        onPress(muscle.name);
+      } catch (error) {
+        SentryDataCollection.captureException(error as Error, {
+          component: 'ClickableZone',
+          action: 'zone_click_error',
+          muscle_name: muscle.name,
+          platform: Platform.OS,
+        });
+        onPress(muscle.name);
+      }
+    }}
   />
 );
 
@@ -337,6 +420,51 @@ export default function ExercisesScreen() {
   const [showTimer, setShowTimer] = useState(false);
   const SWIPE_THRESHOLD = 50;
   const router = useRouter();
+
+  // Track component mount/unmount
+  useEffect(() => {
+    try {
+      SentryDataCollection.addBreadcrumb({
+        message: 'ExercisesScreen mounted',
+        category: 'ui-lifecycle',
+        level: 'info',
+        data: {
+          component: 'ExercisesScreen',
+          action: 'component_mount',
+          initial_view: currentView,
+          platform: Platform.OS,
+        },
+      });
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'ExercisesScreen',
+        action: 'mount_tracking',
+        platform: Platform.OS,
+      });
+    }
+
+    return () => {
+      try {
+        SentryDataCollection.addBreadcrumb({
+          message: 'ExercisesScreen unmounted',
+          category: 'ui-lifecycle',
+          level: 'info',
+          data: {
+            component: 'ExercisesScreen',
+            action: 'component_unmount',
+            final_view: currentView,
+            platform: Platform.OS,
+          },
+        });
+      } catch (error) {
+        SentryDataCollection.captureException(error as Error, {
+          component: 'ExercisesScreen',
+          action: 'unmount_tracking',
+          platform: Platform.OS,
+        });
+      }
+    };
+  }, [currentView]);
 
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -394,64 +522,292 @@ export default function ExercisesScreen() {
   }, []);
 
   const handleViewChange = (newView: 'front' | 'back') => {
-    if (isTransitioning || newView === currentView) return;
+    try {
+      if (isTransitioning || newView === currentView) {
+        SentryDataCollection.addBreadcrumb({
+          message: 'View change blocked',
+          category: 'user-interaction',
+          level: 'info',
+          data: {
+            component: 'ExercisesScreen',
+            action: 'view_change_blocked',
+            current_view: currentView,
+            requested_view: newView,
+            is_transitioning: isTransitioning,
+            platform: Platform.OS,
+          },
+        });
+        return;
+      }
 
-    setIsTransitioning(true);
-    // Fade out
-    Animated.timing(fadeAnim, {
-      toValue: 0,
-      duration: 150,
-      useNativeDriver: true,
-    }).start(() => {
-      setCurrentView(newView);
-      // Fade in
+      // Track view change
+      SentryAutoInstrumentation.trackUserInteraction(
+        'change_body_view',
+        'view_toggle',
+        'exercises_screen',
+        {
+          from_view: currentView,
+          to_view: newView,
+          platform: Platform.OS,
+        },
+      );
+
+      SentryDataCollection.addBreadcrumb({
+        message: `Body view changed from ${currentView} to ${newView}`,
+        category: 'user-interaction',
+        level: 'info',
+        data: {
+          component: 'ExercisesScreen',
+          action: 'view_change',
+          from_view: currentView,
+          to_view: newView,
+          platform: Platform.OS,
+        },
+      });
+
+      setIsTransitioning(true);
+      // Fade out
       Animated.timing(fadeAnim, {
-        toValue: 1,
+        toValue: 0,
         duration: 150,
         useNativeDriver: true,
       }).start(() => {
-        setIsTransitioning(false);
+        setCurrentView(newView);
+        // Fade in
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 150,
+          useNativeDriver: true,
+        }).start(() => {
+          setIsTransitioning(false);
+        });
       });
-    });
-  };
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'ExercisesScreen',
+        action: 'view_change_error',
+        current_view: currentView,
+        requested_view: newView,
+        platform: Platform.OS,
+      });
 
-  const handleTouchStart = (event: GestureResponderEvent) => {
-    setTouchStart(event.nativeEvent.pageX);
-  };
+      SentryLogger.error('Error in ExercisesScreen view change', {
+        error: error as Error,
+        component: 'ExercisesScreen',
+        current_view: currentView,
+        requested_view: newView,
+      });
 
-  const handleTouchEnd = (event: GestureResponderEvent) => {
-    const swipeLength = event.nativeEvent.pageX - touchStart;
-
-    if (Math.abs(swipeLength) > SWIPE_THRESHOLD) {
-      if (swipeLength > 0 && currentView === 'back') {
-        handleViewChange('front');
-      } else if (swipeLength < 0 && currentView === 'front') {
-        handleViewChange('back');
+      // Still try to change view if tracking fails
+      try {
+        if (!isTransitioning && newView !== currentView) {
+          setIsTransitioning(true);
+          Animated.timing(fadeAnim, {
+            toValue: 0,
+            duration: 150,
+            useNativeDriver: true,
+          }).start(() => {
+            setCurrentView(newView);
+            Animated.timing(fadeAnim, {
+              toValue: 1,
+              duration: 150,
+              useNativeDriver: true,
+            }).start(() => {
+              setIsTransitioning(false);
+            });
+          });
+        }
+      } catch (fallbackError) {
+        SentryDataCollection.captureException(fallbackError as Error, {
+          component: 'ExercisesScreen',
+          action: 'view_change_fallback_error',
+          platform: Platform.OS,
+        });
       }
     }
   };
 
-  const navigateToExercisesList = (muscleGroupName: string) => {
-    // Update to use the new dedicated page for single muscle groups
-    const categoryId = muscleGroupName;
+  const handleTouchStart = (event: GestureResponderEvent) => {
+    try {
+      setTouchStart(event.nativeEvent.pageX);
 
-    router.push({
-      pathname: '/(tabs)/exercises-single-group',
-      params: { categoryId, fromScreen: 'exercises' },
-    });
+      SentryDataCollection.addBreadcrumb({
+        message: 'Touch gesture started on body model',
+        category: 'user-interaction',
+        level: 'debug',
+        data: {
+          component: 'ExercisesScreen',
+          action: 'touch_start',
+          touch_x: event.nativeEvent.pageX,
+          current_view: currentView,
+          platform: Platform.OS,
+        },
+      });
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'ExercisesScreen',
+        action: 'touch_start_error',
+        platform: Platform.OS,
+      });
+    }
+  };
+
+  const handleTouchEnd = (event: GestureResponderEvent) => {
+    try {
+      const swipeLength = event.nativeEvent.pageX - touchStart;
+      const swipeDirection = swipeLength > 0 ? 'right' : 'left';
+      const isSwipe = Math.abs(swipeLength) > SWIPE_THRESHOLD;
+
+      // Track touch gesture completion
+      SentryDataCollection.addBreadcrumb({
+        message: `Touch gesture ended: ${isSwipe ? 'swipe' : 'tap'} ${swipeDirection}`,
+        category: 'user-interaction',
+        level: 'debug',
+        data: {
+          component: 'ExercisesScreen',
+          action: 'touch_end',
+          touch_x: event.nativeEvent.pageX,
+          swipe_length: swipeLength,
+          swipe_direction: swipeDirection,
+          is_swipe: isSwipe,
+          threshold: SWIPE_THRESHOLD,
+          current_view: currentView,
+          platform: Platform.OS,
+        },
+      });
+
+      if (isSwipe) {
+        // Track swipe gesture
+        SentryAutoInstrumentation.trackUserInteraction(
+          'swipe_gesture',
+          'swipe',
+          'exercises_screen',
+          {
+            direction: swipeDirection,
+            swipe_length: swipeLength,
+            current_view: currentView,
+            threshold: SWIPE_THRESHOLD,
+            platform: Platform.OS,
+          },
+        );
+
+        if (swipeLength > 0 && currentView === 'back') {
+          handleViewChange('front');
+        } else if (swipeLength < 0 && currentView === 'front') {
+          handleViewChange('back');
+        }
+      }
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'ExercisesScreen',
+        action: 'touch_end_error',
+        platform: Platform.OS,
+      });
+
+      SentryLogger.error('Error in ExercisesScreen touch handler', {
+        error: error as Error,
+        component: 'ExercisesScreen',
+      });
+    }
+  };
+
+  const navigateToExercisesList = (muscleGroupName: string) => {
+    try {
+      // Track muscle group selection
+      SentryAutoInstrumentation.trackUserInteraction(
+        'select_muscle_group',
+        'muscle_group_click',
+        'exercises_screen',
+        {
+          muscle_group: muscleGroupName,
+          current_view: currentView,
+          platform: Platform.OS,
+        },
+      );
+
+      SentryDataCollection.addBreadcrumb({
+        message: `User selected muscle group: ${muscleGroupName}`,
+        category: 'navigation',
+        level: 'info',
+        data: {
+          component: 'ExercisesScreen',
+          action: 'navigate_to_muscle_group',
+          muscle_group: muscleGroupName,
+          current_view: currentView,
+          platform: Platform.OS,
+        },
+      });
+
+      // Update to use the new dedicated page for single muscle groups
+      const categoryId = muscleGroupName;
+
+      router.push({
+        pathname: '/(tabs)/exercises-single-group',
+        params: { categoryId, fromScreen: 'exercises' },
+      });
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'ExercisesScreen',
+        action: 'navigate_to_muscle_group_error',
+        muscle_group: muscleGroupName,
+        platform: Platform.OS,
+      });
+
+      SentryLogger.error('Error navigating to muscle group exercises', {
+        error: error as Error,
+        component: 'ExercisesScreen',
+        muscle_group: muscleGroupName,
+      });
+    }
   };
 
   const navigateToAllExercises = () => {
-    router.push({
-      pathname: '/(tabs)/exercises-list',
-      params: {
-        showAllCategories: 'true',
-        openSearch: 'true',
-        fromScreen: 'exercises',
-        resetSearch: 'true',
-        groupByMuscle: 'true',
-      },
-    });
+    try {
+      // Track navigation to all exercises
+      SentryAutoInstrumentation.trackUserInteraction(
+        'navigate_to_all_exercises',
+        'search_button',
+        'exercises_screen',
+        {
+          current_view: currentView,
+          platform: Platform.OS,
+        },
+      );
+
+      SentryDataCollection.addBreadcrumb({
+        message: 'User navigated to all exercises list',
+        category: 'navigation',
+        level: 'info',
+        data: {
+          component: 'ExercisesScreen',
+          action: 'navigate_to_all_exercises',
+          current_view: currentView,
+          platform: Platform.OS,
+        },
+      });
+
+      router.push({
+        pathname: '/(tabs)/exercises-list',
+        params: {
+          showAllCategories: 'true',
+          openSearch: 'true',
+          fromScreen: 'exercises',
+          resetSearch: 'true',
+          groupByMuscle: 'true',
+        },
+      });
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'ExercisesScreen',
+        action: 'navigate_to_all_exercises_error',
+        platform: Platform.OS,
+      });
+
+      SentryLogger.error('Error navigating to all exercises', {
+        error: error as Error,
+        component: 'ExercisesScreen',
+      });
+    }
   };
 
   const filteredMuscles = muscleGroups.filter((muscle) => muscle.view === currentView);
@@ -461,9 +817,67 @@ export default function ExercisesScreen() {
   });
 
   const handleScrollEnd = ({ nativeEvent }: { nativeEvent: { contentOffset: { y: number } } }) => {
-    if (nativeEvent.contentOffset.y > 100) {
-      // If scrolled more than 100px, navigate to exercises list
-      navigateToAllExercises();
+    try {
+      const scrollY = nativeEvent.contentOffset.y;
+
+      // Track scroll behavior
+      SentryDataCollection.addBreadcrumb({
+        message: `User scrolled on exercises screen`,
+        category: 'user-interaction',
+        level: 'debug',
+        data: {
+          component: 'ExercisesScreen',
+          action: 'scroll_end',
+          scroll_y: scrollY,
+          scroll_threshold: 100,
+          will_navigate: scrollY > 100,
+          current_view: currentView,
+          platform: Platform.OS,
+        },
+      });
+
+      if (scrollY > 100) {
+        // Track scroll navigation trigger
+        SentryAutoInstrumentation.trackUserInteraction(
+          'scroll_to_exercises',
+          'scroll_navigation',
+          'exercises_screen',
+          {
+            scroll_distance: scrollY,
+            threshold: 100,
+            current_view: currentView,
+            platform: Platform.OS,
+          },
+        );
+
+        SentryDataCollection.addBreadcrumb({
+          message: 'User triggered navigation via scroll',
+          category: 'navigation',
+          level: 'info',
+          data: {
+            component: 'ExercisesScreen',
+            action: 'scroll_triggered_navigation',
+            scroll_distance: scrollY,
+            threshold: 100,
+            current_view: currentView,
+            platform: Platform.OS,
+          },
+        });
+
+        // If scrolled more than 100px, navigate to exercises list
+        navigateToAllExercises();
+      }
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'ExercisesScreen',
+        action: 'scroll_handler_error',
+        platform: Platform.OS,
+      });
+
+      SentryLogger.error('Error in ExercisesScreen scroll handler', {
+        error: error as Error,
+        component: 'ExercisesScreen',
+      });
     }
   };
 
@@ -503,10 +917,78 @@ export default function ExercisesScreen() {
           animationType="slide"
           transparent={true}
           visible={showTimer}
-          onRequestClose={() => setShowTimer(false)}
+          onRequestClose={() => {
+            try {
+              SentryAutoInstrumentation.trackUserInteraction(
+                'close_timer_modal',
+                'modal_close',
+                'exercises_screen',
+                {
+                  current_view: currentView,
+                  platform: Platform.OS,
+                },
+              );
+
+              SentryDataCollection.addBreadcrumb({
+                message: 'Timer modal closed via system back button',
+                category: 'user-interaction',
+                level: 'info',
+                data: {
+                  component: 'ExercisesScreen',
+                  action: 'timer_modal_system_close',
+                  current_view: currentView,
+                  platform: Platform.OS,
+                },
+              });
+
+              setShowTimer(false);
+            } catch (error) {
+              SentryDataCollection.captureException(error as Error, {
+                component: 'ExercisesScreen',
+                action: 'timer_modal_close_error',
+                platform: Platform.OS,
+              });
+              setShowTimer(false);
+            }
+          }}
         >
           <View style={styles.modalContainer}>
-            <Timer onClose={() => setShowTimer(false)} />
+            <Timer
+              onClose={() => {
+                try {
+                  SentryAutoInstrumentation.trackUserInteraction(
+                    'close_timer_modal',
+                    'timer_close_button',
+                    'exercises_screen',
+                    {
+                      current_view: currentView,
+                      platform: Platform.OS,
+                    },
+                  );
+
+                  SentryDataCollection.addBreadcrumb({
+                    message: 'Timer modal closed via close button',
+                    category: 'user-interaction',
+                    level: 'info',
+                    data: {
+                      component: 'ExercisesScreen',
+                      action: 'timer_modal_close_button',
+                      current_view: currentView,
+                      platform: Platform.OS,
+                    },
+                  });
+
+                  setShowTimer(false);
+                } catch (error) {
+                  SentryDataCollection.captureException(error as Error, {
+                    component: 'ExercisesScreen',
+                    action: 'timer_close_button_error',
+                    platform: Platform.OS,
+                  });
+                  setShowTimer(false);
+                }
+              }}
+            />
           </View>
         </Modal>
 
@@ -536,7 +1018,28 @@ export default function ExercisesScreen() {
                     resizeMode: 'contain',
                   }}
                   onLoad={() => {
-                    setIsImageLoaded(true);
+                    try {
+                      setIsImageLoaded(true);
+
+                      SentryDataCollection.addBreadcrumb({
+                        message: 'Front body model image loaded',
+                        category: 'ui-lifecycle',
+                        level: 'info',
+                        data: {
+                          component: 'ExercisesScreen',
+                          action: 'front_image_loaded',
+                          current_view: currentView,
+                          platform: Platform.OS,
+                        },
+                      });
+                    } catch (error) {
+                      SentryDataCollection.captureException(error as Error, {
+                        component: 'ExercisesScreen',
+                        action: 'front_image_load_tracking_error',
+                        platform: Platform.OS,
+                      });
+                      setIsImageLoaded(true);
+                    }
                   }}
                 />
 
@@ -551,7 +1054,28 @@ export default function ExercisesScreen() {
                     resizeMode: 'contain',
                   }}
                   onLoad={() => {
-                    setIsImageLoaded(true);
+                    try {
+                      setIsImageLoaded(true);
+
+                      SentryDataCollection.addBreadcrumb({
+                        message: 'Back body model image loaded',
+                        category: 'ui-lifecycle',
+                        level: 'info',
+                        data: {
+                          component: 'ExercisesScreen',
+                          action: 'back_image_loaded',
+                          current_view: currentView,
+                          platform: Platform.OS,
+                        },
+                      });
+                    } catch (error) {
+                      SentryDataCollection.captureException(error as Error, {
+                        component: 'ExercisesScreen',
+                        action: 'back_image_load_tracking_error',
+                        platform: Platform.OS,
+                      });
+                      setIsImageLoaded(true);
+                    }
                   }}
                 />
               </View>
@@ -562,7 +1086,40 @@ export default function ExercisesScreen() {
                 iconColor="white"
                 size={38}
                 style={styles.timerIcon}
-                onPress={() => setShowTimer(true)}
+                onPress={() => {
+                  try {
+                    SentryAutoInstrumentation.trackUserInteraction(
+                      'open_timer_modal',
+                      'timer_button',
+                      'exercises_screen',
+                      {
+                        current_view: currentView,
+                        platform: Platform.OS,
+                      },
+                    );
+
+                    SentryDataCollection.addBreadcrumb({
+                      message: 'Timer modal opened from exercises screen',
+                      category: 'user-interaction',
+                      level: 'info',
+                      data: {
+                        component: 'ExercisesScreen',
+                        action: 'timer_modal_open',
+                        current_view: currentView,
+                        platform: Platform.OS,
+                      },
+                    });
+
+                    setShowTimer(true);
+                  } catch (error) {
+                    SentryDataCollection.captureException(error as Error, {
+                      component: 'ExercisesScreen',
+                      action: 'timer_modal_open_error',
+                      platform: Platform.OS,
+                    });
+                    setShowTimer(true);
+                  }
+                }}
               />
 
               {/* Muscle Group Markers */}

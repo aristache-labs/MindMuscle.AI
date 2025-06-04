@@ -22,7 +22,7 @@ const getCategoryColor = (category: string): string => {
       return '#FFB74D'; // Orange
     case 'CHEST':
       return '#64B5F6'; // Light Blue
-    case 'SHLDRS':
+    case 'SHOULDERS':
       return '#BA68C8'; // Purple
     case 'THIGH':
       return '#4DB6AC'; // Teal

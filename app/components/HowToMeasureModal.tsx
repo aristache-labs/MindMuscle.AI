@@ -62,7 +62,7 @@ const MEASUREMENT_INSTRUCTIONS: MeasurementInstruction[] = [
     icon: STATIC_IMAGES.measurements.abs,
   },
   {
-    category: 'SHLDRS',
+    category: 'SHOULDERS',
     title: 'Shoulders',
     instruction:
       'Measure across the widest part of your shoulders, from one end to the other. Keep the tape straight and level across your back.',

@@ -23,7 +23,7 @@ export const MEASUREMENT_CATEGORIES = {
   ABS: 'ABS',
   WAIST: 'WAIST',
   CHEST: 'CHEST',
-  SHLDRS: 'SHLDRS',
+  SHOULDERS: 'SHOULDERS',
   THIGH: 'THIGH',
   CALF: 'CALF',
 } as const;

@@ -36,6 +36,12 @@ import Animated, {
 import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import { useDebounce } from '../hooks/useDebounce';
 import supabase from '../services/supabase';
+import {
+  addBreadcrumb,
+  captureError,
+  captureMessage,
+  captureUIError,
+} from '../services/sentry/simpleErrorHandler';
 import ExerciseInstructions from './ExerciseInstructions';
 import MuscleDiagram from './MuscleDiagram';
 import MuscleTags from './MuscleTags';
@@ -52,6 +58,11 @@ const svgCache = {
 // Safely load an SVG asset
 const safeLoadSvg = async (assetType: 'front' | 'back'): Promise<string | null> => {
   try {
+    addBreadcrumb(`Starting SVG load for ${assetType}`, 'svg.load', {
+      assetType,
+      timestamp: new Date().toISOString(),
+    });
+
     // Use static requires to avoid dynamic require errors
     let assetModule;
     if (assetType === 'front') {
@@ -59,21 +70,41 @@ const safeLoadSvg = async (assetType: 'front' | 'back'): Promise<string | null> 
     } else if (assetType === 'back') {
       assetModule = require('../../assets/exercises/body_back.svg');
     } else {
-      console.warn(`Unsupported SVG asset type: ${assetType}`);
+      captureMessage(`Unsupported SVG asset type: ${assetType}`, 'warning', {
+        category: 'ui_error',
+        component: 'ExerciseDetailsModal',
+        action: 'safeLoadSvg',
+        assetType,
+      });
       return null;
     }
 
-    if (!assetModule) return null;
+    if (!assetModule) {
+      addBreadcrumb(`No asset module found for ${assetType}`, 'svg.error');
+      return null;
+    }
 
     const asset = Asset.fromModule(assetModule);
     await asset.downloadAsync();
 
     if (asset.localUri) {
-      return await FileSystem.readAsStringAsync(asset.localUri);
+      const svgContent = await FileSystem.readAsStringAsync(asset.localUri);
+      addBreadcrumb(`SVG loaded successfully for ${assetType}`, 'svg.success', {
+        assetType,
+        contentLength: svgContent.length,
+      });
+      return svgContent;
     }
+
+    addBreadcrumb(`No localUri found for ${assetType} asset`, 'svg.error');
     return null;
   } catch (error) {
-    console.warn(`Failed to load SVG: ${assetType}`, error);
+    captureError(error as Error, {
+      category: 'ui_error',
+      component: 'ExerciseDetailsModal',
+      action: 'safeLoadSvg',
+      assetType,
+    });
     return null;
   }
 };
@@ -81,6 +112,10 @@ const safeLoadSvg = async (assetType: 'front' | 'back'): Promise<string | null> 
 // Initialize SVG cache asynchronously
 (async () => {
   try {
+    addBreadcrumb('Initializing SVG cache', 'svg.cache', {
+      timestamp: new Date().toISOString(),
+    });
+
     // Only load if not already cached
     if (!svgCache.frontBody) {
       svgCache.frontBody = await safeLoadSvg('front');
@@ -89,8 +124,17 @@ const safeLoadSvg = async (assetType: 'front' | 'back'): Promise<string | null> 
     if (!svgCache.backBody) {
       svgCache.backBody = await safeLoadSvg('back');
     }
+
+    addBreadcrumb('SVG cache initialization completed', 'svg.cache', {
+      frontBodyLoaded: !!svgCache.frontBody,
+      backBodyLoaded: !!svgCache.backBody,
+    });
   } catch (error) {
-    console.warn('Error initializing SVG cache:', error);
+    captureError(error as Error, {
+      category: 'ui_error',
+      component: 'ExerciseDetailsModal',
+      action: 'initializeSvgCache',
+    });
     // Silent fail - we'll handle this in the component
   }
 })();
@@ -113,11 +157,13 @@ const useModalAnimation = (visible: boolean, onClose: () => void) => {
 
   const handleInternalClose = () => {
     try {
+      addBreadcrumb('Modal closing initiated', 'modal.close');
       setInternalVisible(false);
       isClosing.current = false;
       onClose();
+      addBreadcrumb('Modal closed successfully', 'modal.close');
     } catch (error) {
-      console.error('Error closing modal:', error);
+      captureUIError(error as Error, 'ExerciseDetailsModal', 'handleInternalClose');
       // Ensure we still clean up state even if onClose fails
       setInternalVisible(false);
       isClosing.current = false;
@@ -154,7 +200,7 @@ const useModalAnimation = (visible: boolean, onClose: () => void) => {
       isClosing.current = false;
       translateY.value = height;
 
-      // Use requestAnimationFrame instead of setTimeout for better performance
+      // Use setTimeout with minimal delay for better compatibility
       const animateIn = () => {
         translateY.value = withTiming(0, {
           duration: 400,
@@ -162,7 +208,8 @@ const useModalAnimation = (visible: boolean, onClose: () => void) => {
         });
       };
 
-      requestAnimationFrame(animateIn);
+      // Use setTimeout instead of requestAnimationFrame for React Native compatibility
+      setTimeout(animateIn, 0);
     } else if (!visible && !isClosing.current) {
       // If visible becomes false externally, just hide immediately
       setInternalVisible(false);
@@ -197,6 +244,12 @@ const useExerciseData = (
 
   const fetchExerciseData = async (exerciseId: string) => {
     try {
+      addBreadcrumb('Fetching exercise data', 'exercise.fetch', {
+        exerciseId,
+        hasPrimaryMuscles: !!primary_muscles?.length,
+        hasSecondaryMuscles: !!secondary_muscles?.length,
+      });
+
       setLoading(true);
       const { data, error } = await supabase
         .from('exercises')
@@ -204,7 +257,16 @@ const useExerciseData = (
         .eq('id', exerciseId)
         .maybeSingle();
 
-      if (error) return;
+      if (error) {
+        captureError(new Error(`Supabase error: ${error.message}`), {
+          category: 'database_error',
+          component: 'ExerciseDetailsModal',
+          action: 'fetchExerciseData',
+          exerciseId,
+          errorCode: error.code,
+        });
+        return;
+      }
 
       if (data) {
         const exerciseInfo = {
@@ -223,15 +285,27 @@ const useExerciseData = (
                 : [],
         };
         setExerciseData(exerciseInfo);
+        addBreadcrumb('Exercise data loaded successfully', 'exercise.fetch', {
+          exerciseId,
+          hasInstructions: !!exerciseInfo.instructions,
+          primaryMuscleCount: exerciseInfo.primaryMuscles.length,
+          secondaryMuscleCount: exerciseInfo.secondaryMuscles.length,
+        });
       } else {
         setExerciseData({
           instructions: 'No instructions available for this exercise.',
           primaryMuscles: [],
           secondaryMuscles: [],
         });
+        addBreadcrumb('No exercise data found', 'exercise.fetch', { exerciseId });
       }
     } catch (error) {
-      console.error('Error fetching exercise details:', error);
+      captureError(error as Error, {
+        category: 'database_error',
+        component: 'ExerciseDetailsModal',
+        action: 'fetchExerciseData',
+        exerciseId,
+      });
     } finally {
       setLoading(false);
     }
@@ -255,6 +329,8 @@ const useExerciseNotes = (exerciseId: string, visible: boolean) => {
 
   const fetchExerciseNotes = async (exerciseId: string) => {
     try {
+      addBreadcrumb('Fetching exercise notes', 'exercise.notes.fetch', { exerciseId });
+
       const { data, error } = await supabase
         .from('exercise_notes')
         .select('note_content')
@@ -262,13 +338,30 @@ const useExerciseNotes = (exerciseId: string, visible: boolean) => {
         .maybeSingle();
 
       if (error) {
-        console.warn('Failed to fetch exercise notes:', error);
+        captureError(new Error(`Failed to fetch exercise notes: ${error.message}`), {
+          category: 'database_error',
+          component: 'ExerciseDetailsModal',
+          action: 'fetchExerciseNotes',
+          exerciseId,
+          errorCode: error.code,
+        });
         return;
       }
 
-      setNotes(data?.note_content || '');
+      const noteContent = data?.note_content || '';
+      setNotes(noteContent);
+      addBreadcrumb('Exercise notes loaded', 'exercise.notes.fetch', {
+        exerciseId,
+        hasNotes: !!noteContent,
+        noteLength: noteContent.length,
+      });
     } catch (error) {
-      console.warn('Failed to fetch exercise notes:', error);
+      captureError(error as Error, {
+        category: 'database_error',
+        component: 'ExerciseDetailsModal',
+        action: 'fetchExerciseNotes',
+        exerciseId,
+      });
     }
   };
 
@@ -277,13 +370,27 @@ const useExerciseNotes = (exerciseId: string, visible: boolean) => {
     setSaveError(null);
 
     try {
+      addBreadcrumb('Saving exercise notes', 'exercise.notes.save', {
+        exerciseId,
+        noteLength: noteContent.length,
+        isEmpty: !noteContent.trim(),
+      });
+
       const {
         data: { user },
         error: userError,
       } = await supabase.auth.getUser();
 
       if (userError || !user) {
-        setSaveError('Failed to authenticate user');
+        const errorMessage = 'Failed to authenticate user';
+        setSaveError(errorMessage);
+        captureError(new Error(errorMessage), {
+          category: 'auth_error',
+          component: 'ExerciseDetailsModal',
+          action: 'saveExerciseNotes',
+          exerciseId,
+          userError: userError?.message,
+        });
         return;
       }
 
@@ -296,7 +403,21 @@ const useExerciseNotes = (exerciseId: string, visible: boolean) => {
           .eq('exercise_id', exerciseId);
 
         if (error) {
-          setSaveError('Failed to delete notes');
+          const errorMessage = 'Failed to delete notes';
+          setSaveError(errorMessage);
+          captureError(new Error(`${errorMessage}: ${error.message}`), {
+            category: 'database_error',
+            component: 'ExerciseDetailsModal',
+            action: 'deleteExerciseNotes',
+            exerciseId,
+            userId: user.id,
+            errorCode: error.code,
+          });
+        } else {
+          addBreadcrumb('Exercise notes deleted successfully', 'exercise.notes.save', {
+            exerciseId,
+            userId: user.id,
+          });
         }
       } else {
         // Upsert the note content
@@ -313,12 +434,35 @@ const useExerciseNotes = (exerciseId: string, visible: boolean) => {
         );
 
         if (error) {
-          setSaveError('Failed to save notes');
+          const errorMessage = 'Failed to save notes';
+          setSaveError(errorMessage);
+          captureError(new Error(`${errorMessage}: ${error.message}`), {
+            category: 'database_error',
+            component: 'ExerciseDetailsModal',
+            action: 'upsertExerciseNotes',
+            exerciseId,
+            userId: user.id,
+            errorCode: error.code,
+            noteLength: noteContent.length,
+          });
+        } else {
+          addBreadcrumb('Exercise notes saved successfully', 'exercise.notes.save', {
+            exerciseId,
+            userId: user.id,
+            noteLength: noteContent.length,
+          });
         }
       }
     } catch (error) {
-      console.warn('Failed to save exercise notes:', error);
-      setSaveError('Failed to save notes');
+      const errorMessage = 'Failed to save notes';
+      setSaveError(errorMessage);
+      captureError(error as Error, {
+        category: 'database_error',
+        component: 'ExerciseDetailsModal',
+        action: 'saveExerciseNotes',
+        exerciseId,
+        noteLength: noteContent.length,
+      });
     } finally {
       setIsSaving(false);
     }
@@ -347,14 +491,24 @@ const useSvgAssets = (visible: boolean) => {
   useEffect(() => {
     const loadSvgs = async () => {
       try {
+        addBreadcrumb('Loading SVGs in component', 'svg.component.load', {
+          visible,
+          hasFrontSvg: !!frontBodySvg,
+          hasBackSvg: !!backBodySvg,
+          frontCached: !!svgCache.frontBody,
+          backCached: !!svgCache.backBody,
+        });
+
         if (!frontBodySvg && !svgCache.frontBody) {
           const content = await safeLoadSvg('front');
           if (content) {
             setFrontBodySvg(content);
             svgCache.frontBody = content;
+            addBreadcrumb('Front SVG loaded and cached', 'svg.component.load');
           }
         } else if (!frontBodySvg && svgCache.frontBody) {
           setFrontBodySvg(svgCache.frontBody);
+          addBreadcrumb('Front SVG loaded from cache', 'svg.component.load');
         }
 
         if (!backBodySvg && !svgCache.backBody) {
@@ -362,12 +516,18 @@ const useSvgAssets = (visible: boolean) => {
           if (content) {
             setBackBodySvg(content);
             svgCache.backBody = content;
+            addBreadcrumb('Back SVG loaded and cached', 'svg.component.load');
           }
         } else if (!backBodySvg && svgCache.backBody) {
           setBackBodySvg(svgCache.backBody);
+          addBreadcrumb('Back SVG loaded from cache', 'svg.component.load');
         }
       } catch (error) {
-        console.warn('Error loading SVGs in component:', error);
+        captureError(error as Error, {
+          category: 'ui_error',
+          component: 'ExerciseDetailsModal',
+          action: 'loadSvgsInComponent',
+        });
       }
     };
 
@@ -393,6 +553,9 @@ const useSectionSwipe = () => {
   const gestureHandler = useAnimatedGestureHandler({
     onStart: (_, ctx: { startX: number }) => {
       ctx.startX = translateX.value;
+      runOnJS(addBreadcrumb)('Section swipe gesture started', 'gesture.swipe', {
+        startPosition: translateX.value,
+      });
     },
     onActive: (event, ctx) => {
       const absX = Math.abs(event.translationX);
@@ -416,9 +579,17 @@ const useSectionSwipe = () => {
         ) {
           translateX.value = withTiming(-sectionWidth, { duration: 300 });
           runOnJS(setActiveSection)('instructions');
+          runOnJS(addBreadcrumb)('Swiped to instructions section', 'gesture.swipe', {
+            direction: 'left',
+            velocityX: event.velocityX,
+          });
         } else {
           translateX.value = withTiming(0, { duration: 300 });
           runOnJS(setActiveSection)('muscles');
+          runOnJS(addBreadcrumb)('Swiped to muscles section', 'gesture.swipe', {
+            direction: 'right',
+            velocityX: event.velocityX,
+          });
         }
       }
     },
@@ -661,6 +832,27 @@ export default function ExerciseDetailsModal({
   primary_muscles,
   secondary_muscles,
 }: ExerciseDetailsModalProps) {
+  // Track component lifecycle
+  useEffect(() => {
+    if (visible) {
+      addBreadcrumb('ExerciseDetailsModal opened', 'modal.lifecycle', {
+        exerciseId,
+        exerciseName,
+        hasImage: !!exerciseImage,
+        primaryMuscleCount: primary_muscles?.length || 0,
+        secondaryMuscleCount: secondary_muscles?.length || 0,
+      });
+    }
+
+    return () => {
+      if (visible) {
+        addBreadcrumb('ExerciseDetailsModal closed', 'modal.lifecycle', {
+          exerciseId,
+        });
+      }
+    };
+  }, [visible, exerciseId, exerciseName, exerciseImage, primary_muscles, secondary_muscles]);
+
   const { internalVisible, handleClose, animatedModalStyle, isClosing } = useModalAnimation(
     visible,
     onClose,
@@ -716,16 +908,23 @@ export default function ExerciseDetailsModal({
 
   useEffect(() => {
     const handleBackButtonPress = () => {
-      if (visible && !isClosing) {
-        if (textInputRef.current && Keyboard.isVisible()) {
-          textInputRef.current.blur();
-          return true;
-        } else {
-          handleClose();
-          return true;
+      try {
+        if (visible && !isClosing) {
+          if (textInputRef.current && Keyboard.isVisible()) {
+            addBreadcrumb('Back button pressed - dismissing keyboard', 'modal.backButton');
+            textInputRef.current.blur();
+            return true;
+          } else {
+            addBreadcrumb('Back button pressed - closing modal', 'modal.backButton');
+            handleClose();
+            return true;
+          }
         }
+        return false;
+      } catch (error) {
+        captureUIError(error as Error, 'ExerciseDetailsModal', 'handleBackButtonPress');
+        return false;
       }
-      return false;
     };
 
     const backHandler = BackHandler.addEventListener('hardwareBackPress', handleBackButtonPress);

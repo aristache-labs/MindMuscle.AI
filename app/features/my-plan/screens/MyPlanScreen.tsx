@@ -846,7 +846,6 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
         pausedWorkoutDays={pausedWorkoutDays}
         embedded={embedded}
         initialSelectedDate={selectedDate}
-        _cycleProgress={cycleProgress}
       />
 
       {/* Scrollable Content */}

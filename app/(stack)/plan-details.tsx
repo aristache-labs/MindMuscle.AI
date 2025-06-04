@@ -200,7 +200,7 @@ export default function PlanDetailsScreen() {
         params,
       });
     }
-  }, [planId, user, params]);
+  }, [planId, user?.id]);
 
   const handleBackPress = () => {
     try {

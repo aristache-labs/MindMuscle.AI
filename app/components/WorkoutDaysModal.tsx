@@ -18,6 +18,7 @@ import supabase from '../services/supabase';
 import { validationService } from '../services/validationService';
 import { useAuth } from '../store/AuthContext';
 import { logger } from '../utils/logger';
+import { SentryDataCollection, SentryLogger, SentryAutoInstrumentation } from '../services/sentry';
 
 interface Props {
   visible: boolean;
@@ -42,6 +43,31 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
   const [isSaving, setIsSaving] = useState(false);
   const [validationError, setValidationError] = useState<string>('');
   const modalAnim = useRef(new Animated.Value(Dimensions.get('window').height)).current;
+
+  // Track component mount/unmount
+  React.useEffect(() => {
+    if (visible) {
+      try {
+        SentryDataCollection.addBreadcrumb({
+          message: 'WorkoutDaysModal opened',
+          category: 'ui-lifecycle',
+          level: 'info',
+          data: {
+            component: 'WorkoutDaysModal',
+            action: 'modal_open',
+            user_id: user?.id,
+            platform: Platform.OS,
+          },
+        });
+      } catch (error) {
+        SentryDataCollection.captureException(error as Error, {
+          component: 'WorkoutDaysModal',
+          action: 'modal_open_tracking',
+          platform: Platform.OS,
+        });
+      }
+    }
+  }, [visible, user?.id]);
 
   // Create pan responder for drag-to-dismiss
   const panResponder = useRef(
@@ -97,40 +123,169 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
 
   // Validate workout days selection
   const validateWorkoutDays = (daysToValidate: number[]) => {
-    if (!user?.id) {
-      setValidationError('User not authenticated');
-      return false;
-    }
+    try {
+      if (!user?.id) {
+        const errorMessage = 'User not authenticated';
+        setValidationError(errorMessage);
 
-    const validationData = {
-      userId: user.id,
-      workoutDays: daysToValidate,
-    };
+        // Track authentication error
+        SentryDataCollection.addBreadcrumb({
+          message: 'Workout days validation failed: User not authenticated',
+          category: 'validation.error',
+          level: 'warning',
+          data: {
+            component: 'WorkoutDaysModal',
+            action: 'validation_auth_error',
+            attempted_days_count: daysToValidate.length,
+            platform: Platform.OS,
+          },
+        });
 
-    const validationResult = validationService.validateWorkoutDaysPreference(validationData);
+        return false;
+      }
 
-    if (!validationResult.success) {
-      const errorMessage = validationResult.errors.map((e) => e.message).join(', ');
-      setValidationError(errorMessage);
-      logger.warn('Workout days validation failed', {
-        context: { validationData, errors: validationResult.errors },
+      const validationData = {
+        userId: user.id,
+        workoutDays: daysToValidate,
+      };
+
+      const validationResult = validationService.validateWorkoutDaysPreference(validationData);
+
+      if (!validationResult.success) {
+        const errorMessage = validationResult.errors.map((e) => e.message).join(', ');
+        setValidationError(errorMessage);
+
+        // Track validation failure
+        SentryDataCollection.addBreadcrumb({
+          message: 'Workout days validation failed',
+          category: 'validation.error',
+          level: 'warning',
+          data: {
+            component: 'WorkoutDaysModal',
+            action: 'validation_failed',
+            user_id: user.id,
+            attempted_days: daysToValidate,
+            validation_errors: validationResult.errors,
+            platform: Platform.OS,
+          },
+        });
+
+        logger.warn('Workout days validation failed', {
+          context: { validationData, errors: validationResult.errors },
+        });
+        return false;
+      }
+
+      // Track successful validation
+      SentryDataCollection.addBreadcrumb({
+        message: 'Workout days validation successful',
+        category: 'validation.success',
+        level: 'info',
+        data: {
+          component: 'WorkoutDaysModal',
+          action: 'validation_success',
+          user_id: user.id,
+          validated_days: daysToValidate,
+          days_count: daysToValidate.length,
+          platform: Platform.OS,
+        },
       });
+
+      setValidationError('');
+      return true;
+    } catch (error) {
+      const errorMessage = 'Validation error occurred';
+      setValidationError(errorMessage);
+
+      SentryDataCollection.captureException(error as Error, {
+        component: 'WorkoutDaysModal',
+        action: 'validation_exception',
+        user_id: user?.id,
+        attempted_days: daysToValidate,
+        platform: Platform.OS,
+      });
+
+      SentryLogger.error('Error in WorkoutDaysModal validation', {
+        error: error as Error,
+        component: 'WorkoutDaysModal',
+        user_id: user?.id,
+        attempted_days: daysToValidate,
+      });
+
       return false;
     }
-
-    setValidationError('');
-    return true;
   };
 
   // Handle closing with animation
   const handleClose = () => {
-    Animated.timing(modalAnim, {
-      toValue: Dimensions.get('window').height,
-      duration: 300,
-      useNativeDriver: true,
-    }).start(() => {
-      onClose();
-    });
+    try {
+      // Track modal close
+      SentryAutoInstrumentation.trackUserInteraction(
+        'close_modal',
+        'close_button',
+        'workout_days_modal',
+        {
+          current_workout_days: workoutDays,
+          days_count: workoutDays.length,
+          user_id: user?.id,
+          platform: Platform.OS,
+        },
+      );
+
+      SentryDataCollection.addBreadcrumb({
+        message: 'User closed WorkoutDaysModal',
+        category: 'user-interaction',
+        level: 'info',
+        data: {
+          component: 'WorkoutDaysModal',
+          action: 'modal_close',
+          current_workout_days: workoutDays,
+          days_count: workoutDays.length,
+          user_id: user?.id,
+          platform: Platform.OS,
+        },
+      });
+
+      Animated.timing(modalAnim, {
+        toValue: Dimensions.get('window').height,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => {
+        onClose();
+      });
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'WorkoutDaysModal',
+        action: 'close_handler',
+        user_id: user?.id,
+        platform: Platform.OS,
+      });
+
+      SentryLogger.error('Error in WorkoutDaysModal close handler', {
+        error: error as Error,
+        component: 'WorkoutDaysModal',
+        user_id: user?.id,
+      });
+
+      // Still try to close the modal even if tracking fails
+      try {
+        Animated.timing(modalAnim, {
+          toValue: Dimensions.get('window').height,
+          duration: 300,
+          useNativeDriver: true,
+        }).start(() => {
+          onClose();
+        });
+      } catch (closeError) {
+        SentryDataCollection.captureException(closeError as Error, {
+          component: 'WorkoutDaysModal',
+          action: 'close_execution',
+          platform: Platform.OS,
+        });
+        // Fallback direct close
+        onClose();
+      }
+    }
   };
 
   // Convert legacy string array to numeric array
@@ -187,7 +342,7 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
 
         // Update database with new format
         if (convertedDays.length > 0) {
-          await saveWorkoutDays(convertedDays, false);
+          await saveWorkoutDays(convertedDays);
         }
         return convertedDays;
       }
@@ -214,7 +369,7 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
         logger.info('Converting numeric workout days from 1-7 to 0-6 range', {
           context: { oldFormat: data.workout_days, newFormat: numericDays },
         });
-        await saveWorkoutDays(numericDays, false);
+        await saveWorkoutDays(numericDays);
       }
 
       return numericDays.sort((a: number, b: number) => a - b);
@@ -236,7 +391,7 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
 
         // If user is logged in, sync to database
         if (user?.id && parsedDays.length > 0) {
-          await saveWorkoutDays(parsedDays, false);
+          await saveWorkoutDays(parsedDays);
         }
         return parsedDays;
       }
@@ -252,7 +407,7 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
 
         // If user is logged in, sync to database
         if (user?.id && numericDays.length > 0) {
-          await saveWorkoutDays(numericDays, false);
+          await saveWorkoutDays(numericDays);
         }
         return numericDays;
       }
@@ -267,12 +422,40 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
   // Load saved workout days from Supabase and AsyncStorage
   const loadWorkoutDays = async () => {
     try {
+      // Track load attempt
+      SentryDataCollection.addBreadcrumb({
+        message: 'Loading workout days',
+        category: 'data.load',
+        level: 'info',
+        data: {
+          component: 'WorkoutDaysModal',
+          action: 'load_workout_days_start',
+          user_id: user?.id,
+          platform: Platform.OS,
+        },
+      });
+
       // First try to get from Supabase (source of truth)
       const supabaseDays = await loadFromSupabase();
       if (supabaseDays !== null) {
         setWorkoutDays(supabaseDays);
         // Update AsyncStorage to keep in sync
         await AsyncStorage.setItem('workout-days-numeric', JSON.stringify(supabaseDays));
+
+        // Track successful Supabase load
+        SentryDataCollection.addBreadcrumb({
+          message: 'Workout days loaded from Supabase',
+          category: 'data.load',
+          level: 'info',
+          data: {
+            component: 'WorkoutDaysModal',
+            action: 'load_supabase_success',
+            user_id: user?.id,
+            days_count: supabaseDays.length,
+            loaded_days: supabaseDays,
+            platform: Platform.OS,
+          },
+        });
         return;
       }
 
@@ -280,20 +463,63 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
       const asyncStorageDays = await loadFromAsyncStorage();
       if (asyncStorageDays !== null) {
         setWorkoutDays(asyncStorageDays);
+
+        // Track AsyncStorage fallback
+        SentryDataCollection.addBreadcrumb({
+          message: 'Workout days loaded from AsyncStorage',
+          category: 'data.load',
+          level: 'info',
+          data: {
+            component: 'WorkoutDaysModal',
+            action: 'load_async_storage_success',
+            user_id: user?.id,
+            days_count: asyncStorageDays.length,
+            loaded_days: asyncStorageDays,
+            platform: Platform.OS,
+          },
+        });
         return;
       }
 
       // No saved data found, initialize with empty array
       setWorkoutDays([]);
+
+      // Track empty initialization
+      SentryDataCollection.addBreadcrumb({
+        message: 'No workout days found, initialized with empty array',
+        category: 'data.load',
+        level: 'info',
+        data: {
+          component: 'WorkoutDaysModal',
+          action: 'load_empty_initialization',
+          user_id: user?.id,
+          platform: Platform.OS,
+        },
+      });
     } catch (error) {
       console.error('Failed to load workout days:', error);
+
+      // Track load error
+      SentryDataCollection.captureException(error as Error, {
+        component: 'WorkoutDaysModal',
+        action: 'load_workout_days_error',
+        user_id: user?.id,
+        platform: Platform.OS,
+      });
+
+      SentryLogger.error('Failed to load workout days in WorkoutDaysModal', {
+        error: error as Error,
+        component: 'WorkoutDaysModal',
+        user_id: user?.id,
+      });
+
       // Initialize with empty array on error
       setWorkoutDays([]);
     }
   };
 
   // Save workout days to both Supabase and AsyncStorage
-  const saveWorkoutDays = async (daysToSave: number[], _updateState: boolean = true) => {
+  const saveWorkoutDays = async (daysToSave: number[]) => {
     try {
       setIsSaving(true);
 
@@ -334,20 +560,94 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
 
   // Toggle a workout day and save immediately
   const toggleWorkoutDay = async (day: string) => {
-    const dayNumber = DAY_MAPPING[day as keyof typeof DAY_MAPPING];
-    if (dayNumber === undefined) return;
+    try {
+      const dayNumber = DAY_MAPPING[day as keyof typeof DAY_MAPPING];
+      if (dayNumber === undefined) {
+        SentryLogger.warn('Invalid day provided to toggleWorkoutDay', {
+          component: 'WorkoutDaysModal',
+          invalid_day: day,
+          user_id: user?.id,
+        });
+        return;
+      }
 
-    const updatedDays = workoutDays.includes(dayNumber)
-      ? workoutDays.filter((d) => d !== dayNumber)
-      : [...workoutDays, dayNumber].sort((a, b) => a - b);
+      const previousDays = [...workoutDays];
+      const isAdding = !workoutDays.includes(dayNumber);
+      const updatedDays = isAdding
+        ? [...workoutDays, dayNumber].sort((a, b) => a - b)
+        : workoutDays.filter((d) => d !== dayNumber);
 
-    // Validate the updated workout days before saving
-    if (!validateWorkoutDays(updatedDays)) {
-      return; // Don't update if validation fails
+      // Track toggle attempt
+      SentryAutoInstrumentation.trackUserInteraction(
+        'toggle_workout_day',
+        'day_switch',
+        'workout_days_modal',
+        {
+          day: day,
+          day_number: dayNumber,
+          action: isAdding ? 'add' : 'remove',
+          previous_days: previousDays,
+          updated_days: updatedDays,
+          user_id: user?.id,
+          platform: Platform.OS,
+        },
+      );
+
+      // Validate the updated workout days before saving
+      if (!validateWorkoutDays(updatedDays)) {
+        // Track validation failure
+        SentryDataCollection.addBreadcrumb({
+          message: `Workout day toggle validation failed for ${day}`,
+          category: 'user-interaction',
+          level: 'warning',
+          data: {
+            component: 'WorkoutDaysModal',
+            action: 'toggle_validation_failed',
+            day: day,
+            attempted_days: updatedDays,
+            user_id: user?.id,
+            platform: Platform.OS,
+          },
+        });
+        return; // Don't update if validation fails
+      }
+
+      // Track successful toggle
+      SentryDataCollection.addBreadcrumb({
+        message: `Workout day ${isAdding ? 'added' : 'removed'}: ${day}`,
+        category: 'user-interaction',
+        level: 'info',
+        data: {
+          component: 'WorkoutDaysModal',
+          action: 'toggle_workout_day_success',
+          day: day,
+          day_number: dayNumber,
+          action_type: isAdding ? 'add' : 'remove',
+          final_days: updatedDays,
+          days_count: updatedDays.length,
+          user_id: user?.id,
+          platform: Platform.OS,
+        },
+      });
+
+      setWorkoutDays(updatedDays);
+      await saveWorkoutDays(updatedDays);
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'WorkoutDaysModal',
+        action: 'toggle_workout_day_error',
+        day: day,
+        user_id: user?.id,
+        platform: Platform.OS,
+      });
+
+      SentryLogger.error('Error toggling workout day in WorkoutDaysModal', {
+        error: error as Error,
+        component: 'WorkoutDaysModal',
+        day: day,
+        user_id: user?.id,
+      });
     }
-
-    setWorkoutDays(updatedDays);
-    await saveWorkoutDays(updatedDays);
   };
 
   // Check if a day is selected

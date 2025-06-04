@@ -635,3 +635,8 @@ export type GetLastCompletedWorkoutStructure = z.infer<
 export type CheckWorkoutCompletionForCycleWeek = z.infer<
   typeof CheckWorkoutCompletionForCycleWeekSchema
 >;
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function SchemasRouterPlaceholder() {
+  return null;
+}

@@ -126,3 +126,8 @@ export const MuscleGroupRender = ({
     <DottedLine muscle={muscle} />
   </React.Fragment>
 );
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function MuscleMarkersRouterPlaceholder() {
+  return null;
+}

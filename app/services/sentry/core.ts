@@ -183,6 +183,19 @@ function createSentryConfig(
  */
 export function initializeSentry(navigationIntegration?: unknown) {
   try {
+    // Suppress Sentry's promise package warning by ensuring Promise.allSettled is available
+    if (!Promise.allSettled) {
+      Promise.allSettled = function (promises) {
+        return Promise.all(
+          promises.map((promise) =>
+            Promise.resolve(promise)
+              .then((value) => ({ status: 'fulfilled', value }))
+              .catch((reason) => ({ status: 'rejected', reason })),
+          ),
+        );
+      };
+    }
+
     const sentryDsn = Constants.expoConfig?.extra?.sentryDsn || '';
 
     if (!sentryDsn) {
@@ -309,4 +322,9 @@ function configureSentryScope(isDevelopment: boolean, isExpoGo: boolean, isIOS: 
       timestamp: new Date().toISOString(),
     },
   });
+}
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function CoreRouterPlaceholder() {
+  return null;
 }

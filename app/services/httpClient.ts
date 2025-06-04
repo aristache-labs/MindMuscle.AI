@@ -633,3 +633,8 @@ export class HttpClient {
 export const httpClient = new HttpClient();
 
 // Types and classes are already exported above with their declarations
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function HttpClientRouterPlaceholder() {
+  return null;
+}

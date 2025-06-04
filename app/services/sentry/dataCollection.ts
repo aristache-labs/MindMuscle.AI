@@ -55,3 +55,8 @@ export const SentryDataCollection = {
     Sentry.captureMessage(message, level);
   },
 };
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function DataCollectionRouterPlaceholder() {
+  return null;
+}

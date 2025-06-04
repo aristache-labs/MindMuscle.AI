@@ -39,3 +39,8 @@ export const calculateDottedLineWidth = (muscle: MuscleGroup) => {
 export const calculateDottedLineLeft = (muscle: MuscleGroup) => {
   return calculateClickableZoneLeft(muscle);
 };
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function UtilsRouterPlaceholder() {
+  return null;
+}

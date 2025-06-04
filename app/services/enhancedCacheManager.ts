@@ -633,3 +633,8 @@ export function cacheApiResponse<T>(
 }
 
 // Types and enums are already exported above with their declarations
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function EnhancedCacheManagerRouterPlaceholder() {
+  return null;
+}

@@ -388,3 +388,8 @@ export function useConditionalValidation<T>(schema: z.ZodSchema<T>, condition: (
     shouldValidate: condition(),
   };
 }
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function HooksRouterPlaceholder() {
+  return null;
+}

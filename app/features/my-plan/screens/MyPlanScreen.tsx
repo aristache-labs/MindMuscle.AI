@@ -14,12 +14,12 @@ import {
   DateSelectionLoadingComponent,
   ExerciseItem,
   LockedWeekComponent,
-  NoPlanView,
   PausedWorkoutModal,
   RestDayComponent,
   WorkoutHeader,
   WorkoutStatsRow,
 } from '../components';
+import NoPlanView from '../components/NoPlanView';
 import {
   useCalendarData,
   useDateSelection,

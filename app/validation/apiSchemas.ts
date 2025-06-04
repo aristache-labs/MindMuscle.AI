@@ -475,3 +475,8 @@ export type SearchRequest = z.infer<typeof SearchRequestSchema>;
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
 export type BatchRequest = z.infer<typeof BatchRequestSchema>;
 export type BatchResponse = z.infer<typeof BatchResponseSchema>;
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function ApiSchemasRouterPlaceholder() {
+  return null;
+}

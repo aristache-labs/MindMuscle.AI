@@ -323,3 +323,8 @@ export function createSimpleQueryValidator<T>(schema: z.ZodSchema<T>) {
     validateResults: (data: unknown[]) => validateArray(schema, data, 'database results'),
   };
 }
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function UtilsRouterPlaceholder() {
+  return null;
+}

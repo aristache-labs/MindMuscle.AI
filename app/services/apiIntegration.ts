@@ -519,3 +519,8 @@ export function initializeCacheWarming() {
 }
 
 // Classes and objects are already exported above with their declarations
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function ApiIntegrationRouterPlaceholder() {
+  return null;
+}

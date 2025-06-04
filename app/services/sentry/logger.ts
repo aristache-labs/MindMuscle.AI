@@ -69,3 +69,8 @@ export const SentryLogger = {
     },
   },
 };
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function LoggerRouterPlaceholder() {
+  return null;
+}

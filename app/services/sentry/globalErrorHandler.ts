@@ -760,3 +760,8 @@ export const captureValidationError = (error: Error, field?: string, value?: unk
 
 export const capturePerformanceError = (message: string, metric?: string, value?: number) =>
   globalErrorHandler.capturePerformanceError(message, metric, value);
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function GlobalErrorHandlerRouterPlaceholder() {
+  return null;
+}

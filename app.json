@@ -125,7 +125,9 @@
     "extra": {
       "sentryDsn": "https://95ca621b3a918874f6289b653a3e3f6a@o4509201331978240.ingest.de.sentry.io/4509201333092432",
       "environment": "development",
-      "router": {},
+      "router": {
+        "origin": false
+      },
       "eas": {
         "projectId": "9858a5f6-fb78-441d-a3f8-baf6348ed857"
       }

@@ -212,3 +212,8 @@ export function useValidation<T extends Record<string, any>>(
 //   validateOnBlur: true,
 //   validateOnChange: false,
 // });
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function UseValidationRouterPlaceholder() {
+  return null;
+}

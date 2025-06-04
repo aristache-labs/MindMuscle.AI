@@ -185,3 +185,8 @@ export const SentryTesting = {
     );
   },
 };
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function TestingRouterPlaceholder() {
+  return null;
+}

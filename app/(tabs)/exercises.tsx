@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -7,22 +7,18 @@ import {
   ViewStyle,
   GestureResponderEvent,
   Animated,
+  Modal,
+  Pressable,
   ScrollView,
   Image,
 } from 'react-native';
-import { Text } from 'react-native-paper';
+import { Text, IconButton, Surface } from 'react-native-paper';
 import { COLORS, BORDER_RADIUS, HEADER_HEIGHT } from '../constants/theme';
 import Timer from '../components/timer';
 import { GeneralHeader } from '../components/GeneralHeader';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import {
-  addBreadcrumb,
-  captureError,
-  capturePerformanceError,
-} from '../services/sentry/simpleErrorHandler';
-import { setTag, SentryReactProfiler } from '../services/sentry';
 
 interface MuscleGroup {
   id: number;
@@ -335,299 +331,264 @@ const MuscleGroupRender = ({ muscle, pulseAnim, onPress }: MuscleGroupRenderProp
 );
 
 export default function ExercisesScreen() {
-  const router = useRouter();
   const [currentView, setCurrentView] = useState<'front' | 'back'>('front');
-  const [pulseAnim] = useState(new Animated.Value(1));
+  const [touchStart, setTouchStart] = useState(0);
+  const [isImageLoaded, setIsImageLoaded] = useState(false);
+  const [showTimer, setShowTimer] = useState(false);
+  const SWIPE_THRESHOLD = 50;
+  const router = useRouter();
 
-  // Track screen initialization
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const scrollIndicatorY = useRef(new Animated.Value(0)).current;
+
+  // Directly reference body model images without preloading via hook
+  const frontBodyModel = require('../../assets/body-model_front.png');
+  const backBodyModel = require('../../assets/body-model_back.png');
+
   useEffect(() => {
-    const startTime = Date.now();
+    if (isImageLoaded) {
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
 
-    addBreadcrumb('Exercises screen initialized', 'navigation', {
-      initialView: currentView,
-      timestamp: new Date().toISOString(),
-    });
-
-    setTag('current_screen', 'exercises');
-    setTag('muscle_diagram_view', currentView);
-    SentryReactProfiler.trackComponentLifecycle('ExercisesScreen', 'mount');
-
-    return () => {
-      const mountTime = Date.now() - startTime;
-      addBreadcrumb('Exercises screen unmounted', 'navigation', {
-        screenMountTime: mountTime,
-        finalView: currentView,
-      });
-
-      SentryReactProfiler.trackComponentLifecycle('ExercisesScreen', 'unmount');
-    };
-  }, []);
-
-  // Track view changes
-  useEffect(() => {
-    addBreadcrumb(`Muscle diagram view changed: ${currentView}`, 'user_interaction', {
-      view: currentView,
-      timestamp: new Date().toISOString(),
-    });
-
-    setTag('muscle_diagram_view', currentView);
-  }, [currentView]);
-
-  // Start pulse animation on mount
-  useEffect(() => {
-    const startPulseAnimation = () => {
+      // Start the pulsing animation
       Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
-            toValue: 1.1,
-            duration: 1000,
+            toValue: 1.3,
+            duration: 800,
             useNativeDriver: true,
           }),
           Animated.timing(pulseAnim, {
             toValue: 1,
-            duration: 1000,
+            duration: 800,
             useNativeDriver: true,
           }),
         ]),
       ).start();
-    };
+    }
+  }, [isImageLoaded]);
 
-    startPulseAnimation();
-  }, [pulseAnim]);
+  // Animate the scroll indicator
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(scrollIndicatorY, {
+          toValue: 10,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scrollIndicatorY, {
+          toValue: 0,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ]),
+    ).start();
+  }, []);
 
   const handleViewChange = (newView: 'front' | 'back') => {
-    const startTime = Date.now();
+    if (isTransitioning || newView === currentView) return;
 
-    addBreadcrumb(`View change requested: ${currentView} -> ${newView}`, 'user_interaction', {
-      fromView: currentView,
-      toView: newView,
-    });
-
-    try {
+    setIsTransitioning(true);
+    // Fade out
+    Animated.timing(fadeAnim, {
+      toValue: 0,
+      duration: 150,
+      useNativeDriver: true,
+    }).start(() => {
       setCurrentView(newView);
-
-      const changeTime = Date.now() - startTime;
-      if (changeTime > 100) {
-        capturePerformanceError('Slow view change', 'view_change_time', changeTime);
-      }
-
-      addBreadcrumb(`View change completed: ${newView}`, 'ui', {
-        newView,
-        changeTime,
+      // Fade in
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }).start(() => {
+        setIsTransitioning(false);
       });
-    } catch (error) {
-      captureError(error as Error, {
-        category: 'ui_error',
-        screen: 'exercises',
-        component: 'ViewChanger',
-        fromView: currentView,
-        toView: newView,
-      });
-    }
+    });
   };
 
   const handleTouchStart = (event: GestureResponderEvent) => {
-    addBreadcrumb('Touch interaction started on muscle diagram', 'user_interaction', {
-      view: currentView,
-      touchX: event.nativeEvent.pageX,
-      touchY: event.nativeEvent.pageY,
-    });
+    setTouchStart(event.nativeEvent.pageX);
   };
 
   const handleTouchEnd = (event: GestureResponderEvent) => {
-    addBreadcrumb('Touch interaction ended on muscle diagram', 'user_interaction', {
-      view: currentView,
-      touchX: event.nativeEvent.pageX,
-      touchY: event.nativeEvent.pageY,
-    });
+    const swipeLength = event.nativeEvent.pageX - touchStart;
+
+    if (Math.abs(swipeLength) > SWIPE_THRESHOLD) {
+      if (swipeLength > 0 && currentView === 'back') {
+        handleViewChange('front');
+      } else if (swipeLength < 0 && currentView === 'front') {
+        handleViewChange('back');
+      }
+    }
   };
 
   const navigateToExercisesList = (muscleGroupName: string) => {
-    const startTime = Date.now();
+    // Update to use the new dedicated page for single muscle groups
+    const categoryId = muscleGroupName;
 
-    addBreadcrumb(`Navigating to exercises list: ${muscleGroupName}`, 'navigation', {
-      muscleGroup: muscleGroupName,
-      currentView,
+    router.push({
+      pathname: '/(tabs)/exercises-single-group',
+      params: { categoryId, fromScreen: 'exercises' },
     });
-
-    try {
-      router.push({
-        pathname: '/exercises-single-group',
-        params: { muscleGroup: muscleGroupName },
-      });
-
-      const navigationTime = Date.now() - startTime;
-      addBreadcrumb(`Navigation to muscle group completed: ${muscleGroupName}`, 'performance', {
-        navigationTime,
-        muscleGroup: muscleGroupName,
-      });
-
-      if (navigationTime > 300) {
-        capturePerformanceError('Slow muscle group navigation', 'navigation_time', navigationTime);
-      }
-
-      setTag('last_selected_muscle', muscleGroupName);
-    } catch (error) {
-      captureError(error as Error, {
-        category: 'navigation_error',
-        screen: 'exercises',
-        component: 'MuscleGroupNavigation',
-        muscleGroup: muscleGroupName,
-      });
-    }
   };
 
   const navigateToAllExercises = () => {
-    const startTime = Date.now();
-
-    addBreadcrumb('Navigating to all exercises', 'navigation', {
-      currentView,
+    router.push({
+      pathname: '/(tabs)/exercises-list',
+      params: {
+        showAllCategories: 'true',
+        openSearch: 'true',
+        fromScreen: 'exercises',
+        resetSearch: 'true',
+        groupByMuscle: 'true',
+      },
     });
-
-    try {
-      router.push({
-        pathname: '/exercises-list',
-        params: { muscleGroup: 'all' },
-      });
-
-      const navigationTime = Date.now() - startTime;
-      addBreadcrumb('Navigation to all exercises completed', 'performance', {
-        navigationTime,
-      });
-
-      if (navigationTime > 300) {
-        capturePerformanceError('Slow all exercises navigation', 'navigation_time', navigationTime);
-      }
-    } catch (error) {
-      captureError(error as Error, {
-        category: 'navigation_error',
-        screen: 'exercises',
-        component: 'AllExercisesNavigation',
-      });
-    }
   };
 
-  // Enhanced muscle group press handler
-  const handleMuscleGroupPress = (muscleName: string) => {
-    const startTime = Date.now();
+  const filteredMuscles = muscleGroups.filter((muscle) => muscle.view === currentView);
 
-    addBreadcrumb(`Muscle group pressed: ${muscleName}`, 'user_interaction', {
-      muscleName,
-      currentView,
-      timestamp: new Date().toISOString(),
-    });
+  const handleScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+    useNativeDriver: false,
+  });
 
-    try {
-      if (muscleName === 'Cardio') {
-        navigateToExercisesList('Cardio');
-      } else {
-        navigateToExercisesList(muscleName);
-      }
-
-      const interactionTime = Date.now() - startTime;
-      if (interactionTime > 200) {
-        capturePerformanceError(
-          'Slow muscle group interaction',
-          'interaction_time',
-          interactionTime,
-        );
-      }
-    } catch (error) {
-      captureError(error as Error, {
-        category: 'ui_error',
-        screen: 'exercises',
-        component: 'MuscleGroupPress',
-        muscleName,
-      });
-    }
-  };
-
-  // Enhanced scroll end handler
   const handleScrollEnd = ({ nativeEvent }: { nativeEvent: { contentOffset: { y: number } } }) => {
-    addBreadcrumb('Scroll ended on exercises screen', 'user_interaction', {
-      scrollY: nativeEvent.contentOffset.y,
-      currentView,
-    });
+    if (nativeEvent.contentOffset.y > 100) {
+      // If scrolled more than 100px, navigate to exercises list
+      navigateToAllExercises();
+    }
   };
-
-  // Filter muscle groups by current view
-  const visibleMuscleGroups = muscleGroups.filter((muscle) => muscle.view === currentView);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
-        <GeneralHeader title="Exercises" />
+        <StatusBar barStyle="light-content" />
+        <GeneralHeader
+          title="Exercises"
+          icon={<MaterialIcons name="fitness-center" size={24} color={COLORS.text} />}
+          rightElement={
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Pressable style={styles.premiumButton} onPress={() => {}}>
+                <View style={styles.premiumIconColumn}>
+                  <IconButton
+                    icon="crown"
+                    iconColor="#f9e009"
+                    size={26}
+                    style={styles.premiumIcon}
+                  />
+                  <Text style={styles.premiumText}>PREMIUM</Text>
+                </View>
+              </Pressable>
+            </View>
+          }
+        />
 
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          onMomentumScrollEnd={handleScrollEnd}
+        {/* Search Icon */}
+        <TouchableOpacity style={styles.searchButton} onPress={navigateToAllExercises}>
+          <Surface style={styles.searchSurface}>
+            <MaterialIcons name="search" size={24} color={COLORS.text} />
+          </Surface>
+        </TouchableOpacity>
+
+        {/* Timer Modal */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={showTimer}
+          onRequestClose={() => setShowTimer(false)}
         >
-          {/* Timer Component */}
-          <View style={styles.timerWrapper}>
-            <Timer />
+          <View style={styles.modalContainer}>
+            <Timer onClose={() => setShowTimer(false)} />
           </View>
+        </Modal>
 
-          {/* View Toggle Buttons */}
-          <View style={styles.toggleContainer}>
-            <TouchableOpacity
-              style={[styles.toggleButton, currentView === 'front' && styles.activeToggle]}
-              onPress={() => handleViewChange('front')}
-            >
-              <Text style={[styles.toggleText, currentView === 'front' && styles.activeToggleText]}>
-                FRONT
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.toggleButton, currentView === 'back' && styles.activeToggle]}
-              onPress={() => handleViewChange('back')}
-            >
-              <Text style={[styles.toggleText, currentView === 'back' && styles.activeToggleText]}>
-                BACK
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Body Model Container */}
-          <View style={styles.bodyModelContainer}>
-            <View style={styles.bodyModelWrapper}>
-              <View
-                style={styles.bodyModel}
-                onTouchStart={handleTouchStart}
-                onTouchEnd={handleTouchEnd}
-              >
-                {/* Body Image */}
+        {/* Body Model Container */}
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ flexGrow: 1 }}
+          onScroll={handleScroll}
+          onMomentumScrollEnd={handleScrollEnd}
+          scrollEventThrottle={16}
+        >
+          <View
+            style={[styles.bodyModelContainer, { paddingTop: HEADER_HEIGHT }]}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+          >
+            <Animated.View style={[styles.modelContainer, { opacity: fadeAnim }]}>
+              <View style={styles.imagesContainer}>
+                {/* Front body model */}
                 <Image
-                  source={
-                    currentView === 'front'
-                      ? require('../../assets/body-model_front.png')
-                      : require('../../assets/body-model_back.png')
-                  }
-                  style={styles.bodyImage}
-                  resizeMode="contain"
+                  source={frontBodyModel}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    position: 'absolute',
+                    opacity: currentView === 'front' ? 1 : 0,
+                    resizeMode: 'contain',
+                  }}
+                  onLoad={() => {
+                    setIsImageLoaded(true);
+                  }}
                 />
 
-                {/* Muscle Group Markers */}
-                {visibleMuscleGroups.map((muscle) => (
+                {/* Back body model */}
+                <Image
+                  source={backBodyModel}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    position: 'absolute',
+                    opacity: currentView === 'back' ? 1 : 0,
+                    resizeMode: 'contain',
+                  }}
+                  onLoad={() => {
+                    setIsImageLoaded(true);
+                  }}
+                />
+              </View>
+
+              {/* Timer Icon */}
+              <IconButton
+                icon="timer-outline"
+                iconColor="white"
+                size={38}
+                style={styles.timerIcon}
+                onPress={() => setShowTimer(true)}
+              />
+
+              {/* Muscle Group Markers */}
+              {isImageLoaded &&
+                filteredMuscles.map((muscle) => (
                   <MuscleGroupRender
                     key={muscle.id}
                     muscle={muscle}
                     pulseAnim={pulseAnim}
-                    onPress={handleMuscleGroupPress}
+                    onPress={navigateToExercisesList}
                   />
                 ))}
-              </View>
-            </View>
-          </View>
 
-          {/* All Exercises Button */}
-          <View style={styles.allExercisesContainer}>
-            <TouchableOpacity style={styles.allExercisesButton} onPress={navigateToAllExercises}>
-              <MaterialCommunityIcons name="dumbbell" size={24} color={COLORS.primary} />
-              <Text style={styles.allExercisesText}>View All Exercises</Text>
-              <MaterialIcons name="arrow-forward-ios" size={16} color={COLORS.secondary} />
-            </TouchableOpacity>
+              <View style={styles.viewIndicator}>
+                <View style={[styles.dot, currentView === 'front' && styles.activeDot]} />
+                <View style={[styles.dot, currentView === 'back' && styles.activeDot]} />
+              </View>
+
+              {/* Scroll indicator */}
+              <Animated.View
+                style={[styles.scrollIndicator, { transform: [{ translateY: scrollIndicatorY }] }]}
+              >
+                <MaterialIcons name="keyboard-arrow-up" size={30} color="white" />
+                <Text style={styles.scrollText}>Scroll for all exercises</Text>
+              </Animated.View>
+            </Animated.View>
           </View>
         </ScrollView>
       </View>
@@ -788,69 +749,5 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 14,
     marginTop: 5,
-  },
-  timerWrapper: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-  },
-  toggleContainer: {
-    position: 'absolute',
-    top: HEADER_HEIGHT + 50,
-    left: 20,
-    zIndex: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  toggleButton: {
-    padding: 10,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  activeToggle: {
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
-  },
-  toggleText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  activeToggleText: {
-    color: 'rgba(255, 255, 255, 0.8)',
-  },
-  bodyModelWrapper: {
-    flex: 1,
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bodyImage: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'contain',
-  },
-  allExercisesContainer: {
-    position: 'absolute',
-    bottom: 10,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-  },
-  allExercisesButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 10,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  allExercisesText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginLeft: 10,
-  },
-  scrollContent: {
-    flexGrow: 1,
   },
 });

@@ -9,7 +9,6 @@ import {
   Animated,
   Modal,
   Pressable,
-  ScrollView,
   Image,
   Platform,
 } from 'react-native';
@@ -470,8 +469,6 @@ export default function ExercisesScreen() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const [isTransitioning, setIsTransitioning] = useState(false);
-  const scrollY = useRef(new Animated.Value(0)).current;
-  const scrollIndicatorY = useRef(new Animated.Value(0)).current;
 
   // Directly reference body model images without preloading via hook
   const frontBodyModel = require('../../assets/body-model_front.png');
@@ -502,24 +499,6 @@ export default function ExercisesScreen() {
       ).start();
     }
   }, [isImageLoaded]);
-
-  // Animate the scroll indicator
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(scrollIndicatorY, {
-          toValue: 10,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scrollIndicatorY, {
-          toValue: 0,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-      ]),
-    ).start();
-  }, []);
 
   const handleViewChange = (newView: 'front' | 'back') => {
     try {
@@ -691,10 +670,15 @@ export default function ExercisesScreen() {
           },
         );
 
-        if (swipeLength > 0 && currentView === 'back') {
-          handleViewChange('front');
-        } else if (swipeLength < 0 && currentView === 'front') {
-          handleViewChange('back');
+        // Continuous horizontal scrolling - cycle between views
+        if (swipeDirection === 'left') {
+          // Swipe left: front -> back -> front -> back...
+          const nextView = currentView === 'front' ? 'back' : 'front';
+          handleViewChange(nextView);
+        } else if (swipeDirection === 'right') {
+          // Swipe right: back -> front -> back -> front...
+          const nextView = currentView === 'back' ? 'front' : 'back';
+          handleViewChange(nextView);
         }
       }
     } catch (error) {
@@ -812,75 +796,6 @@ export default function ExercisesScreen() {
 
   const filteredMuscles = muscleGroups.filter((muscle) => muscle.view === currentView);
 
-  const handleScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
-    useNativeDriver: false,
-  });
-
-  const handleScrollEnd = ({ nativeEvent }: { nativeEvent: { contentOffset: { y: number } } }) => {
-    try {
-      const scrollY = nativeEvent.contentOffset.y;
-
-      // Track scroll behavior
-      SentryDataCollection.addBreadcrumb({
-        message: `User scrolled on exercises screen`,
-        category: 'user-interaction',
-        level: 'debug',
-        data: {
-          component: 'ExercisesScreen',
-          action: 'scroll_end',
-          scroll_y: scrollY,
-          scroll_threshold: 100,
-          will_navigate: scrollY > 100,
-          current_view: currentView,
-          platform: Platform.OS,
-        },
-      });
-
-      if (scrollY > 100) {
-        // Track scroll navigation trigger
-        SentryAutoInstrumentation.trackUserInteraction(
-          'scroll_to_exercises',
-          'scroll_navigation',
-          'exercises_screen',
-          {
-            scroll_distance: scrollY,
-            threshold: 100,
-            current_view: currentView,
-            platform: Platform.OS,
-          },
-        );
-
-        SentryDataCollection.addBreadcrumb({
-          message: 'User triggered navigation via scroll',
-          category: 'navigation',
-          level: 'info',
-          data: {
-            component: 'ExercisesScreen',
-            action: 'scroll_triggered_navigation',
-            scroll_distance: scrollY,
-            threshold: 100,
-            current_view: currentView,
-            platform: Platform.OS,
-          },
-        });
-
-        // If scrolled more than 100px, navigate to exercises list
-        navigateToAllExercises();
-      }
-    } catch (error) {
-      SentryDataCollection.captureException(error as Error, {
-        component: 'ExercisesScreen',
-        action: 'scroll_handler_error',
-        platform: Platform.OS,
-      });
-
-      SentryLogger.error('Error in ExercisesScreen scroll handler', {
-        error: error as Error,
-        component: 'ExercisesScreen',
-      });
-    }
-  };
-
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.container}>
@@ -993,161 +908,140 @@ export default function ExercisesScreen() {
         </Modal>
 
         {/* Body Model Container */}
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ flexGrow: 1 }}
-          onScroll={handleScroll}
-          onMomentumScrollEnd={handleScrollEnd}
-          scrollEventThrottle={16}
+        <View
+          style={[styles.bodyModelContainer, { paddingTop: HEADER_HEIGHT }]}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
         >
-          <View
-            style={[styles.bodyModelContainer, { paddingTop: HEADER_HEIGHT }]}
-            onTouchStart={handleTouchStart}
-            onTouchEnd={handleTouchEnd}
-          >
-            <Animated.View style={[styles.modelContainer, { opacity: fadeAnim }]}>
-              <View style={styles.imagesContainer}>
-                {/* Front body model */}
-                <Image
-                  source={frontBodyModel}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    position: 'absolute',
-                    opacity: currentView === 'front' ? 1 : 0,
-                    resizeMode: 'contain',
-                  }}
-                  onLoad={() => {
-                    try {
-                      setIsImageLoaded(true);
-
-                      SentryDataCollection.addBreadcrumb({
-                        message: 'Front body model image loaded',
-                        category: 'ui-lifecycle',
-                        level: 'info',
-                        data: {
-                          component: 'ExercisesScreen',
-                          action: 'front_image_loaded',
-                          current_view: currentView,
-                          platform: Platform.OS,
-                        },
-                      });
-                    } catch (error) {
-                      SentryDataCollection.captureException(error as Error, {
-                        component: 'ExercisesScreen',
-                        action: 'front_image_load_tracking_error',
-                        platform: Platform.OS,
-                      });
-                      setIsImageLoaded(true);
-                    }
-                  }}
-                />
-
-                {/* Back body model */}
-                <Image
-                  source={backBodyModel}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    position: 'absolute',
-                    opacity: currentView === 'back' ? 1 : 0,
-                    resizeMode: 'contain',
-                  }}
-                  onLoad={() => {
-                    try {
-                      setIsImageLoaded(true);
-
-                      SentryDataCollection.addBreadcrumb({
-                        message: 'Back body model image loaded',
-                        category: 'ui-lifecycle',
-                        level: 'info',
-                        data: {
-                          component: 'ExercisesScreen',
-                          action: 'back_image_loaded',
-                          current_view: currentView,
-                          platform: Platform.OS,
-                        },
-                      });
-                    } catch (error) {
-                      SentryDataCollection.captureException(error as Error, {
-                        component: 'ExercisesScreen',
-                        action: 'back_image_load_tracking_error',
-                        platform: Platform.OS,
-                      });
-                      setIsImageLoaded(true);
-                    }
-                  }}
-                />
-              </View>
-
-              {/* Timer Icon */}
-              <IconButton
-                icon="timer-outline"
-                iconColor="white"
-                size={38}
-                style={styles.timerIcon}
-                onPress={() => {
+          <Animated.View style={[styles.modelContainer, { opacity: fadeAnim }]}>
+            <View style={styles.imagesContainer}>
+              {/* Front body model */}
+              <Image
+                source={frontBodyModel}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  position: 'absolute',
+                  opacity: currentView === 'front' ? 1 : 0,
+                  resizeMode: 'contain',
+                }}
+                onLoad={() => {
                   try {
-                    SentryAutoInstrumentation.trackUserInteraction(
-                      'open_timer_modal',
-                      'timer_button',
-                      'exercises_screen',
-                      {
-                        current_view: currentView,
-                        platform: Platform.OS,
-                      },
-                    );
+                    setIsImageLoaded(true);
 
                     SentryDataCollection.addBreadcrumb({
-                      message: 'Timer modal opened from exercises screen',
-                      category: 'user-interaction',
+                      message: 'Front body model image loaded',
+                      category: 'ui-lifecycle',
                       level: 'info',
                       data: {
                         component: 'ExercisesScreen',
-                        action: 'timer_modal_open',
+                        action: 'front_image_loaded',
                         current_view: currentView,
                         platform: Platform.OS,
                       },
                     });
-
-                    setShowTimer(true);
                   } catch (error) {
                     SentryDataCollection.captureException(error as Error, {
                       component: 'ExercisesScreen',
-                      action: 'timer_modal_open_error',
+                      action: 'front_image_load_tracking_error',
                       platform: Platform.OS,
                     });
-                    setShowTimer(true);
+                    setIsImageLoaded(true);
                   }
                 }}
               />
 
-              {/* Muscle Group Markers */}
-              {isImageLoaded &&
-                filteredMuscles.map((muscle) => (
-                  <MuscleGroupRender
-                    key={muscle.id}
-                    muscle={muscle}
-                    pulseAnim={pulseAnim}
-                    onPress={navigateToExercisesList}
-                  />
-                ))}
+              {/* Back body model */}
+              <Image
+                source={backBodyModel}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  position: 'absolute',
+                  opacity: currentView === 'back' ? 1 : 0,
+                  resizeMode: 'contain',
+                }}
+                onLoad={() => {
+                  try {
+                    setIsImageLoaded(true);
 
-              <View style={styles.viewIndicator}>
-                <View style={[styles.dot, currentView === 'front' && styles.activeDot]} />
-                <View style={[styles.dot, currentView === 'back' && styles.activeDot]} />
-              </View>
+                    SentryDataCollection.addBreadcrumb({
+                      message: 'Back body model image loaded',
+                      category: 'ui-lifecycle',
+                      level: 'info',
+                      data: {
+                        component: 'ExercisesScreen',
+                        action: 'back_image_loaded',
+                        current_view: currentView,
+                        platform: Platform.OS,
+                      },
+                    });
+                  } catch (error) {
+                    SentryDataCollection.captureException(error as Error, {
+                      component: 'ExercisesScreen',
+                      action: 'back_image_load_tracking_error',
+                      platform: Platform.OS,
+                    });
+                    setIsImageLoaded(true);
+                  }
+                }}
+              />
+            </View>
 
-              {/* Scroll indicator */}
-              <Animated.View
-                style={[styles.scrollIndicator, { transform: [{ translateY: scrollIndicatorY }] }]}
-              >
-                <MaterialIcons name="keyboard-arrow-up" size={30} color="white" />
-                <Text style={styles.scrollText}>Scroll for all exercises</Text>
-              </Animated.View>
-            </Animated.View>
-          </View>
-        </ScrollView>
+            {/* Timer Icon */}
+            <IconButton
+              icon="timer-outline"
+              iconColor="white"
+              size={38}
+              style={styles.timerIcon}
+              onPress={() => {
+                try {
+                  SentryAutoInstrumentation.trackUserInteraction(
+                    'open_timer_modal',
+                    'timer_button',
+                    'exercises_screen',
+                    {
+                      current_view: currentView,
+                      platform: Platform.OS,
+                    },
+                  );
+
+                  SentryDataCollection.addBreadcrumb({
+                    message: 'Timer modal opened from exercises screen',
+                    category: 'user-interaction',
+                    level: 'info',
+                    data: {
+                      component: 'ExercisesScreen',
+                      action: 'timer_modal_open',
+                      current_view: currentView,
+                      platform: Platform.OS,
+                    },
+                  });
+
+                  setShowTimer(true);
+                } catch (error) {
+                  SentryDataCollection.captureException(error as Error, {
+                    component: 'ExercisesScreen',
+                    action: 'timer_modal_open_error',
+                    platform: Platform.OS,
+                  });
+                  setShowTimer(true);
+                }
+              }}
+            />
+
+            {/* Muscle Group Markers */}
+            {isImageLoaded &&
+              filteredMuscles.map((muscle) => (
+                <MuscleGroupRender
+                  key={muscle.id}
+                  muscle={muscle}
+                  pulseAnim={pulseAnim}
+                  onPress={navigateToExercisesList}
+                />
+              ))}
+          </Animated.View>
+        </View>
       </View>
     </GestureHandlerRootView>
   );
@@ -1162,10 +1056,9 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    bottom: 35,
     position: 'relative',
     paddingTop: 50, // Add space for the search button
-    minHeight: '100%',
+    paddingBottom: 40, // Add space at the bottom to raise content
   },
   modelContainer: {
     flex: 1,
@@ -1222,23 +1115,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#6c47ff',
   },
-  viewIndicator: {
-    position: 'absolute',
-    bottom: 0,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 8,
-  },
-  dot: {
-    width: 14,
-    height: 14,
-    borderRadius: 4,
-    backgroundColor: 'rgba(224, 15, 15, 0.3)',
-  },
-  activeDot: {
-    backgroundColor: 'white',
-  },
+
   timerIcon: {
     position: 'absolute',
     right: 20,
@@ -1294,17 +1171,5 @@ const styles = StyleSheet.create({
     elevation: 3,
     width: 46,
     height: 46,
-  },
-  scrollIndicator: {
-    position: 'absolute',
-    bottom: 30,
-    alignSelf: 'center',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scrollText: {
-    color: 'white',
-    fontSize: 14,
-    marginTop: 5,
   },
 });

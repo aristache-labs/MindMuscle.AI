@@ -23,6 +23,14 @@ import exerciseService, { Exercise, ExerciseCategory } from '../services/exercis
 import useImagePreloader from '../hooks/useImagePreloader';
 import ExerciseDetailsModal from '../components/ExerciseDetailsModal';
 import type { PreloadingStatus } from '../hooks/useImagePreloader';
+import * as Sentry from '@sentry/react-native';
+import { SentryDataCollection, SentryLogger, SentryAutoInstrumentation } from '../services/sentry';
+import {
+  renderSearchResults,
+  renderAllExercisesView,
+  createExerciseSections,
+} from '../components/exercises-list/ExerciseListHelpers';
+import { loadTimeTracker } from '../utils/loadTimeTracker';
 
 // Define types for global placeholders
 interface PlaceholderImages {
@@ -41,45 +49,7 @@ interface GlobalWithPlaceholders {
   };
 }
 
-// Simple performance tracking utility
-const loadTimeTracker = {
-  timePoints: new Map<
-    string,
-    { start?: number; end?: number; marks: { time: number; duration: number; label: string }[] }
-  >(),
-
-  startLoadTimeTracking: (id: string) => {
-    console.log(`[LoadTracker] Starting tracking for ${id}`);
-    loadTimeTracker.timePoints.set(id, {
-      start: Date.now(),
-      marks: [],
-    });
-  },
-
-  endLoadTimeTracking: (id: string) => {
-    const timePoint = loadTimeTracker.timePoints.get(id);
-    if (timePoint) {
-      timePoint.end = Date.now();
-      const totalDuration = timePoint.end - (timePoint.start || 0);
-      console.log(`[LoadTracker] Completed tracking for ${id}: ${totalDuration}ms`);
-    }
-  },
-
-  markLoadTime: (id: string, label: string) => {
-    const timePoint = loadTimeTracker.timePoints.get(id);
-    if (timePoint) {
-      const now = Date.now();
-      const duration =
-        timePoint.marks.length > 0
-          ? now - timePoint.marks[timePoint.marks.length - 1].time
-          : now - (timePoint.start || 0);
-
-      const mark = { time: now, duration, label };
-      timePoint.marks.push(mark);
-      console.log(`[LoadTracker] ${id} - ${label}: ${duration}ms`);
-    }
-  },
-};
+// Performance tracking utility is now imported from utils/loadTimeTracker
 
 // Get screen width for responsive sizing
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -91,33 +61,9 @@ const FALLBACK_IMAGE_OBJECT = (global as GlobalWithPlaceholders).placeholderImag
   testUri: '../../assets/exercises/placeholder.jpg',
 };
 
-// Map for category display names
-const CATEGORY_NAMES = {
-  Cardio: 'CARDIO',
-  Shoulders: 'SHOULDERS',
-  Chest: 'CHEST',
-  Biceps: 'BICEPS',
-  Abs: 'ABS',
-  Forearms: 'FOREARMS',
-  Obliques: 'OBLIQUES',
-  Quads: 'QUADS',
-  Adductors: 'ADDUCTORS',
-  Traps: 'TRAPS',
-  Triceps: 'TRICEPS',
-  Lats: 'LATS',
-  Lower_back: 'LOWER BACK',
-  Abductors: 'ABDUCTORS',
-  Glutes: 'GLUTES',
-  Hamstrings: 'HAMSTRINGS',
-  Calves: 'CALVES',
-  all: 'ALL EXERCISES',
-};
+// Category display names are now defined in ExerciseListHelpers
 
-// Interface for section data
-interface _ExerciseSection {
-  title: string;
-  data: Exercise[];
-}
+// Note: Exercise section type is defined inline where used for better type safety
 
 // Map of alternative names for muscle groups to support better search
 const MUSCLE_GROUP_ALIASES: Record<string, string[]> = {
@@ -143,216 +89,9 @@ const MUSCLE_GROUP_ALIASES: Record<string, string[]> = {
   Traps: ['trapezius', 'upper back'],
 };
 
-// Helper function to render search results
-const renderSearchResults = (
-  displayedExercises: Exercise[],
-  favoriteIds: Set<string>,
-  handleExercisePress: (id: string) => void,
-  toggleFavorite: (id: string) => void,
-  ListEmptyComponent: React.ComponentType,
-) => (
-  <View style={styles.unifiedCategoryContainer}>
-    <View style={styles.allExercisesTitleGradient}>
-      <Text style={styles.categoryTitle}>SEARCH RESULTS</Text>
-      <Text style={styles.exerciseCount}>
-        {displayedExercises.length} {displayedExercises.length === 1 ? 'exercise' : 'exercises'}
-      </Text>
-    </View>
+// Helper functions are now imported from ExerciseListHelpers
 
-    <View style={styles.exerciseCardsContainer}>
-      {Array.from({ length: Math.ceil(displayedExercises.length / 2) }).map((_, rowIndex) => {
-        const startIdx = rowIndex * 2;
-        const rowItems = displayedExercises.slice(startIdx, startIdx + 2);
-
-        return (
-          <View key={`row-${rowIndex}`} style={styles.columnWrapper}>
-            {rowItems.map((item) => (
-              <ExerciseCard
-                key={item.id}
-                id={item.id}
-                name={item.name}
-                image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE_OBJECT}
-                isFavorite={favoriteIds.has(item.id)}
-                onPress={handleExercisePress}
-                onToggleFavorite={toggleFavorite}
-                useOptimizedImage={true}
-              />
-            ))}
-            {rowItems.length === 1 && <View style={styles.emptyCardSpace} />}
-          </View>
-        );
-      })}
-    </View>
-
-    {displayedExercises.length === 0 && <ListEmptyComponent />}
-  </View>
-);
-
-// Helper function to render all exercises view
-const renderAllExercisesView = (
-  currentCategory: string,
-  searchQuery: string,
-  displayedExercises: Exercise[],
-  favoriteIds: Set<string>,
-  handleExercisePress: (id: string) => void,
-  toggleFavorite: (id: string) => void,
-) => {
-  if (currentCategory !== 'all' || searchQuery.trim()) {
-    return null;
-  }
-
-  return (
-    <View style={styles.unifiedCategoryContainer}>
-      <View style={styles.allExercisesTitleGradient}>
-        <Text style={styles.allExercisesTitle}>{CATEGORY_NAMES['all']}</Text>
-        <Text style={styles.exerciseCount}>
-          {displayedExercises.length} {displayedExercises.length === 1 ? 'exercise' : 'exercises'}
-        </Text>
-      </View>
-
-      <View style={styles.exerciseCardsContainer}>
-        {Array.from({ length: Math.ceil(displayedExercises.length / 2) }).map((_, rowIndex) => {
-          const startIdx = rowIndex * 2;
-          const rowItems = displayedExercises.slice(startIdx, startIdx + 2);
-
-          return (
-            <View key={`row-${rowIndex}`} style={styles.columnWrapper}>
-              {rowItems.map((item) => (
-                <ExerciseCard
-                  key={item.id}
-                  id={item.id}
-                  name={item.name}
-                  image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE_OBJECT}
-                  isFavorite={favoriteIds.has(item.id)}
-                  onPress={handleExercisePress}
-                  onToggleFavorite={toggleFavorite}
-                  useOptimizedImage={true}
-                />
-              ))}
-              {rowItems.length === 1 && <View style={styles.emptyCardSpace} />}
-            </View>
-          );
-        })}
-      </View>
-    </View>
-  );
-};
-
-// Helper function to create exercise sections
-const createExerciseSections = (
-  displayedExercises: Exercise[],
-  searchQuery: string,
-  currentCategory: string,
-  shouldGroupByMuscle: boolean,
-): { title: string; data: Exercise[] }[] => {
-  const sections: { title: string; data: Exercise[] }[] = [];
-
-  // If searching, group alphabetically
-  if (searchQuery.trim() !== '') {
-    // Create sections based on first letter
-    const sectionMap = new Map<string, Exercise[]>();
-
-    displayedExercises.forEach((exercise) => {
-      const firstLetter = exercise.name.charAt(0).toUpperCase();
-      if (!sectionMap.has(firstLetter)) {
-        sectionMap.set(firstLetter, []);
-      }
-      sectionMap.get(firstLetter)!.push(exercise);
-    });
-
-    // Convert map to array and sort sections alphabetically
-    Array.from(sectionMap.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .forEach(([title, data]) => {
-        sections.push({ title, data });
-      });
-  }
-  // If viewing all exercises and groupByMuscle is true, group by muscle group
-  else if (currentCategory === 'all' && shouldGroupByMuscle) {
-    // Create sections based on muscle groups
-    const sectionMap = new Map<string, Exercise[]>();
-
-    // Define the order of muscle groups for better organization
-    const muscleGroupOrder: ExerciseCategory[] = [
-      'Cardio',
-      'Chest',
-      'Shoulders',
-      'Biceps',
-      'Triceps',
-      'Forearms',
-      'Abs',
-      'Obliques',
-      'Lats',
-      'Traps',
-      'Lower_back',
-      'Glutes',
-      'Quads',
-      'Hamstrings',
-      'Adductors',
-      'Abductors',
-      'Calves',
-    ];
-
-    // Group exercises by muscle group
-    displayedExercises.forEach((exercise) => {
-      const muscleGroup = exercise.muscle_group || 'Other';
-      if (!sectionMap.has(muscleGroup)) {
-        sectionMap.set(muscleGroup, []);
-      }
-      sectionMap.get(muscleGroup)!.push(exercise);
-    });
-
-    // Add sections in the defined order
-    muscleGroupOrder.forEach((muscleGroup) => {
-      if (sectionMap.has(muscleGroup)) {
-        const data = sectionMap.get(muscleGroup)!;
-        // Sort exercises alphabetically within each muscle group
-        data.sort((a, b) => a.name.localeCompare(b.name));
-        sections.push({
-          title: CATEGORY_NAMES[muscleGroup] || muscleGroup,
-          data,
-        });
-        sectionMap.delete(muscleGroup);
-      }
-    });
-
-    // Add any remaining muscle groups that weren't in our predefined order
-    Array.from(sectionMap.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .forEach(([muscleGroup, data]) => {
-        // Sort exercises alphabetically within each muscle group
-        data.sort((a, b) => a.name.localeCompare(b.name));
-        sections.push({
-          title: CATEGORY_NAMES[muscleGroup as ExerciseCategory] || muscleGroup,
-          data,
-        });
-      });
-  }
-  // For specific category view or all without groupByMuscle, keep the alphabetical grouping
-  else {
-    // Create sections based on first letter
-    const sectionMap = new Map<string, Exercise[]>();
-
-    displayedExercises.forEach((exercise) => {
-      const firstLetter = exercise.name.charAt(0).toUpperCase();
-      if (!sectionMap.has(firstLetter)) {
-        sectionMap.set(firstLetter, []);
-      }
-      sectionMap.get(firstLetter)!.push(exercise);
-    });
-
-    // Convert map to array and sort sections alphabetically
-    Array.from(sectionMap.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .forEach(([title, data]) => {
-        sections.push({ title, data });
-      });
-  }
-
-  return sections;
-};
-
-// Helper function to load exercises data
+// Helper function to load exercises data with comprehensive Sentry integration
 const loadExercisesData = async (
   currentCategory: string,
   setLoading: (loading: boolean) => void,
@@ -361,6 +100,13 @@ const loadExercisesData = async (
   setAllExercises: (exercises: Exercise[]) => void,
   setFavoriteIds: (favoriteIds: Set<string>) => void,
 ) => {
+  // Set user context for this operation
+  SentryDataCollection.setContext('exercises_loading', {
+    screen: 'exercises-list',
+    category: currentCategory,
+    timestamp: new Date().toISOString(),
+  });
+
   try {
     loadTimeTracker.markLoadTime('ExercisesListScreen', 'loadExercises started');
 
@@ -370,12 +116,32 @@ const loadExercisesData = async (
       cache?.all &&
       (currentCategory === 'all' || (cache.byCategory && cache.byCategory[currentCategory]));
 
+    // Add cache status to Sentry context
+    SentryDataCollection.setContext('cache_status', {
+      isCached,
+      hasGlobalCache: !!cache?.all,
+      hasCategoryCache: !!(cache?.byCategory && cache.byCategory[currentCategory]),
+      cacheSize: cache?.all?.length || 0,
+    });
+
     // Only show loading if data is not cached
     if (!isCached) {
       setLoading(true);
       console.log('[ExercisesListScreen] Cache miss, setting loading to true');
+
+      Sentry.addBreadcrumb({
+        message: 'Cache miss - showing loading indicator',
+        category: 'ui.loading',
+        data: { category: currentCategory, isCached: false },
+      });
     } else {
       console.log('[ExercisesListScreen] Cache hit, not setting loading indicator initially');
+
+      Sentry.addBreadcrumb({
+        message: 'Cache hit - data available immediately',
+        category: 'performance.cache',
+        data: { category: currentCategory, cacheSize: cache?.all?.length },
+      });
     }
 
     setError(null);
@@ -383,23 +149,69 @@ const loadExercisesData = async (
     let exercisesData: Exercise[] = [];
     let allExercisesData: Exercise[] = [];
 
-    // Try to load from cache first for better performance
-    if (currentCategory !== 'all') {
-      loadTimeTracker.markLoadTime(
-        'ExercisesListScreen',
-        `Loading from API for category: ${currentCategory}`,
-      );
-      exercisesData = await exerciseService.getExercisesByCategory(
-        currentCategory as ExerciseCategory,
-      );
-    }
+    // Try to load from API with Sentry span tracking
+    await Sentry.startSpan(
+      {
+        name: 'load_exercises_data',
+        op: 'data.load',
+        attributes: {
+          screen: 'exercises-list',
+          category: currentCategory,
+        },
+      },
+      async () => {
+        if (currentCategory !== 'all') {
+          loadTimeTracker.markLoadTime(
+            'ExercisesListScreen',
+            `Loading from API for category: ${currentCategory}`,
+          );
 
-    // Always load all exercises from API
-    loadTimeTracker.markLoadTime('ExercisesListScreen', 'Loading all exercises from API');
-    allExercisesData = await exerciseService.getExercisesByCategory('all');
-    if (currentCategory === 'all') {
-      exercisesData = allExercisesData;
-    }
+          exercisesData = await Sentry.startSpan(
+            {
+              name: `Load exercises for category: ${currentCategory}`,
+              op: 'api.request',
+              attributes: {
+                category: currentCategory,
+              },
+            },
+            async () => {
+              const data = await exerciseService.getExercisesByCategory(
+                currentCategory as ExerciseCategory,
+              );
+
+              // Set span data
+              Sentry.setTag('exercise_count', data.length.toString());
+
+              return data;
+            },
+          );
+        }
+
+        // Always load all exercises from API
+        loadTimeTracker.markLoadTime('ExercisesListScreen', 'Loading all exercises from API');
+
+        allExercisesData = await Sentry.startSpan(
+          {
+            name: 'Load all exercises',
+            op: 'api.request',
+            attributes: {
+              operation: 'load_all_exercises',
+            },
+          },
+          async () => {
+            const data = await exerciseService.getExercisesByCategory('all');
+            if (currentCategory === 'all') {
+              exercisesData = data;
+            }
+
+            // Set span data
+            Sentry.setTag('total_exercise_count', data.length.toString());
+
+            return data;
+          },
+        );
+      },
+    );
 
     // Update state
     setExercises(exercisesData);
@@ -407,6 +219,16 @@ const loadExercisesData = async (
     console.log(
       `[ExercisesListScreen] Loaded ${exercisesData.length} exercises for category ${currentCategory}, ${allExercisesData.length} total exercises.`,
     );
+
+    // Log successful load to Sentry
+    SentryLogger.info('Exercises data loaded successfully', {
+      screen: 'exercises-list',
+      category: currentCategory,
+      exerciseCount: exercisesData.length,
+      totalExerciseCount: allExercisesData.length,
+      cacheHit: isCached,
+    });
+
     loadTimeTracker.markLoadTime(
       'ExercisesListScreen',
       `Exercises data loaded: ${exercisesData.length}`,
@@ -418,27 +240,85 @@ const loadExercisesData = async (
     // Load favorites (don't use this as a blocker for showing content)
     try {
       loadTimeTracker.markLoadTime('ExercisesListScreen', 'Loading favorites');
-      const favorites = await exerciseService.getFavoriteExercises();
+
+      const favorites = await Sentry.startSpan(
+        {
+          name: 'Load favorite exercises',
+          op: 'api.request',
+          attributes: {
+            operation: 'load_favorites',
+          },
+        },
+        async () => {
+          const data = await exerciseService.getFavoriteExercises();
+
+          // Set span data
+          Sentry.setTag('favorites_count', data.length.toString());
+
+          return data;
+        },
+      );
+
       const favoriteIdSet = new Set(favorites.map((fav) => fav.id));
       setFavoriteIds(favoriteIdSet);
+
       loadTimeTracker.markLoadTime(
         'ExercisesListScreen',
         `Favorites loaded: ${favoriteIdSet.size}`,
       );
+
+      Sentry.addBreadcrumb({
+        message: 'Favorites loaded successfully',
+        category: 'data.favorites',
+        data: { count: favoriteIdSet.size },
+      });
     } catch (favError) {
       console.error('Error loading favorites:', favError);
       loadTimeTracker.markLoadTime('ExercisesListScreen', 'Error loading favorites');
+
+      // Log favorites error but don't block UI
+      SentryLogger.warn('Failed to load favorites', {
+        screen: 'exercises-list',
+        error: favError instanceof Error ? favError.message : String(favError),
+      });
+
       // Don't block the UI for favorites loading issues
     }
   } catch (err) {
     console.error('Error loading exercises:', err);
     loadTimeTracker.markLoadTime('ExercisesListScreen', 'Error loading exercises');
+
+    // Comprehensive error logging to Sentry
+    const error = err instanceof Error ? err : new Error(String(err));
+    SentryDataCollection.captureException(error, {
+      screen: 'exercises-list',
+      category: currentCategory,
+      operation: 'loadExercisesData',
+      timestamp: new Date().toISOString(),
+    });
+
+    SentryLogger.error('Failed to load exercises data', {
+      screen: 'exercises-list',
+      category: currentCategory,
+      error: error.message,
+      stack: error.stack,
+    });
+
     setError('Failed to load exercises. Please try again.');
     setLoading(false);
   } finally {
     // Mark UI render time
     setTimeout(() => {
       loadTimeTracker.markLoadTime('ExercisesListScreen', 'UI fully rendered');
+
+      Sentry.addBreadcrumb({
+        message: 'UI rendering completed',
+        category: 'ui.render',
+        data: {
+          screen: 'exercises-list',
+          category: currentCategory,
+        },
+      });
     }, 500);
   }
 };
@@ -550,17 +430,62 @@ const useExerciseData = (currentCategory: string) => {
       console.log(`[ExercisesListScreen] Toggle favorite for ${exerciseId}`);
 
       const exercise = allExercises.find((ex) => ex.id === exerciseId);
-      if (!exercise) return;
+      if (!exercise) {
+        SentryLogger.warn('Exercise not found for favorite toggle', {
+          screen: 'exercises-list',
+          exerciseId,
+          action: 'toggle_favorite_not_found',
+        });
+        return;
+      }
 
       setFavoriteIds((prev) => {
         const newFavorites = new Set(prev);
-        if (newFavorites.has(exerciseId)) {
+        const wasFavorite = newFavorites.has(exerciseId);
+        const willBeFavorite = !wasFavorite;
+
+        if (wasFavorite) {
           newFavorites.delete(exerciseId);
-          void exerciseService.toggleFavoriteExercise(exerciseId, false);
         } else {
           newFavorites.add(exerciseId);
-          void exerciseService.toggleFavoriteExercise(exerciseId, true);
         }
+
+        // Track favorite toggle with Sentry
+        SentryAutoInstrumentation.trackUserInteraction(
+          'toggle_exercise_favorite',
+          'favorite_button',
+          'exercises-list',
+          {
+            exerciseId,
+            exerciseName: exercise.name,
+            exerciseMuscleGroup: exercise.muscle_group,
+            wasFavorite,
+            willBeFavorite,
+            timestamp: new Date().toISOString(),
+          },
+        );
+
+        SentryLogger.info('User toggled exercise favorite', {
+          screen: 'exercises-list',
+          exerciseId,
+          exerciseName: exercise.name,
+          exerciseMuscleGroup: exercise.muscle_group,
+          wasFavorite,
+          willBeFavorite,
+          action: 'toggle_exercise_favorite',
+        });
+
+        // Call the service to update backend
+        void exerciseService.toggleFavoriteExercise(exerciseId, willBeFavorite).catch((error) => {
+          SentryDataCollection.captureException(error, {
+            context: 'toggle_favorite_service_error',
+            screen: 'exercises-list',
+            exerciseId,
+            exerciseName: exercise.name,
+            willBeFavorite,
+          });
+        });
+
         return newFavorites;
       });
     },
@@ -706,34 +631,7 @@ const useExerciseModal = (displayedExercises: Exercise[]) => {
   };
 };
 
-const useAnimations = () => {
-  const shimmerAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const shimmerAnimation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(shimmerAnim, {
-          toValue: 1,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(shimmerAnim, {
-          toValue: 0,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-
-    shimmerAnimation.start();
-
-    return () => {
-      shimmerAnimation.stop();
-    };
-  }, []);
-
-  return { shimmerAnim };
-};
+// Note: useAnimations hook removed as it was not being used
 
 interface SearchStateType {
   isSearchActive: boolean;
@@ -945,18 +843,28 @@ const ContentArea = ({
             </View>
 
             <View style={styles.exerciseCardsContainer}>
-              {section.data.map((item) => (
-                <ExerciseCard
-                  key={item.id}
-                  id={item.id}
-                  name={item.name}
-                  image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE_OBJECT}
-                  isFavorite={favoriteIds.has(item.id)}
-                  onPress={handleExercisePress}
-                  onToggleFavorite={toggleFavorite}
-                  useOptimizedImage={true}
-                />
-              ))}
+              {Array.from({ length: Math.ceil(section.data.length / 2) }).map((_, rowIndex) => {
+                const startIdx = rowIndex * 2;
+                const rowItems = section.data.slice(startIdx, startIdx + 2);
+
+                return (
+                  <View key={`row-${rowIndex}`} style={styles.columnWrapper}>
+                    {rowItems.map((item) => (
+                      <ExerciseCard
+                        key={item.id}
+                        id={item.id}
+                        name={item.name}
+                        image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE_OBJECT}
+                        isFavorite={favoriteIds.has(item.id)}
+                        onPress={handleExercisePress}
+                        onToggleFavorite={toggleFavorite}
+                        useOptimizedImage={true}
+                      />
+                    ))}
+                    {rowItems.length === 1 && <View style={styles.emptyCardSpace} />}
+                  </View>
+                );
+              })}
             </View>
           </View>
         )}
@@ -1101,13 +1009,58 @@ export default function ExercisesListScreen() {
   // Flag to determine if we should group by muscle
   const shouldGroupByMuscle = groupByMuscle === 'true';
 
-  // Performance tracking
+  // Performance tracking with Sentry integration
   useEffect(() => {
     loadTimeTracker.startLoadTimeTracking('ExercisesListScreen');
     console.log('[ExercisesListScreen] Mounted');
+
+    // Set screen context for Sentry
+    SentryDataCollection.setContext('exercises_list_screen', {
+      screen: 'exercises-list',
+      category: currentCategory,
+      fromScreen,
+      shouldGroupByMuscle,
+      openSearchParam,
+      resetSearch,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Track screen entry
+    SentryAutoInstrumentation.trackUserInteraction('screen_view', 'exercises-list', 'navigation', {
+      category: currentCategory,
+      fromScreen,
+      shouldGroupByMuscle,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Add breadcrumb for screen mount
+    Sentry.addBreadcrumb({
+      message: 'ExercisesListScreen mounted',
+      category: 'ui.lifecycle',
+      level: 'info',
+      data: {
+        screen: 'exercises-list',
+        category: currentCategory,
+        fromScreen,
+        shouldGroupByMuscle,
+        searchAutoOpen: openSearchParam === 'true',
+      },
+    });
+
     return () => {
       loadTimeTracker.endLoadTimeTracking('ExercisesListScreen');
       console.log('[ExercisesListScreen] Unmounted');
+
+      // Add breadcrumb for screen unmount
+      Sentry.addBreadcrumb({
+        message: 'ExercisesListScreen unmounted',
+        category: 'ui.lifecycle',
+        level: 'info',
+        data: {
+          screen: 'exercises-list',
+          category: currentCategory,
+        },
+      });
     };
   }, []);
 
@@ -1125,7 +1078,7 @@ export default function ExercisesListScreen() {
     currentCategory,
   );
   const exerciseModal = useExerciseModal(displayedExercises);
-  const { shimmerAnim: _shimmerAnim } = useAnimations();
+  // Note: shimmerAnim from useAnimations is available but not currently used in this component
 
   const { preloadStatus, exerciseSections } = useContentRendering(
     displayedExercises,
@@ -1136,12 +1089,55 @@ export default function ExercisesListScreen() {
 
   useEffectsManagement(resetSearch, openSearchParam, searchState, preloadStatus);
 
-  // Handle favorites filter toggle
+  // Handle favorites filter toggle with Sentry tracking
   const toggleFavoritesFilter = useCallback(() => {
-    setShowFavoritesOnly((prev) => !prev);
-  }, []);
+    const newState = !showFavoritesOnly;
+    setShowFavoritesOnly(newState);
+
+    // Track favorites filter toggle
+    SentryAutoInstrumentation.trackUserInteraction(
+      'toggle_favorites_filter',
+      'favorites_button',
+      'exercises-list',
+      {
+        newState,
+        category: currentCategory,
+        timestamp: new Date().toISOString(),
+      },
+    );
+
+    SentryLogger.info('User toggled favorites filter', {
+      screen: 'exercises-list',
+      category: currentCategory,
+      showFavoritesOnly: newState,
+      action: 'toggle_favorites_filter',
+    });
+  }, [showFavoritesOnly, currentCategory]);
 
   const handleBackPress = useCallback(() => {
+    // Track back navigation
+    SentryAutoInstrumentation.trackUserInteraction(
+      'navigate_back',
+      'back_button',
+      'exercises-list',
+      {
+        category: currentCategory,
+        fromScreen,
+        searchActive: searchState.isSearchActive,
+        searchQuery: searchState.searchQuery,
+        timestamp: new Date().toISOString(),
+      },
+    );
+
+    SentryLogger.info('User navigated back from exercises list', {
+      screen: 'exercises-list',
+      category: currentCategory,
+      fromScreen,
+      searchActive: searchState.isSearchActive,
+      hasSearchQuery: searchState.searchQuery.trim() !== '',
+      action: 'navigate_back',
+    });
+
     searchState.setSearchQuery('');
 
     if (searchState.isSearchActive) {
@@ -1155,7 +1151,7 @@ export default function ExercisesListScreen() {
     } else {
       router.back();
     }
-  }, [fromScreen, router, searchState]);
+  }, [fromScreen, router, searchState, currentCategory]);
 
   return (
     <View style={styles.container}>

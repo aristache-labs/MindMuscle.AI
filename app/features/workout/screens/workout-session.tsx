@@ -20,6 +20,7 @@ import CustomizeExerciseModal from '../../../components/CustomizeExerciseModal';
 import ExerciseDetailsModal from '../../../components/ExerciseDetailsModal';
 import ExerciseListModal from '../../../components/ExerciseListModal';
 import OptimizedImage from '../../../components/OptimizedImage';
+import { SentryDataCollection, SentryLogger } from '../../../services/sentry';
 import { useAuth } from '../../../store/AuthContext';
 
 import { BORDER_RADIUS, COLORS, SPACING } from '../../../constants/theme';
@@ -62,6 +63,69 @@ export default function WorkoutSessionScreen() {
   // Get forceStart and forceResume parameters from URL
   const forceStart = params.forceStart === 'true';
   const forceResume = params.forceResume === 'true';
+
+  // Sentry initialization for workout session
+  useEffect(() => {
+    try {
+      // Log workout session access
+      SentryLogger.info('Workout session screen accessed', {
+        user_id: user?.id,
+        plan_id: planId,
+        workout_day: workoutDay,
+        cycle_week: cycleWeek,
+        week_name: weekName,
+        force_start: forceStart,
+        force_resume: forceResume,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Add breadcrumb for screen navigation
+      SentryDataCollection.addBreadcrumb({
+        message: 'User navigated to workout session screen',
+        category: 'navigation',
+        level: 'info',
+        data: {
+          screen: 'workout-session',
+          plan_id: planId,
+          workout_day: workoutDay,
+          cycle_week: cycleWeek,
+          week_name: weekName,
+          user_authenticated: !!user,
+        },
+      });
+
+      // Set user context for this session
+      if (user) {
+        SentryDataCollection.setUser({
+          id: user.id,
+          email: user.email,
+        });
+      }
+
+      // Set context for workout session analytics
+      SentryDataCollection.setContext('workout_session', {
+        plan_id: planId,
+        workout_day: workoutDay,
+        cycle_week: cycleWeek,
+        week_name: weekName,
+        force_start: forceStart,
+        force_resume: forceResume,
+        session_type: forceResume ? 'resume' : forceStart ? 'forced_start' : 'normal_start',
+      });
+
+      // Set workout-related tags
+      SentryDataCollection.setTag('active_workout_plan', planId);
+      SentryDataCollection.setTag('workout_day', workoutDay.toString());
+      SentryDataCollection.setTag('cycle_week', cycleWeek.toString());
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'workout_session_initialization',
+        user_id: user?.id,
+        plan_id: planId,
+        workout_day: workoutDay,
+      });
+    }
+  }, [user, planId, workoutDay, cycleWeek, weekName, forceStart, forceResume]);
 
   // Use the timer hook
   const {
@@ -183,21 +247,19 @@ export default function WorkoutSessionScreen() {
   // Use the exercise selection hook
   const {
     showExerciseDetailsModal,
-    showExerciseListModal: _showExerciseListModal,
+    showExerciseListModal,
     showCustomizeExerciseModal,
     showAddExerciseModal,
-    initialSelectedExercise: _initialSelectedExercise,
     isCustomizeMode,
     handleExerciseNamePress,
     handleExerciseDetailsModalClose,
     handleExerciseListPress,
-    handleExerciseListModalClose: _handleExerciseListModalClose,
+    handleExerciseListModalClose,
     handleNextExercisePress,
-    handleExerciseSelect: _handleExerciseSelect,
+    handleExerciseSelect,
     handleCustomizeExercisePress,
     handleCustomizeExerciseModalClose,
     handleToggleCustomizeMode,
-    handleAddExercisePress: _handleAddExercisePress,
     handleAddExerciseModalClose,
     handleAddExercises,
     handleCustomizeExerciseSave,
@@ -364,21 +426,18 @@ export default function WorkoutSessionScreen() {
   );
 
   // Handle exercise details press from exercise list modal
-  const handleExerciseDetailsPress = useCallback(
-    (_exercise: ExerciseData) => {
-      // Close the exercise list modal first
-      _handleExerciseListModalClose();
+  const handleExerciseDetailsPress = useCallback(() => {
+    // Close the exercise list modal first
+    handleExerciseListModalClose();
 
-      // Set the exercise for the details modal
-      // Since we're reusing the existing exercise details modal, we'll trigger it to show
-      // But first we need to make sure the current exercise data is set correctly
+    // Set the exercise for the details modal
+    // Since we're reusing the existing exercise details modal, we'll trigger it to show
+    // But first we need to make sure the current exercise data is set correctly
 
-      // For now, just trigger the details modal for the current exercise
-      // This is a temporary solution - ideally we'd want to show details for the selected exercise
-      handleExerciseNamePress();
-    },
-    [_handleExerciseListModalClose, handleExerciseNamePress],
-  );
+    // For now, just trigger the details modal for the current exercise
+    // This is a temporary solution - ideally we'd want to show details for the selected exercise
+    handleExerciseNamePress();
+  }, [handleExerciseListModalClose, handleExerciseNamePress]);
 
   // Use the workout warmup hook
   const { showWarmup, warmupCompleted, handleWarmupComplete, skipWarmup } = useWorkoutWarmup({
@@ -388,7 +447,7 @@ export default function WorkoutSessionScreen() {
   });
 
   // Use the workout completion hook
-  const { completeWorkout } = useWorkoutCompletion({
+  const { completeWorkout: originalCompleteWorkout } = useWorkoutCompletion({
     user,
     planId,
     workoutDay,
@@ -408,15 +467,96 @@ export default function WorkoutSessionScreen() {
     navigate: router.replace,
   });
 
+  // Wrap completeWorkout with Sentry tracking
+  const completeWorkout = useCallback(async () => {
+    try {
+      // Log workout completion attempt
+      SentryLogger.info('User completing workout session', {
+        user_id: user?.id,
+        plan_id: planId,
+        workout_day: workoutDay,
+        cycle_week: cycleWeek,
+        week_name: weekName,
+        total_exercises: workoutExercises.length,
+        workout_duration: workoutDuration,
+        total_volume: totalVolume,
+        total_reps: totalReps,
+        is_resuming_paused: isResumingPausedWorkout,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Add breadcrumb for workout completion
+      SentryDataCollection.addBreadcrumb({
+        message: 'User completing workout session',
+        category: 'user-action',
+        level: 'info',
+        data: {
+          plan_id: planId,
+          workout_day: workoutDay,
+          cycle_week: cycleWeek,
+          total_exercises: workoutExercises.length,
+          workout_duration: workoutDuration,
+          action_type: 'complete_workout',
+        },
+      });
+
+      // Set workout completion tags
+      SentryDataCollection.setTag('workout_completed', 'true');
+      SentryDataCollection.setTag('workout_completion_method', 'manual');
+
+      await originalCompleteWorkout();
+
+      // Log successful workout completion
+      SentryLogger.info('Workout session completed successfully', {
+        user_id: user?.id,
+        plan_id: planId,
+        workout_day: workoutDay,
+        cycle_week: cycleWeek,
+        completion_status: 'success',
+      });
+    } catch (error) {
+      // Log workout completion error
+      SentryDataCollection.captureException(error as Error, {
+        context: 'workout_completion',
+        user_id: user?.id,
+        plan_id: planId,
+        workout_day: workoutDay,
+        cycle_week: cycleWeek,
+        total_exercises: workoutExercises.length,
+        workout_duration: workoutDuration,
+      });
+
+      SentryLogger.error('Workout completion failed', {
+        error: error,
+        user_id: user?.id,
+        plan_id: planId,
+        workout_day: workoutDay,
+      });
+
+      throw error;
+    }
+  }, [
+    originalCompleteWorkout,
+    user,
+    planId,
+    workoutDay,
+    cycleWeek,
+    weekName,
+    workoutExercises.length,
+    workoutDuration,
+    totalVolume,
+    totalReps,
+    isResumingPausedWorkout,
+  ]);
+
   // Use the workout navigation hook
-  const { currentExerciseIndex: _navCurrentExerciseIndex, moveToNextExercise } =
-    useWorkoutNavigation({
-      exercises: workoutExercises,
-      exerciseSets: workoutExerciseSets,
-      currentExerciseIndex,
-      setCurrentExerciseIndex,
-      onCompleteWorkout: () => completeWorkout(),
-    });
+  const { moveToNextExercise } = useWorkoutNavigation({
+    exercises: workoutExercises,
+    exerciseSets: workoutExerciseSets,
+    currentExerciseIndex,
+    setCurrentExerciseIndex,
+    onCompleteWorkout: () => completeWorkout(),
+  });
 
   // Use the workout exit handling hook
   const {
@@ -779,11 +919,11 @@ export default function WorkoutSessionScreen() {
 
       {/* Exercise List Modal */}
       <ExerciseListModal
-        visible={_showExerciseListModal}
-        onClose={_handleExerciseListModalClose}
+        visible={showExerciseListModal}
+        onClose={handleExerciseListModalClose}
         exercises={workoutExercises}
         currentExerciseIndex={currentExerciseIndex}
-        onExerciseSelect={_handleExerciseSelect}
+        onExerciseSelect={handleExerciseSelect}
         onExerciseDetailsPress={handleExerciseDetailsPress}
         onReorderExercises={handleReorderExercises}
         onRemoveExercise={handleRemoveExercise}

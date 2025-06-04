@@ -19,6 +19,7 @@ import useImagePreloader from '../hooks/useImagePreloader';
 import ExerciseDetailsModal from '../components/ExerciseDetailsModal';
 import workoutPlanService from '../services/workoutPlanService';
 import { useAuth } from '../store/AuthContext';
+import { SentryDataCollection, SentryLogger } from '../services/sentry';
 
 // Placeholder image constant
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -91,7 +92,7 @@ export default function PlanDetailsScreen() {
       .filter((url) => !!url) as string[]) || [];
 
   // Preload exercise images
-  const _imagePreloadStatus = useImagePreloader(exerciseImageUrls, {
+  useImagePreloader(exerciseImageUrls, {
     priority: 'high',
     skipIfCached: true,
     debugLabel: 'PlanDetails',
@@ -103,12 +104,82 @@ export default function PlanDetailsScreen() {
       setError(null);
 
       try {
+        // Log plan details screen access
+        SentryLogger.info('Plan details screen accessed', {
+          user_id: user?.id,
+          plan_id: planId,
+          timestamp: new Date().toISOString(),
+        });
+
+        // Add breadcrumb for screen navigation
+        SentryDataCollection.addBreadcrumb({
+          message: 'User navigated to plan details screen',
+          category: 'navigation',
+          level: 'info',
+          data: {
+            screen: 'plan-details',
+            plan_id: planId,
+            user_authenticated: !!user,
+          },
+        });
+
+        // Set user context for this session
+        if (user) {
+          SentryDataCollection.setUser({
+            id: user.id,
+            email: user.email,
+          });
+        }
+
         // Use the service function to fetch plan details
         const formattedPlan = await workoutPlanService.fetchPlanDetails(planId);
         setPlan(formattedPlan as Plan);
-      } catch {
-        setError('Failed to load plan details.');
-        // Error fetching plan details
+
+        // Log successful plan loading
+        SentryLogger.info('Plan details loaded successfully', {
+          user_id: user?.id,
+          plan_id: planId,
+          plan_title: formattedPlan.title,
+          workout_days_count: formattedPlan.workoutDays?.length || 0,
+          total_exercises:
+            formattedPlan.workoutDays?.reduce((sum, day) => sum + day.total_exercises, 0) || 0,
+          difficulty_level: formattedPlan.difficulty_level,
+          category: formattedPlan.category_name,
+        });
+
+        // Set Sentry tags for plan analytics
+        SentryDataCollection.setTag('current_plan_id', planId);
+        SentryDataCollection.setTag('plan_difficulty', formattedPlan.difficulty_level || 'unknown');
+        SentryDataCollection.setTag('plan_category', formattedPlan.category_name || 'unknown');
+
+        // Add context for plan analytics
+        SentryDataCollection.setContext('current_plan', {
+          plan_id: planId,
+          plan_title: formattedPlan.title,
+          workout_days: formattedPlan.workoutDays?.length || 0,
+          total_exercises:
+            formattedPlan.workoutDays?.reduce((sum, day) => sum + day.total_exercises, 0) || 0,
+          difficulty: formattedPlan.difficulty_level,
+          category: formattedPlan.category_name,
+          frequency: formattedPlan.workout_frequency,
+        });
+      } catch (fetchError) {
+        const errorMessage = 'Failed to load plan details.';
+        setError(errorMessage);
+
+        // Log plan loading error
+        SentryDataCollection.captureException(fetchError as Error, {
+          context: 'plan_details_fetch',
+          user_id: user?.id,
+          plan_id: planId,
+          error_type: 'plan_fetch_failed',
+        });
+
+        SentryLogger.error('Failed to fetch plan details', {
+          error: fetchError,
+          plan_id: planId,
+          user_id: user?.id,
+        });
       } finally {
         setIsLoading(false);
       }
@@ -116,34 +187,141 @@ export default function PlanDetailsScreen() {
 
     if (planId) {
       fetchPlanDetails();
+    } else {
+      // Log missing plan ID
+      SentryLogger.error('Plan details screen accessed without plan ID', {
+        user_id: user?.id,
+        params,
+      });
+
+      SentryDataCollection.captureException(new Error('Missing plan ID'), {
+        context: 'plan_details_missing_id',
+        user_id: user?.id,
+        params,
+      });
     }
-  }, [planId]);
+  }, [planId, user, params]);
 
   const handleBackPress = () => {
-    router.back();
+    try {
+      SentryDataCollection.addBreadcrumb({
+        message: 'User navigated back from plan details',
+        category: 'navigation',
+        level: 'info',
+        data: {
+          from_screen: 'plan-details',
+          plan_id: planId,
+          plan_title: plan?.title,
+        },
+      });
+
+      router.back();
+    } catch (navigationError) {
+      SentryDataCollection.captureException(navigationError as Error, {
+        context: 'plan_details_navigation_back',
+        user_id: user?.id,
+        plan_id: planId,
+      });
+    }
   };
 
   const handleStartPlan = async () => {
     if (!user) {
-      // User not authenticated
+      // Log unauthenticated access attempt
+      SentryLogger.warn('Unauthenticated user attempted to start plan', {
+        plan_id: planId,
+        plan_title: plan?.title,
+      });
+
+      SentryDataCollection.addBreadcrumb({
+        message: 'Unauthenticated user attempted to start plan',
+        category: 'auth.error',
+        level: 'warning',
+        data: {
+          plan_id: planId,
+          plan_title: plan?.title,
+        },
+      });
       return;
     }
 
     setIsStartingPlan(true);
 
     try {
+      // Log plan start attempt
+      SentryLogger.info('User initiated plan start', {
+        user_id: user.id,
+        plan_id: planId,
+        plan_title: plan?.title,
+        plan_difficulty: plan?.difficulty_level,
+        plan_category: plan?.category_name,
+        workout_days_count: plan?.workoutDays?.length || 0,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Add breadcrumb for user action
+      SentryDataCollection.addBreadcrumb({
+        message: 'User started workout plan',
+        category: 'user-action',
+        level: 'info',
+        data: {
+          plan_id: planId,
+          plan_title: plan?.title,
+          user_id: user.id,
+          action_type: 'start_plan',
+        },
+      });
+
       // Use the service function to start the plan
       const success = await workoutPlanService.startPlan(user.id, planId);
 
       if (success) {
+        // Log successful plan start
+        SentryLogger.info('Plan started successfully', {
+          user_id: user.id,
+          plan_id: planId,
+          plan_title: plan?.title,
+          operation_type: 'start_plan_success',
+        });
+
+        // Set tag for active plan tracking
+        SentryDataCollection.setTag('user_active_plan', planId);
+
         // Navigate back to the home screen with the My Plan tab selected
         router.push({
           pathname: '/(tabs)',
           params: { selectedOption: 'My Plan' },
         });
+      } else {
+        // Log plan start failure
+        SentryLogger.error('Plan start failed - service returned false', {
+          user_id: user.id,
+          plan_id: planId,
+          plan_title: plan?.title,
+          operation_type: 'start_plan_failed',
+        });
+
+        SentryDataCollection.captureException(new Error('Plan start service returned false'), {
+          context: 'plan_start_service_failure',
+          user_id: user.id,
+          plan_id: planId,
+        });
       }
-    } catch {
-      // Error starting plan
+    } catch (startError) {
+      // Log plan start error
+      SentryDataCollection.captureException(startError as Error, {
+        context: 'plan_start_operation',
+        user_id: user.id,
+        plan_id: planId,
+        plan_title: plan?.title,
+      });
+
+      SentryLogger.error('Error starting plan', {
+        error: startError,
+        user_id: user.id,
+        plan_id: planId,
+        plan_title: plan?.title,
+      });
     } finally {
       setIsStartingPlan(false);
     }
@@ -151,20 +329,115 @@ export default function PlanDetailsScreen() {
 
   // Handle day change
   const handleDayChange = (index: number) => {
-    setCurrentDayIndex(index);
-    flatListRef.current?.scrollToIndex({ animated: true, index });
+    try {
+      const selectedDay = plan?.workoutDays[index];
+
+      // Log day navigation
+      SentryLogger.info('User changed workout day', {
+        user_id: user?.id,
+        plan_id: planId,
+        from_day_index: currentDayIndex,
+        to_day_index: index,
+        from_day_number: plan?.workoutDays[currentDayIndex]?.day,
+        to_day_number: selectedDay?.day,
+        day_exercises_count: selectedDay?.total_exercises,
+        day_duration: selectedDay?.estimated_duration,
+      });
+
+      // Add breadcrumb for day navigation
+      SentryDataCollection.addBreadcrumb({
+        message: `User navigated to workout day ${selectedDay?.day}`,
+        category: 'user-interaction',
+        level: 'info',
+        data: {
+          plan_id: planId,
+          day_index: index,
+          day_number: selectedDay?.day,
+          exercises_count: selectedDay?.total_exercises,
+          estimated_duration: selectedDay?.estimated_duration,
+          user_id: user?.id,
+        },
+      });
+
+      setCurrentDayIndex(index);
+      flatListRef.current?.scrollToIndex({ animated: true, index });
+    } catch (dayChangeError) {
+      SentryDataCollection.captureException(dayChangeError as Error, {
+        context: 'day_change_interaction',
+        user_id: user?.id,
+        plan_id: planId,
+        target_day_index: index,
+      });
+    }
   };
 
   // Handle scroll end to update current day index
   const handleMomentumScrollEnd = (event: { nativeEvent: { contentOffset: { x: number } } }) => {
-    const contentOffsetX = event.nativeEvent.contentOffset.x;
-    const newIndex = Math.round(contentOffsetX / screenWidth);
-    setCurrentDayIndex(newIndex);
+    try {
+      const contentOffsetX = event.nativeEvent.contentOffset.x;
+      const newIndex = Math.round(contentOffsetX / screenWidth);
+
+      if (newIndex !== currentDayIndex && plan?.workoutDays[newIndex]) {
+        const newDay = plan.workoutDays[newIndex];
+
+        // Log scroll-based day change
+        SentryDataCollection.addBreadcrumb({
+          message: `User scrolled to workout day ${newDay.day}`,
+          category: 'user-interaction',
+          level: 'info',
+          data: {
+            plan_id: planId,
+            scroll_from_index: currentDayIndex,
+            scroll_to_index: newIndex,
+            day_number: newDay.day,
+            interaction_type: 'scroll',
+            user_id: user?.id,
+          },
+        });
+
+        setCurrentDayIndex(newIndex);
+      }
+    } catch (scrollError) {
+      SentryDataCollection.captureException(scrollError as Error, {
+        context: 'scroll_momentum_end',
+        user_id: user?.id,
+        plan_id: planId,
+      });
+    }
   };
 
   // Handle exercise press to show details modal
   const handleExercisePress = async (exercise: Exercise) => {
     try {
+      // Log exercise interaction immediately
+      SentryLogger.info('User tapped exercise for details', {
+        user_id: user?.id,
+        plan_id: planId,
+        exercise_id: exercise.id,
+        exercise_name: exercise.name,
+        workout_day: exercise.workout_day,
+        sets: exercise.sets,
+        reps_range: exercise.reps_range,
+        has_image: !!exercise.image_url,
+        primary_muscles: exercise.primary_muscles,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Add breadcrumb for exercise interaction
+      SentryDataCollection.addBreadcrumb({
+        message: `User opened exercise details: ${exercise.name}`,
+        category: 'user-interaction',
+        level: 'info',
+        data: {
+          plan_id: planId,
+          exercise_id: exercise.id,
+          exercise_name: exercise.name,
+          workout_day: exercise.workout_day,
+          user_id: user?.id,
+          interaction_type: 'exercise_details',
+        },
+      });
+
       // Show the modal immediately with basic info
       setSelectedExercise({
         id: exercise.id,
@@ -182,8 +455,21 @@ export default function PlanDetailsScreen() {
       const actualExerciseId = exercise.exercise_id || exercise.id;
 
       if (!actualExerciseId) {
-        // No valid exercise ID found for this exercise
-        throw new Error('Missing exercise ID');
+        const errorMessage = 'Missing exercise ID';
+        SentryLogger.error('Exercise details fetch failed - missing ID', {
+          user_id: user?.id,
+          plan_id: planId,
+          exercise_name: exercise.name,
+          exercise_object: exercise,
+        });
+
+        SentryDataCollection.captureException(new Error(errorMessage), {
+          context: 'exercise_details_missing_id',
+          user_id: user?.id,
+          plan_id: planId,
+          exercise: exercise,
+        });
+        throw new Error(errorMessage);
       }
 
       // Use the service function to fetch exercise details
@@ -193,13 +479,50 @@ export default function PlanDetailsScreen() {
         if (exerciseDetails) {
           // Update the modal with complete data
           setSelectedExercise(exerciseDetails);
+
+          // Log successful exercise details fetch
+          SentryLogger.info('Exercise details loaded successfully', {
+            user_id: user?.id,
+            plan_id: planId,
+            exercise_id: actualExerciseId,
+            exercise_name: exerciseDetails.name,
+            primary_muscles: exerciseDetails.primary_muscles,
+            secondary_muscles: exerciseDetails.secondary_muscles,
+          });
+        } else {
+          SentryLogger.warn('Exercise details fetch returned null', {
+            user_id: user?.id,
+            plan_id: planId,
+            exercise_id: actualExerciseId,
+            exercise_name: exercise.name,
+          });
         }
-      } catch {
-        // Error fetching exercise details
+      } catch (fetchDetailsError) {
+        // Log exercise details fetch error
+        SentryDataCollection.captureException(fetchDetailsError as Error, {
+          context: 'exercise_details_fetch',
+          user_id: user?.id,
+          plan_id: planId,
+          exercise_id: actualExerciseId,
+          exercise_name: exercise.name,
+        });
+
+        SentryLogger.error('Failed to fetch exercise details', {
+          error: fetchDetailsError,
+          user_id: user?.id,
+          plan_id: planId,
+          exercise_id: actualExerciseId,
+          exercise_name: exercise.name,
+        });
         // Even if fetch fails, still show what we have
       }
-    } catch {
-      // Error in handleExercisePress
+    } catch (exercisePressError) {
+      SentryDataCollection.captureException(exercisePressError as Error, {
+        context: 'exercise_press_handler',
+        user_id: user?.id,
+        plan_id: planId,
+        exercise: exercise,
+      });
     } finally {
       setIsLoading(false);
     }
@@ -207,7 +530,29 @@ export default function PlanDetailsScreen() {
 
   // Close the modal
   const handleCloseModal = () => {
-    setIsModalVisible(false);
+    try {
+      // Log modal close
+      SentryDataCollection.addBreadcrumb({
+        message: 'User closed exercise details modal',
+        category: 'user-interaction',
+        level: 'info',
+        data: {
+          plan_id: planId,
+          exercise_id: selectedExercise?.id,
+          exercise_name: selectedExercise?.name,
+          user_id: user?.id,
+          interaction_type: 'modal_close',
+        },
+      });
+
+      setIsModalVisible(false);
+    } catch (modalCloseError) {
+      SentryDataCollection.captureException(modalCloseError as Error, {
+        context: 'exercise_modal_close',
+        user_id: user?.id,
+        plan_id: planId,
+      });
+    }
   };
 
   // Render workout day content

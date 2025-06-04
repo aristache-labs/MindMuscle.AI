@@ -169,7 +169,7 @@
   "workbench.editor.enablePreviewFromQuickOpen": false,
   "workbench.startupEditor": "welcomePage",
   "workbench.iconTheme": "vs-seti",
-  "extensions.ignoreRecommendations": false,
+  "extensions.ignoreRecommendations": true,
   "security.workspace.trust.untrustedFiles": "open",
   "typescript.disableAutomaticTypeAcquisition": false,
   "search.smartCase": true,

@@ -7,6 +7,7 @@ import ExerciseDetailsModal from '../../../components/ExerciseDetailsModal';
 import MyPlanCalendar from '../../../components/myplanCalendar';
 import PlanOverviewModal from '../../../components/PlanOverviewModal';
 import { COLORS, SPACING } from '../../../constants/theme';
+import { SentryDataCollection, SentryLogger } from '../../../services/sentry';
 import workoutPlanService from '../../../services/workoutPlanService';
 import { useAuth } from '../../../store/AuthContext';
 import {
@@ -349,11 +350,55 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
 
+  // Sentry initialization for My Plan screen
+  useEffect(() => {
+    try {
+      // Log my plan screen access
+      SentryLogger.info('My Plan screen accessed', {
+        user_id: user?.id,
+        embedded_mode: embedded,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Add breadcrumb for screen navigation
+      SentryDataCollection.addBreadcrumb({
+        message: 'User navigated to My Plan screen',
+        category: 'navigation',
+        level: 'info',
+        data: {
+          screen: 'my-plan',
+          embedded: embedded,
+          user_authenticated: !!user,
+        },
+      });
+
+      // Set user context for this session
+      if (user) {
+        SentryDataCollection.setUser({
+          id: user.id,
+          email: user.email,
+        });
+      }
+
+      // Set context for my plan analytics
+      SentryDataCollection.setContext('my_plan_screen', {
+        embedded_mode: embedded,
+        feature_type: 'plan_management',
+        user_has_plan: false, // Will be updated when plan data loads
+      });
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'my_plan_screen_initialization',
+        user_id: user?.id,
+        embedded,
+      });
+    }
+  }, [user, embedded]);
+
   // Use the plan state hook
   const {
     isLoading,
     plan,
-    error: _error,
     userWorkoutDays,
     selectedDate,
     activeDay,
@@ -370,7 +415,6 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
     lockedWeekInfo,
     isDateSelectionLoading,
     isManualDateSelection,
-    hasAppliedCustomizations: _hasAppliedCustomizations,
     exerciseDetailsModalVisible,
     selectedExercise,
     planOverviewModalVisible,
@@ -456,7 +500,11 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
   );
 
   // Use the workout actions hook
-  const { handleStartWorkout, handleResumeWorkout, handleRedoWorkout } = useWorkoutActions({
+  const {
+    handleStartWorkout: originalHandleStartWorkout,
+    handleResumeWorkout: originalHandleResumeWorkout,
+    handleRedoWorkout: originalHandleRedoWorkout,
+  } = useWorkoutActions({
     plan,
     activeDay,
     selectedDate,
@@ -471,6 +519,110 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
     setHasAppliedCustomizations,
     updatePausedWorkoutWithCustomizations: updatePausedWorkoutWithCustomizationsCallback,
   });
+
+  // Wrap workout actions with Sentry tracking
+  const handleStartWorkout = useCallback(async () => {
+    try {
+      SentryLogger.info('User started workout from My Plan', {
+        user_id: user?.id,
+        plan_id: plan?.id,
+        plan_title: plan?.title,
+        workout_day: activeDay,
+        selected_date: selectedDate?.toISOString(),
+        action: 'start_workout',
+      });
+
+      SentryDataCollection.addBreadcrumb({
+        message: 'User started workout from My Plan',
+        category: 'user-action',
+        level: 'info',
+        data: {
+          plan_id: plan?.id,
+          workout_day: activeDay,
+          action_type: 'start_workout',
+        },
+      });
+
+      await originalHandleStartWorkout();
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'my_plan_start_workout',
+        user_id: user?.id,
+        plan_id: plan?.id,
+        workout_day: activeDay,
+      });
+      throw error;
+    }
+  }, [originalHandleStartWorkout, user, plan, activeDay, selectedDate]);
+
+  const handleResumeWorkout = useCallback(async () => {
+    try {
+      SentryLogger.info('User resumed paused workout from My Plan', {
+        user_id: user?.id,
+        plan_id: plan?.id,
+        plan_title: plan?.title,
+        workout_day: activeDay,
+        paused_workout_day: pausedWorkout?.workoutDay,
+        action: 'resume_workout',
+      });
+
+      SentryDataCollection.addBreadcrumb({
+        message: 'User resumed paused workout',
+        category: 'user-action',
+        level: 'info',
+        data: {
+          plan_id: plan?.id,
+          workout_day: activeDay,
+          paused_workout_day: pausedWorkout?.workoutDay,
+          action_type: 'resume_workout',
+        },
+      });
+
+      await originalHandleResumeWorkout();
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'my_plan_resume_workout',
+        user_id: user?.id,
+        plan_id: plan?.id,
+        workout_day: activeDay,
+      });
+      throw error;
+    }
+  }, [originalHandleResumeWorkout, user, plan, activeDay, pausedWorkout]);
+
+  const handleRedoWorkout = useCallback(async () => {
+    try {
+      SentryLogger.info('User redoing completed workout from My Plan', {
+        user_id: user?.id,
+        plan_id: plan?.id,
+        plan_title: plan?.title,
+        workout_day: activeDay,
+        selected_date: selectedDate?.toISOString(),
+        action: 'redo_workout',
+      });
+
+      SentryDataCollection.addBreadcrumb({
+        message: 'User redoing completed workout',
+        category: 'user-action',
+        level: 'info',
+        data: {
+          plan_id: plan?.id,
+          workout_day: activeDay,
+          action_type: 'redo_workout',
+        },
+      });
+
+      await originalHandleRedoWorkout();
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'my_plan_redo_workout',
+        user_id: user?.id,
+        plan_id: plan?.id,
+        workout_day: activeDay,
+      });
+      throw error;
+    }
+  }, [originalHandleRedoWorkout, user, plan, activeDay, selectedDate]);
 
   // Modal handlers
   const handleExerciseNamePress = useCallback(
@@ -576,6 +728,63 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
       fetchActivePlan();
     }
   }, [user?.id, userWorkoutDays.length, fetchActivePlan]);
+
+  // Sentry tracking for plan data loading
+  useEffect(() => {
+    if (plan) {
+      try {
+        // Log successful plan loading
+        SentryLogger.info('User plan loaded successfully', {
+          user_id: user?.id,
+          plan_id: plan.id,
+          plan_title: plan.title,
+          plan_subtitle: plan.subtitle,
+          workout_days_count: plan.workoutDays?.length || 0,
+          cycle_progress: cycleProgress
+            ? {
+                current_week: cycleProgress.currentWeek,
+                week_name: cycleProgress.weekName,
+                completed_workouts: cycleProgress.completedWorkouts,
+                total_workouts_in_cycle: cycleProgress.totalWorkoutsInCycle,
+                progress_percentage: cycleProgress.progressPercentage,
+              }
+            : null,
+        });
+
+        // Update context with plan information
+        SentryDataCollection.setContext('my_plan_screen', {
+          embedded_mode: embedded,
+          feature_type: 'plan_management',
+          user_has_plan: true,
+          plan_id: plan.id,
+          plan_title: plan.title,
+          workout_days_count: plan.workoutDays?.length || 0,
+        });
+
+        // Set plan-related tags
+        SentryDataCollection.setTag('user_active_plan', plan.id);
+        SentryDataCollection.setTag('plan_type', plan.category_name || 'unknown');
+
+        // Add breadcrumb for plan loading
+        SentryDataCollection.addBreadcrumb({
+          message: `User plan loaded: ${plan.title}`,
+          category: 'data',
+          level: 'info',
+          data: {
+            plan_id: plan.id,
+            plan_title: plan.title,
+            workout_days: plan.workoutDays?.length || 0,
+          },
+        });
+      } catch (error) {
+        SentryDataCollection.captureException(error as Error, {
+          context: 'plan_data_tracking',
+          user_id: user?.id,
+          plan_id: plan?.id,
+        });
+      }
+    }
+  }, [plan, cycleProgress, user, embedded]);
 
   // CALENDAR UPDATE EFFECT
   useEffect(() => {

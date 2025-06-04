@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Text, IconButton, Divider } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -8,6 +8,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import supabase from '../services/supabase';
 import OptimizedImage from '../components/OptimizedImage';
 import useImagePreloader from '../hooks/useImagePreloader';
+import { SentryDataCollection, SentryLogger } from '../services/sentry';
+import { useAuth } from '../store/AuthContext';
 
 interface Plan {
   id: string;
@@ -29,10 +31,15 @@ interface Subcategory {
   identifier: string;
 }
 
+interface CategoryData {
+  name: string;
+}
+
 export default function PlansScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [subcategory, setSubcategory] = useState<Subcategory | null>(null);
   const [categoryName, setCategoryName] = useState<string>('');
@@ -47,35 +54,114 @@ export default function PlansScreen() {
     debugLabel: 'PlansScreen',
   });
 
+  // Extract Sentry initialization to reduce complexity
+  const initializeSentryTracking = useCallback(() => {
+    SentryLogger.info('Plans screen accessed', {
+      user_id: user?.id,
+      subcategory_id: params.subcategoryId,
+      timestamp: new Date().toISOString(),
+    });
+
+    SentryDataCollection.addBreadcrumb({
+      message: 'User navigated to plans screen',
+      category: 'navigation',
+      level: 'info',
+      data: {
+        screen: 'plans',
+        subcategory_id: params.subcategoryId,
+        user_authenticated: !!user,
+      },
+    });
+
+    if (user) {
+      SentryDataCollection.setUser({
+        id: user.id,
+        email: user.email,
+      });
+    }
+  }, [user, params.subcategoryId]);
+
+  // Extract subcategory fetching logic
+  const fetchSubcategory = useCallback(
+    async (subcategoryId: string | undefined): Promise<Subcategory | null> => {
+      if (subcategoryId) {
+        const { data: subcatData, error: subcatError } = await supabase
+          .from('workout_subcategories')
+          .select('*')
+          .eq('identifier', subcategoryId)
+          .single();
+        if (subcatError) throw subcatError;
+        return subcatData || null;
+      } else {
+        const { data: subcatData, error: subcatError } = await supabase
+          .from('workout_subcategories')
+          .select('*')
+          .order('display_order', { ascending: true })
+          .limit(1);
+        if (subcatError) throw subcatError;
+        return subcatData && subcatData.length > 0 ? subcatData[0] : null;
+      }
+    },
+    [],
+  );
+
+  // Extract Sentry logging to reduce complexity
+  const logPlansLoadSuccess = useCallback(
+    (subcat: Subcategory | null, categoryData: CategoryData | null, plansData: Plan[]) => {
+      SentryLogger.info('Plans loaded successfully', {
+        user_id: user?.id,
+        subcategory_id: subcat?.identifier,
+        subcategory_title: subcat?.title,
+        category_name: categoryData?.name,
+        plans_count: plansData?.length || 0,
+        plans_list:
+          plansData?.map((plan) => ({
+            id: plan.id,
+            title: plan.title,
+            difficulty: plan.difficulty_level,
+          })) || [],
+      });
+
+      SentryDataCollection.setTag('current_subcategory', subcat?.identifier || 'unknown');
+      SentryDataCollection.setTag('current_category', subcat?.category_identifier || 'unknown');
+
+      SentryDataCollection.setContext('plans_screen', {
+        subcategory_id: subcat?.identifier,
+        subcategory_title: subcat?.title,
+        category_name: categoryData?.name,
+        plans_count: plansData?.length || 0,
+        has_hero_image: !!subcat?.image_url,
+      });
+    },
+    [user],
+  );
+
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
       setError(null);
+
       try {
-        // Get subcategoryId from params, fallback to first if not provided
+        // Initialize Sentry tracking
+        initializeSentryTracking();
+
+        // Fetch subcategory data
         const subcategoryId = params.subcategoryId as string | undefined;
-        let subcat: Subcategory | null = null;
-        if (subcategoryId) {
-          const { data: subcatData, error: subcatError } = await supabase
-            .from('workout_subcategories')
-            .select('*')
-            .eq('identifier', subcategoryId)
-            .single();
-          if (subcatError) throw subcatError;
-          subcat = subcatData || null;
-        } else {
-          // fallback to first subcategory
-          const { data: subcatData, error: subcatError } = await supabase
-            .from('workout_subcategories')
-            .select('*')
-            .order('display_order', { ascending: true })
-            .limit(1);
-          if (subcatError) throw subcatError;
-          subcat = subcatData && subcatData.length > 0 ? subcatData[0] : null;
-        }
+        const subcat = await fetchSubcategory(subcategoryId);
         setSubcategory(subcat);
 
+        // Log subcategory loading success
+        if (subcat) {
+          SentryLogger.info('Subcategory loaded successfully', {
+            user_id: user?.id,
+            subcategory_id: subcat.identifier,
+            subcategory_title: subcat.title,
+            category_identifier: subcat.category_identifier,
+          });
+        }
+
         // Fetch the category name for the subcategory
+        let categoryData: CategoryData | null = null;
         if (subcat && subcat.category_identifier) {
           const { data: catData, error: catError } = await supabase
             .from('workout_categories')
@@ -83,6 +169,7 @@ export default function PlansScreen() {
             .eq('identifier', subcat.category_identifier)
             .single();
           if (catError) throw catError;
+          categoryData = catData;
           setCategoryName(catData?.name || '');
         } else {
           setCategoryName('');
@@ -96,22 +183,100 @@ export default function PlansScreen() {
           .order('display_order', { ascending: true });
         if (plansError) throw plansError;
         setPlans(plansData || []);
-      } catch (error) {
-        console.error('Error fetching plans:', error);
-        setError('Failed to load plans.');
+
+        // Log successful plans loading with analytics
+        logPlansLoadSuccess(subcat, categoryData, plansData);
+      } catch (fetchError) {
+        const errorMessage = 'Failed to load plans.';
+        console.error('Error fetching plans:', fetchError);
+        setError(errorMessage);
+
+        // Log plans loading error
+        SentryDataCollection.captureException(fetchError as Error, {
+          context: 'plans_screen_fetch',
+          user_id: user?.id,
+          subcategory_id: params.subcategoryId,
+          error_type: 'plans_fetch_failed',
+        });
+
+        SentryLogger.error('Failed to fetch plans data', {
+          error: fetchError,
+          subcategory_id: params.subcategoryId,
+          user_id: user?.id,
+        });
       } finally {
         setIsLoading(false);
       }
     };
     fetchData();
-  }, [params.subcategoryId]);
+  }, [params.subcategoryId, user, initializeSentryTracking, fetchSubcategory, logPlansLoadSuccess]);
 
   const handleBackPress = () => {
-    router.replace('/(tabs)/discover');
+    try {
+      SentryDataCollection.addBreadcrumb({
+        message: 'User navigated back from plans screen',
+        category: 'navigation',
+        level: 'info',
+        data: {
+          from_screen: 'plans',
+          subcategory_id: subcategory?.identifier,
+          subcategory_title: subcategory?.title,
+          plans_viewed: plans.length,
+        },
+      });
+
+      router.replace('/(tabs)/discover');
+    } catch (navigationError) {
+      SentryDataCollection.captureException(navigationError as Error, {
+        context: 'plans_navigation_back',
+        user_id: user?.id,
+        subcategory_id: subcategory?.identifier,
+      });
+    }
   };
 
   const handlePlanPress = (plan: Plan) => {
-    router.push({ pathname: '/(stack)/plan-details', params: { planId: plan.id } });
+    try {
+      // Log plan selection
+      SentryLogger.info('User selected plan', {
+        user_id: user?.id,
+        plan_id: plan.id,
+        plan_title: plan.title,
+        plan_difficulty: plan.difficulty_level,
+        plan_duration: plan.estimated_duration,
+        subcategory_id: subcategory?.identifier,
+        subcategory_title: subcategory?.title,
+        category_name: categoryName,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Add breadcrumb for plan selection
+      SentryDataCollection.addBreadcrumb({
+        message: `User selected plan: ${plan.title}`,
+        category: 'user-interaction',
+        level: 'info',
+        data: {
+          plan_id: plan.id,
+          plan_title: plan.title,
+          plan_difficulty: plan.difficulty_level,
+          subcategory_id: subcategory?.identifier,
+          user_id: user?.id,
+          interaction_type: 'plan_selection',
+        },
+      });
+
+      // Set tag for plan analytics
+      SentryDataCollection.setTag('last_viewed_plan', plan.id);
+
+      router.push({ pathname: '/(stack)/plan-details', params: { planId: plan.id } });
+    } catch (planPressError) {
+      SentryDataCollection.captureException(planPressError as Error, {
+        context: 'plan_selection',
+        user_id: user?.id,
+        plan_id: plan.id,
+        plan_title: plan.title,
+      });
+    }
   };
 
   return (

@@ -7,6 +7,7 @@ import { ActivityIndicator, Button, IconButton, Switch, Text } from 'react-nativ
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import WorkoutDaysModal from '../components/WorkoutDaysModal';
 import { COLORS, SPACING } from '../constants/theme';
+import { SentryDataCollection, SentryLogger } from '../services/sentry';
 import { useAuth } from '../store/AuthContext';
 import { CacheStats, clearImageCache, getCacheStats } from '../utils/imagePreloader';
 import { logger } from '../utils/logger';
@@ -14,7 +15,7 @@ import { logger } from '../utils/logger';
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user: _user } = useAuth();
+  const { user } = useAuth();
   const [isDarkTheme, setIsDarkTheme] = React.useState(true);
   const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
   const [clearingCache, setClearingCache] = useState(false);
@@ -22,15 +23,50 @@ export default function SettingsScreen() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [workoutReminders, setWorkoutReminders] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [validationErrors, _setValidationErrors] = useState<Record<string, string>>({});
-  const [isLoading, _setIsLoading] = useState(false);
+  const [validationErrors] = useState<Record<string, string>>({});
+  const [isLoading] = useState(false);
 
   // Fetch cache statistics when the component mounts
   useEffect(() => {
-    updateCacheStats();
-    // TODO: Re-enable when notification features are implemented
-    // loadUserPreferences();
-  }, []);
+    try {
+      // Log settings screen access
+      SentryLogger.info('Settings screen accessed', {
+        user_id: user?.id,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Add breadcrumb for screen navigation
+      SentryDataCollection.addBreadcrumb({
+        message: 'User navigated to settings screen',
+        category: 'navigation',
+        level: 'info',
+        data: {
+          screen: 'settings',
+          user_authenticated: !!user,
+        },
+      });
+
+      // Set user context for this session
+      if (user) {
+        SentryDataCollection.setUser({
+          id: user.id,
+          email: user.email,
+        });
+      }
+
+      updateCacheStats();
+      // TODO: Re-enable when notification features are implemented
+      // loadUserPreferences();
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'settings_screen_initialization',
+        user_id: user?.id,
+      });
+      logger.error('Error initializing settings screen', error as Error, {
+        context: { userId: user?.id },
+      });
+    }
+  }, [user]);
 
   // TODO: Re-enable when notification features are implemented
   // Load user preferences from database
@@ -74,41 +110,168 @@ export default function SettingsScreen() {
     dark_theme?: boolean;
     sound_enabled?: boolean;
   }) => {
-    // Temporarily disabled - no database operations for these features yet
-    logger.info('User preferences save disabled - features not implemented yet', {
-      context: { preferences },
-    });
-    return true;
+    try {
+      // Log preference changes
+      SentryLogger.info('User preferences updated', {
+        user_id: user?.id,
+        preferences,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Add breadcrumb for user action
+      SentryDataCollection.addBreadcrumb({
+        message: 'User updated preferences',
+        category: 'user-action',
+        level: 'info',
+        data: {
+          preferences,
+          user_id: user?.id,
+        },
+      });
+
+      // Temporarily disabled - no database operations for these features yet
+      logger.info('User preferences save disabled - features not implemented yet', {
+        context: { preferences },
+      });
+      return true;
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'save_user_preferences',
+        user_id: user?.id,
+        preferences,
+      });
+      logger.error('Error saving user preferences', error as Error, {
+        context: { userId: user?.id, preferences },
+      });
+      return false;
+    }
   };
 
   // Handle theme toggle with validation
   const handleThemeToggle = async (value: boolean) => {
-    setIsDarkTheme(value);
-    await saveUserPreferences({ dark_theme: value });
+    try {
+      SentryLogger.info('Theme toggle triggered', {
+        user_id: user?.id,
+        new_theme: value ? 'dark' : 'light',
+        previous_theme: isDarkTheme ? 'dark' : 'light',
+      });
+
+      setIsDarkTheme(value);
+      await saveUserPreferences({ dark_theme: value });
+
+      // Set Sentry tag for theme
+      SentryDataCollection.setTag('user_theme', value ? 'dark' : 'light');
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'theme_toggle',
+        user_id: user?.id,
+        attempted_value: value,
+      });
+      logger.error('Error toggling theme', error as Error);
+    }
   };
 
   // Handle notifications toggle with validation
   const handleNotificationsToggle = async (value: boolean) => {
-    setNotificationsEnabled(value);
-    await saveUserPreferences({ notifications_enabled: value });
+    try {
+      SentryLogger.info('Notifications toggle triggered', {
+        user_id: user?.id,
+        enabled: value,
+        previous_state: notificationsEnabled,
+      });
+
+      setNotificationsEnabled(value);
+      await saveUserPreferences({ notifications_enabled: value });
+
+      // Set Sentry tag for notifications
+      SentryDataCollection.setTag('notifications_enabled', value.toString());
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'notifications_toggle',
+        user_id: user?.id,
+        attempted_value: value,
+      });
+      logger.error('Error toggling notifications', error as Error);
+    }
   };
 
   // Handle workout reminders toggle with validation
   const handleWorkoutRemindersToggle = async (value: boolean) => {
-    setWorkoutReminders(value);
-    await saveUserPreferences({ workout_reminders: value });
+    try {
+      SentryLogger.info('Workout reminders toggle triggered', {
+        user_id: user?.id,
+        enabled: value,
+        previous_state: workoutReminders,
+      });
+
+      setWorkoutReminders(value);
+      await saveUserPreferences({ workout_reminders: value });
+
+      // Set Sentry tag for workout reminders
+      SentryDataCollection.setTag('workout_reminders_enabled', value.toString());
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'workout_reminders_toggle',
+        user_id: user?.id,
+        attempted_value: value,
+      });
+      logger.error('Error toggling workout reminders', error as Error);
+    }
   };
 
   // Handle sound toggle with validation
   const handleSoundToggle = async (value: boolean) => {
-    setSoundEnabled(value);
-    await saveUserPreferences({ sound_enabled: value });
+    try {
+      SentryLogger.info('Sound toggle triggered', {
+        user_id: user?.id,
+        enabled: value,
+        previous_state: soundEnabled,
+      });
+
+      setSoundEnabled(value);
+      await saveUserPreferences({ sound_enabled: value });
+
+      // Set Sentry tag for sound
+      SentryDataCollection.setTag('sound_enabled', value.toString());
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'sound_toggle',
+        user_id: user?.id,
+        attempted_value: value,
+      });
+      logger.error('Error toggling sound', error as Error);
+    }
   };
 
   // Update cache statistics
   const updateCacheStats = () => {
-    const stats = getCacheStats();
-    setCacheStats(stats);
+    try {
+      const stats = getCacheStats();
+      setCacheStats(stats);
+
+      // Log cache statistics for monitoring
+      SentryDataCollection.addBreadcrumb({
+        message: 'Cache statistics updated',
+        category: 'cache.stats',
+        level: 'info',
+        data: {
+          total_entries: stats.totalEntries,
+          estimated_size_bytes: stats.estimatedSize,
+          hit_count: stats.hitCount,
+          miss_count: stats.missCount,
+          hit_rate:
+            stats.hitCount + stats.missCount > 0
+              ? Math.round((stats.hitCount / (stats.hitCount + stats.missCount)) * 100)
+              : 0,
+        },
+      });
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'update_cache_stats',
+        user_id: user?.id,
+      });
+      logger.error('Error updating cache stats', error as Error);
+    }
   };
 
   // Format bytes to human-readable format
@@ -140,68 +303,149 @@ export default function SettingsScreen() {
 
   // Handle cache clearing with validation
   const handleClearCache = async () => {
-    Alert.alert('Clear All Cache', 'Are you sure you want to clear all cached images?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Clear All',
-        style: 'destructive',
-        onPress: async () => {
-          setClearingCache(true);
-          try {
-            const result = await clearImageCache();
-            setClearingCache(false);
-            updateCacheStats();
+    try {
+      // Log cache clear attempt
+      SentryLogger.info('User initiated cache clear', {
+        user_id: user?.id,
+        cache_size_before: cacheStats?.estimatedSize || 0,
+        cache_entries_before: cacheStats?.totalEntries || 0,
+        cache_type: 'full_clear',
+      });
 
-            Alert.alert(
-              'Cache Cleared',
-              `Successfully cleared ${result.memoryClearedCount} cached images.`,
-              [{ text: 'OK' }],
-            );
-
-            logger.info('Cache cleared successfully', {
-              context: { clearedCount: result.memoryClearedCount },
+      Alert.alert('Clear All Cache', 'Are you sure you want to clear all cached images?', [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+          onPress: () => {
+            SentryDataCollection.addBreadcrumb({
+              message: 'User cancelled cache clear',
+              category: 'user-action',
+              level: 'info',
             });
-          } catch (error) {
-            logger.error('Error clearing cache', error as Error);
-            setClearingCache(false);
-            Alert.alert('Error', 'Failed to clear cache');
-          }
+          },
         },
-      },
-    ]);
+        {
+          text: 'Clear All',
+          style: 'destructive',
+          onPress: async () => {
+            setClearingCache(true);
+            try {
+              const result = await clearImageCache();
+              setClearingCache(false);
+              updateCacheStats();
+
+              // Log successful cache clear
+              SentryLogger.info('Cache cleared successfully', {
+                user_id: user?.id,
+                cleared_count: result.memoryClearedCount,
+                cache_size_before: cacheStats?.estimatedSize || 0,
+                operation_type: 'full_clear',
+              });
+
+              Alert.alert(
+                'Cache Cleared',
+                `Successfully cleared ${result.memoryClearedCount} cached images.`,
+                [{ text: 'OK' }],
+              );
+
+              logger.info('Cache cleared successfully', {
+                context: { clearedCount: result.memoryClearedCount },
+              });
+            } catch (error) {
+              SentryDataCollection.captureException(error as Error, {
+                context: 'clear_cache_operation',
+                user_id: user?.id,
+                operation_type: 'full_clear',
+              });
+              logger.error('Error clearing cache', error as Error);
+              setClearingCache(false);
+              Alert.alert('Error', 'Failed to clear cache');
+            }
+          },
+        },
+      ]);
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'handle_clear_cache',
+        user_id: user?.id,
+      });
+      logger.error('Error handling cache clear', error as Error);
+    }
   };
 
   // Handle old cache clearing with validation
   const handleClearOldCache = async () => {
-    Alert.alert('Clear Old Cache', 'Clear cached images older than 24 hours?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Clear Old Items',
-        onPress: async () => {
-          setClearingCache(true);
-          try {
-            // 24 hours in milliseconds = 86400000
-            const result = await clearImageCache({ olderThan: 86400000 });
-            setClearingCache(false);
-            updateCacheStats();
+    try {
+      // Log old cache clear attempt
+      SentryLogger.info('User initiated old cache clear', {
+        user_id: user?.id,
+        cache_size_before: cacheStats?.estimatedSize || 0,
+        cache_entries_before: cacheStats?.totalEntries || 0,
+        cache_type: 'old_items_only',
+        cutoff_hours: 24,
+      });
 
-            Alert.alert(
-              'Old Cache Cleared',
-              `Successfully cleared ${result.memoryClearedCount} old cached images.`,
-              [{ text: 'OK' }],
-            );
-
-            logger.info('Old cache cleared successfully', {
-              context: { clearedCount: result.memoryClearedCount },
+      Alert.alert('Clear Old Cache', 'Clear cached images older than 24 hours?', [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+          onPress: () => {
+            SentryDataCollection.addBreadcrumb({
+              message: 'User cancelled old cache clear',
+              category: 'user-action',
+              level: 'info',
             });
-          } catch (error) {
-            logger.error('Error clearing old cache', error as Error);
-            setClearingCache(false);
-            Alert.alert('Error', 'Failed to clear old cache');
-          }
+          },
         },
-      },
-    ]);
+        {
+          text: 'Clear Old Items',
+          onPress: async () => {
+            setClearingCache(true);
+            try {
+              // 24 hours in milliseconds = 86400000
+              const result = await clearImageCache({ olderThan: 86400000 });
+              setClearingCache(false);
+              updateCacheStats();
+
+              // Log successful old cache clear
+              SentryLogger.info('Old cache cleared successfully', {
+                user_id: user?.id,
+                cleared_count: result.memoryClearedCount,
+                cache_size_before: cacheStats?.estimatedSize || 0,
+                operation_type: 'old_items_clear',
+                cutoff_hours: 24,
+              });
+
+              Alert.alert(
+                'Old Cache Cleared',
+                `Successfully cleared ${result.memoryClearedCount} old cached images.`,
+                [{ text: 'OK' }],
+              );
+
+              logger.info('Old cache cleared successfully', {
+                context: { clearedCount: result.memoryClearedCount },
+              });
+            } catch (error) {
+              SentryDataCollection.captureException(error as Error, {
+                context: 'clear_old_cache_operation',
+                user_id: user?.id,
+                operation_type: 'old_items_clear',
+                cutoff_hours: 24,
+              });
+              logger.error('Error clearing old cache', error as Error);
+              setClearingCache(false);
+              Alert.alert('Error', 'Failed to clear old cache');
+            }
+          },
+        },
+      ]);
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'handle_clear_old_cache',
+        user_id: user?.id,
+      });
+      logger.error('Error handling old cache clear', error as Error);
+    }
   };
 
   const renderMenuItem = (
@@ -212,7 +456,35 @@ export default function SettingsScreen() {
     onPress?: () => void,
   ) => (
     <View>
-      <Pressable style={styles.menuItem} onPress={onPress}>
+      <Pressable
+        style={styles.menuItem}
+        onPress={() => {
+          try {
+            // Log menu item interaction
+            SentryDataCollection.addBreadcrumb({
+              message: `User tapped menu item: ${title}`,
+              category: 'user-interaction',
+              level: 'info',
+              data: {
+                menu_item: title,
+                has_action: !!onPress,
+                user_id: user?.id,
+              },
+            });
+
+            if (onPress) {
+              onPress();
+            }
+          } catch (error) {
+            SentryDataCollection.captureException(error as Error, {
+              context: 'menu_item_press',
+              user_id: user?.id,
+              menu_item: title,
+            });
+            logger.error('Error handling menu item press', error as Error);
+          }
+        }}
+      >
         <View style={styles.menuItemLeft}>
           <MaterialCommunityIcons
             name={icon as keyof typeof MaterialCommunityIcons.glyphMap}
@@ -248,11 +520,47 @@ export default function SettingsScreen() {
   );
 
   const safeGoBack = () => {
-    router.push('/(tabs)/profile');
+    try {
+      SentryDataCollection.addBreadcrumb({
+        message: 'User navigated back from settings',
+        category: 'navigation',
+        level: 'info',
+        data: {
+          from_screen: 'settings',
+          to_screen: 'profile',
+        },
+      });
+
+      router.push('/(tabs)/profile');
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'settings_navigation_back',
+        user_id: user?.id,
+      });
+      logger.error('Error navigating back from settings', error as Error);
+    }
   };
 
   const handleOpenWorkoutDaysModal = () => {
-    setWorkoutDaysModalVisible(true);
+    try {
+      SentryDataCollection.addBreadcrumb({
+        message: 'User opened workout days modal',
+        category: 'user-interaction',
+        level: 'info',
+        data: {
+          modal_type: 'workout_days',
+          user_id: user?.id,
+        },
+      });
+
+      setWorkoutDaysModalVisible(true);
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'open_workout_days_modal',
+        user_id: user?.id,
+      });
+      logger.error('Error opening workout days modal', error as Error);
+    }
   };
 
   return (
@@ -416,7 +724,27 @@ export default function SettingsScreen() {
 
       <WorkoutDaysModal
         visible={workoutDaysModalVisible}
-        onClose={() => setWorkoutDaysModalVisible(false)}
+        onClose={() => {
+          try {
+            SentryDataCollection.addBreadcrumb({
+              message: 'User closed workout days modal',
+              category: 'user-interaction',
+              level: 'info',
+              data: {
+                modal_type: 'workout_days',
+                user_id: user?.id,
+              },
+            });
+
+            setWorkoutDaysModalVisible(false);
+          } catch (error) {
+            SentryDataCollection.captureException(error as Error, {
+              context: 'close_workout_days_modal',
+              user_id: user?.id,
+            });
+            logger.error('Error closing workout days modal', error as Error);
+          }
+        }}
       />
     </View>
   );

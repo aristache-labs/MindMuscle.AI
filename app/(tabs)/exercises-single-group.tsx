@@ -10,6 +10,7 @@ import {
   Animated,
   TextInput,
   TouchableWithoutFeedback,
+  Keyboard,
 } from 'react-native';
 import { IconButton, Divider } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -21,12 +22,6 @@ import exerciseService, { Exercise, ExerciseCategory } from '../services/exercis
 import ExerciseCard from '../components/ExerciseCard';
 import useImagePreloader from '../hooks/useImagePreloader';
 import ExerciseDetailsModal from '../components/ExerciseDetailsModal';
-import {
-  addBreadcrumb,
-  captureError,
-  capturePerformanceError,
-} from '../services/sentry/simpleErrorHandler';
-import { setTag, SentryReactProfiler } from '../services/sentry';
 
 // Define types for global placeholders
 interface PlaceholderImages {
@@ -97,7 +92,7 @@ const MUSCLE_GROUP_ALIASES: Record<string, string[]> = {
   Traps: ['trapezius', 'upper back'],
 };
 
-// Custom hook for exercise data management with Sentry tracking
+// Custom hook for exercise data management
 const useExerciseData = (muscleGroup: string) => {
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState(true);
@@ -106,13 +101,6 @@ const useExerciseData = (muscleGroup: string) => {
 
   useEffect(() => {
     const loadExercises = async () => {
-      const startTime = Date.now();
-
-      addBreadcrumb(`Loading exercises for muscle group: ${muscleGroup}`, 'api', {
-        muscleGroup,
-        timestamp: new Date().toISOString(),
-      });
-
       try {
         setLoading(true);
         setError(null);
@@ -123,53 +111,16 @@ const useExerciseData = (muscleGroup: string) => {
         exercisesData.sort((a, b) => a.name.localeCompare(b.name));
         setExercises(exercisesData);
 
-        const loadTime = Date.now() - startTime;
-        addBreadcrumb('Exercises loaded successfully', 'api', {
-          muscleGroup,
-          exerciseCount: exercisesData.length,
-          loadTime,
-        });
-
-        if (loadTime > 2000) {
-          capturePerformanceError(
-            'Slow muscle group exercises loading',
-            'data_load_time',
-            loadTime,
-          );
-        }
-
         try {
           const favorites = await exerciseService.getFavoriteExercises();
           const favoriteIdSet = new Set(favorites.map((fav) => fav.id));
           setFavoriteIds(favoriteIdSet);
         } catch (favError) {
           console.error('Error loading favorites:', favError);
-          captureError(favError as Error, {
-            category: 'api_error',
-            screen: 'exercises_single_group',
-            operation: 'loadFavorites',
-            muscleGroup,
-          });
         }
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
-
-        captureError(err as Error, {
-          category: 'api_error',
-          screen: 'exercises_single_group',
-          operation: 'loadExercises',
-          muscleGroup,
-          loadTime: Date.now() - startTime,
-        });
-
         console.error('Error loading exercises:', err);
         setError('Failed to load exercises. Please try again.');
-
-        addBreadcrumb('Exercise loading failed', 'api', {
-          muscleGroup,
-          errorMessage,
-          loadTime: Date.now() - startTime,
-        });
       } finally {
         setLoading(false);
       }
@@ -178,55 +129,19 @@ const useExerciseData = (muscleGroup: string) => {
     loadExercises();
   }, [muscleGroup]);
 
-  const toggleFavorite = useCallback(
-    async (exerciseId: string) => {
-      const startTime = Date.now();
-      const exercise = exercises.find((ex) => ex.id === exerciseId);
-      const wasFavorite = favoriteIds.has(exerciseId);
-
-      addBreadcrumb(`Toggle favorite: ${exercise?.name || exerciseId}`, 'user_interaction', {
-        exerciseId,
-        exerciseName: exercise?.name || 'unknown',
-        muscleGroup,
-        wasFavorite,
-        newState: !wasFavorite,
-      });
-
-      try {
-        setFavoriteIds((prev) => {
-          const newFavorites = new Set(prev);
-          if (newFavorites.has(exerciseId)) {
-            newFavorites.delete(exerciseId);
-            void exerciseService.toggleFavoriteExercise(exerciseId, false);
-          } else {
-            newFavorites.add(exerciseId);
-            void exerciseService.toggleFavoriteExercise(exerciseId, true);
-          }
-          return newFavorites;
-        });
-
-        const operationTime = Date.now() - startTime;
-        addBreadcrumb(`Favorite toggle completed: ${exercise?.name || exerciseId}`, 'api', {
-          exerciseId,
-          newState: !wasFavorite,
-          operationTime,
-        });
-
-        if (operationTime > 1000) {
-          capturePerformanceError('Slow favorite toggle', 'favorite_operation_time', operationTime);
-        }
-      } catch (error) {
-        captureError(error as Error, {
-          category: 'api_error',
-          screen: 'exercises_single_group',
-          component: 'ToggleFavorite',
-          exerciseId,
-          muscleGroup,
-        });
+  const toggleFavorite = useCallback((exerciseId: string) => {
+    setFavoriteIds((prev) => {
+      const newFavorites = new Set(prev);
+      if (newFavorites.has(exerciseId)) {
+        newFavorites.delete(exerciseId);
+        void exerciseService.toggleFavoriteExercise(exerciseId, false);
+      } else {
+        newFavorites.add(exerciseId);
+        void exerciseService.toggleFavoriteExercise(exerciseId, true);
       }
-    },
-    [exercises, favoriteIds, muscleGroup],
-  );
+      return newFavorites;
+    });
+  }, []);
 
   return {
     exercises,
@@ -249,10 +164,6 @@ const useSearchState = (openSearchParam: string | string[] | undefined) => {
   const searchResultsOpacity = useRef(new Animated.Value(0)).current;
 
   const openSearch = useCallback(() => {
-    addBreadcrumb('Search opened in single group', 'user_interaction', {
-      wasAlreadyActive: isSearchActive,
-    });
-
     setIsSearchActive(true);
     Animated.timing(searchWidthAnim, {
       toValue: SCREEN_WIDTH - 32,
@@ -269,13 +180,9 @@ const useSearchState = (openSearchParam: string | string[] | undefined) => {
       duration: 300,
       useNativeDriver: false,
     }).start();
-  }, [searchWidthAnim, contentOffsetAnim, isSearchActive]);
+  }, [searchWidthAnim, contentOffsetAnim]);
 
   const collapseSearchUI = useCallback(() => {
-    addBreadcrumb('Search collapsed in single group', 'user_interaction', {
-      finalQuery: searchQuery,
-    });
-
     Animated.timing(searchWidthAnim, {
       toValue: 40,
       duration: 300,
@@ -289,7 +196,7 @@ const useSearchState = (openSearchParam: string | string[] | undefined) => {
       duration: 300,
       useNativeDriver: false,
     }).start();
-  }, [searchWidthAnim, contentOffsetAnim, searchQuery]);
+  }, [searchWidthAnim, contentOffsetAnim]);
 
   const clearSearch = useCallback(() => {
     setSearchQuery('');
@@ -400,37 +307,22 @@ const useNavigationHandling = (
   searchState: ReturnType<typeof useSearchState>,
   fromScreen: string | string[] | undefined,
   router: ReturnType<typeof useRouter>,
-  muscleGroup: string,
 ) => {
   const handleBackPress = useCallback(() => {
-    const startTime = Date.now();
+    searchState.setSearchQuery('');
 
-    addBreadcrumb('Back navigation triggered', 'navigation', {
-      fromScreen: 'exercises_single_group',
-      muscleGroup,
-      targetScreen: fromScreen || 'exercises',
-    });
-
-    try {
-      if (fromScreen === 'exercises') {
-        router.push('/(tabs)/exercises');
-      } else {
-        router.back();
-      }
-
-      const navigationTime = Date.now() - startTime;
-      if (navigationTime > 300) {
-        capturePerformanceError('Slow back navigation', 'navigation_time', navigationTime);
-      }
-    } catch (error) {
-      captureError(error as Error, {
-        category: 'navigation_error',
-        screen: 'exercises_single_group',
-        component: 'BackNavigation',
-        muscleGroup,
-      });
+    if (searchState.isSearchActive) {
+      searchState.setIsSearchActive(false);
+      searchState.searchWidthAnim.setValue(40);
+      searchState.contentOffsetAnim.setValue(0);
     }
-  }, [router, fromScreen, muscleGroup]);
+
+    if (fromScreen) {
+      router.push(`/(tabs)/${fromScreen}`);
+    } else {
+      router.push('/(tabs)/exercises');
+    }
+  }, [searchState, fromScreen, router]);
 
   return { handleBackPress };
 };
@@ -658,57 +550,30 @@ const ContentArea = ({
 };
 
 export default function SingleGroupExercisesScreen() {
-  const params = useLocalSearchParams();
+  const { categoryId, fromScreen, openSearch: openSearchParam } = useLocalSearchParams();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const muscleGroup = Array.isArray(params.muscleGroup)
-    ? params.muscleGroup[0]
-    : params.muscleGroup || 'all';
-  const fromScreen = Array.isArray(params.fromScreen) ? params.fromScreen[0] : params.fromScreen;
-  const openSearchParam = params.openSearch;
+  const muscleGroup =
+    typeof categoryId === 'string'
+      ? categoryId === 'Lower back'
+        ? 'Lower_back'
+        : categoryId
+      : 'Cardio';
 
-  // Track screen initialization
-  useEffect(() => {
-    const startTime = Date.now();
-
-    addBreadcrumb('SingleGroupExercises screen initialized', 'navigation', {
-      muscleGroup,
-      fromScreen: fromScreen || 'unknown',
-      openSearch: openSearchParam === 'true',
-      timestamp: new Date().toISOString(),
-    });
-
-    setTag('current_screen', 'exercises_single_group');
-    setTag('muscle_group', muscleGroup);
-    setTag('from_screen', fromScreen || 'unknown');
-    SentryReactProfiler.trackComponentLifecycle('SingleGroupExercisesScreen', 'mount');
-
-    return () => {
-      const mountTime = Date.now() - startTime;
-      addBreadcrumb('SingleGroupExercises screen unmounted', 'navigation', {
-        screenMountTime: mountTime,
-        muscleGroup,
-      });
-
-      SentryReactProfiler.trackComponentLifecycle('SingleGroupExercisesScreen', 'unmount');
-    };
-  }, [muscleGroup, fromScreen, openSearchParam]);
-
-  // Add showFavoritesOnly state
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
 
-  // Use custom hooks
-  const { exercises, loading, error, favoriteIds, toggleFavorite } = useExerciseData(muscleGroup);
+  // Custom hooks
+  const exerciseData = useExerciseData(muscleGroup);
   const searchState = useSearchState(openSearchParam);
   const { displayedExercises } = useExerciseFiltering(
-    exercises,
+    exerciseData.exercises,
     searchState.searchQuery,
     showFavoritesOnly,
-    favoriteIds,
+    exerciseData.favoriteIds,
   );
-  const exerciseModal = useExerciseModal(exercises);
-  const { handleBackPress } = useNavigationHandling(searchState, fromScreen, router, muscleGroup);
+  const exerciseModal = useExerciseModal(exerciseData.exercises);
+  const { handleBackPress } = useNavigationHandling(searchState, fromScreen, router);
 
   // Preload images for currently displayed exercises
   const displayedImageUrls = useMemo(() => {
@@ -721,42 +586,54 @@ export default function SingleGroupExercisesScreen() {
     skipIfCached: true,
   });
 
-  // Enhanced exercise press handler
-  const handleExercisePress = useCallback(
-    (exerciseId: string) => {
-      const startTime = Date.now();
-      const exercise = exercises.find((ex) => ex.id === exerciseId);
+  const toggleFavoritesFilter = useCallback(() => {
+    setShowFavoritesOnly((prev) => !prev);
+  }, []);
 
-      addBreadcrumb(`Exercise pressed: ${exercise?.name || exerciseId}`, 'user_interaction', {
-        exerciseId,
-        exerciseName: exercise?.name || 'unknown',
-        muscleGroup,
-        isFavorite: favoriteIds.has(exerciseId),
-      });
+  // Effects for search behavior
+  useEffect(() => {
+    if (openSearchParam === 'true') {
+      searchState.setIsSearchActive(true);
+      Animated.timing(searchState.searchWidthAnim, {
+        toValue: SCREEN_WIDTH - 32,
+        duration: 300,
+        useNativeDriver: false,
+      }).start();
+      Animated.timing(searchState.contentOffsetAnim, {
+        toValue: 50,
+        duration: 300,
+        useNativeDriver: false,
+      }).start();
+    }
+  }, [openSearchParam]);
 
-      try {
-        // Handle exercise press logic here
-        const interactionTime = Date.now() - startTime;
-
-        if (interactionTime > 100) {
-          capturePerformanceError('Slow exercise interaction', 'interaction_time', interactionTime);
-        }
-
-        setTag('last_selected_exercise', exerciseId);
-      } catch (error) {
-        captureError(error as Error, {
-          category: 'ui_error',
-          screen: 'exercises_single_group',
-          component: 'ExercisePress',
-          exerciseId,
-          muscleGroup,
-        });
+  useEffect(() => {
+    const keyboardDidHideListener = Keyboard.addListener('keyboardDidHide', () => {
+      if (searchState.isSearchActive && searchState.searchQuery.trim() !== '') {
+        searchState.collapseSearchUI();
       }
-    },
-    [exercises, muscleGroup, favoriteIds],
-  );
+    });
 
-  // Enhanced search handler (unused but kept for future use)
+    return () => {
+      keyboardDidHideListener.remove();
+    };
+  }, [searchState.isSearchActive, searchState.searchQuery]);
+
+  useEffect(() => {
+    if (!searchState.isSearchActive && searchState.searchQuery.trim() !== '') {
+      Animated.timing(searchState.searchResultsOpacity, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(searchState.searchResultsOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [searchState.isSearchActive, searchState.searchQuery]);
 
   return (
     <View style={styles.container}>
@@ -779,12 +656,12 @@ export default function SingleGroupExercisesScreen() {
               icon={showFavoritesOnly ? 'star' : 'star-outline'}
               size={28}
               iconColor={showFavoritesOnly ? '#FFD700' : COLORS.text}
-              onPress={() => setShowFavoritesOnly(!showFavoritesOnly)}
+              onPress={toggleFavoritesFilter}
               style={styles.favoriteButton}
             />
           </View>
           <View style={styles.headerRight}>
-            {loading && (
+            {exerciseData.loading && (
               <ActivityIndicator size="small" color={COLORS.primary} style={styles.headerLoader} />
             )}
           </View>
@@ -794,15 +671,15 @@ export default function SingleGroupExercisesScreen() {
 
       <View style={styles.contentWrapper}>
         <ContentArea
-          loading={loading}
-          error={error}
+          loading={exerciseData.loading}
+          error={exerciseData.error}
           isSearchActive={searchState.isSearchActive}
           contentOffsetAnim={searchState.contentOffsetAnim}
           displayedExercises={displayedExercises}
           muscleGroup={muscleGroup}
-          favoriteIds={favoriteIds}
-          handleExercisePress={handleExercisePress}
-          toggleFavorite={toggleFavorite}
+          favoriteIds={exerciseData.favoriteIds}
+          handleExercisePress={exerciseModal.handleExercisePress}
+          toggleFavorite={exerciseData.toggleFavorite}
           searchQuery={searchState.searchQuery}
           showFavoritesOnly={showFavoritesOnly}
           router={router}

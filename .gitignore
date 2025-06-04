@@ -22,9 +22,3 @@ web-build/
 .env.local
 sentry.properties
 .env.local
-
-.env.local
-
-.env.local
-
-.env.local

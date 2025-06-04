@@ -97,8 +97,8 @@
         "@sentry/react-native/expo",
         {
           "url": "https://sentry.io/",
-          "project": "mind-muscle-ai",
-          "organization": "mindmuscleai"
+          "project": "testreact",
+          "organization": "testmind-zb"
         }
       ],
       [
@@ -121,9 +121,9 @@
       "expo-web-browser",
       "expo-secure-store"
     ],
-    "scheme": "mindmuscle-ai",
+    "scheme": "testreact",
     "extra": {
-      "sentryDsn": "https://95ca621b3a918874f6289b653a3e3f6a@o4509201331978240.ingest.de.sentry.io/4509201333092432",
+      "sentryDsn": "https://e0ba77028738bd1dae789d1b11d04739@o4509415311278080.ingest.de.sentry.io/4509415314882640",
       "environment": "development",
       "router": {
         "origin": false

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Dimensions,
   Easing,
@@ -17,7 +18,6 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import * as ImagePicker from 'expo-image-picker';
 import { Stack } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ExerciseGraphModal from '../components/ExerciseGraphModal';
 import ExerciseGraphs, { ExerciseData } from '../components/ExerciseGraphs';
 import { GeneralHeader } from '../components/GeneralHeader';
@@ -38,6 +38,8 @@ import supabase from '../services/supabase';
 import { useAuth } from '../store/AuthContext';
 import { useMeasurements } from '../store/MeasurementsContext';
 import { markAsImportantImage } from '../utils/imagePreloader';
+import * as Sentry from '@sentry/react-native';
+import { captureAPIError, SentryReactProfiler } from '../services/sentry';
 
 interface DisplayProgressPhoto {
   id: string;
@@ -74,12 +76,62 @@ const convertProgressPhotoToDisplayPhoto = (
 
 // Helper functions for photo management
 const requestCameraPermissions = async (): Promise<boolean> => {
-  const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (status !== 'granted') {
-    alert('Sorry, we need camera roll permissions to make this work!');
+  try {
+    Sentry.addBreadcrumb({
+      message: 'Requesting Camera Permissions',
+      category: 'api.request',
+      level: 'info',
+      data: {
+        permission: 'camera_roll',
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (status !== 'granted') {
+      Sentry.addBreadcrumb({
+        message: 'Camera Permission Denied',
+        category: 'api.error',
+        level: 'warning',
+        data: {
+          status,
+          permissionType: 'media_library',
+        },
+      });
+
+      Alert.alert(
+        'Permission Required',
+        'Sorry, we need camera roll permissions to make this work!',
+      );
+      return false;
+    }
+
+    Sentry.addBreadcrumb({
+      message: 'Camera Permission Granted',
+      category: 'api.success',
+      level: 'info',
+      data: {
+        status,
+        permissionType: 'media_library',
+      },
+    });
+
+    return true;
+  } catch (error) {
+    captureAPIError(error as Error, 'requestCameraPermissions', 'insights-permissions');
+
+    Sentry.addBreadcrumb({
+      message: 'Camera Permission Request Failed',
+      category: 'api.error',
+      level: 'error',
+      data: {
+        error: (error as Error).message,
+      },
+    });
+
     return false;
   }
-  return true;
 };
 
 const deleteExistingPhoto = async (
@@ -90,22 +142,61 @@ const deleteExistingPhoto = async (
   setBeforePhoto: React.Dispatch<React.SetStateAction<ProgressPhoto | undefined>>,
   setAfterPhoto: React.Dispatch<React.SetStateAction<ProgressPhoto | undefined>>,
 ): Promise<void> => {
-  const hasExistingPhoto =
-    (type === 'before' && beforePhoto?.id) || (type === 'after' && afterPhoto?.id);
+  try {
+    const hasExistingPhoto =
+      (type === 'before' && beforePhoto?.id) || (type === 'after' && afterPhoto?.id);
 
-  if (!hasExistingPhoto) return;
+    if (!hasExistingPhoto) return;
 
-  const photoToDelete = type === 'before' ? beforePhoto : afterPhoto;
+    const photoToDelete = type === 'before' ? beforePhoto : afterPhoto;
 
-  if (photoToDelete?.id) {
-    console.log(`Deleting existing ${type} photo with ID: ${photoToDelete.id}`);
-    await firebaseProgressPhotoService.deletePhoto(userId, photoToDelete.id);
+    if (photoToDelete?.id) {
+      Sentry.addBreadcrumb({
+        message: `Deleting Existing ${type} Photo`,
+        category: 'database.operation',
+        level: 'info',
+        data: {
+          photoType: type,
+          photoId: photoToDelete.id,
+          userId,
+          timestamp: new Date().toISOString(),
+        },
+      });
 
-    if (type === 'before') {
-      setBeforePhoto(undefined);
-    } else {
-      setAfterPhoto(undefined);
+      console.log(`Deleting existing ${type} photo with ID: ${photoToDelete.id}`);
+      await firebaseProgressPhotoService.deletePhoto(userId, photoToDelete.id);
+
+      if (type === 'before') {
+        setBeforePhoto(undefined);
+      } else {
+        setAfterPhoto(undefined);
+      }
+
+      Sentry.addBreadcrumb({
+        message: `${type} Photo Deleted Successfully`,
+        category: 'database.success',
+        level: 'info',
+        data: {
+          photoType: type,
+          photoId: photoToDelete.id,
+        },
+      });
     }
+  } catch (error) {
+    captureAPIError(error as Error, 'deleteExistingPhoto', 'insights-photos');
+
+    Sentry.addBreadcrumb({
+      message: `Failed to Delete ${type} Photo`,
+      category: 'database.error',
+      level: 'error',
+      data: {
+        error: (error as Error).message,
+        photoType: type,
+        userId,
+      },
+    });
+
+    throw error;
   }
 };
 
@@ -115,36 +206,99 @@ const pickAndUploadImage = async (
   setBeforePhoto: React.Dispatch<React.SetStateAction<ProgressPhoto | undefined>>,
   setAfterPhoto: React.Dispatch<React.SetStateAction<ProgressPhoto | undefined>>,
 ): Promise<void> => {
-  const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ImagePicker.MediaTypeOptions.Images,
-    allowsEditing: true,
-    aspect: [3, 4],
-    quality: 0.8,
-  });
+  try {
+    Sentry.addBreadcrumb({
+      message: `Starting Image Picker for ${type} Photo`,
+      category: 'user.interaction',
+      level: 'info',
+      data: {
+        photoType: type,
+        userId,
+        timestamp: new Date().toISOString(),
+      },
+    });
 
-  if (result.canceled || !result.assets || result.assets.length === 0) {
-    return;
-  }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [3, 4],
+      quality: 0.8,
+    });
 
-  console.log(`Uploading new ${type} photo from URI: ${result.assets[0].uri.substring(0, 50)}...`);
+    if (result.canceled || !result.assets || result.assets.length === 0) {
+      Sentry.addBreadcrumb({
+        message: `Image Picker Cancelled for ${type} Photo`,
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          photoType: type,
+          cancelled: result.canceled,
+          assetsLength: result.assets?.length || 0,
+        },
+      });
+      return;
+    }
 
-  const photo = await firebaseProgressPhotoService.uploadPhoto(
-    userId,
-    type,
-    result.assets[0].uri,
-    new Date(),
-  );
+    const selectedImageUri = result.assets[0].uri;
 
-  console.log(`Successfully uploaded ${type} photo with ID: ${photo.id}`);
+    Sentry.addBreadcrumb({
+      message: `Uploading ${type} Photo`,
+      category: 'api.request',
+      level: 'info',
+      data: {
+        photoType: type,
+        imageUriLength: selectedImageUri.length,
+        hasImage: !!selectedImageUri,
+        imageQuality: 0.8,
+      },
+    });
 
-  if (type === 'before') {
-    setBeforePhoto(photo);
-  } else {
-    setAfterPhoto(photo);
+    console.log(`Uploading new ${type} photo from URI: ${selectedImageUri.substring(0, 50)}...`);
+
+    const photo = await firebaseProgressPhotoService.uploadPhoto(
+      userId,
+      type,
+      selectedImageUri,
+      new Date(),
+    );
+
+    console.log(`Successfully uploaded ${type} photo with ID: ${photo.id}`);
+
+    if (type === 'before') {
+      setBeforePhoto(photo);
+    } else {
+      setAfterPhoto(photo);
+    }
+
+    Sentry.addBreadcrumb({
+      message: `${type} Photo Uploaded Successfully`,
+      category: 'api.success',
+      level: 'info',
+      data: {
+        photoType: type,
+        photoId: photo.id,
+        uploadedAt: photo.date.toISOString(),
+      },
+    });
+  } catch (error) {
+    captureAPIError(error as Error, 'pickAndUploadImage', 'insights-photos');
+
+    Sentry.addBreadcrumb({
+      message: `Failed to Upload ${type} Photo`,
+      category: 'api.error',
+      level: 'error',
+      data: {
+        error: (error as Error).message,
+        photoType: type,
+        userId,
+      },
+    });
+
+    throw error;
   }
 };
 
-export default function InsightsScreen() {
+const InsightsScreenComponent = () => {
   const theme = useTheme();
   const { user } = useAuth();
   const {
@@ -152,17 +306,14 @@ export default function InsightsScreen() {
     measurementHistory,
     loading: measurementsLoading,
     addMeasurement,
-    deleteMeasurement: _deleteMeasurement,
     refreshMeasurements,
   } = useMeasurements();
-  const _insets = useSafeAreaInsets();
   const [selectedFilter, setSelectedFilter] = useState('1w');
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [key, setKey] = useState(0);
   const [beforePhoto, setBeforePhoto] = useState<ProgressPhoto | undefined>();
   const [afterPhoto, setAfterPhoto] = useState<ProgressPhoto | undefined>();
   const [isLoading, setIsLoading] = useState(false);
-  const [_imageLoadError, setImageLoadError] = useState({ before: false, after: false });
   const [selectedAchievement, setSelectedAchievement] = useState<Achievement | null>(null);
   const [completedAchievements, setCompletedAchievements] = useState<UserAchievement[]>([]);
   const [randomAchievements, setRandomAchievements] = useState<Achievement[]>([]);
@@ -177,6 +328,172 @@ export default function InsightsScreen() {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const modalAnim = useRef(new Animated.Value(Dimensions.get('window').height)).current;
 
+  // Track screen initialization
+  useEffect(() => {
+    const startTime = Date.now();
+
+    Sentry.addBreadcrumb({
+      message: 'Insights Screen Initialized',
+      category: 'navigation',
+      level: 'info',
+      data: {
+        userId: user?.id || 'unknown',
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    Sentry.setTag('current_screen', 'insights');
+    Sentry.setTag('user_id', user?.id || 'unknown');
+    SentryReactProfiler.trackComponentLifecycle('InsightsScreen', 'mount');
+
+    return () => {
+      const mountTime = Date.now() - startTime;
+
+      Sentry.addBreadcrumb({
+        message: 'Insights Screen Unmounted',
+        category: 'navigation',
+        level: 'info',
+        data: {
+          screenMountTime: mountTime,
+          userId: user?.id || 'unknown',
+        },
+      });
+
+      SentryReactProfiler.trackComponentLifecycle('InsightsScreen', 'unmount', mountTime);
+    };
+  }, [user?.id]);
+
+  // Enhanced achievements loading with Sentry tracking
+  const loadAchievements = async () => {
+    const startTime = Date.now();
+
+    Sentry.addBreadcrumb({
+      message: 'Loading achievements data',
+      category: 'api.request',
+      level: 'info',
+      data: {
+        userId: user?.id || 'unknown',
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    try {
+      setAchievementsLoading(true);
+
+      const [completed, random] = await Promise.all([
+        achievementService.getUserAchievements(user?.id || ''),
+        achievementService.getRandomAchievements(user?.id || '', 5),
+      ]);
+
+      setCompletedAchievements(completed);
+      setRandomAchievements(random);
+
+      const loadTime = Date.now() - startTime;
+      Sentry.addBreadcrumb({
+        message: 'Achievements loaded successfully',
+        category: 'api.success',
+        level: 'info',
+        data: {
+          completedCount: completed.length,
+          randomCount: random.length,
+          loadTime,
+        },
+      });
+
+      if (loadTime > 2000) {
+        SentryReactProfiler.trackRenderPerformance('achievements_load_time', loadTime);
+      }
+    } catch (error) {
+      captureAPIError(error as Error, 'loadAchievements', 'insights-achievements');
+
+      Sentry.addBreadcrumb({
+        message: 'Achievements loading failed',
+        category: 'api.error',
+        level: 'error',
+        data: {
+          errorMessage: error instanceof Error ? error.message : 'Unknown error',
+          loadTime: Date.now() - startTime,
+          userId: user?.id || 'unknown',
+        },
+      });
+
+      console.error('Error loading achievements:', error);
+    } finally {
+      setAchievementsLoading(false);
+    }
+  };
+
+  // Enhanced photo loading with Sentry tracking
+  const loadSavedPhotos = async () => {
+    const startTime = Date.now();
+
+    if (!user?.id) {
+      Sentry.addBreadcrumb({
+        message: 'Photo loading skipped - no user ID',
+        category: 'ui.error',
+        level: 'warning',
+        data: {
+          hasUser: !!user,
+        },
+      });
+      return;
+    }
+
+    Sentry.addBreadcrumb({
+      message: 'Loading progress photos',
+      category: 'api.request',
+      level: 'info',
+      data: {
+        userId: user.id,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    try {
+      const allPhotos = await firebaseProgressPhotoService.getAllPhotos(user.id);
+
+      const beforePhotos = allPhotos.filter((photo) => photo.type === 'before');
+      const afterPhotos = allPhotos.filter((photo) => photo.type === 'after');
+
+      const beforePhotoData = beforePhotos.length > 0 ? beforePhotos[0] : undefined;
+      const afterPhotoData = afterPhotos.length > 0 ? afterPhotos[0] : undefined;
+
+      setBeforePhoto(beforePhotoData);
+      setAfterPhoto(afterPhotoData);
+
+      const loadTime = Date.now() - startTime;
+      Sentry.addBreadcrumb({
+        message: 'Progress photos loaded successfully',
+        category: 'api.success',
+        level: 'info',
+        data: {
+          hasBeforePhoto: !!beforePhotoData,
+          hasAfterPhoto: !!afterPhotoData,
+          loadTime,
+        },
+      });
+
+      if (loadTime > 1500) {
+        SentryReactProfiler.trackRenderPerformance('photo_load_time', loadTime);
+      }
+    } catch (error) {
+      captureAPIError(error as Error, 'loadSavedPhotos', 'insights-photos');
+
+      Sentry.addBreadcrumb({
+        message: 'Photo loading failed',
+        category: 'api.error',
+        level: 'error',
+        data: {
+          errorMessage: error instanceof Error ? error.message : 'Unknown error',
+          loadTime: Date.now() - startTime,
+          userId: user.id,
+        },
+      });
+
+      console.error('Error loading saved photos:', error);
+    }
+  };
+
   // Preload progress photos when they're available
   const progressPhotosToPreload = React.useMemo(() => {
     const urls: string[] = [];
@@ -186,7 +503,7 @@ export default function InsightsScreen() {
   }, [beforePhoto?.url, afterPhoto?.url]);
 
   // Use the image preloader hook to preload progress photos
-  const { loaded: _photosLoaded } = useImagePreloader(progressPhotosToPreload, {
+  useImagePreloader(progressPhotosToPreload, {
     priority: 'high',
     debugLabel: 'InsightsProgressPhotos',
     skipIfCached: true,
@@ -247,61 +564,6 @@ export default function InsightsScreen() {
     }
   }, [user?.id]);
 
-  const loadAchievements = async () => {
-    if (!user?.id) return;
-
-    try {
-      setAchievementsLoading(true);
-      const completed = await achievementService.getUserCompletedAchievements(user.id);
-      setCompletedAchievements(completed.slice(0, 3));
-
-      // Calculate how many random achievements we need
-      const completedCount = completed.length;
-      const randomCount = Math.max(0, 3 - completedCount);
-
-      if (randomCount > 0) {
-        const random = await achievementService.getRandomAchievements(user.id, randomCount);
-        setRandomAchievements(random);
-      } else {
-        setRandomAchievements([]);
-      }
-    } catch (error) {
-      console.error('Error loading achievements:', error);
-    } finally {
-      setAchievementsLoading(false);
-    }
-  };
-
-  const loadSavedPhotos = async () => {
-    if (!user?.id) return;
-
-    try {
-      setIsLoading(true);
-      const latestPhotos = await firebaseProgressPhotoService.getLatestPhotos(user.id);
-
-      // Only update state if the URLs have changed to avoid unnecessary re-renders
-      if (latestPhotos.before?.url !== beforePhoto?.url) {
-        setBeforePhoto(latestPhotos.before);
-      }
-
-      if (latestPhotos.after?.url !== afterPhoto?.url) {
-        setAfterPhoto(latestPhotos.after);
-      }
-
-      // Preload the photos immediately when we get them
-      if (latestPhotos.before?.url) {
-        markAsImportantImage(latestPhotos.before.url);
-      }
-      if (latestPhotos.after?.url) {
-        markAsImportantImage(latestPhotos.after.url);
-      }
-    } catch (error) {
-      console.error('Error loading saved photos:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const loadExerciseData = async () => {
     if (!user?.id) return;
 
@@ -338,9 +600,6 @@ export default function InsightsScreen() {
       }
 
       // Get exercise details for the exercise IDs
-      const _exerciseIds = [
-        ...new Set(exerciseRecords.map((record: UserExerciseRecord) => record.exercise_id)),
-      ];
       const exercises = await exerciseService.getAllExercises();
       const exerciseMap = new Map(exercises.map((ex) => [ex.id, ex.name]));
 
@@ -385,7 +644,7 @@ export default function InsightsScreen() {
 
   const cleanupAndPickImage = async (type: 'before' | 'after') => {
     if (!user?.id) {
-      alert('Please sign in to add progress photos');
+      Alert.alert('Sign In Required', 'Please sign in to add progress photos');
       return;
     }
 
@@ -415,11 +674,11 @@ export default function InsightsScreen() {
         await pickAndUploadImage(type, user.id, setBeforePhoto, setAfterPhoto);
       } catch (error) {
         console.error('Error uploading photo:', error);
-        alert('Failed to upload photo. Please try again.');
+        Alert.alert('Upload Failed', 'Failed to upload photo. Please try again.');
       }
     } catch (pickError) {
       console.error('Error picking image:', pickError);
-      alert('Failed to select photo. Please try again.');
+      Alert.alert('Selection Failed', 'Failed to select photo. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -463,7 +722,6 @@ export default function InsightsScreen() {
   };
 
   // No need to use useImagePreloader as all images are already preloaded during splash screen
-  const _imagesPreloaded = true; // All images are already preloaded
 
   const handleAddExercise = () => {
     setSelectedExercise(undefined);
@@ -559,7 +817,7 @@ export default function InsightsScreen() {
               afterPhoto={convertProgressPhotoToDisplayPhoto(afterPhoto)}
               isLoading={isLoading}
               onPhotoPress={handlePhotoPress}
-              onImageError={(type) => setImageLoadError((prev) => ({ ...prev, [type]: true }))}
+              onImageError={() => {}}
             />
 
             {/* Achievements Section */}
@@ -713,29 +971,6 @@ export default function InsightsScreen() {
       </View>
     </Provider>
   );
-}
-
-const _getMeasurementIcon = (category: MeasurementCategory): string => {
-  switch (category) {
-    case 'WEIGHT':
-      return 'weight';
-    case 'BICEPS':
-      return 'arm-flex';
-    case 'ABS':
-      return 'stomach';
-    case 'WAIST':
-      return 'tape-measure';
-    case 'CHEST':
-      return 'human-male-board';
-    case 'SHLDRS':
-      return 'account-box';
-    case 'THIGH':
-      return 'human-male-height';
-    case 'CALF':
-      return 'foot-print';
-    default:
-      return 'ruler';
-  }
 };
 
 const styles = StyleSheet.create({
@@ -1234,3 +1469,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 });
+
+// Export the component wrapped with Sentry profiler
+export default SentryReactProfiler.withProfiler(
+  InsightsScreenComponent as React.ComponentType<unknown>,
+  'InsightsScreen',
+) as React.ComponentType;

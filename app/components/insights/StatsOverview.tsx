@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import { Surface, Chip } from 'react-native-paper';
 import { COLORS } from '../../constants/theme';
+import * as Sentry from '@sentry/react-native';
+import { captureUIError, SentryReactProfiler } from '../../services/sentry';
 
 const TIME_FILTERS = [
   { label: '1w', value: '1w' },
@@ -16,7 +18,94 @@ interface StatsOverviewProps {
   onFilterChange: (filter: string) => void;
 }
 
-export const StatsOverview: React.FC<StatsOverviewProps> = ({ selectedFilter, onFilterChange }) => {
+const StatsOverviewComponent: React.FC<StatsOverviewProps> = ({
+  selectedFilter,
+  onFilterChange,
+}) => {
+  // Track component lifecycle and initial state
+  useEffect(() => {
+    // Track component mount and filter state
+    Sentry.addBreadcrumb({
+      message: 'Stats Overview Section Rendered',
+      category: 'ui.render',
+      level: 'info',
+      data: {
+        selectedFilter,
+        availableFilters: TIME_FILTERS.map((f) => f.value),
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    // Track component lifecycle
+    SentryReactProfiler.trackComponentLifecycle('StatsOverview', 'mount');
+
+    return () => {
+      SentryReactProfiler.trackComponentLifecycle('StatsOverview', 'unmount');
+    };
+  }, []);
+
+  // Track filter changes
+  useEffect(() => {
+    if (selectedFilter) {
+      Sentry.addBreadcrumb({
+        message: 'Stats Filter Changed',
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          newFilter: selectedFilter,
+          filterLabel: TIME_FILTERS.find((f) => f.value === selectedFilter)?.label,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    }
+  }, [selectedFilter]);
+
+  const handleFilterChange = (filter: string) => {
+    try {
+      // Track filter selection attempt
+      Sentry.addBreadcrumb({
+        message: 'Stats Filter Selection Started',
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          previousFilter: selectedFilter,
+          newFilter: filter,
+          filterLabel: TIME_FILTERS.find((f) => f.value === filter)?.label,
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      onFilterChange(filter);
+
+      // Track successful filter change
+      Sentry.addBreadcrumb({
+        message: 'Stats Filter Changed Successfully',
+        category: 'user.success',
+        level: 'info',
+        data: {
+          appliedFilter: filter,
+          filterLabel: TIME_FILTERS.find((f) => f.value === filter)?.label,
+        },
+      });
+    } catch (error) {
+      // Capture filter change errors
+      captureUIError(error as Error, 'StatsOverview.handleFilterChange', 'insights-stats');
+
+      Sentry.addBreadcrumb({
+        message: 'Stats Filter Change Failed',
+        category: 'user.error',
+        level: 'error',
+        data: {
+          error: (error as Error).message,
+          attemptedFilter: filter,
+          currentFilter: selectedFilter,
+        },
+      });
+
+      console.error('Filter change error:', error);
+    }
+  };
+
   return (
     <Surface style={styles.combinedStatsContainer} elevation={2}>
       {/* Time Filters */}
@@ -25,7 +114,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({ selectedFilter, on
           <Chip
             key={filter.value}
             selected={selectedFilter === filter.value}
-            onPress={() => onFilterChange(filter.value)}
+            onPress={() => handleFilterChange(filter.value)}
             style={[
               styles.filterChip,
               selectedFilter === filter.value && { backgroundColor: COLORS.primary },
@@ -62,6 +151,12 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({ selectedFilter, on
     </Surface>
   );
 };
+
+// Export the component wrapped with Sentry profiler
+export const StatsOverview = SentryReactProfiler.withProfiler(
+  StatsOverviewComponent as React.ComponentType<unknown>,
+  'StatsOverview',
+) as React.FC<StatsOverviewProps>;
 
 const styles = StyleSheet.create({
   combinedStatsContainer: {
@@ -127,6 +222,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 8,
   },
 });
+
 export default function DebugHelpers() {
   return null;
 }

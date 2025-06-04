@@ -1,4 +1,5 @@
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import type { Route } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Tabs, usePathname } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -22,6 +23,8 @@ import {
 } from '../components/NavigationIcons';
 import { COLORS } from '../constants/theme';
 import { useAuth } from '../store/AuthContext';
+import { addBreadcrumb, captureMessage } from '../services/sentry/simpleErrorHandler';
+import { setTag, SentryReactProfiler } from '../services/sentry';
 
 // List of screens that should hide the tab bar
 const HIDE_TAB_BAR_SCREENS = [
@@ -113,12 +116,56 @@ const TabBarButton = ({ isFocused, onPress, icon, label }: TabBarButtonProps) =>
   );
 };
 
-const FloatingTabBar = ({ state, navigation, descriptors }: BottomTabBarProps) => {
+const FloatingTabBar = ({ state, navigation }: BottomTabBarProps) => {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
 
+  // Track tab bar initialization
+  useEffect(() => {
+    addBreadcrumb('FloatingTabBar initialized', 'navigation', {
+      pathname,
+      visibleTabs: state.routes.length,
+      currentIndex: state.index,
+    });
+
+    setTag('tab_bar_active', 'true');
+    SentryReactProfiler.trackComponentLifecycle('FloatingTabBar', 'mount');
+
+    return () => {
+      SentryReactProfiler.trackComponentLifecycle('FloatingTabBar', 'unmount');
+    };
+  }, [pathname, state.routes.length, state.index]);
+
+  // Track tab visibility changes
+  useEffect(() => {
+    const currentRoute = state.routes[state.index];
+    if (currentRoute) {
+      addBreadcrumb(`Tab focused: ${currentRoute.name}`, 'navigation', {
+        tabName: currentRoute.name,
+        tabIndex: state.index,
+        pathname,
+      });
+
+      setTag('current_tab', currentRoute.name);
+      setTag('tab_index', state.index.toString());
+    }
+  }, [state.index, state.routes, pathname]);
+
   // Check if current path should hide the tab bar
   const shouldHideTabBar = HIDE_TAB_BAR_SCREENS.some((screen) => pathname.includes(screen));
+
+  // Track tab bar visibility
+  useEffect(() => {
+    if (shouldHideTabBar) {
+      addBreadcrumb('Tab bar hidden', 'ui', {
+        pathname,
+        hiddenByScreens: HIDE_TAB_BAR_SCREENS.filter((screen) => pathname.includes(screen)),
+      });
+      setTag('tab_bar_visible', 'false');
+    } else {
+      setTag('tab_bar_visible', 'true');
+    }
+  }, [shouldHideTabBar, pathname]);
 
   // Don't render the tab bar if it should be hidden
   if (shouldHideTabBar) {
@@ -133,6 +180,46 @@ const FloatingTabBar = ({ state, navigation, descriptors }: BottomTabBarProps) =
     { routeName: 'insights', icon: 'stats-chart', label: 'Insight' },
     { routeName: 'profile', icon: 'person', label: 'Profile' },
   ];
+
+  const handleTabPress = (tab: (typeof tabConfig)[0], route: Route<string>, isFocused: boolean) => {
+    const startTime = Date.now();
+
+    addBreadcrumb(`Tab pressed: ${tab.label}`, 'user_interaction', {
+      tabName: tab.routeName,
+      wasAlreadyFocused: isFocused,
+      isCenterButton: tab.isCenterButton || false,
+    });
+
+    const event = navigation.emit({
+      type: 'tabPress',
+      target: route.key,
+      canPreventDefault: true,
+    });
+
+    if (!isFocused && !event.defaultPrevented) {
+      navigation.navigate(route.name);
+
+      const navigationTime = Date.now() - startTime;
+      addBreadcrumb(`Tab navigation completed: ${tab.label}`, 'performance', {
+        navigationTime,
+        targetTab: tab.routeName,
+      });
+
+      // Track navigation performance
+      if (navigationTime > 500) {
+        captureMessage('Slow tab navigation detected', 'warning', {
+          category: 'performance_error',
+          navigationTime,
+          targetTab: tab.routeName,
+        });
+      }
+    } else if (event.defaultPrevented) {
+      addBreadcrumb(`Tab navigation prevented: ${tab.label}`, 'navigation', {
+        tabName: tab.routeName,
+        reason: 'defaultPrevented',
+      });
+    }
+  };
 
   return (
     <View
@@ -157,27 +244,17 @@ const FloatingTabBar = ({ state, navigation, descriptors }: BottomTabBarProps) =
         }}
       >
         <View style={{ flexDirection: 'row', width: '38%', justifyContent: 'space-between' }}>
-          {tabConfig.slice(0, 2).map((tab, _index) => {
+          {tabConfig.slice(0, 2).map((tab) => {
             const route = state.routes.find((r) => r.name === tab.routeName);
             if (!route) return null;
 
-            const { options: _options } = descriptors[route.key];
             const isFocused = state.index === state.routes.indexOf(route);
 
             return (
               <TabBarButton
                 key={route.key}
                 isFocused={isFocused}
-                onPress={() => {
-                  const event = navigation.emit({
-                    type: 'tabPress',
-                    target: route.key,
-                    canPreventDefault: true,
-                  });
-                  if (!isFocused && !event.defaultPrevented) {
-                    navigation.navigate(route.name);
-                  }
-                }}
+                onPress={() => handleTabPress(tab, route, isFocused)}
                 icon={tab.icon as 'home' | 'search' | 'barbell' | 'stats-chart' | 'person'}
                 label={tab.label}
               />
@@ -196,16 +273,7 @@ const FloatingTabBar = ({ state, navigation, descriptors }: BottomTabBarProps) =
               <TabBarButton
                 key={route.key}
                 isFocused={isFocused}
-                onPress={() => {
-                  const event = navigation.emit({
-                    type: 'tabPress',
-                    target: route.key,
-                    canPreventDefault: true,
-                  });
-                  if (!isFocused && !event.defaultPrevented) {
-                    navigation.navigate(route.name);
-                  }
-                }}
+                onPress={() => handleTabPress(tab, route, isFocused)}
                 icon={tab.icon as 'home' | 'search' | 'barbell' | 'stats-chart' | 'person'}
                 label={tab.label}
               />
@@ -237,16 +305,7 @@ const FloatingTabBar = ({ state, navigation, descriptors }: BottomTabBarProps) =
               >
                 <CircleBackground />
                 <Pressable
-                  onPress={() => {
-                    const event = navigation.emit({
-                      type: 'tabPress',
-                      target: route.key,
-                      canPreventDefault: true,
-                    });
-                    if (!isFocused && !event.defaultPrevented) {
-                      navigation.navigate(route.name);
-                    }
-                  }}
+                  onPress={() => handleTabPress(tab, route, isFocused)}
                   style={{
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -319,6 +378,22 @@ export default function TabsLayout() {
   const [navigated, setNavigated] = useState(false);
   const pathname = usePathname();
 
+  // Track tabs layout initialization
+  useEffect(() => {
+    addBreadcrumb('TabsLayout initialized', 'navigation', {
+      pathname,
+      hasSession: !!session,
+      isLoading: loading,
+    });
+
+    setTag('layout_type', 'tabs');
+    SentryReactProfiler.trackComponentLifecycle('TabsLayout', 'mount');
+
+    return () => {
+      SentryReactProfiler.trackComponentLifecycle('TabsLayout', 'unmount');
+    };
+  }, [pathname, session, loading]);
+
   // Check if current path should hide the tab bar
   const shouldHideTabBar = HIDE_TAB_BAR_SCREENS.some((screen) => pathname.includes(screen));
 
@@ -326,13 +401,34 @@ export default function TabsLayout() {
   useEffect(() => {
     if (!loading && !session && !navigated) {
       logger.info('User not authenticated in tabs layout');
+      addBreadcrumb('Authentication required in tabs layout', 'auth', {
+        pathname,
+        hasSession: false,
+        isLoading: loading,
+      });
+
       setNavigated(true);
       // AuthGuard will handle the redirect automatically when session becomes null
+    } else if (session && !loading) {
+      addBreadcrumb('User authenticated in tabs layout', 'auth', {
+        pathname,
+        userId: session.user?.id || 'unknown',
+        hasSession: true,
+      });
+
+      setTag('user_authenticated', 'true');
+      setTag('user_id', session.user?.id || 'unknown');
     }
-  }, [loading, session, navigated]);
+  }, [loading, session, navigated, pathname]);
 
   // Show a blank View while determining auth state to avoid flash
   if (loading || (!session && !navigated)) {
+    addBreadcrumb('Showing auth loading state', 'ui', {
+      isLoading: loading,
+      hasSession: !!session,
+      hasNavigated: navigated,
+    });
+
     return <View style={{ flex: 1 }} />;
   }
 
@@ -361,13 +457,27 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="exercises"
         options={{
-          title: 'Workout',
+          title: 'Exercises',
+        }}
+      />
+      <Tabs.Screen
+        name="exercises-list"
+        options={{
+          title: 'Exercise List',
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="exercises-single-group"
+        options={{
+          title: 'Exercise Group',
+          href: null,
         }}
       />
       <Tabs.Screen
         name="insights"
         options={{
-          title: 'Stats',
+          title: 'Insights',
         }}
       />
       <Tabs.Screen

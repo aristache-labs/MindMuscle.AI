@@ -15,6 +15,7 @@ import { useCoaching } from '../store/CoachingContext';
 import { format } from 'date-fns';
 import { Rating } from 'react-native-ratings';
 import { CoachingSession } from '@services/aiCoaching';
+import { simpleErrorHandler } from '../services/sentry/simpleErrorHandler';
 
 const CoachingInterface: React.FC = () => {
   const [prompt, setPrompt] = useState('');
@@ -34,12 +35,52 @@ const CoachingInterface: React.FC = () => {
     context,
   } = useCoaching();
 
+  // Track component mount
+  React.useEffect(() => {
+    simpleErrorHandler.addBreadcrumb('CoachingInterface component mounted', 'lifecycle', {
+      sessionsCount: sessions.length,
+      selectedType,
+    });
+
+    return () => {
+      simpleErrorHandler.addBreadcrumb('CoachingInterface component unmounted', 'lifecycle');
+    };
+  }, []);
+
+  // Track coaching type changes
+  React.useEffect(() => {
+    simpleErrorHandler.addBreadcrumb('Coaching type changed', 'user_interaction', {
+      newType: selectedType,
+      sessionsCount: sessions.length,
+    });
+  }, [selectedType]);
+
   const handleSubmit = async () => {
-    if (!prompt.trim()) return;
+    if (!prompt.trim()) {
+      simpleErrorHandler.addBreadcrumb('User attempted to submit empty coaching prompt', 'warning');
+      return;
+    }
+
     try {
+      simpleErrorHandler.addBreadcrumb('User submitted coaching prompt', 'user_interaction', {
+        promptLength: prompt.length,
+        type: selectedType,
+        hasContext: !!context,
+      });
+
       await getCoachingResponse(prompt, selectedType);
+
+      simpleErrorHandler.addBreadcrumb('Successfully received coaching response', 'data', {
+        type: selectedType,
+        promptLength: prompt.length,
+      });
+
       setPrompt('');
     } catch (err) {
+      simpleErrorHandler.captureException(err as Error, {
+        component: 'CoachingInterface',
+        category: 'api_error',
+      });
       console.error('Error getting coaching response:', err);
     }
   };
@@ -47,18 +88,48 @@ const CoachingInterface: React.FC = () => {
   const handleFeedbackSubmit = async () => {
     if (selectedSession) {
       try {
+        simpleErrorHandler.addBreadcrumb('User submitted coaching feedback', 'user_interaction', {
+          sessionId: selectedSession.id,
+          rating,
+          hasFeedbackText: !!feedbackText.trim(),
+          feedbackLength: feedbackText.length,
+        });
+
         await saveFeedback(selectedSession.id, feedbackText, rating);
+
+        simpleErrorHandler.addBreadcrumb('Successfully saved coaching feedback', 'data', {
+          sessionId: selectedSession.id,
+          rating,
+        });
+
         setFeedbackModalVisible(false);
         setFeedbackText('');
         setRating(3);
       } catch (err) {
+        simpleErrorHandler.captureException(err as Error, {
+          component: 'CoachingInterface',
+          category: 'database_error',
+        });
         console.error('Error saving feedback:', err);
       }
+    } else {
+      simpleErrorHandler.addBreadcrumb(
+        'User attempted to submit feedback without selected session',
+        'warning',
+      );
     }
   };
 
   const handleProfileUpdate = async () => {
     try {
+      simpleErrorHandler.addBreadcrumb('User updated coaching profile', 'user_interaction', {
+        hasAge: !!context.userProfile.age,
+        hasWeight: !!context.userProfile.weight,
+        hasHeight: !!context.userProfile.height,
+        hasGender: !!context.userProfile.gender,
+        hasMedicalConditions: !!context.userProfile.medicalConditions,
+      });
+
       await updateUserProfile({
         age: Number(context.userProfile.age),
         weight: Number(context.userProfile.weight),
@@ -66,8 +137,15 @@ const CoachingInterface: React.FC = () => {
         gender: context.userProfile.gender,
         medicalConditions: context.userProfile.medicalConditions,
       });
+
+      simpleErrorHandler.addBreadcrumb('Successfully updated coaching profile', 'data');
+
       setProfileModalVisible(false);
     } catch (err) {
+      simpleErrorHandler.captureException(err as Error, {
+        component: 'CoachingInterface',
+        category: 'database_error',
+      });
       console.error('Error updating profile:', err);
     }
   };
@@ -88,21 +166,39 @@ const CoachingInterface: React.FC = () => {
       <View style={styles.typeSelector}>
         <Chip
           selected={selectedType === 'workout'}
-          onPress={() => setSelectedType('workout')}
+          onPress={() => {
+            simpleErrorHandler.addBreadcrumb(
+              'User selected workout coaching type',
+              'user_interaction',
+            );
+            setSelectedType('workout');
+          }}
           style={styles.chip}
         >
           Workout
         </Chip>
         <Chip
           selected={selectedType === 'nutrition'}
-          onPress={() => setSelectedType('nutrition')}
+          onPress={() => {
+            simpleErrorHandler.addBreadcrumb(
+              'User selected nutrition coaching type',
+              'user_interaction',
+            );
+            setSelectedType('nutrition');
+          }}
           style={styles.chip}
         >
           Nutrition
         </Chip>
         <Chip
           selected={selectedType === 'mindset'}
-          onPress={() => setSelectedType('mindset')}
+          onPress={() => {
+            simpleErrorHandler.addBreadcrumb(
+              'User selected mindset coaching type',
+              'user_interaction',
+            );
+            setSelectedType('mindset');
+          }}
           style={styles.chip}
         >
           Mindset
@@ -159,6 +255,14 @@ const CoachingInterface: React.FC = () => {
                 <Button
                   mode="text"
                   onPress={() => {
+                    simpleErrorHandler.addBreadcrumb(
+                      'User opened feedback modal',
+                      'user_interaction',
+                      {
+                        sessionId: session.id,
+                        sessionType: session.type,
+                      },
+                    );
                     setSelectedSession(session);
                     setFeedbackModalVisible(true);
                   }}
@@ -174,7 +278,13 @@ const CoachingInterface: React.FC = () => {
       <Portal>
         <Modal
           visible={feedbackModalVisible}
-          onDismiss={() => setFeedbackModalVisible(false)}
+          onDismiss={() => {
+            simpleErrorHandler.addBreadcrumb('User closed feedback modal', 'user_interaction', {
+              sessionId: selectedSession?.id,
+              hadFeedbackText: !!feedbackText.trim(),
+            });
+            setFeedbackModalVisible(false);
+          }}
           contentContainerStyle={styles.modal}
         >
           <Text style={styles.modalTitle}>Provide Feedback</Text>
@@ -198,7 +308,10 @@ const CoachingInterface: React.FC = () => {
 
         <Modal
           visible={profileModalVisible}
-          onDismiss={() => setProfileModalVisible(false)}
+          onDismiss={() => {
+            simpleErrorHandler.addBreadcrumb('User closed profile modal', 'user_interaction');
+            setProfileModalVisible(false);
+          }}
           contentContainerStyle={styles.modal}
         >
           <Text style={styles.modalTitle}>Update Profile</Text>

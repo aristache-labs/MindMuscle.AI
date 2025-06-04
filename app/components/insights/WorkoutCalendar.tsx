@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
 import { Surface } from 'react-native-paper';
 import { Calendar } from 'react-native-calendars';
 import { format, addMonths } from 'date-fns';
 import { COLORS } from '../../constants/theme';
+import * as Sentry from '@sentry/react-native';
+import { captureUIError, SentryReactProfiler } from '../../services/sentry';
 
 interface WorkoutCalendarProps {
   calendarDate: Date;
@@ -12,7 +14,7 @@ interface WorkoutCalendarProps {
   onTodayPress: () => void;
 }
 
-export const WorkoutCalendar: React.FC<WorkoutCalendarProps> = ({
+const WorkoutCalendarComponent: React.FC<WorkoutCalendarProps> = ({
   calendarDate,
   calendarKey,
   onMonthChange,
@@ -21,6 +23,179 @@ export const WorkoutCalendar: React.FC<WorkoutCalendarProps> = ({
   const today = new Date();
   const minDate = format(today, 'yyyy-MM-dd');
   const maxDate = format(addMonths(today, 12), 'yyyy-MM-dd');
+
+  // Track component lifecycle and calendar state
+  useEffect(() => {
+    // Track component mount and calendar state
+    Sentry.addBreadcrumb({
+      message: 'Workout Calendar Section Rendered',
+      category: 'ui.render',
+      level: 'info',
+      data: {
+        currentDate: format(calendarDate, 'yyyy-MM-dd'),
+        calendarKey,
+        minDate,
+        maxDate,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    // Track component lifecycle
+    SentryReactProfiler.trackComponentLifecycle('WorkoutCalendar', 'mount');
+
+    return () => {
+      SentryReactProfiler.trackComponentLifecycle('WorkoutCalendar', 'unmount');
+    };
+  }, []);
+
+  // Track calendar date changes
+  useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: 'Calendar Date Updated',
+      category: 'ui.update',
+      level: 'info',
+      data: {
+        newDate: format(calendarDate, 'yyyy-MM-dd'),
+        calendarKey,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  }, [calendarDate, calendarKey]);
+
+  const handleMonthChange = (date: { timestamp: number }) => {
+    try {
+      const newDate = new Date(date.timestamp);
+
+      // Track month navigation attempt
+      Sentry.addBreadcrumb({
+        message: 'Calendar Month Change Started',
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          previousMonth: format(calendarDate, 'yyyy-MM'),
+          newMonth: format(newDate, 'yyyy-MM'),
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      onMonthChange(date);
+
+      // Track successful month change
+      Sentry.addBreadcrumb({
+        message: 'Calendar Month Changed Successfully',
+        category: 'user.success',
+        level: 'info',
+        data: {
+          appliedMonth: format(newDate, 'yyyy-MM'),
+          navigationDirection: newDate > calendarDate ? 'forward' : 'backward',
+        },
+      });
+    } catch (error) {
+      // Capture month change errors
+      captureUIError(error as Error, 'WorkoutCalendar.handleMonthChange', 'insights-calendar');
+
+      Sentry.addBreadcrumb({
+        message: 'Calendar Month Change Failed',
+        category: 'user.error',
+        level: 'error',
+        data: {
+          error: (error as Error).message,
+          attemptedTimestamp: date.timestamp,
+          currentMonth: format(calendarDate, 'yyyy-MM'),
+        },
+      });
+
+      console.error('Month change error:', error);
+    }
+  };
+
+  const handleTodayPress = () => {
+    try {
+      // Track today button press
+      Sentry.addBreadcrumb({
+        message: 'Today Button Pressed',
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          currentDate: format(calendarDate, 'yyyy-MM-dd'),
+          todayDate: format(today, 'yyyy-MM-dd'),
+          isAlreadyToday: format(calendarDate, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd'),
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      onTodayPress();
+
+      // Track successful today navigation
+      Sentry.addBreadcrumb({
+        message: 'Today Navigation Successful',
+        category: 'user.success',
+        level: 'info',
+        data: {
+          navigatedToToday: true,
+          action: 'today_button_success',
+        },
+      });
+    } catch (error) {
+      // Capture today press errors
+      captureUIError(error as Error, 'WorkoutCalendar.handleTodayPress', 'insights-calendar');
+
+      Sentry.addBreadcrumb({
+        message: 'Today Button Press Failed',
+        category: 'user.error',
+        level: 'error',
+        data: {
+          error: (error as Error).message,
+          currentDate: format(calendarDate, 'yyyy-MM-dd'),
+        },
+      });
+
+      console.error('Today press error:', error);
+    }
+  };
+
+  const handleDayPress = (day: { dateString: string }) => {
+    try {
+      // Track day selection
+      Sentry.addBreadcrumb({
+        message: 'Calendar Day Pressed',
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          selectedDate: day.dateString,
+          currentMonth: format(calendarDate, 'yyyy-MM'),
+          isToday: day.dateString === format(today, 'yyyy-MM-dd'),
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      // Currently no action taken on day press, but tracking for future features
+      Sentry.addBreadcrumb({
+        message: 'Day Press Handled',
+        category: 'user.success',
+        level: 'info',
+        data: {
+          selectedDate: day.dateString,
+          action: 'day_press_tracked',
+        },
+      });
+    } catch (error) {
+      // Capture day press errors
+      captureUIError(error as Error, 'WorkoutCalendar.handleDayPress', 'insights-calendar');
+
+      Sentry.addBreadcrumb({
+        message: 'Day Press Handler Failed',
+        category: 'user.error',
+        level: 'error',
+        data: {
+          error: (error as Error).message,
+          attemptedDate: day.dateString,
+        },
+      });
+
+      console.error('Day press error:', error);
+    }
+  };
 
   // Mark dates that have workouts
   const markedDates = {
@@ -34,7 +209,7 @@ export const WorkoutCalendar: React.FC<WorkoutCalendarProps> = ({
       <View style={styles.calendarHeader}>
         <View style={{ flex: 1 }}>
           <Pressable
-            onPress={onTodayPress}
+            onPress={handleTodayPress}
             style={({ pressed }) => [
               styles.todayButtonContainer,
               pressed && styles.todayButtonPressed,
@@ -52,7 +227,7 @@ export const WorkoutCalendar: React.FC<WorkoutCalendarProps> = ({
         current={format(calendarDate, 'yyyy-MM-dd')}
         minDate={minDate}
         maxDate={maxDate}
-        onMonthChange={onMonthChange}
+        onMonthChange={handleMonthChange}
         markedDates={{
           ...markedDates,
           [format(new Date(), 'yyyy-MM-dd')]: {
@@ -71,7 +246,7 @@ export const WorkoutCalendar: React.FC<WorkoutCalendarProps> = ({
         }}
         enableSwipeMonths={true}
         hideExtraDays={true}
-        onDayPress={(_day: { dateString: string }) => {}}
+        onDayPress={handleDayPress}
         theme={{
           backgroundColor: 'transparent',
           calendarBackground: 'transparent',
@@ -95,6 +270,12 @@ export const WorkoutCalendar: React.FC<WorkoutCalendarProps> = ({
     </Surface>
   );
 };
+
+// Export the component wrapped with Sentry profiler
+export const WorkoutCalendar = SentryReactProfiler.withProfiler(
+  WorkoutCalendarComponent as React.ComponentType<unknown>,
+  'WorkoutCalendar',
+) as React.FC<WorkoutCalendarProps>;
 
 const styles = StyleSheet.create({
   calendarContainer: {
@@ -141,6 +322,7 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
   },
 });
+
 export default function DebugHelpers() {
   return null;
 }

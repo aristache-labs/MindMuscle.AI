@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -14,6 +14,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../store/AuthContext';
 import supabase from '../services/supabase';
+import {
+  captureUIError,
+  captureAPIError,
+  captureDatabaseError,
+  captureNavigationError,
+  SentryReactProfiler,
+} from '../services/sentry';
+import * as Sentry from '@sentry/react-native';
 
 export default function AIPlanGenerator() {
   const router = useRouter();
@@ -23,16 +31,85 @@ export default function AIPlanGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    // Track screen entry
+    Sentry.addBreadcrumb({
+      message: 'AI Plan Generator Screen Mounted',
+      category: 'navigation',
+      level: 'info',
+      data: {
+        screen: 'ai-plan-generator',
+        userId: user?.id,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    // Track component lifecycle
+    SentryReactProfiler.trackComponentLifecycle('AIPlanGenerator', 'mount');
+
+    // Set user context for error tracking
+    if (user) {
+      Sentry.setUser({
+        id: user.id,
+        email: user.email || undefined,
+      });
+    }
+
+    return () => {
+      // Track screen exit
+      Sentry.addBreadcrumb({
+        message: 'AI Plan Generator Screen Unmounted',
+        category: 'navigation',
+        level: 'info',
+        data: {
+          screen: 'ai-plan-generator',
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      // Track component lifecycle
+      SentryReactProfiler.trackComponentLifecycle('AIPlanGenerator', 'unmount');
+    };
+  }, [user]);
+
   const handleBackPress = () => {
-    router.back();
+    try {
+      Sentry.addBreadcrumb({
+        message: 'AI Plan Generator Back Button Pressed',
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          action: 'back_navigation',
+          screen: 'ai-plan-generator',
+        },
+      });
+
+      router.back();
+    } catch (error) {
+      captureNavigationError(error as Error, 'ai-plan-generator', 'previous');
+    }
   };
 
   const handleGeneratePlan = async () => {
     if (!prompt.trim() || !user) return;
 
+    const startTime = Date.now();
+
     try {
       setIsGenerating(true);
       setError(null);
+
+      // Track AI plan generation start
+      Sentry.addBreadcrumb({
+        message: 'AI Plan Generation Started',
+        category: 'user.action',
+        level: 'info',
+        data: {
+          promptLength: prompt.length,
+          userId: user.id,
+          timestamp: new Date().toISOString(),
+        },
+      });
 
       // Here we would normally call an AI service to generate a plan
       // For now, we'll just simulate it with a timeout
@@ -40,6 +117,18 @@ export default function AIPlanGenerator() {
 
       // Create a sample AI plan
       const planName = `AI Workout: ${prompt.split(' ').slice(0, 3).join(' ')}...`;
+
+      // Track database operation start
+      Sentry.addBreadcrumb({
+        message: 'Creating AI Plan in Database',
+        category: 'database.operation',
+        level: 'info',
+        data: {
+          table: 'user_active_plans',
+          operation: 'insert',
+          planName,
+        },
+      });
 
       // Add the new active plan
       const { data: newPlan, error: insertError } = await supabase
@@ -63,10 +152,30 @@ export default function AIPlanGenerator() {
 
       if (insertError) {
         console.error('Error creating AI plan:', insertError);
+
+        // Capture database error with detailed context
+        captureDatabaseError(
+          new Error(`Failed to create AI plan: ${insertError.message}`),
+          'user_active_plans',
+          'insert',
+        );
+
         setError('Failed to create AI plan. Please try again.');
         setIsGenerating(false);
         return;
       }
+
+      // Track successful plan creation
+      Sentry.addBreadcrumb({
+        message: 'AI Plan Created Successfully',
+        category: 'database.success',
+        level: 'info',
+        data: {
+          planId: newPlan.id,
+          planName,
+          exerciseCount: 5,
+        },
+      });
 
       // Sample exercises for the AI plan
       const sampleExercises = [
@@ -94,27 +203,116 @@ export default function AIPlanGenerator() {
         order_position: ex.order_position,
       }));
 
+      // Track exercises insertion
+      Sentry.addBreadcrumb({
+        message: 'Adding Exercises to AI Plan',
+        category: 'database.operation',
+        level: 'info',
+        data: {
+          table: 'user_active_plan_exercises',
+          operation: 'insert',
+          exerciseCount: exercisesToInsert.length,
+        },
+      });
+
       const { error: exerciseError } = await supabase
         .from('user_active_plan_exercises')
         .insert(exercisesToInsert);
 
       if (exerciseError) {
         console.error('Error adding exercises to AI plan:', exerciseError);
+
+        // Capture database error for exercises
+        captureDatabaseError(
+          new Error(`Failed to add exercises: ${exerciseError.message}`),
+          'user_active_plan_exercises',
+          'insert',
+        );
+
         setError('Created plan but failed to add exercises. Please try again.');
       } else {
-        // Navigate to the AI coaching screen with the new plan
-        router.push({
-          pathname: '/(stack)/ai-coaching',
-          params: {
-            planAdded: 'true',
+        // Track successful completion
+        const duration = Date.now() - startTime;
+
+        Sentry.addBreadcrumb({
+          message: 'AI Plan Generation Completed Successfully',
+          category: 'user.success',
+          level: 'info',
+          data: {
+            planId: newPlan.id,
+            totalDuration: duration,
+            exerciseCount: exercisesToInsert.length,
+            promptLength: prompt.length,
           },
         });
+
+        // Navigate to the AI coaching screen with the new plan
+        try {
+          router.push({
+            pathname: '/(stack)/ai-coaching',
+            params: {
+              planAdded: 'true',
+            },
+          });
+        } catch (navError) {
+          captureNavigationError(navError as Error, 'ai-plan-generator', 'ai-coaching');
+        }
       }
     } catch (error) {
       console.error('Error in handleGeneratePlan:', error);
+
+      // Capture comprehensive error context
+      captureAPIError(error as Error, 'ai-plan-generation', 'coaching');
+
+      Sentry.addBreadcrumb({
+        message: 'AI Plan Generation Failed',
+        category: 'error',
+        level: 'error',
+        data: {
+          error: (error as Error).message,
+          promptLength: prompt.length,
+          duration: Date.now() - startTime,
+        },
+      });
+
       setError('An unexpected error occurred. Please try again.');
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handlePromptChange = (text: string) => {
+    setPrompt(text);
+
+    // Track user input engagement
+    if (text.length > 0 && text.length % 50 === 0) {
+      Sentry.addBreadcrumb({
+        message: 'User Typing in AI Prompt',
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          promptLength: text.length,
+          wordCount: text.split(' ').length,
+        },
+      });
+    }
+  };
+
+  const handleExamplePromptSelect = (examplePrompt: string) => {
+    try {
+      setPrompt(examplePrompt);
+
+      Sentry.addBreadcrumb({
+        message: 'Example Prompt Selected',
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          exampleType: examplePrompt.substring(0, 50),
+          promptLength: examplePrompt.length,
+        },
+      });
+    } catch (error) {
+      captureUIError(error as Error, 'AIPlanGenerator', 'ai-plan-generator');
     }
   };
 
@@ -151,7 +349,7 @@ export default function AIPlanGenerator() {
             mode="outlined"
             label="Describe your workout plan"
             value={prompt}
-            onChangeText={setPrompt}
+            onChangeText={handlePromptChange}
             multiline
             numberOfLines={5}
             placeholder="e.g., I want a full-body workout plan for a beginner with no equipment, focusing on weight loss. I can exercise 3 times a week for 30 minutes each session."
@@ -175,7 +373,7 @@ export default function AIPlanGenerator() {
             <TouchableOpacity
               style={styles.exampleItem}
               onPress={() =>
-                setPrompt(
+                handleExamplePromptSelect(
                   'I want a strength training plan for an intermediate level with dumbbells only. I have 45 minutes, 4 times a week.',
                 )
               }
@@ -188,7 +386,7 @@ export default function AIPlanGenerator() {
             <TouchableOpacity
               style={styles.exampleItem}
               onPress={() =>
-                setPrompt(
+                handleExamplePromptSelect(
                   'I need a high-intensity cardio plan to improve endurance. I can work out 3 days a week for 30 minutes each.',
                 )
               }
@@ -201,7 +399,7 @@ export default function AIPlanGenerator() {
             <TouchableOpacity
               style={styles.exampleItem}
               onPress={() =>
-                setPrompt(
+                handleExamplePromptSelect(
                   'Create a 5-day full body workout plan focused on functional fitness. I have access to a full gym and am at an advanced fitness level.',
                 )
               }

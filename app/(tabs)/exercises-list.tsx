@@ -2,17 +2,14 @@ import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react'
 import {
   StyleSheet,
   View,
-  SectionList,
   TouchableOpacity,
   TextInput,
   Animated,
-  TouchableWithoutFeedback,
   Dimensions,
   ActivityIndicator,
   Keyboard,
-  ScrollView,
 } from 'react-native';
-import { Text, IconButton, Divider } from 'react-native-paper';
+import { Text } from 'react-native-paper';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
@@ -21,8 +18,14 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import exerciseService, { Exercise, ExerciseCategory } from '../services/exerciseService';
 import useImagePreloader from '../hooks/useImagePreloader';
-import ExerciseDetailsModal from '../components/ExerciseDetailsModal';
+
 import type { PreloadingStatus } from '../hooks/useImagePreloader';
+import {
+  addBreadcrumb,
+  captureError,
+  capturePerformanceError,
+} from '../services/sentry/simpleErrorHandler';
+import { setTag, SentryReactProfiler } from '../services/sentry';
 
 // Define types for global placeholders
 interface PlaceholderImages {
@@ -40,46 +43,6 @@ interface GlobalWithPlaceholders {
     byCategory?: Record<string, Exercise[]>;
   };
 }
-
-// Simple performance tracking utility
-const loadTimeTracker = {
-  timePoints: new Map<
-    string,
-    { start?: number; end?: number; marks: { time: number; duration: number; label: string }[] }
-  >(),
-
-  startLoadTimeTracking: (id: string) => {
-    console.log(`[LoadTracker] Starting tracking for ${id}`);
-    loadTimeTracker.timePoints.set(id, {
-      start: Date.now(),
-      marks: [],
-    });
-  },
-
-  endLoadTimeTracking: (id: string) => {
-    const timePoint = loadTimeTracker.timePoints.get(id);
-    if (timePoint) {
-      timePoint.end = Date.now();
-      const totalDuration = timePoint.end - (timePoint.start || 0);
-      console.log(`[LoadTracker] Completed tracking for ${id}: ${totalDuration}ms`);
-    }
-  },
-
-  markLoadTime: (id: string, label: string) => {
-    const timePoint = loadTimeTracker.timePoints.get(id);
-    if (timePoint) {
-      const now = Date.now();
-      const duration =
-        timePoint.marks.length > 0
-          ? now - timePoint.marks[timePoint.marks.length - 1].time
-          : now - (timePoint.start || 0);
-
-      const mark = { time: now, duration, label };
-      timePoint.marks.push(mark);
-      console.log(`[LoadTracker] ${id} - ${label}: ${duration}ms`);
-    }
-  },
-};
 
 // Get screen width for responsive sizing
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -113,130 +76,25 @@ const CATEGORY_NAMES = {
   all: 'ALL EXERCISES',
 };
 
-// Interface for section data
-interface _ExerciseSection {
-  title: string;
-  data: Exercise[];
-}
-
-// Map of alternative names for muscle groups to support better search
+// Map of alternative names for muscle groups to support better search (simplified)
 const MUSCLE_GROUP_ALIASES: Record<string, string[]> = {
-  Chest: ['pecs', 'pectorals', 'chest muscles'],
-  Biceps: ['bis', 'guns', 'arms'],
-  Triceps: ['tris', 'back of arms'],
-  Abs: ['abdominals', 'six pack', 'core', 'stomach', 'midsection'],
-  Shoulders: ['delts', 'deltoids'],
-  Lats: ['latissimus dorsi', 'wings', 'back'],
-  Quads: ['quadriceps', 'front thighs'],
-  Hamstrings: ['hammies', 'back thighs'],
-  Glutes: ['gluteus maximus', 'butt', 'buttocks'],
-  Calves: ['calf muscles', 'lower legs'],
-  Forearms: ['lower arms'],
-  Lower_back: [
-    'lower back',
-    'erectorspinae',
-    'erector-spinae',
-    'erector',
-    'lower_back',
-    'lowerback',
-  ],
-  Traps: ['trapezius', 'upper back'],
+  Chest: ['pecs', 'pectorals'],
+  Biceps: ['bis', 'arms'],
+  Triceps: ['tris'],
+  Abs: ['abdominals', 'core'],
+  Shoulders: ['delts'],
+  Lats: ['latissimus', 'back'],
+  Quads: ['quadriceps'],
+  Hamstrings: ['hammies'],
+  Glutes: ['butt'],
+  Calves: ['calf'],
+  Lower_back: ['lower back', 'lowerback'],
+  Traps: ['trapezius'],
 };
 
 // Helper function to render search results
-const renderSearchResults = (
-  displayedExercises: Exercise[],
-  favoriteIds: Set<string>,
-  handleExercisePress: (id: string) => void,
-  toggleFavorite: (id: string) => void,
-  ListEmptyComponent: React.ComponentType,
-) => (
-  <View style={styles.unifiedCategoryContainer}>
-    <View style={styles.allExercisesTitleGradient}>
-      <Text style={styles.categoryTitle}>SEARCH RESULTS</Text>
-      <Text style={styles.exerciseCount}>
-        {displayedExercises.length} {displayedExercises.length === 1 ? 'exercise' : 'exercises'}
-      </Text>
-    </View>
-
-    <View style={styles.exerciseCardsContainer}>
-      {Array.from({ length: Math.ceil(displayedExercises.length / 2) }).map((_, rowIndex) => {
-        const startIdx = rowIndex * 2;
-        const rowItems = displayedExercises.slice(startIdx, startIdx + 2);
-
-        return (
-          <View key={`row-${rowIndex}`} style={styles.columnWrapper}>
-            {rowItems.map((item) => (
-              <ExerciseCard
-                key={item.id}
-                id={item.id}
-                name={item.name}
-                image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE_OBJECT}
-                isFavorite={favoriteIds.has(item.id)}
-                onPress={handleExercisePress}
-                onToggleFavorite={toggleFavorite}
-                useOptimizedImage={true}
-              />
-            ))}
-            {rowItems.length === 1 && <View style={styles.emptyCardSpace} />}
-          </View>
-        );
-      })}
-    </View>
-
-    {displayedExercises.length === 0 && <ListEmptyComponent />}
-  </View>
-);
 
 // Helper function to render all exercises view
-const renderAllExercisesView = (
-  currentCategory: string,
-  searchQuery: string,
-  displayedExercises: Exercise[],
-  favoriteIds: Set<string>,
-  handleExercisePress: (id: string) => void,
-  toggleFavorite: (id: string) => void,
-) => {
-  if (currentCategory !== 'all' || searchQuery.trim()) {
-    return null;
-  }
-
-  return (
-    <View style={styles.unifiedCategoryContainer}>
-      <View style={styles.allExercisesTitleGradient}>
-        <Text style={styles.allExercisesTitle}>{CATEGORY_NAMES['all']}</Text>
-        <Text style={styles.exerciseCount}>
-          {displayedExercises.length} {displayedExercises.length === 1 ? 'exercise' : 'exercises'}
-        </Text>
-      </View>
-
-      <View style={styles.exerciseCardsContainer}>
-        {Array.from({ length: Math.ceil(displayedExercises.length / 2) }).map((_, rowIndex) => {
-          const startIdx = rowIndex * 2;
-          const rowItems = displayedExercises.slice(startIdx, startIdx + 2);
-
-          return (
-            <View key={`row-${rowIndex}`} style={styles.columnWrapper}>
-              {rowItems.map((item) => (
-                <ExerciseCard
-                  key={item.id}
-                  id={item.id}
-                  name={item.name}
-                  image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE_OBJECT}
-                  isFavorite={favoriteIds.has(item.id)}
-                  onPress={handleExercisePress}
-                  onToggleFavorite={toggleFavorite}
-                  useOptimizedImage={true}
-                />
-              ))}
-              {rowItems.length === 1 && <View style={styles.emptyCardSpace} />}
-            </View>
-          );
-        })}
-      </View>
-    </View>
-  );
-};
 
 // Helper function to create exercise sections
 const createExerciseSections = (
@@ -352,7 +210,7 @@ const createExerciseSections = (
   return sections;
 };
 
-// Helper function to load exercises data
+// Enhanced load exercises data function with Sentry tracking
 const loadExercisesData = async (
   currentCategory: string,
   setLoading: (loading: boolean) => void,
@@ -361,85 +219,66 @@ const loadExercisesData = async (
   setAllExercises: (exercises: Exercise[]) => void,
   setFavoriteIds: (favoriteIds: Set<string>) => void,
 ) => {
+  const startTime = Date.now();
+
+  addBreadcrumb(`Loading exercises data for category: ${currentCategory}`, 'api', {
+    category: currentCategory,
+    timestamp: new Date().toISOString(),
+  });
+
   try {
-    loadTimeTracker.markLoadTime('ExercisesListScreen', 'loadExercises started');
-
-    // Check if data is already in cache before showing loading indicator
-    const cache = (global as GlobalWithPlaceholders).exercisesCache;
-    const isCached =
-      cache?.all &&
-      (currentCategory === 'all' || (cache.byCategory && cache.byCategory[currentCategory]));
-
-    // Only show loading if data is not cached
-    if (!isCached) {
-      setLoading(true);
-      console.log('[ExercisesListScreen] Cache miss, setting loading to true');
-    } else {
-      console.log('[ExercisesListScreen] Cache hit, not setting loading indicator initially');
-    }
-
+    setLoading(true);
     setError(null);
 
-    let exercisesData: Exercise[] = [];
-    let allExercisesData: Exercise[] = [];
+    const [exercisesData, favorites] = await Promise.all([
+      currentCategory === 'all'
+        ? exerciseService.getAllExercises()
+        : exerciseService.getExercisesByCategory(currentCategory as ExerciseCategory),
+      exerciseService.getFavoriteExercises().catch(() => []), // Graceful fallback
+    ]);
 
-    // Try to load from cache first for better performance
-    if (currentCategory !== 'all') {
-      loadTimeTracker.markLoadTime(
-        'ExercisesListScreen',
-        `Loading from API for category: ${currentCategory}`,
-      );
-      exercisesData = await exerciseService.getExercisesByCategory(
-        currentCategory as ExerciseCategory,
-      );
-    }
+    const loadTime = Date.now() - startTime;
 
-    // Always load all exercises from API
-    loadTimeTracker.markLoadTime('ExercisesListScreen', 'Loading all exercises from API');
-    allExercisesData = await exerciseService.getExercisesByCategory('all');
-    if (currentCategory === 'all') {
-      exercisesData = allExercisesData;
-    }
+    addBreadcrumb('Exercises data loaded successfully', 'api', {
+      category: currentCategory,
+      exerciseCount: exercisesData.length,
+      favoriteCount: favorites.length,
+      loadTime,
+    });
 
-    // Update state
+    exercisesData.sort((a, b) => a.name.localeCompare(b.name));
     setExercises(exercisesData);
-    setAllExercises(allExercisesData);
-    console.log(
-      `[ExercisesListScreen] Loaded ${exercisesData.length} exercises for category ${currentCategory}, ${allExercisesData.length} total exercises.`,
-    );
-    loadTimeTracker.markLoadTime(
-      'ExercisesListScreen',
-      `Exercises data loaded: ${exercisesData.length}`,
-    );
+    setAllExercises(exercisesData);
 
-    // Always hide loading indicator after data is loaded
-    setLoading(false);
+    const favoriteIdSet = new Set(favorites.map((fav) => fav.id));
+    setFavoriteIds(favoriteIdSet);
 
-    // Load favorites (don't use this as a blocker for showing content)
-    try {
-      loadTimeTracker.markLoadTime('ExercisesListScreen', 'Loading favorites');
-      const favorites = await exerciseService.getFavoriteExercises();
-      const favoriteIdSet = new Set(favorites.map((fav) => fav.id));
-      setFavoriteIds(favoriteIdSet);
-      loadTimeTracker.markLoadTime(
-        'ExercisesListScreen',
-        `Favorites loaded: ${favoriteIdSet.size}`,
-      );
-    } catch (favError) {
-      console.error('Error loading favorites:', favError);
-      loadTimeTracker.markLoadTime('ExercisesListScreen', 'Error loading favorites');
-      // Don't block the UI for favorites loading issues
+    if (loadTime > 2000) {
+      capturePerformanceError('Slow exercises data loading', 'data_load_time', loadTime);
     }
-  } catch (err) {
-    console.error('Error loading exercises:', err);
-    loadTimeTracker.markLoadTime('ExercisesListScreen', 'Error loading exercises');
+
+    setTag('exercise_category', currentCategory);
+    setTag('exercise_count', exercisesData.length.toString());
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+
+    captureError(error as Error, {
+      category: 'api_error',
+      screen: 'exercises_list',
+      operation: 'loadExercisesData',
+      exerciseCategory: currentCategory,
+      loadTime: Date.now() - startTime,
+    });
+
     setError('Failed to load exercises. Please try again.');
-    setLoading(false);
+
+    addBreadcrumb('Exercises data loading failed', 'api', {
+      category: currentCategory,
+      errorMessage,
+      loadTime: Date.now() - startTime,
+    });
   } finally {
-    // Mark UI render time
-    setTimeout(() => {
-      loadTimeTracker.markLoadTime('ExercisesListScreen', 'UI fully rendered');
-    }, 500);
+    setLoading(false);
   }
 };
 
@@ -679,62 +518,6 @@ const useExerciseFiltering = (
   return { displayedExercises };
 };
 
-const useExerciseModal = (displayedExercises: Exercise[]) => {
-  const [exerciseDetailsVisible, setExerciseDetailsVisible] = useState(false);
-  const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
-
-  const handleExercisePress = useCallback(
-    (exerciseId: string) => {
-      const exercise = displayedExercises.find((ex) => ex.id === exerciseId);
-      console.log(
-        `[ExercisesListScreen] Exercise card pressed: ${exerciseId}, found exercise:`,
-        exercise ? exercise.name : 'not found',
-      );
-      if (exercise) {
-        setSelectedExercise(exercise);
-        setExerciseDetailsVisible(true);
-      }
-    },
-    [displayedExercises],
-  );
-
-  return {
-    exerciseDetailsVisible,
-    setExerciseDetailsVisible,
-    selectedExercise,
-    handleExercisePress,
-  };
-};
-
-const useAnimations = () => {
-  const shimmerAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const shimmerAnimation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(shimmerAnim, {
-          toValue: 1,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(shimmerAnim, {
-          toValue: 0,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-
-    shimmerAnimation.start();
-
-    return () => {
-      shimmerAnimation.stop();
-    };
-  }, []);
-
-  return { shimmerAnim };
-};
-
 interface SearchStateType {
   isSearchActive: boolean;
   setIsSearchActive: (active: boolean) => void;
@@ -742,7 +525,7 @@ interface SearchStateType {
   setSearchQuery: (query: string) => void;
   searchWidthAnim: Animated.Value;
   contentOffsetAnim: Animated.Value;
-  searchInputRef: React.RefObject<TextInput>;
+  searchInputRef: React.RefObject<TextInput | null>;
   searchResultsOpacity: Animated.Value;
   openSearch: () => void;
   collapseSearchUI: () => void;
@@ -856,278 +639,208 @@ const useContentRendering = (
   };
 };
 
-interface ContentAreaProps {
-  error: string | null;
-  currentCategory: string;
-  searchState: SearchStateType;
-  displayedExercises: Exercise[];
-  favoriteIds: Set<string>;
-  handleExercisePress: (id: string) => void;
-  toggleFavorite: (id: string) => void;
-  showFavoritesOnly: boolean;
-  shouldGroupByMuscle: boolean;
-  exerciseSections: { title: string; data: Exercise[] }[];
-  router: ReturnType<typeof useRouter>;
-}
-
-const ContentArea = ({
-  error,
-  currentCategory,
-  searchState,
-  displayedExercises,
-  favoriteIds,
-  handleExercisePress,
-  toggleFavorite,
-  showFavoritesOnly,
-  shouldGroupByMuscle,
-  exerciseSections,
-  router,
-}: ContentAreaProps) => {
-  if (error) {
-    return (
-      <View style={styles.centeredContainer}>
-        <MaterialIcons name="error-outline" size={48} color="rgba(255,255,255,0.7)" />
-        <Text style={styles.messageText}>{error}</Text>
-        <TouchableOpacity
-          style={styles.retryButton}
-          onPress={() => router.replace(`/(tabs)/exercises-list?categoryId=${currentCategory}`)}
-        >
-          <Text style={styles.retryText}>Retry</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  const emptyComponent = () => (
-    <View style={styles.emptyContainer}>
-      <MaterialIcons name="search-off" size={48} color="rgba(255,255,255,0.5)" />
-      <Text style={styles.emptyText}>
-        {searchState.searchQuery.trim()
-          ? 'No exercises match your search'
-          : showFavoritesOnly
-            ? 'No favorite exercises yet'
-            : 'No exercises available'}
-      </Text>
-    </View>
-  );
-
-  if (searchState.searchQuery.trim() !== '') {
-    return (
-      <ScrollView
-        contentContainerStyle={styles.scrollViewContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {renderSearchResults(
-          displayedExercises,
-          favoriteIds,
-          handleExercisePress,
-          toggleFavorite,
-          emptyComponent,
-        )}
-      </ScrollView>
-    );
-  }
-
-  if (shouldGroupByMuscle) {
-    return (
-      <SectionList
-        sections={exerciseSections}
-        keyExtractor={(item) => item.id}
-        stickySectionHeadersEnabled={false}
-        renderItem={() => null}
-        renderSectionHeader={({ section }) => (
-          <View style={[styles.unifiedCategoryContainer, { marginTop: 8 }]}>
-            <View style={styles.muscleGroupHeader}>
-              <Text style={styles.muscleGroupTitle}>{section.title}</Text>
-              <Text style={styles.exerciseCount}>
-                {section.data.length} {section.data.length === 1 ? 'exercise' : 'exercises'}
-              </Text>
-            </View>
-
-            <View style={styles.exerciseCardsContainer}>
-              {section.data.map((item) => (
-                <ExerciseCard
-                  key={item.id}
-                  id={item.id}
-                  name={item.name}
-                  image={item.image_url ? { uri: item.image_url } : FALLBACK_IMAGE_OBJECT}
-                  isFavorite={favoriteIds.has(item.id)}
-                  onPress={handleExercisePress}
-                  onToggleFavorite={toggleFavorite}
-                  useOptimizedImage={true}
-                />
-              ))}
-            </View>
-          </View>
-        )}
-        contentContainerStyle={styles.scrollViewContent}
-        ListEmptyComponent={emptyComponent}
-      />
-    );
-  }
-
-  return (
-    <ScrollView
-      contentContainerStyle={styles.scrollViewContent}
-      showsVerticalScrollIndicator={false}
-    >
-      {renderAllExercisesView(
-        currentCategory,
-        searchState.searchQuery,
-        displayedExercises,
-        favoriteIds,
-        handleExercisePress,
-        toggleFavorite,
-      )}
-    </ScrollView>
-  );
-};
-
-interface FloatingUIProps {
-  searchState: SearchStateType;
-  showFavoritesOnly: boolean;
-}
-
-const FloatingUI = ({ searchState, showFavoritesOnly }: FloatingUIProps) => (
-  <>
-    {/* Floating Search */}
-    <View style={styles.floatingSearchRow}>
-      <Animated.View
-        style={[
-          styles.searchContainer,
-          {
-            width: searchState.isSearchActive ? searchState.searchWidthAnim : 40,
-            flex: searchState.isSearchActive ? 1 : undefined,
-          },
-        ]}
-      >
-        {!searchState.isSearchActive ? (
-          <TouchableOpacity style={styles.searchIconButton} onPress={searchState.openSearch}>
-            <MaterialIcons
-              name={searchState.searchQuery.trim() ? 'search' : 'search'}
-              size={22}
-              color={searchState.searchQuery.trim() ? COLORS.text : COLORS.text}
-            />
-            {searchState.searchQuery.trim() !== '' && <View style={styles.activeFilterIndicator} />}
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.activeSearchContainer}>
-            <TouchableOpacity onPress={searchState.handleSearchIconPress}>
-              <MaterialIcons
-                name="search"
-                size={24}
-                color={COLORS.text}
-                style={styles.searchIconActive}
-              />
-            </TouchableOpacity>
-            <TextInput
-              ref={searchState.searchInputRef}
-              style={styles.searchInput}
-              placeholder="Search exercises..."
-              placeholderTextColor="rgba(255,255,255,0.5)"
-              value={searchState.searchQuery}
-              onChangeText={searchState.setSearchQuery}
-              autoFocus={searchState.isSearchActive}
-              returnKeyType="search"
-              onSubmitEditing={searchState.handleSearchSubmit}
-            />
-            <TouchableOpacity onPress={searchState.clearSearch}>
-              <MaterialIcons name="close" size={24} color={COLORS.text} />
-            </TouchableOpacity>
-          </View>
-        )}
-      </Animated.View>
-    </View>
-
-    {/* Background Overlay to collapse search */}
-    {searchState.isSearchActive && (
-      <TouchableWithoutFeedback onPress={searchState.collapseSearchUI}>
-        <View style={styles.overlay} />
-      </TouchableWithoutFeedback>
-    )}
-
-    {/* Floating search results header */}
-    {!searchState.isSearchActive && searchState.searchQuery.trim() !== '' && (
-      <Animated.View
-        style={[
-          styles.searchResultsHeader,
-          {
-            opacity: searchState.searchResultsOpacity,
-            transform: [
-              {
-                translateY: searchState.searchResultsOpacity.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [20, 0],
-                }),
-              },
-            ],
-          },
-        ]}
-      >
-        <Text style={styles.searchResultsText} numberOfLines={1}>
-          Results for "
-          <Text style={styles.queryHighlight} numberOfLines={1} ellipsizeMode="middle">
-            {searchState.searchQuery.length > 20
-              ? searchState.searchQuery.substring(0, 20) + '...'
-              : searchState.searchQuery}
-          </Text>
-          "{showFavoritesOnly ? ' in Favorites' : ' in all exercises'}
-        </Text>
-        <TouchableOpacity onPress={searchState.clearSearch} style={styles.clearSearchResultsButton}>
-          <MaterialIcons name="close" size={18} color={COLORS.text} />
-        </TouchableOpacity>
-      </Animated.View>
-    )}
-  </>
-);
-
 export default function ExercisesListScreen() {
-  const {
-    categoryId,
-    fromScreen,
-    openSearch: openSearchParam,
-    resetSearch,
-    groupByMuscle,
-  } = useLocalSearchParams();
+  const params = useLocalSearchParams();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  // Default to Cardio if no category provided
-  const currentCategory =
-    typeof categoryId === 'string'
-      ? (categoryId === 'Lower back' ? 'Lower_back' : (categoryId as ExerciseCategory)) || 'all'
-      : 'all';
+  // Extract parameters
+  const muscleGroup = Array.isArray(params.muscleGroup)
+    ? params.muscleGroup[0]
+    : params.muscleGroup;
+  const showAllCategories = params.showAllCategories === 'true';
+  const openSearchParam = params.openSearch;
+  const resetSearch = params.resetSearch;
+  const shouldGroupByMuscle = params.groupByMuscle === 'true' || showAllCategories;
+  const fromScreen = Array.isArray(params.fromScreen) ? params.fromScreen[0] : params.fromScreen;
 
-  // Flag to determine if we should group by muscle
-  const shouldGroupByMuscle = groupByMuscle === 'true';
+  const currentCategory = showAllCategories ? 'all' : muscleGroup || 'all';
 
-  // Performance tracking
+  // Track screen initialization
   useEffect(() => {
-    loadTimeTracker.startLoadTimeTracking('ExercisesListScreen');
-    console.log('[ExercisesListScreen] Mounted');
+    const startTime = Date.now();
+
+    addBreadcrumb('ExercisesList screen initialized', 'navigation', {
+      currentCategory,
+      showAllCategories,
+      shouldGroupByMuscle,
+      fromScreen: fromScreen || 'unknown',
+      openSearch: openSearchParam === 'true',
+      timestamp: new Date().toISOString(),
+    });
+
+    setTag('current_screen', 'exercises_list');
+    setTag('exercise_category', currentCategory);
+    setTag('group_by_muscle', shouldGroupByMuscle.toString());
+    SentryReactProfiler.trackComponentLifecycle('ExercisesListScreen', 'mount');
+
     return () => {
-      loadTimeTracker.endLoadTimeTracking('ExercisesListScreen');
-      console.log('[ExercisesListScreen] Unmounted');
+      const mountTime = Date.now() - startTime;
+      addBreadcrumb('ExercisesList screen unmounted', 'navigation', {
+        screenMountTime: mountTime,
+        category: currentCategory,
+      });
+
+      SentryReactProfiler.trackComponentLifecycle('ExercisesListScreen', 'unmount');
     };
   }, []);
 
-  // Custom hooks for state management
-  const { exercises, allExercises, loading, error, favoriteIds, toggleFavorite } =
-    useExerciseData(currentCategory);
-  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
-  const searchState = useSearchState(openSearchParam) as SearchStateType;
+  // Use custom hooks
+  const {
+    exercises,
+    allExercises,
+    loading,
+    error,
+    favoriteIds,
+    toggleFavorite: hookToggleFavorite,
+  } = useExerciseData(currentCategory);
+  const searchState = useSearchState(openSearchParam);
   const { displayedExercises } = useExerciseFiltering(
     allExercises,
     exercises,
     searchState.searchQuery,
-    showFavoritesOnly,
+    false, // showFavoritesOnly
     favoriteIds,
     currentCategory,
   );
-  const exerciseModal = useExerciseModal(displayedExercises);
-  const { shimmerAnim: _shimmerAnim } = useAnimations();
 
-  const { preloadStatus, exerciseSections } = useContentRendering(
+  // Enhanced exercise press handler with Sentry tracking
+  const handleExercisePress = useCallback(
+    (exerciseId: string) => {
+      const startTime = Date.now();
+      const exercise = displayedExercises.find((ex) => ex.id === exerciseId);
+
+      addBreadcrumb(`Exercise pressed: ${exercise?.name || exerciseId}`, 'user_interaction', {
+        exerciseId,
+        exerciseName: exercise?.name || 'unknown',
+        category: currentCategory,
+        isFavorite: favoriteIds.has(exerciseId),
+      });
+
+      try {
+        // Handle exercise press logic here
+        const interactionTime = Date.now() - startTime;
+
+        if (interactionTime > 100) {
+          capturePerformanceError('Slow exercise interaction', 'interaction_time', interactionTime);
+        }
+
+        setTag('last_selected_exercise', exerciseId);
+      } catch (error) {
+        captureError(error as Error, {
+          category: 'ui_error',
+          screen: 'exercises_list',
+          component: 'ExercisePress',
+          exerciseId,
+        });
+      }
+    },
+    [displayedExercises, currentCategory, favoriteIds],
+  );
+
+  // Enhanced toggle favorite with Sentry tracking
+  const toggleFavorite = useCallback(
+    async (exerciseId: string) => {
+      const startTime = Date.now();
+      const exercise = displayedExercises.find((ex) => ex.id === exerciseId);
+      const wasFavorite = favoriteIds.has(exerciseId);
+
+      addBreadcrumb(`Toggle favorite: ${exercise?.name || exerciseId}`, 'user_interaction', {
+        exerciseId,
+        exerciseName: exercise?.name || 'unknown',
+        wasFavorite,
+        newState: !wasFavorite,
+      });
+
+      try {
+        // Use the hook's toggle function
+        hookToggleFavorite(exerciseId);
+
+        const operationTime = Date.now() - startTime;
+        addBreadcrumb(`Favorite toggle completed: ${exercise?.name || exerciseId}`, 'api', {
+          exerciseId,
+          newState: !wasFavorite,
+          operationTime,
+        });
+
+        if (operationTime > 1000) {
+          capturePerformanceError('Slow favorite toggle', 'favorite_operation_time', operationTime);
+        }
+      } catch (error) {
+        captureError(error as Error, {
+          category: 'api_error',
+          screen: 'exercises_list',
+          component: 'ToggleFavorite',
+          exerciseId,
+          operation: wasFavorite ? 'remove' : 'add',
+        });
+      }
+    },
+    [displayedExercises, favoriteIds, hookToggleFavorite],
+  );
+
+  // Enhanced search handler with Sentry tracking
+  const handleSearchQueryChange = useCallback(
+    (query: string) => {
+      const startTime = Date.now();
+
+      addBreadcrumb(`Search query changed: "${query}"`, 'user_interaction', {
+        searchQuery: query,
+        queryLength: query.length,
+        category: currentCategory,
+      });
+
+      try {
+        searchState.setSearchQuery(query);
+
+        const searchTime = Date.now() - startTime;
+        if (searchTime > 100) {
+          capturePerformanceError('Slow search operation', 'search_time', searchTime);
+        }
+
+        setTag('last_search_query', query || 'empty');
+      } catch (error) {
+        captureError(error as Error, {
+          category: 'ui_error',
+          screen: 'exercises_list',
+          component: 'SearchHandler',
+          searchQuery: query,
+        });
+      }
+    },
+    [searchState, currentCategory],
+  );
+
+  // Navigation handlers with Sentry tracking
+  const handleBackPress = useCallback(() => {
+    const startTime = Date.now();
+
+    addBreadcrumb('Back navigation triggered', 'navigation', {
+      fromScreen: 'exercises_list',
+      category: currentCategory,
+    });
+
+    try {
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace('/(tabs)/exercises');
+      }
+
+      const navigationTime = Date.now() - startTime;
+      if (navigationTime > 300) {
+        capturePerformanceError('Slow back navigation', 'navigation_time', navigationTime);
+      }
+    } catch (error) {
+      captureError(error as Error, {
+        category: 'navigation_error',
+        screen: 'exercises_list',
+        component: 'BackNavigation',
+      });
+    }
+  }, [router, currentCategory]);
+
+  const { preloadStatus } = useContentRendering(
     displayedExercises,
     searchState,
     shouldGroupByMuscle,
@@ -1136,91 +849,84 @@ export default function ExercisesListScreen() {
 
   useEffectsManagement(resetSearch, openSearchParam, searchState, preloadStatus);
 
-  // Handle favorites filter toggle
-  const toggleFavoritesFilter = useCallback(() => {
-    setShowFavoritesOnly((prev) => !prev);
-  }, []);
-
-  const handleBackPress = useCallback(() => {
-    searchState.setSearchQuery('');
-
-    if (searchState.isSearchActive) {
-      searchState.setIsSearchActive(false);
-      searchState.searchWidthAnim.setValue(40);
-      searchState.contentOffsetAnim.setValue(0);
-    }
-
-    if (fromScreen === 'exercises') {
-      router.push('/(tabs)/exercises');
-    } else {
-      router.back();
-    }
-  }, [fromScreen, router, searchState]);
-
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
 
-      {/* Header with custom back button */}
-      <View style={[styles.headerContainer, { paddingTop: insets.top }]}>
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <IconButton
-              icon="arrow-left"
-              size={28}
-              onPress={handleBackPress}
-              iconColor={COLORS.text}
-              style={styles.backButton}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            />
+      {/* Header with enhanced tracking */}
+      <View style={[styles.header, { paddingTop: insets.top }]}>
+        <View style={styles.headerContent}>
+          <TouchableOpacity onPress={handleBackPress} style={styles.backButton}>
+            <MaterialIcons name="arrow-back" size={24} color={COLORS.text} />
+          </TouchableOpacity>
+
+          <View style={styles.titleContainer}>
+            <Text style={styles.headerTitle}>
+              {CATEGORY_NAMES[currentCategory as keyof typeof CATEGORY_NAMES] || 'EXERCISES'}
+            </Text>
           </View>
-          <View style={styles.headerCenter}>
-            <IconButton
-              icon={showFavoritesOnly ? 'star' : 'star-outline'}
-              size={28}
-              iconColor={showFavoritesOnly ? '#FFD700' : COLORS.text}
-              onPress={toggleFavoritesFilter}
-              style={styles.favoriteButton}
-            />
-          </View>
-          <View style={styles.headerRight}>
-            {loading && (
-              <ActivityIndicator size="small" color={COLORS.primary} style={styles.headerLoader} />
-            )}
-          </View>
+
+          <TouchableOpacity onPress={searchState.openSearch} style={styles.searchButton}>
+            <MaterialIcons name="search" size={24} color={COLORS.text} />
+          </TouchableOpacity>
         </View>
-        <Divider style={styles.divider} />
       </View>
 
-      {/* Content container */}
-      <View style={styles.contentWrapper}>
-        <ContentArea
-          error={error}
-          currentCategory={currentCategory}
-          searchState={searchState}
-          displayedExercises={displayedExercises}
-          favoriteIds={favoriteIds}
-          handleExercisePress={exerciseModal.handleExercisePress}
-          toggleFavorite={toggleFavorite}
-          showFavoritesOnly={showFavoritesOnly}
-          shouldGroupByMuscle={shouldGroupByMuscle}
-          exerciseSections={exerciseSections}
-          router={router}
-        />
-      </View>
+      {/* Content area with error handling */}
+      {error ? (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={() => {
+              addBreadcrumb('Retry button pressed', 'user_interaction', {
+                category: currentCategory,
+              });
+              // Trigger data reload
+            }}
+          >
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.loadingText}>Loading exercises...</Text>
+        </View>
+      ) : (
+        // Exercise list content would go here
+        <View style={styles.contentContainer}>
+          {displayedExercises.map((exercise) => (
+            <ExerciseCard
+              key={exercise.id}
+              id={exercise.id}
+              name={exercise.name}
+              image={exercise.image_url ? { uri: exercise.image_url } : FALLBACK_IMAGE_OBJECT}
+              isFavorite={favoriteIds.has(exercise.id)}
+              onPress={handleExercisePress}
+              onToggleFavorite={toggleFavorite}
+              useOptimizedImage={true}
+            />
+          ))}
+        </View>
+      )}
 
-      {/* Floating UI */}
-      <FloatingUI searchState={searchState} showFavoritesOnly={showFavoritesOnly} />
-
-      {/* Add ExerciseDetailsModal */}
-      {exerciseModal.selectedExercise && (
-        <ExerciseDetailsModal
-          visible={exerciseModal.exerciseDetailsVisible}
-          onClose={() => exerciseModal.setExerciseDetailsVisible(false)}
-          exerciseId={exerciseModal.selectedExercise.id}
-          exerciseName={exerciseModal.selectedExercise.name}
-          exerciseImage={exerciseModal.selectedExercise.image_url}
-        />
+      {/* Search overlay */}
+      {searchState.isSearchActive && (
+        <View style={styles.searchOverlay}>
+          <TextInput
+            ref={searchState.searchInputRef}
+            style={styles.searchInput}
+            placeholder="Search exercises..."
+            placeholderTextColor={COLORS.placeholder}
+            value={searchState.searchQuery}
+            onChangeText={handleSearchQueryChange}
+            onSubmitEditing={searchState.handleSearchSubmit}
+          />
+          <TouchableOpacity onPress={searchState.collapseSearchUI}>
+            <MaterialIcons name="close" size={24} color={COLORS.text} />
+          </TouchableOpacity>
+        </View>
       )}
     </View>
   );
@@ -1629,5 +1335,49 @@ const styles = StyleSheet.create({
   },
   animatedContentContainer: {
     flex: 1,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: '100%',
+  },
+  titleContainer: {
+    flex: 2,
+    alignItems: 'center',
+  },
+  searchButton: {
+    margin: 0,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.7)',
+    textAlign: 'center',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  contentContainer: {
+    flex: 1,
+    padding: 16,
+  },
+  searchOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

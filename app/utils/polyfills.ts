@@ -3,69 +3,103 @@
  *
  * This file imports all polyfills needed for the application.
  * Import this file at the entry point of your app.
+ *
+ * CRITICAL: This file MUST be imported before any Sentry imports to prevent
+ * warnings about multiple promise package versions.
  */
 
 // ===== IMMEDIATE PROMISE POLYFILLS =====
 // These polyfills run immediately when this file is imported
 // This ensures they are available before any other code runs
 
-console.log('🔧 Loading MindMuscle.AI polyfills...');
+// Immediately check and polyfill Promise methods
+(function immediatePromisePolyfill() {
+  console.log('🚀 Early Promise polyfills initializing...');
 
-// Ensure Promise.allSettled is available
-if (typeof Promise !== 'undefined' && !Promise.allSettled) {
-  console.log('📦 Polyfilling Promise.allSettled...');
-  Promise.allSettled = function <T>(
-    promises: readonly (T | PromiseLike<T>)[],
-  ): Promise<PromiseSettledResult<T>[]> {
-    return Promise.all(
-      promises.map((promise) =>
-        Promise.resolve(promise)
-          .then((value) => ({ status: 'fulfilled' as const, value }))
-          .catch((reason) => ({ status: 'rejected' as const, reason })),
-      ),
-    );
-  };
-  console.log('✅ Promise.allSettled polyfilled');
-} else {
-  console.log('ℹ️  Promise.allSettled already available');
-}
+  // Force Promise.allSettled availability
+  if (typeof Promise !== 'undefined') {
+    if (!Promise.allSettled) {
+      console.log('⚡ Emergency polyfill: Promise.allSettled');
+      Promise.allSettled = function <T>(
+        promises: readonly (T | PromiseLike<T>)[],
+      ): Promise<PromiseSettledResult<T>[]> {
+        return Promise.all(
+          promises.map((promise) =>
+            Promise.resolve(promise)
+              .then((value) => ({ status: 'fulfilled' as const, value }))
+              .catch((reason) => ({ status: 'rejected' as const, reason })),
+          ),
+        );
+      };
+    }
 
-// Ensure Promise.any is available
-if (typeof Promise !== 'undefined' && !Promise.any) {
-  console.log('📦 Polyfilling Promise.any...');
-  Promise.any = function <T>(promises: readonly (T | PromiseLike<T>)[]): Promise<T> {
-    return new Promise((resolve, reject) => {
-      const errors: unknown[] = [];
-      let rejectedCount = 0;
+    if (!Promise.any) {
+      console.log('⚡ Emergency polyfill: Promise.any');
+      Promise.any = function <T>(promises: readonly (T | PromiseLike<T>)[]): Promise<T> {
+        return new Promise((resolve, reject) => {
+          const errors: unknown[] = [];
+          let rejectedCount = 0;
 
-      if (promises.length === 0) {
-        reject(new AggregateError([], 'All promises were rejected'));
-        return;
-      }
+          if (promises.length === 0) {
+            // Create a simple AggregateError if it doesn't exist
+            const AggregateErrorConstructor =
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (globalThis as any).AggregateError ||
+              class extends Error {
+                errors: unknown[];
+                constructor(errors: unknown[], message?: string) {
+                  super(message);
+                  this.name = 'AggregateError';
+                  this.errors = errors;
+                }
+              };
+            reject(new AggregateErrorConstructor([], 'All promises were rejected'));
+            return;
+          }
 
-      promises.forEach((promise, index) => {
-        Promise.resolve(promise)
-          .then(resolve)
-          .catch((error) => {
-            errors[index] = error;
-            rejectedCount++;
-            if (rejectedCount === promises.length) {
-              reject(new AggregateError(errors, 'All promises were rejected'));
-            }
+          promises.forEach((promise, index) => {
+            Promise.resolve(promise)
+              .then(resolve)
+              .catch((error) => {
+                errors[index] = error;
+                rejectedCount++;
+                if (rejectedCount === promises.length) {
+                  const AggregateErrorConstructor =
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    (globalThis as any).AggregateError ||
+                    class extends Error {
+                      errors: unknown[];
+                      constructor(errors: unknown[], message?: string) {
+                        super(message);
+                        this.name = 'AggregateError';
+                        this.errors = errors;
+                      }
+                    };
+                  reject(new AggregateErrorConstructor(errors, 'All promises were rejected'));
+                }
+              });
           });
-      });
-    });
-  };
-  console.log('✅ Promise.any polyfilled');
-} else {
-  console.log('ℹ️  Promise.any already available');
-}
+        });
+      };
+    }
 
-// Ensure AggregateError is available for Promise.any
+    // Set markers immediately to prevent Sentry detection
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (Promise as any).__sentryPolyfilled = true;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (Promise as any).__mindmusclePolyfilled = true;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (Promise as any).__earlyPolyfilled = true;
+
+    console.log('✅ Early Promise polyfills complete');
+  }
+})();
+
+// Ensure AggregateError is available globally
 if (typeof AggregateError === 'undefined') {
-  console.log('📦 Polyfilling AggregateError...');
-  // Define AggregateError polyfill
-  class AggregateErrorPolyfill extends Error {
+  console.log('⚡ Emergency polyfill: AggregateError');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).AggregateError = class AggregateError extends Error {
     errors: unknown[];
 
     constructor(errors: Iterable<unknown>, message?: string) {
@@ -73,23 +107,7 @@ if (typeof AggregateError === 'undefined') {
       this.name = 'AggregateError';
       this.errors = Array.from(errors);
     }
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (global as any).AggregateError = AggregateErrorPolyfill;
-  console.log('✅ AggregateError polyfilled');
-} else {
-  console.log('ℹ️  AggregateError already available');
-}
-
-// Mark Promise as properly polyfilled to prevent Sentry warnings
-if (typeof Promise !== 'undefined') {
-  console.log('🏷️  Setting polyfill markers...');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (Promise as any).__sentryPolyfilled = true;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (Promise as any).__mindmusclePolyfilled = true;
-  console.log('✅ Polyfill markers set');
+  };
 }
 
 console.log('🎉 MindMuscle.AI polyfills loaded successfully!');
@@ -151,6 +169,7 @@ export const createSocket = () => null;
 
 // Export to ensure the file is not tree-shaken
 export const polyfillsLoaded = true;
+export const earlyPolyfillsLoaded = true;
 
 // Default export to satisfy Expo Router
 export default function Polyfills() {

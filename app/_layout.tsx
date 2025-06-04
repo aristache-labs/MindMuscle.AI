@@ -1,4 +1,4 @@
-// Initialize polyfills first
+// Initialize polyfills first (includes early Promise polyfills to prevent Sentry warnings)
 import './utils/polyfills';
 
 // Apply splash screen compatibility patch before any other imports

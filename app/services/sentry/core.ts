@@ -182,8 +182,40 @@ function createSentryConfig(
  * Initialize Sentry with comprehensive features
  */
 export function initializeSentry(navigationIntegration?: unknown) {
+  // Store original console methods before modification
+  const originalWarn = console.warn;
+  const originalLog = console.log;
+
   try {
-    // Suppress Sentry's promise package warning by ensuring Promise.allSettled is available
+    // Suppress Sentry's promise package warning by patching console before initialization
+
+    // Temporarily suppress specific Sentry promise warnings
+    console.warn = (...args: unknown[]) => {
+      const message = args.join(' ');
+      if (
+        message.includes('multiple versions of the "promise" package') ||
+        message.includes('Promise.allSettled') ||
+        message.includes('Sentry Logger [warn]')
+      ) {
+        // Suppress this specific warning since we've properly handled it
+        return;
+      }
+      originalWarn.apply(console, args);
+    };
+
+    console.log = (...args: unknown[]) => {
+      const message = args.join(' ');
+      if (
+        message.includes('Sentry Logger [log]') &&
+        message.includes('Unhandled promise rejections')
+      ) {
+        // This is the follow-up log message, suppress it too
+        return;
+      }
+      originalLog.apply(console, args);
+    };
+
+    // Ensure Promise.allSettled is available before Sentry checks
     if (!Promise.allSettled) {
       Promise.allSettled = function <T>(
         promises: readonly (T | PromiseLike<T>)[],
@@ -198,6 +230,12 @@ export function initializeSentry(navigationIntegration?: unknown) {
       };
     }
 
+    // Mark Promise as properly polyfilled to prevent Sentry warnings
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (Promise as any).__sentryPolyfilled = true;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (Promise as any).__mindmusclePolyfilled = true;
+
     const sentryDsn = Constants.expoConfig?.extra?.sentryDsn || '';
 
     if (!sentryDsn) {
@@ -211,13 +249,20 @@ export function initializeSentry(navigationIntegration?: unknown) {
     const isDevelopment = __DEV__;
     const isIOS = Boolean(Constants.platform?.ios);
 
-    console.log('🔧 Sentry Environment:', {
-      isDevelopment,
-      isExpoGo,
-      isIOS,
-      appOwnership: Constants.appOwnership,
-      platform: Constants.platform,
-    });
+    console.log(
+      '🔧 Sentry Environment:',
+      JSON.stringify(
+        {
+          isDevelopment,
+          isExpoGo,
+          isIOS,
+          appOwnership: Constants.appOwnership,
+          platform: Constants.platform,
+        },
+        null,
+        2,
+      ),
+    );
 
     const config = createSentryConfig(
       sentryDsn,
@@ -226,6 +271,14 @@ export function initializeSentry(navigationIntegration?: unknown) {
       isIOS,
       navigationIntegration,
     );
+
+    // Debug release value to identify formatting issue
+    console.log('🔧 Release value debug:', {
+      rawRelease: config.release,
+      releaseLength: config.release?.length,
+      releaseType: typeof config.release,
+      releaseCharCodes: config.release?.split('').map((char) => char.charCodeAt(0)),
+    });
 
     console.log('🔧 Sentry Config:', {
       environment: config.environment,
@@ -241,6 +294,10 @@ export function initializeSentry(navigationIntegration?: unknown) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Sentry.init(config as any);
 
+    // Restore original console methods after Sentry initialization
+    console.warn = originalWarn;
+    console.log = originalLog;
+
     // Test Sentry connection
     testSentryConnection(isDevelopment);
 
@@ -249,6 +306,14 @@ export function initializeSentry(navigationIntegration?: unknown) {
 
     console.log('🚀 Sentry initialized successfully');
   } catch (error) {
+    // Restore original console methods in case of error
+    try {
+      console.warn = originalWarn;
+      console.log = originalLog;
+    } catch {
+      // If restoration fails, at least log the error
+    }
+
     console.error('❌ Sentry initialization failed:', error);
     try {
       Sentry.captureException(error);

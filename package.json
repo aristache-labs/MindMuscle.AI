@@ -82,7 +82,6 @@
     "nativewind": "^2.0.11",
     "node-libs-react-native": "^1.2.1",
     "openai": "^4.46.0",
-    "promise": "^8.3.0",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-native": "0.79.2",
@@ -139,9 +138,14 @@
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-native": "0.79.2",
-    "promise": "^8.3.0"
+    "promise": "8.3.0",
+    "fbjs": {
+      "promise": "8.3.0"
+    }
   },
   "resolutions": {
-    "promise": "^8.3.0"
+    "promise": "8.3.0",
+    "fbjs/promise": "8.3.0",
+    "**/promise": "8.3.0"
   }
 }

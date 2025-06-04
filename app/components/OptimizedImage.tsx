@@ -1,5 +1,5 @@
 import { Image, ImageContentFit } from 'expo-image';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -9,6 +9,7 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
+import * as Sentry from '@sentry/react-native';
 import { addImageToCache, markAsImportantImage } from '../utils/imagePreloader';
 
 // Get screen dimensions for optimization
@@ -18,15 +19,48 @@ const screenHeight = Dimensions.get('window').height;
 // Debug flag - set to false to reduce logging
 export const DEBUG_OPTIMIZED_IMAGE = false;
 
-// Track usage statistics
+// Track usage statistics with Sentry integration
 let imageRenderCount = 0;
+let imageLoadSuccessCount = 0;
+let imageLoadErrorCount = 0;
+let cacheHitCount = 0;
+let cacheMissCount = 0;
+let totalLoadTime = 0;
+let svgRenderCount = 0;
+let fallbackUsageCount = 0;
 
-// Log usage statistics periodically
+// Track image sizes for memory usage analysis
+const imageSizeStats: { totalPixels: number; averageSize: number; requestCount: number } = {
+  totalPixels: 0,
+  averageSize: 0,
+  requestCount: 0,
+};
+
+// Log usage statistics periodically with Sentry
 if (DEBUG_OPTIMIZED_IMAGE) {
   // Setup interval to log image usage statistics every 10 seconds
   setInterval(() => {
     if (imageRenderCount > 0) {
       console.log(`📊 [OptimizedImage] Rendering stats - Total: ${imageRenderCount}`);
+
+      // Send comprehensive stats to Sentry
+      Sentry.addBreadcrumb({
+        message: 'OptimizedImage usage statistics',
+        category: 'performance.stats',
+        data: {
+          totalRenders: imageRenderCount,
+          loadSuccess: imageLoadSuccessCount,
+          loadErrors: imageLoadErrorCount,
+          cacheHits: cacheHitCount,
+          cacheMisses: cacheMissCount,
+          averageLoadTime:
+            totalLoadTime > 0 ? (totalLoadTime / imageLoadSuccessCount).toFixed(2) + 'ms' : '0ms',
+          svgRenders: svgRenderCount,
+          fallbackUsage: fallbackUsageCount,
+          memoryStats: imageSizeStats,
+          timestamp: new Date().toISOString(),
+        },
+      });
     }
   }, 10000); // 10 seconds
 }
@@ -94,38 +128,69 @@ const normalizeDimension = (
 
 // Helper to determine appropriate image dimensions
 const getOptimalImageDimensions = (style: StyleInput): { width: number; height: number } => {
-  let width: DimensionValue = 300; // Default width
-  let height: DimensionValue = 300; // Default height
+  try {
+    let width: DimensionValue = 300; // Default width
+    let height: DimensionValue = 300; // Default height
 
-  if (style) {
-    if (Array.isArray(style)) {
-      const extracted = extractDimensionsFromArray(style);
-      if (extracted.width !== undefined) width = extracted.width;
-      if (extracted.height !== undefined) height = extracted.height;
-    } else if (typeof style === 'object' && style !== null) {
-      const extracted = extractDimensionsFromObject(style as Record<string, unknown>);
-      if (extracted.width !== undefined) width = extracted.width;
-      if (extracted.height !== undefined) height = extracted.height;
+    if (style) {
+      if (Array.isArray(style)) {
+        const extracted = extractDimensionsFromArray(style);
+        if (extracted.width !== undefined) width = extracted.width;
+        if (extracted.height !== undefined) height = extracted.height;
+      } else if (typeof style === 'object' && style !== null) {
+        const extracted = extractDimensionsFromObject(style as Record<string, unknown>);
+        if (extracted.width !== undefined) width = extracted.width;
+        if (extracted.height !== undefined) height = extracted.height;
+      }
     }
+
+    const normalizedWidth = normalizeDimension(width, screenWidth, 300);
+    const normalizedHeight = normalizeDimension(height, screenHeight, 300);
+
+    // Track image size statistics for memory analysis
+    const pixelCount = normalizedWidth * normalizedHeight;
+    imageSizeStats.totalPixels += pixelCount;
+    imageSizeStats.requestCount++;
+    imageSizeStats.averageSize = imageSizeStats.totalPixels / imageSizeStats.requestCount;
+
+    return { width: normalizedWidth, height: normalizedHeight };
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: {
+        component: 'OptimizedImage',
+        action: 'calculate_dimensions',
+      },
+      extra: {
+        style: JSON.stringify(style),
+      },
+    });
+    return { width: 300, height: 300 }; // Fallback dimensions
   }
-
-  const normalizedWidth = normalizeDimension(width, screenWidth, 300);
-  const normalizedHeight = normalizeDimension(height, screenHeight, 300);
-
-  return { width: normalizedWidth, height: normalizedHeight };
 };
 
 // Helper function to check if URI is invalid
 const isInvalidUri = (uri: unknown): boolean => {
-  return (
+  const invalid =
     !uri ||
     uri === null ||
     uri === undefined ||
     uri === '' ||
     uri === 'null' ||
     uri === 'undefined' ||
-    typeof uri !== 'string'
-  );
+    typeof uri !== 'string';
+
+  if (invalid && DEBUG_OPTIMIZED_IMAGE) {
+    Sentry.addBreadcrumb({
+      message: 'Invalid URI detected',
+      category: 'image.validation',
+      data: {
+        uri: String(uri),
+        type: typeof uri,
+      },
+    });
+  }
+
+  return invalid;
 };
 
 // Define type for image source - simplified to match expo-image expectations
@@ -133,69 +198,164 @@ type ImageSource = string | number | { uri: string; [key: string]: unknown };
 
 // Helper function to process object source with URI
 const processObjectSource = (source: ImageSource, style: StyleInput): ImageSource | null => {
-  if (typeof source !== 'object' || source === null || !('uri' in source)) {
+  try {
+    if (typeof source !== 'object' || source === null || !('uri' in source)) {
+      return null;
+    }
+
+    const uri = source.uri;
+
+    if (isInvalidUri(uri)) {
+      return null;
+    }
+
+    const dimensions = getOptimalImageDimensions(style);
+
+    // Don't optimize SVGs, just return as is
+    if (typeof uri === 'string' && uri.endsWith('.svg')) {
+      svgRenderCount++;
+      Sentry.addBreadcrumb({
+        message: 'SVG image processed',
+        category: 'image.process',
+        data: {
+          uri,
+          dimensions,
+        },
+      });
+      return source;
+    }
+
+    // Apply dimension optimization to remote URLs
+    const optimizedUri = optimizeImageUri(uri, dimensions);
+
+    Sentry.addBreadcrumb({
+      message: 'Object source processed',
+      category: 'image.process',
+      data: {
+        originalUri: uri,
+        optimizedUri,
+        dimensions,
+      },
+    });
+
+    return {
+      ...source,
+      uri: optimizedUri,
+    };
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: {
+        component: 'OptimizedImage',
+        action: 'process_object_source',
+      },
+      extra: {
+        source: JSON.stringify(source),
+        style: JSON.stringify(style),
+      },
+    });
     return null;
   }
-
-  const uri = source.uri;
-
-  if (isInvalidUri(uri)) {
-    return null;
-  }
-
-  const dimensions = getOptimalImageDimensions(style);
-
-  // Don't optimize SVGs, just return as is
-  if (typeof uri === 'string' && uri.endsWith('.svg')) {
-    return source;
-  }
-
-  // Apply dimension optimization to remote URLs
-  const optimizedUri = optimizeImageUri(uri, dimensions);
-
-  return {
-    ...source,
-    uri: optimizedUri,
-  };
 };
 
 // Helper function to process string source
 const processStringSource = (source: string, style: StyleInput): string | null => {
-  if (isInvalidUri(source)) {
+  try {
+    if (isInvalidUri(source)) {
+      return null;
+    }
+
+    const dimensions = getOptimalImageDimensions(style);
+
+    // Don't optimize SVGs, just return as is
+    if (source.endsWith('.svg')) {
+      svgRenderCount++;
+      Sentry.addBreadcrumb({
+        message: 'SVG string source processed',
+        category: 'image.process',
+        data: {
+          source,
+          dimensions,
+        },
+      });
+      return source;
+    }
+
+    // Apply dimension optimization to remote URLs
+    const optimizedUri = optimizeImageUri(source, dimensions);
+
+    Sentry.addBreadcrumb({
+      message: 'String source processed',
+      category: 'image.process',
+      data: {
+        originalSource: source,
+        optimizedUri,
+        dimensions,
+      },
+    });
+
+    return optimizedUri;
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: {
+        component: 'OptimizedImage',
+        action: 'process_string_source',
+      },
+      extra: {
+        source,
+        style: JSON.stringify(style),
+      },
+    });
     return null;
   }
-
-  const dimensions = getOptimalImageDimensions(style);
-
-  // Don't optimize SVGs, just return as is
-  if (source.endsWith('.svg')) {
-    return source;
-  }
-
-  // Apply dimension optimization to remote URLs
-  return optimizeImageUri(source, dimensions);
 };
 
 // Function to add dimensions to image URI
 const optimizeImageUri = (uri: string, dimensions: { width: number; height: number }): string => {
-  if (!uri) return uri;
+  try {
+    if (!uri) return uri;
 
-  // Don't optimize local assets, data URIs, or SVGs
-  if (uri.startsWith('data:') || !uri.startsWith('http') || uri.endsWith('.svg')) {
-    return uri;
+    // Don't optimize local assets, data URIs, or SVGs
+    if (uri.startsWith('data:') || !uri.startsWith('http') || uri.endsWith('.svg')) {
+      return uri;
+    }
+
+    // Round dimensions to the nearest 50px for better CDN caching
+    const width = Math.ceil(dimensions.width / 50) * 50;
+    const height = Math.ceil(dimensions.height / 50) * 50;
+
+    // Apply reasonable limits to prevent excessive dimensions
+    const maxWidth = Math.min(width, 1200);
+    const maxHeight = Math.min(height, 1200);
+
+    // Add dimensions to URL
+    const separator = uri.includes('?') ? '&' : '?';
+    const optimizedUri = `${uri}${separator}width=${maxWidth}&height=${maxHeight}&fit=cover`;
+
+    Sentry.addBreadcrumb({
+      message: 'Image URI optimized',
+      category: 'image.optimization',
+      data: {
+        originalUri: uri,
+        optimizedUri,
+        originalDimensions: dimensions,
+        finalDimensions: { width: maxWidth, height: maxHeight },
+      },
+    });
+
+    return optimizedUri;
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: {
+        component: 'OptimizedImage',
+        action: 'optimize_uri',
+      },
+      extra: {
+        uri,
+        dimensions,
+      },
+    });
+    return uri; // Return original URI on error
   }
-
-  // Round dimensions to the nearest 50px for better CDN caching
-  const width = Math.ceil(dimensions.width / 50) * 50;
-  const height = Math.ceil(dimensions.height / 50) * 50;
-
-  // Apply reasonable limits to prevent excessive dimensions
-  const maxWidth = Math.min(width, 1200);
-  const maxHeight = Math.min(height, 1200);
-
-  // Add dimensions to URL
-  const separator = uri.includes('?') ? '&' : '?';
-  return `${uri}${separator}width=${maxWidth}&height=${maxHeight}&fit=cover`;
 };
 
 // Calculate estimated image size based on dimensions and format
@@ -203,40 +363,81 @@ const calculateEstimatedSize = (
   uri: string,
   dimensions: { width: number; height: number },
 ): number => {
-  const pixelCount = dimensions.width * dimensions.height;
+  try {
+    const pixelCount = dimensions.width * dimensions.height;
 
-  // Estimate bytes based on pixel count and image format (rough estimation)
-  const bytesPerPixel = 4; // Assume RGBA
-  let estimatedBytes = pixelCount * bytesPerPixel;
+    // Estimate bytes based on pixel count and image format (rough estimation)
+    const bytesPerPixel = 4; // Assume RGBA
+    let estimatedBytes = pixelCount * bytesPerPixel;
 
-  // SVGs are much smaller
-  if (uri.endsWith('.svg')) {
-    return 10 * 1024; // Assume 10KB for SVG
+    // SVGs are much smaller
+    if (uri.endsWith('.svg')) {
+      return 10 * 1024; // Assume 10KB for SVG
+    }
+
+    // Adjust based on image format (if we can detect it)
+    if (uri.endsWith('.jpg') || uri.endsWith('.jpeg')) {
+      estimatedBytes = Math.ceil(estimatedBytes * 0.25); // JPG compression
+    } else if (uri.endsWith('.png')) {
+      estimatedBytes = Math.ceil(estimatedBytes * 0.5); // PNG compression
+    } else if (uri.endsWith('.webp')) {
+      estimatedBytes = Math.ceil(estimatedBytes * 0.2); // WebP is efficient
+    } else if (uri.endsWith('.gif')) {
+      estimatedBytes = Math.ceil(estimatedBytes * 0.7); // GIFs can be large
+    }
+
+    const finalSize = Math.max(1024, estimatedBytes); // Minimum 1KB
+
+    Sentry.addBreadcrumb({
+      message: 'Image size estimated',
+      category: 'image.analysis',
+      data: {
+        uri,
+        dimensions,
+        pixelCount,
+        estimatedBytes: finalSize,
+        format: uri.split('.').pop() || 'unknown',
+      },
+    });
+
+    return finalSize;
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: {
+        component: 'OptimizedImage',
+        action: 'calculate_size',
+      },
+      extra: {
+        uri,
+        dimensions,
+      },
+    });
+    return 1024; // Fallback to 1KB
   }
-
-  // Adjust based on image format (if we can detect it)
-  if (uri.endsWith('.jpg') || uri.endsWith('.jpeg')) {
-    estimatedBytes = Math.ceil(estimatedBytes * 0.25); // JPG compression
-  } else if (uri.endsWith('.png')) {
-    estimatedBytes = Math.ceil(estimatedBytes * 0.5); // PNG compression
-  } else if (uri.endsWith('.webp')) {
-    estimatedBytes = Math.ceil(estimatedBytes * 0.2); // WebP is efficient
-  } else if (uri.endsWith('.gif')) {
-    estimatedBytes = Math.ceil(estimatedBytes * 0.7); // GIFs can be large
-  }
-
-  return Math.max(1024, estimatedBytes); // Minimum 1KB
 };
 
 // Check if source is SVG
 const isSvgImage = (source: ImageSource): boolean => {
-  if (typeof source === 'string') {
-    return source.endsWith('.svg');
+  try {
+    if (typeof source === 'string') {
+      return source.endsWith('.svg');
+    }
+    if (typeof source === 'object' && source !== null && 'uri' in source) {
+      return source.uri?.endsWith('.svg') || false;
+    }
+    return false;
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: {
+        component: 'OptimizedImage',
+        action: 'check_svg',
+      },
+      extra: {
+        source: JSON.stringify(source),
+      },
+    });
+    return false;
   }
-  if (typeof source === 'object' && source !== null && 'uri' in source) {
-    return source.uri?.endsWith('.svg') || false;
-  }
-  return false;
 };
 
 export interface OptimizedImageProps {
@@ -280,11 +481,40 @@ export default function OptimizedImage({
   onError,
   testID,
 }: OptimizedImageProps) {
-  // Prefix unused parameters with underscore to satisfy linter
-  const _unused = { cachePolicy, retentionPriority };
+  // Track component mount with Sentry
+  useEffect(() => {
+    imageRenderCount++;
+
+    Sentry.addBreadcrumb({
+      message: 'OptimizedImage component mounted',
+      category: 'ui.lifecycle',
+      data: {
+        debugLabel: debugLabel || 'unnamed',
+        priority,
+        isImportant,
+        showLoader,
+        totalRenders: imageRenderCount,
+      },
+    });
+
+    return () => {
+      Sentry.addBreadcrumb({
+        message: 'OptimizedImage component unmounted',
+        category: 'ui.lifecycle',
+        data: {
+          debugLabel: debugLabel || 'unnamed',
+        },
+      });
+    };
+  }, []);
+
+  // Suppress unused parameter warnings - these are kept for API compatibility
+  void cachePolicy;
+  void retentionPriority;
 
   // Reference to track if component is mounted
   const isMounted = useRef(true);
+  const loadStartTime = useRef<number>(0);
 
   // State - simplified to reduce flickering
   const [hasError, setHasError] = useState(false);
@@ -293,181 +523,383 @@ export default function OptimizedImage({
   // Check if this is an SVG
   const isSvg = useMemo(() => isSvgImage(source), [source]);
 
-  // Process the source for expo-image with stable memoization
-  const processedSource = useMemo(() => {
-    // Handle require() case (static image) - always stable
-    if (typeof source === 'number') {
+  // Helper function to handle number source type
+  const handleNumberSource = useCallback(() => {
+    Sentry.addBreadcrumb({
+      message: 'Local asset image processed',
+      category: 'image.process',
+      data: {
+        debugLabel: debugLabel || 'unnamed',
+        sourceType: 'number',
+      },
+    });
+    return source;
+  }, [source, debugLabel]);
+
+  // Helper function to handle placeholder source
+  const handlePlaceholderSource = useCallback(() => {
+    try {
+      fallbackUsageCount++;
+      Sentry.addBreadcrumb({
+        message: 'Placeholder image used',
+        category: 'image.fallback',
+        data: {
+          debugLabel: debugLabel || 'unnamed',
+        },
+      });
+      return require('../../assets/exercises/placeholder.jpg');
+    } catch {
       return source;
     }
+  }, [source, debugLabel]);
 
-    // Handle placeholder images - simplified check
-    if (
-      typeof source === 'object' &&
-      source !== null &&
-      'testUri' in source &&
-      (!('uri' in source) || !source.uri)
-    ) {
-      try {
-        return require('../../assets/exercises/placeholder.jpg');
-      } catch {
-        return source;
+  // Process the source for expo-image with stable memoization
+  const processedSource = useMemo(() => {
+    try {
+      // Handle require() case (static image) - always stable
+      if (typeof source === 'number') {
+        return handleNumberSource();
       }
-    }
 
-    // Handle Source object with better validation
-    if (typeof source === 'object' && source !== null && 'uri' in source) {
-      return processObjectSource(source, style);
-    }
+      // Handle placeholder images - simplified check
+      if (
+        typeof source === 'object' &&
+        source !== null &&
+        'testUri' in source &&
+        (!('uri' in source) || !source.uri)
+      ) {
+        return handlePlaceholderSource();
+      }
 
-    // Handle string URI
-    if (typeof source === 'string') {
-      return processStringSource(source, style);
-    }
+      // Handle Source object with better validation
+      if (typeof source === 'object' && source !== null && 'uri' in source) {
+        return processObjectSource(source, style);
+      }
 
-    // Fallback to the original source
-    return source;
-  }, [source, style]);
+      // Handle string URI
+      if (typeof source === 'string') {
+        return processStringSource(source, style);
+      }
+
+      // Fallback to the original source
+      return source;
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'OptimizedImage',
+          action: 'process_source',
+        },
+        extra: {
+          source: JSON.stringify(source),
+          debugLabel: debugLabel || 'unnamed',
+        },
+      });
+      return source; // Return original source on error
+    }
+  }, [source, style, debugLabel, handleNumberSource, handlePlaceholderSource]);
 
   // Extract dimensions for estimation
   const dimensions = useMemo(() => getOptimalImageDimensions(style), [style]);
 
   // Synchronously check cache status to prevent flickering
   const isCached = useMemo(() => {
-    // For local assets, always consider cached
-    if (typeof processedSource === 'number') {
-      return true;
-    }
+    try {
+      // For local assets, always consider cached
+      if (typeof processedSource === 'number') {
+        cacheHitCount++;
+        return true;
+      }
 
-    // For SVGs, always consider cached
-    if (isSvg) {
-      return true;
-    }
+      // For SVGs, always consider cached
+      if (isSvg) {
+        cacheHitCount++;
+        return true;
+      }
 
-    // For remote images, we'll let the Image component handle caching
-    // This prevents async state updates that cause flickering
-    return false;
+      // For remote images, we'll let the Image component handle caching
+      // This prevents async state updates that cause flickering
+      cacheMissCount++;
+      return false;
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'OptimizedImage',
+          action: 'check_cache',
+        },
+        extra: {
+          processedSource: JSON.stringify(processedSource),
+          isSvg,
+        },
+      });
+      return false;
+    }
   }, [processedSource, isSvg]);
 
   // Mark as important if needed
   useEffect(() => {
     if (isImportant && processedSource) {
-      if (
-        typeof processedSource === 'object' &&
-        processedSource !== null &&
-        'uri' in processedSource &&
-        typeof processedSource.uri === 'string'
-      ) {
-        markAsImportantImage(processedSource.uri);
-      } else if (typeof processedSource === 'string') {
-        markAsImportantImage(processedSource);
-      }
-    }
-  }, [isImportant, processedSource]);
-
-  // Handle load start - simplified to reduce state changes
-  const handleLoadStart = () => {
-    // Skip for local assets and SVGs
-    if (typeof source === 'number' || isSvg) {
-      if (onLoadStart) {
-        onLoadStart();
-      }
-      return;
-    }
-
-    // Only show loading for remote images if explicitly requested
-    if (isMounted.current && showLoader && !isCached) {
-      setIsLoading(true);
-    }
-
-    if (onLoadStart) {
-      onLoadStart();
-    }
-  };
-
-  // Handle load end - simplified
-  const handleLoadEnd = () => {
-    // Add to cache for future reference
-    if (processedSource && isMounted.current) {
       try {
-        let uri: string | null = null;
-
-        if (typeof processedSource === 'string') {
-          uri = processedSource;
-        } else if (
+        if (
           typeof processedSource === 'object' &&
           processedSource !== null &&
           'uri' in processedSource &&
           typeof processedSource.uri === 'string'
         ) {
-          uri = processedSource.uri;
+          markAsImportantImage(processedSource.uri);
+          Sentry.addBreadcrumb({
+            message: 'Image marked as important',
+            category: 'image.priority',
+            data: {
+              uri: processedSource.uri,
+              debugLabel: debugLabel || 'unnamed',
+            },
+          });
+        } else if (typeof processedSource === 'string') {
+          markAsImportantImage(processedSource);
+          Sentry.addBreadcrumb({
+            message: 'Image marked as important',
+            category: 'image.priority',
+            data: {
+              uri: processedSource,
+              debugLabel: debugLabel || 'unnamed',
+            },
+          });
         }
-
-        if (uri) {
-          const size = estimatedSize || calculateEstimatedSize(uri, dimensions);
-          addImageToCache(uri, size);
-        }
-      } catch {
-        // Ignore cache errors
+      } catch (error) {
+        Sentry.captureException(error, {
+          tags: {
+            component: 'OptimizedImage',
+            action: 'mark_important',
+          },
+          extra: {
+            processedSource: JSON.stringify(processedSource),
+            debugLabel: debugLabel || 'unnamed',
+          },
+        });
       }
     }
+  }, [isImportant, processedSource, debugLabel]);
 
-    // Clear loading state
-    if (isMounted.current) {
-      setIsLoading(false);
-      setHasError(false);
+  // Handle load start - simplified to reduce state changes
+  const handleLoadStart = () => {
+    try {
+      loadStartTime.current = performance.now();
+
+      // Skip for local assets and SVGs
+      if (typeof source === 'number' || isSvg) {
+        if (onLoadStart) {
+          onLoadStart();
+        }
+        return;
+      }
+
+      // Only show loading for remote images if explicitly requested
+      if (isMounted.current && showLoader && !isCached) {
+        setIsLoading(true);
+      }
+
+      Sentry.addBreadcrumb({
+        message: 'Image load started',
+        category: 'image.loading',
+        data: {
+          debugLabel: debugLabel || 'unnamed',
+          isCached,
+          showLoader,
+          timestamp: loadStartTime.current,
+        },
+      });
+
+      if (onLoadStart) {
+        onLoadStart();
+      }
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'OptimizedImage',
+          action: 'handle_load_start',
+        },
+        extra: {
+          debugLabel: debugLabel || 'unnamed',
+        },
+      });
     }
-
-    if (onLoadEnd) {
-      onLoadEnd();
-    }
-
-    // Update stats
-    imageRenderCount++;
   };
+
+  // Helper function to add image to cache
+  const addToCacheIfPossible = useCallback(() => {
+    if (!processedSource || !isMounted.current) return;
+
+    try {
+      let uri: string | null = null;
+
+      if (typeof processedSource === 'string') {
+        uri = processedSource;
+      } else if (
+        typeof processedSource === 'object' &&
+        processedSource !== null &&
+        'uri' in processedSource &&
+        typeof processedSource.uri === 'string'
+      ) {
+        uri = processedSource.uri;
+      }
+
+      if (uri) {
+        const size = estimatedSize || calculateEstimatedSize(uri, dimensions);
+        addImageToCache(uri, size);
+      }
+    } catch {
+      // Ignore cache errors
+    }
+  }, [processedSource, estimatedSize, dimensions]);
+
+  // Helper function to update load statistics
+  const updateLoadStatistics = useCallback(
+    (loadDuration: number) => {
+      totalLoadTime += loadDuration;
+      imageLoadSuccessCount++;
+
+      Sentry.addBreadcrumb({
+        message: 'Image load completed',
+        category: 'image.loading',
+        data: {
+          debugLabel: debugLabel || 'unnamed',
+          loadDuration: `${loadDuration.toFixed(2)}ms`,
+          totalSuccessCount: imageLoadSuccessCount,
+          averageLoadTime: `${(totalLoadTime / imageLoadSuccessCount).toFixed(2)}ms`,
+        },
+      });
+    },
+    [debugLabel],
+  );
+
+  // Handle load end - simplified
+  const handleLoadEnd = useCallback(() => {
+    try {
+      const loadEndTime = performance.now();
+      const loadDuration = loadEndTime - loadStartTime.current;
+
+      updateLoadStatistics(loadDuration);
+      addToCacheIfPossible();
+
+      // Clear loading state
+      if (isMounted.current) {
+        setIsLoading(false);
+        setHasError(false);
+      }
+
+      if (onLoadEnd) {
+        onLoadEnd();
+      }
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'OptimizedImage',
+          action: 'handle_load_end',
+        },
+        extra: {
+          debugLabel: debugLabel || 'unnamed',
+        },
+      });
+    }
+  }, [updateLoadStatistics, addToCacheIfPossible, onLoadEnd, debugLabel]);
 
   // Handle errors - simplified with proper expo-image event type
   const handleError = (event: { error: string }) => {
-    if (isMounted.current) {
-      setIsLoading(false);
-      setHasError(true);
+    try {
+      imageLoadErrorCount++;
+      const loadDuration = performance.now() - loadStartTime.current;
 
-      if (DEBUG_OPTIMIZED_IMAGE) {
-        console.error(`🖼️ [OptimizedImage] ${debugLabel || 'Image'} error:`, event);
+      if (isMounted.current) {
+        setIsLoading(false);
+        setHasError(true);
+
+        if (DEBUG_OPTIMIZED_IMAGE) {
+          console.error(`🖼️ [OptimizedImage] ${debugLabel || 'Image'} error:`, event);
+        }
       }
-    }
 
-    if (onError) {
-      const errorObj = new Error(event.error || 'Image loading failed');
-      onError(errorObj);
+      Sentry.captureException(new Error(event.error || 'Image loading failed'), {
+        tags: {
+          component: 'OptimizedImage',
+          action: 'image_load_error',
+        },
+        extra: {
+          debugLabel: debugLabel || 'unnamed',
+          errorMessage: event.error,
+          loadDuration: `${loadDuration.toFixed(2)}ms`,
+          totalErrorCount: imageLoadErrorCount,
+          processedSource: JSON.stringify(processedSource),
+        },
+      });
+
+      if (onError) {
+        const errorObj = new Error(event.error || 'Image loading failed');
+        onError(errorObj);
+      }
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'OptimizedImage',
+          action: 'handle_error_wrapper',
+        },
+        extra: {
+          debugLabel: debugLabel || 'unnamed',
+          originalError: event.error,
+        },
+      });
     }
   };
 
   // Convert to expo-image contentFit
   function getContentFit(mode: string): ImageContentFit {
-    switch (mode) {
-      case 'contain':
-        return 'contain';
-      case 'cover':
-        return 'cover';
-      case 'stretch':
-        return 'fill';
-      case 'center':
-        return 'none';
-      case 'repeat':
-        // React Native's 'repeat' mode doesn't have a direct equivalent in expo-image
-        // Use 'fill' to stretch the image which is the closest behavior
-        if (DEBUG_OPTIMIZED_IMAGE) {
-          console.info(
-            `🖼️ [OptimizedImage] Converting 'repeat' mode to 'fill' for expo-image compatibility`,
-          );
-        }
-        return 'fill';
-      default:
-        // Log unexpected resize modes for debugging
-        if (DEBUG_OPTIMIZED_IMAGE) {
-          console.warn(`🖼️ [OptimizedImage] Unknown resize mode: ${mode}, falling back to 'cover'`);
-        }
-        return 'cover';
+    try {
+      switch (mode) {
+        case 'contain':
+          return 'contain';
+        case 'cover':
+          return 'cover';
+        case 'stretch':
+          return 'fill';
+        case 'center':
+          return 'none';
+        case 'repeat':
+          // React Native's 'repeat' mode doesn't have a direct equivalent in expo-image
+          // Use 'fill' to stretch the image which is the closest behavior
+          if (DEBUG_OPTIMIZED_IMAGE) {
+            console.info(
+              `🖼️ [OptimizedImage] Converting 'repeat' mode to 'fill' for expo-image compatibility`,
+            );
+          }
+          return 'fill';
+        default:
+          // Log unexpected resize modes for debugging
+          if (DEBUG_OPTIMIZED_IMAGE) {
+            console.warn(
+              `🖼️ [OptimizedImage] Unknown resize mode: ${mode}, falling back to 'cover'`,
+            );
+          }
+          Sentry.addBreadcrumb({
+            message: 'Unknown resize mode detected',
+            category: 'image.config',
+            data: {
+              mode,
+              debugLabel: debugLabel || 'unnamed',
+            },
+          });
+          return 'cover';
+      }
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'OptimizedImage',
+          action: 'get_content_fit',
+        },
+        extra: {
+          mode,
+          debugLabel: debugLabel || 'unnamed',
+        },
+      });
+      return 'cover'; // Safe fallback
     }
   }
 
@@ -483,6 +915,23 @@ export default function OptimizedImage({
   const shouldShowLoader =
     isLoading && showLoader && !isCached && !isSvg && processedSource !== null;
   const shouldShowMainImage = processedSource !== null && !shouldShowFallback;
+
+  // Track render decisions
+  useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: 'OptimizedImage render decisions',
+      category: 'image.render',
+      data: {
+        debugLabel: debugLabel || 'unnamed',
+        shouldShowFallback,
+        shouldShowLoader,
+        shouldShowMainImage,
+        hasError,
+        processedSourceType: typeof processedSource,
+        hasFallback: !!fallback,
+      },
+    });
+  }, [shouldShowFallback, shouldShowLoader, shouldShowMainImage, debugLabel]);
 
   // Render component with stable structure to prevent flickering
   return (

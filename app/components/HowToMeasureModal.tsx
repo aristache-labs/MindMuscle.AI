@@ -13,6 +13,7 @@ import {
 import { Text, IconButton, Portal, Provider } from 'react-native-paper';
 import { GestureHandlerRootView, ScrollView } from 'react-native-gesture-handler';
 import { MeasurementCategory } from '../services/measurements';
+import * as Sentry from '@sentry/react-native';
 
 import { COLORS } from '../constants/theme';
 import { STATIC_IMAGES } from './SplashScreenManager';
@@ -90,6 +91,77 @@ interface Props {
 }
 
 export default function HowToMeasureModal({ visible, onClose, modalAnim }: Props) {
+  // Track component lifecycle
+  React.useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: 'HowToMeasureModal component mounted',
+      category: 'component.lifecycle',
+      level: 'info',
+      data: {
+        initialVisible: visible,
+        instructionsCount: MEASUREMENT_INSTRUCTIONS.length,
+      },
+    });
+
+    return () => {
+      Sentry.addBreadcrumb({
+        message: 'HowToMeasureModal component unmounted',
+        category: 'component.lifecycle',
+        level: 'info',
+      });
+    };
+  }, []);
+
+  // Track modal visibility changes
+  React.useEffect(() => {
+    if (visible) {
+      Sentry.addBreadcrumb({
+        message: 'HowToMeasureModal opened',
+        category: 'ui.modal',
+        level: 'info',
+        data: {
+          modalType: 'measurement_instructions',
+          instructionsCount: MEASUREMENT_INSTRUCTIONS.length,
+        },
+      });
+    } else {
+      Sentry.addBreadcrumb({
+        message: 'HowToMeasureModal closed',
+        category: 'ui.modal',
+        level: 'info',
+      });
+    }
+  }, [visible]);
+
+  const handleClose = React.useCallback(() => {
+    try {
+      Sentry.addBreadcrumb({
+        message: 'HowToMeasureModal close button pressed',
+        category: 'ui.interaction',
+        level: 'info',
+      });
+      onClose();
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'HowToMeasureModal',
+          action: 'close',
+        },
+        extra: {
+          visible,
+        },
+      });
+    }
+  }, [onClose, visible]);
+
+  const handleScrollEvent = React.useCallback(() => {
+    Sentry.addBreadcrumb({
+      message: 'HowToMeasureModal content scrolled',
+      category: 'ui.scroll',
+      level: 'debug',
+    });
+  }, []);
+
   if (!visible) return null;
 
   return (
@@ -99,10 +171,10 @@ export default function HowToMeasureModal({ visible, onClose, modalAnim }: Props
           visible={visible}
           transparent={true}
           animationType="none"
-          onRequestClose={onClose}
+          onRequestClose={handleClose}
           statusBarTranslucent={true}
         >
-          <TouchableWithoutFeedback onPress={onClose}>
+          <TouchableWithoutFeedback onPress={handleClose}>
             <View style={styles.overlay}>
               <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
                 <Animated.View
@@ -117,7 +189,7 @@ export default function HowToMeasureModal({ visible, onClose, modalAnim }: Props
                         iconColor="#fff"
                         size={24}
                         style={styles.closeButton}
-                        onPress={onClose}
+                        onPress={handleClose}
                       />
                       <Text style={styles.title}>HOW TO MEASURE</Text>
                     </View>
@@ -128,6 +200,7 @@ export default function HowToMeasureModal({ visible, onClose, modalAnim }: Props
                         contentContainerStyle={styles.scrollViewContent}
                         bounces={true}
                         scrollEventThrottle={16}
+                        onScroll={handleScrollEvent}
                       >
                         {MEASUREMENT_INSTRUCTIONS.map((instruction, index) => (
                           <View
@@ -144,6 +217,18 @@ export default function HowToMeasureModal({ visible, onClose, modalAnim }: Props
                                   source={instruction.icon}
                                   style={styles.instructionImage}
                                   resizeMode="contain"
+                                  onError={(error) => {
+                                    Sentry.captureException(error.nativeEvent.error, {
+                                      tags: {
+                                        component: 'HowToMeasureModal',
+                                        action: 'image_load_error',
+                                      },
+                                      extra: {
+                                        category: instruction.category,
+                                        instructionIndex: index,
+                                      },
+                                    });
+                                  }}
                                 />
                               </View>
                             </View>

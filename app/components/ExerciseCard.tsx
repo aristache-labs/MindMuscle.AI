@@ -1,5 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import React, { memo, useCallback } from 'react';
+import React, { memo, useCallback, useEffect } from 'react';
 import {
   Dimensions,
   Image,
@@ -11,6 +11,7 @@ import {
   ViewStyle,
 } from 'react-native';
 import { Surface, Text } from 'react-native-paper';
+import * as Sentry from '@sentry/react-native';
 import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import OptimizedImage from './OptimizedImage';
 
@@ -70,26 +71,132 @@ const ExerciseCard = memo(
     useOptimizedImage = true,
     hideFavoriteButton = false,
   }: ExerciseCardProps) => {
+    // Track component lifecycle with Sentry
+    useEffect(() => {
+      try {
+        Sentry.addBreadcrumb({
+          message: 'ExerciseCard mounted',
+          category: 'component',
+          level: 'info',
+          data: {
+            exerciseId: id,
+            exerciseName: name,
+            isFavorite,
+            hideFavoriteButton,
+            useOptimizedImage,
+          },
+        });
+      } catch (error) {
+        console.warn('Failed to log Sentry breadcrumb for ExerciseCard mount:', error);
+      }
+
+      return () => {
+        try {
+          Sentry.addBreadcrumb({
+            message: 'ExerciseCard unmounted',
+            category: 'component',
+            level: 'info',
+            data: {
+              exerciseId: id,
+              exerciseName: name,
+            },
+          });
+        } catch (error) {
+          console.warn('Failed to log Sentry breadcrumb for ExerciseCard unmount:', error);
+        }
+      };
+    }, [id, name, isFavorite, hideFavoriteButton, useOptimizedImage]);
+
     const handlePress = useCallback(() => {
-      onPress(id);
-    }, [id, onPress]);
+      try {
+        Sentry.addBreadcrumb({
+          message: 'Exercise card pressed',
+          category: 'user.interaction',
+          level: 'info',
+          data: {
+            exerciseId: id,
+            exerciseName: name,
+            action: 'card_press',
+          },
+        });
+
+        onPress(id);
+      } catch (error) {
+        Sentry.captureException(error, {
+          tags: {
+            component: 'ExerciseCard',
+            action: 'handlePress',
+          },
+          extra: {
+            exerciseId: id,
+            exerciseName: name,
+          },
+        });
+        console.error('Error in ExerciseCard handlePress:', error);
+      }
+    }, [id, onPress, name]);
 
     const handleToggleFavorite = useCallback(() => {
-      onToggleFavorite(id);
-    }, [id, onToggleFavorite]);
+      try {
+        Sentry.addBreadcrumb({
+          message: 'Exercise favorite toggled',
+          category: 'user.interaction',
+          level: 'info',
+          data: {
+            exerciseId: id,
+            exerciseName: name,
+            action: 'toggle_favorite',
+            wasAlreadyFavorite: isFavorite,
+            newFavoriteState: !isFavorite,
+          },
+        });
+
+        onToggleFavorite(id);
+      } catch (error) {
+        Sentry.captureException(error, {
+          tags: {
+            component: 'ExerciseCard',
+            action: 'handleToggleFavorite',
+          },
+          extra: {
+            exerciseId: id,
+            exerciseName: name,
+            isFavorite,
+          },
+        });
+        console.error('Error in ExerciseCard handleToggleFavorite:', error);
+      }
+    }, [id, onToggleFavorite, name, isFavorite]);
 
     // Determine the image source
     const imageSource = (() => {
-      // Handle number (local require)
-      if (typeof image === 'number') {
-        return image;
+      try {
+        // Handle number (local require)
+        if (typeof image === 'number') {
+          return image;
+        }
+        // Handle object with uri property
+        if (image && typeof image === 'object' && 'uri' in image && image.uri) {
+          return { uri: image.uri };
+        }
+        // Default fallback
+        return require('../../assets/exercises/placeholder.jpg');
+      } catch (error) {
+        Sentry.captureException(error, {
+          tags: {
+            component: 'ExerciseCard',
+            action: 'imageSource',
+          },
+          extra: {
+            exerciseId: id,
+            exerciseName: name,
+            imageType: typeof image,
+            image: JSON.stringify(image),
+          },
+        });
+        console.error('Error determining image source in ExerciseCard:', error);
+        return require('../../assets/exercises/placeholder.jpg');
       }
-      // Handle object with uri property
-      if (image && typeof image === 'object' && 'uri' in image && image.uri) {
-        return { uri: image.uri };
-      }
-      // Default fallback
-      return require('../../assets/exercises/placeholder.jpg');
     })();
 
     return (

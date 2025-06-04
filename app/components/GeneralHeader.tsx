@@ -1,8 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, ViewStyle } from 'react-native';
-import { useRouter } from 'expo-router';
 import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
 import { Divider } from 'react-native-paper';
+import * as Sentry from '@sentry/react-native';
 
 interface GeneralHeaderProps {
   title: string;
@@ -13,7 +13,41 @@ interface GeneralHeaderProps {
 }
 
 export function GeneralHeader({ title, icon, rightElement, style }: GeneralHeaderProps) {
-  const _router = useRouter();
+  // Track component lifecycle
+  React.useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: 'GeneralHeader component mounted',
+      category: 'component.lifecycle',
+      level: 'info',
+      data: {
+        title,
+        hasIcon: !!icon,
+        hasRightElement: !!rightElement,
+        hasCustomStyle: !!style,
+      },
+    });
+
+    return () => {
+      Sentry.addBreadcrumb({
+        message: 'GeneralHeader component unmounted',
+        category: 'component.lifecycle',
+        level: 'info',
+        data: { title },
+      });
+    };
+  }, [title, icon, rightElement, style]);
+
+  // Track title changes
+  React.useEffect(() => {
+    if (title) {
+      Sentry.addBreadcrumb({
+        message: 'GeneralHeader title updated',
+        category: 'component.update',
+        level: 'info',
+        data: { newTitle: title },
+      });
+    }
+  }, [title]);
 
   return (
     <View style={[styles.headerContainer, style]}>

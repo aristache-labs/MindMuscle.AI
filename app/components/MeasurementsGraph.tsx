@@ -3,6 +3,7 @@ import { StyleSheet, View, Pressable } from 'react-native';
 import { Text, IconButton } from 'react-native-paper';
 import { MeasurementCategory, Measurement } from '../services/measurements';
 import { COLORS } from '../constants/theme';
+import * as Sentry from '@sentry/react-native';
 
 interface Props {
   measurements: Record<MeasurementCategory, Measurement | null>;
@@ -185,11 +186,93 @@ const styles = StyleSheet.create({
 });
 
 export default function MeasurementsGraph({ measurements, onMeasurementPress }: Props) {
+  // Track component lifecycle
+  React.useEffect(() => {
+    const measurementCount = Object.keys(measurements).length;
+    const categoriesWithData = Object.entries(measurements).filter(
+      ([, measurement]) => measurement && measurement.value > 0,
+    ).length;
+
+    Sentry.addBreadcrumb({
+      message: 'MeasurementsGraph component mounted',
+      category: 'component.lifecycle',
+      level: 'info',
+      data: {
+        totalCategories: measurementCount,
+        categoriesWithData,
+        hasWeightData: !!(measurements.WEIGHT && measurements.WEIGHT.value > 0),
+      },
+    });
+
+    return () => {
+      Sentry.addBreadcrumb({
+        message: 'MeasurementsGraph component unmounted',
+        category: 'component.lifecycle',
+        level: 'info',
+      });
+    };
+  }, []);
+
+  // Track measurements data changes
+  React.useEffect(() => {
+    const categoriesWithData = Object.entries(measurements).filter(
+      ([, measurement]) => measurement && measurement.value > 0,
+    );
+
+    Sentry.addBreadcrumb({
+      message: 'MeasurementsGraph data updated',
+      category: 'data.update',
+      level: 'info',
+      data: {
+        totalCategories: Object.keys(measurements).length,
+        categoriesWithData: categoriesWithData.length,
+        weightValue: measurements.WEIGHT?.value || 0,
+        hasProgressData: categoriesWithData.some(
+          ([, measurement]) => measurement?.previous_value !== null,
+        ),
+      },
+    });
+  }, [measurements]);
+
+  const handleMeasurementPress = React.useCallback(
+    (category: MeasurementCategory) => {
+      try {
+        const measurement = measurements[category];
+
+        Sentry.addBreadcrumb({
+          message: 'MeasurementsGraph measurement pressed',
+          category: 'ui.interaction',
+          level: 'info',
+          data: {
+            category,
+            hasValue: !!(measurement && measurement.value > 0),
+            currentValue: measurement?.value || 0,
+            hasPreviousValue: !!measurement?.previous_value,
+          },
+        });
+
+        onMeasurementPress(category);
+      } catch (error) {
+        Sentry.captureException(error, {
+          tags: {
+            component: 'MeasurementsGraph',
+            action: 'measurement_press',
+          },
+          extra: {
+            category,
+            measurementData: measurements[category],
+          },
+        });
+      }
+    },
+    [measurements, onMeasurementPress],
+  );
+
   // Find the maximum value to scale the bars
   const maxValue = Math.max(
     ...Object.entries(measurements)
       .filter(([category]) => category !== 'WEIGHT')
-      .map(([_, measurement]) => measurement?.value || 0),
+      .map(([, measurement]) => measurement?.value || 0),
   );
 
   // Calculate the scale factor for the bars (max height 240)
@@ -199,10 +282,26 @@ export default function MeasurementsGraph({ measurements, onMeasurementPress }: 
   // Check if all measurement values (excluding WEIGHT) are zero
   const allZero = Object.entries(measurements)
     .filter(([category]) => category !== 'WEIGHT')
-    .every(([_, measurement]) => !measurement || !measurement.value || measurement.value === 0);
+    .every(([, measurement]) => !measurement || !measurement.value || measurement.value === 0);
 
   // Find the first muscle group category (not WEIGHT) for the add button
   const firstMuscleGroup = Object.keys(measurements).find((key) => key !== 'WEIGHT') || 'BICEPS';
+
+  // Track graph state
+  React.useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: 'MeasurementsGraph graph state calculated',
+      category: 'ui.state',
+      level: 'debug',
+      data: {
+        maxValue,
+        scale,
+        allZero,
+        firstMuscleGroup,
+        barMinHeight: MIN_BAR_HEIGHT,
+      },
+    });
+  }, [maxValue, scale, allZero, firstMuscleGroup]);
 
   return (
     <View style={styles.container}>
@@ -210,7 +309,7 @@ export default function MeasurementsGraph({ measurements, onMeasurementPress }: 
       <Pressable
         style={styles.weightContainer}
         onPress={() => {
-          onMeasurementPress('WEIGHT');
+          handleMeasurementPress('WEIGHT');
         }}
       >
         <Text style={styles.weightValue}>
@@ -229,7 +328,17 @@ export default function MeasurementsGraph({ measurements, onMeasurementPress }: 
           </Text>
           <Pressable
             style={styles.addMeasurementButton}
-            onPress={() => onMeasurementPress(firstMuscleGroup as MeasurementCategory)}
+            onPress={() => {
+              Sentry.addBreadcrumb({
+                message: 'MeasurementsGraph add first measurement button pressed',
+                category: 'ui.interaction',
+                level: 'info',
+                data: {
+                  selectedCategory: firstMuscleGroup,
+                },
+              });
+              handleMeasurementPress(firstMuscleGroup as MeasurementCategory);
+            }}
           >
             <Text style={styles.addMeasurementButtonText}>Add Measurement</Text>
           </Pressable>
@@ -254,7 +363,7 @@ export default function MeasurementsGraph({ measurements, onMeasurementPress }: 
                   <Pressable
                     key={category}
                     style={styles.barContainer}
-                    onPress={() => onMeasurementPress(category as MeasurementCategory)}
+                    onPress={() => handleMeasurementPress(category as MeasurementCategory)}
                   >
                     {/* Value above the bar, moving with the bar height */}
                     <View

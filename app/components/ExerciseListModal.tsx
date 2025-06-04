@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useEffect } from 'react';
 import {
   Dimensions,
   Modal,
@@ -21,6 +21,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Sentry from '@sentry/react-native';
 import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import type { ExerciseData } from '../features/workout/types';
 import OptimizedImage from './OptimizedImage';
@@ -314,19 +315,79 @@ function DraggableExerciseItem({
 
   const handlePress = useCallback(() => {
     if (!isDragging) {
-      if (isCustomizeMode) {
-        // In customize mode, do nothing when pressing exercise cards
-        return;
-      } else {
-        // In normal mode, show exercise details modal if available, otherwise select exercise
-        if (onExerciseDetailsPress) {
-          onExerciseDetailsPress(exercise);
+      try {
+        if (isCustomizeMode) {
+          // In customize mode, do nothing when pressing exercise cards
+          Sentry.addBreadcrumb({
+            message: 'Exercise card pressed in customize mode',
+            category: 'user.interaction',
+            level: 'debug',
+            data: {
+              exerciseName: exercise.name,
+              exerciseIndex: index,
+            },
+          });
+          return;
         } else {
-          onExerciseSelect(index);
+          // In normal mode, show exercise details modal if available, otherwise select exercise
+          if (onExerciseDetailsPress) {
+            Sentry.addBreadcrumb({
+              message: 'Exercise details modal opened',
+              category: 'user.interaction',
+              level: 'info',
+              data: {
+                exerciseName: exercise.name,
+                exerciseIndex: index,
+                isActive: index === currentExerciseIndex,
+                isCompleted: index < currentExerciseIndex,
+              },
+            });
+            onExerciseDetailsPress(exercise);
+          } else {
+            Sentry.addBreadcrumb({
+              message: 'Exercise selected from list',
+              category: 'user.interaction',
+              level: 'info',
+              data: {
+                exerciseName: exercise.name,
+                exerciseIndex: index,
+                previousIndex: currentExerciseIndex,
+              },
+            });
+            onExerciseSelect(index);
+          }
+        }
+      } catch (error) {
+        Sentry.captureException(error, {
+          tags: { component: 'DraggableExerciseItem', action: 'press' },
+          contexts: {
+            exercise: {
+              name: exercise.name,
+              index,
+              isCustomizeMode,
+              isDragging,
+            },
+          },
+        });
+        // Still execute the action even if logging fails
+        if (!isCustomizeMode) {
+          if (onExerciseDetailsPress) {
+            onExerciseDetailsPress(exercise);
+          } else {
+            onExerciseSelect(index);
+          }
         }
       }
     }
-  }, [isDragging, isCustomizeMode, onExerciseDetailsPress, exercise, onExerciseSelect, index]);
+  }, [
+    isDragging,
+    isCustomizeMode,
+    onExerciseDetailsPress,
+    exercise,
+    onExerciseSelect,
+    index,
+    currentExerciseIndex,
+  ]);
 
   const handleRemove = useCallback(() => {
     if (!isDragging && onRemoveExercise) {
@@ -485,6 +546,77 @@ export default function ExerciseListModal({
   const [dragTargetIndex, setDragTargetIndex] = React.useState(-1);
   const [hasChanges, setHasChanges] = React.useState(false);
 
+  // Track component lifecycle with Sentry
+  useEffect(() => {
+    if (visible) {
+      try {
+        Sentry.addBreadcrumb({
+          message: 'ExerciseListModal opened',
+          category: 'component',
+          level: 'info',
+          data: {
+            exerciseCount: exercises.length,
+            currentExerciseIndex,
+            isCustomizeMode,
+            hasReorderCallback: !!onReorderExercises,
+            hasRemoveCallback: !!onRemoveExercise,
+            hasApplyChangesCallback: !!onApplyChanges,
+          },
+        });
+      } catch (error) {
+        console.warn('Failed to log Sentry breadcrumb for ExerciseListModal open:', error);
+      }
+    }
+
+    return () => {
+      if (visible) {
+        try {
+          Sentry.addBreadcrumb({
+            message: 'ExerciseListModal closed',
+            category: 'component',
+            level: 'info',
+            data: {
+              exerciseCount: exercises.length,
+              hadChanges: hasChanges,
+              wasInCustomizeMode: isCustomizeMode,
+            },
+          });
+        } catch (error) {
+          console.warn('Failed to log Sentry breadcrumb for ExerciseListModal close:', error);
+        }
+      }
+    };
+  }, [visible, exercises.length, currentExerciseIndex, isCustomizeMode, hasChanges]);
+
+  // Track customize mode changes
+  useEffect(() => {
+    try {
+      if (isCustomizeMode) {
+        Sentry.addBreadcrumb({
+          message: 'Exercise list customize mode enabled',
+          category: 'user.interaction',
+          level: 'info',
+          data: {
+            exerciseCount: localExercises.length,
+            currentExerciseIndex,
+          },
+        });
+      } else {
+        Sentry.addBreadcrumb({
+          message: 'Exercise list customize mode disabled',
+          category: 'user.interaction',
+          level: 'info',
+          data: {
+            hadChanges: hasChanges,
+            exerciseCount: localExercises.length,
+          },
+        });
+      }
+    } catch (error) {
+      console.warn('Failed to log customize mode change:', error);
+    }
+  }, [isCustomizeMode, localExercises.length, currentExerciseIndex, hasChanges]);
+
   // Modal animation
   const modalAnimation = useSharedValue(0);
 
@@ -558,45 +690,110 @@ export default function ExerciseListModal({
   }, [isCustomizeMode, hasChanges, originalExercises]);
 
   const handleClose = useCallback(() => {
-    // Reset to original state when closing without applying changes
-    if (hasChanges) {
-      setLocalExercises(originalExercises);
-      setRemovedIndices([]);
-      setHasChanges(false);
+    try {
+      // Track close action with Sentry
+      Sentry.addBreadcrumb({
+        message: 'Exercise list modal close requested',
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          hadChanges: hasChanges,
+          removedCount: removedIndices.length,
+          isCustomizeMode,
+          exerciseCount: localExercises.length,
+        },
+      });
+
+      // Reset to original state when closing without applying changes
+      if (hasChanges) {
+        setLocalExercises(originalExercises);
+        setRemovedIndices([]);
+        setHasChanges(false);
+      }
+      onClose();
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: { component: 'ExerciseListModal', action: 'close' },
+        contexts: {
+          modal: {
+            hasChanges,
+            exerciseCount: localExercises.length,
+            isCustomizeMode,
+          },
+        },
+      });
+      // Still close the modal even if logging fails
+      onClose();
     }
-    onClose();
-  }, [hasChanges, originalExercises, onClose]);
+  }, [
+    hasChanges,
+    originalExercises,
+    onClose,
+    removedIndices.length,
+    isCustomizeMode,
+    localExercises.length,
+  ]);
 
   const handleApplyChanges = useCallback(() => {
-    if (hasChanges && onApplyChanges) {
-      onApplyChanges(localExercises, removedIndices);
+    try {
+      // Track apply changes action with Sentry
+      Sentry.addBreadcrumb({
+        message: 'Exercise list changes applied',
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          hasChanges,
+          exerciseCount: localExercises.length,
+          originalCount: originalExercises.length,
+          removedCount: removedIndices.length,
+          hasReorderChanges: JSON.stringify(localExercises) !== JSON.stringify(originalExercises),
+        },
+      });
+
+      if (hasChanges && onApplyChanges) {
+        onApplyChanges(localExercises, removedIndices);
+      }
+
+      // Apply individual changes for backward compatibility
+      if (
+        onReorderExercises &&
+        JSON.stringify(localExercises) !== JSON.stringify(originalExercises)
+      ) {
+        onReorderExercises(localExercises);
+      }
+
+      // Apply removals for backward compatibility
+      if (onRemoveExercise && removedIndices.length > 0) {
+        // Apply removals in reverse order to maintain correct indices
+        [...removedIndices]
+          .sort((a, b) => b - a)
+          .forEach((index) => {
+            onRemoveExercise(index);
+          });
+      }
+
+      // Update original state and reset changes
+      setOriginalExercises(localExercises);
+      setRemovedIndices([]);
+      setHasChanges(false);
+
+      // Exit customize mode
+      onToggleCustomizeMode?.();
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: { component: 'ExerciseListModal', action: 'applyChanges' },
+        contexts: {
+          changes: {
+            hasChanges,
+            exerciseCount: localExercises.length,
+            originalCount: originalExercises.length,
+            removedCount: removedIndices.length,
+          },
+        },
+      });
+      // Re-throw to handle the error appropriately
+      throw error;
     }
-
-    // Apply individual changes for backward compatibility
-    if (
-      onReorderExercises &&
-      JSON.stringify(localExercises) !== JSON.stringify(originalExercises)
-    ) {
-      onReorderExercises(localExercises);
-    }
-
-    // Apply removals for backward compatibility
-    if (onRemoveExercise && removedIndices.length > 0) {
-      // Apply removals in reverse order to maintain correct indices
-      [...removedIndices]
-        .sort((a, b) => b - a)
-        .forEach((index) => {
-          onRemoveExercise(index);
-        });
-    }
-
-    // Update original state and reset changes
-    setOriginalExercises(localExercises);
-    setRemovedIndices([]);
-    setHasChanges(false);
-
-    // Exit customize mode
-    onToggleCustomizeMode?.();
   }, [
     hasChanges,
     localExercises,
@@ -613,11 +810,26 @@ export default function ExerciseListModal({
       // Only allow drag in customize mode
       if (!isCustomizeMode) return;
 
+      try {
+        Sentry.addBreadcrumb({
+          message: 'Exercise drag operation started',
+          category: 'user.interaction',
+          level: 'info',
+          data: {
+            draggedIndex: index,
+            exerciseName: localExercises[index]?.name,
+            exerciseCount: localExercises.length,
+          },
+        });
+      } catch (error) {
+        console.warn('Failed to log drag start:', error);
+      }
+
       setIsDragging(true);
       setDraggedIndex(index);
       setDragTargetIndex(index);
     },
-    [isCustomizeMode],
+    [isCustomizeMode, localExercises],
   );
 
   const handleDragUpdate = useCallback(
@@ -641,19 +853,51 @@ export default function ExerciseListModal({
       // Only allow drag end in customize mode
       if (!isCustomizeMode) return;
 
-      // Reset drag state
-      setIsDragging(false);
-      setDraggedIndex(-1);
-      setDragTargetIndex(-1);
+      try {
+        const didReorder = fromIndex !== toIndex && toIndex >= 0 && toIndex < localExercises.length;
 
-      // Only reorder if position actually changed
-      if (fromIndex !== toIndex && toIndex >= 0 && toIndex < localExercises.length) {
-        const newExercises = [...localExercises];
-        const [movedExercise] = newExercises.splice(fromIndex, 1);
-        newExercises.splice(toIndex, 0, movedExercise);
+        Sentry.addBreadcrumb({
+          message: 'Exercise drag operation ended',
+          category: 'user.interaction',
+          level: 'info',
+          data: {
+            fromIndex,
+            toIndex,
+            exerciseName: localExercises[fromIndex]?.name,
+            didReorder,
+            exerciseCount: localExercises.length,
+          },
+        });
 
-        setLocalExercises(newExercises);
-        // Don't call onReorderExercises immediately - wait for apply
+        // Reset drag state
+        setIsDragging(false);
+        setDraggedIndex(-1);
+        setDragTargetIndex(-1);
+
+        // Only reorder if position actually changed
+        if (didReorder) {
+          const newExercises = [...localExercises];
+          const [movedExercise] = newExercises.splice(fromIndex, 1);
+          newExercises.splice(toIndex, 0, movedExercise);
+
+          setLocalExercises(newExercises);
+          // Don't call onReorderExercises immediately - wait for apply
+        }
+      } catch (error) {
+        Sentry.captureException(error, {
+          tags: { component: 'ExerciseListModal', action: 'dragEnd' },
+          contexts: {
+            drag: {
+              fromIndex,
+              toIndex,
+              exerciseCount: localExercises.length,
+            },
+          },
+        });
+        // Reset drag state even if logging fails
+        setIsDragging(false);
+        setDraggedIndex(-1);
+        setDragTargetIndex(-1);
       }
     },
     [localExercises, isCustomizeMode],
@@ -664,16 +908,47 @@ export default function ExerciseListModal({
       // Only allow removal in customize mode
       if (!isCustomizeMode) return;
 
-      // Track the original index for later removal
-      const originalIndex = originalExercises.findIndex((ex) => ex.id === localExercises[index].id);
-      if (originalIndex !== -1) {
-        setRemovedIndices((prev) => [...prev, originalIndex]);
-      }
+      try {
+        const exerciseToRemove = localExercises[index];
 
-      // Update local exercises by removing the exercise at the given index
-      const newExercises = localExercises.filter((_, i) => i !== index);
-      setLocalExercises(newExercises);
-      // Don't call onRemoveExercise immediately - wait for apply
+        Sentry.addBreadcrumb({
+          message: 'Exercise removed from list',
+          category: 'user.interaction',
+          level: 'info',
+          data: {
+            removedIndex: index,
+            exerciseName: exerciseToRemove?.name,
+            exerciseId: exerciseToRemove?.id,
+            remainingCount: localExercises.length - 1,
+          },
+        });
+
+        // Track the original index for later removal
+        const originalIndex = originalExercises.findIndex(
+          (ex) => ex.id === localExercises[index].id,
+        );
+        if (originalIndex !== -1) {
+          setRemovedIndices((prev) => [...prev, originalIndex]);
+        }
+
+        // Update local exercises by removing the exercise at the given index
+        const newExercises = localExercises.filter((_, i) => i !== index);
+        setLocalExercises(newExercises);
+        // Don't call onRemoveExercise immediately - wait for apply
+      } catch (error) {
+        Sentry.captureException(error, {
+          tags: { component: 'ExerciseListModal', action: 'removeExercise' },
+          contexts: {
+            removal: {
+              index,
+              exerciseCount: localExercises.length,
+              exerciseName: localExercises[index]?.name,
+            },
+          },
+        });
+        // Re-throw to handle the error appropriately
+        throw error;
+      }
     },
     [localExercises, originalExercises, isCustomizeMode],
   );
@@ -754,10 +1029,48 @@ export default function ExerciseListModal({
                       } catch {
                         // Haptics might not be available
                       }
-                      if (isCustomizeMode) {
-                        handleApplyChanges();
-                      } else {
-                        onToggleCustomizeMode?.();
+
+                      try {
+                        if (isCustomizeMode) {
+                          Sentry.addBreadcrumb({
+                            message: 'Exercise list changes done button pressed',
+                            category: 'user.interaction',
+                            level: 'info',
+                            data: {
+                              hasChanges,
+                              exerciseCount: localExercises.length,
+                              removedCount: removedIndices.length,
+                            },
+                          });
+                          handleApplyChanges();
+                        } else {
+                          Sentry.addBreadcrumb({
+                            message: 'Exercise list customize mode activated',
+                            category: 'user.interaction',
+                            level: 'info',
+                            data: {
+                              exerciseCount: localExercises.length,
+                            },
+                          });
+                          onToggleCustomizeMode?.();
+                        }
+                      } catch (error) {
+                        Sentry.captureException(error, {
+                          tags: { component: 'ExerciseListModal', action: 'headerButton' },
+                          contexts: {
+                            button: {
+                              isCustomizeMode,
+                              hasChanges,
+                              exerciseCount: localExercises.length,
+                            },
+                          },
+                        });
+                        // Still execute the action even if logging fails
+                        if (isCustomizeMode) {
+                          handleApplyChanges();
+                        } else {
+                          onToggleCustomizeMode?.();
+                        }
                       }
                     }}
                     style={[
@@ -894,7 +1207,24 @@ export default function ExerciseListModal({
                       } catch {
                         // Haptics might not be available
                       }
-                      onAddExercise?.();
+
+                      try {
+                        Sentry.addBreadcrumb({
+                          message: 'Add exercise button pressed',
+                          category: 'user.interaction',
+                          level: 'info',
+                          data: {
+                            currentExerciseCount: localExercises.length,
+                          },
+                        });
+                        onAddExercise?.();
+                      } catch (error) {
+                        Sentry.captureException(error, {
+                          tags: { component: 'ExerciseListModal', action: 'addExercise' },
+                        });
+                        // Still execute the action even if logging fails
+                        onAddExercise?.();
+                      }
                     }}
                     disabled={!onAddExercise}
                     activeOpacity={0.8}
@@ -911,7 +1241,24 @@ export default function ExerciseListModal({
                       } catch {
                         // Haptics might not be available
                       }
-                      onAddSuperset?.();
+
+                      try {
+                        Sentry.addBreadcrumb({
+                          message: 'Add superset button pressed',
+                          category: 'user.interaction',
+                          level: 'info',
+                          data: {
+                            currentExerciseCount: localExercises.length,
+                          },
+                        });
+                        onAddSuperset?.();
+                      } catch (error) {
+                        Sentry.captureException(error, {
+                          tags: { component: 'ExerciseListModal', action: 'addSuperset' },
+                        });
+                        // Still execute the action even if logging fails
+                        onAddSuperset?.();
+                      }
                     }}
                     disabled={!onAddSuperset}
                     activeOpacity={0.8}
@@ -928,7 +1275,24 @@ export default function ExerciseListModal({
                       } catch {
                         // Haptics might not be available
                       }
-                      onAddCardio?.();
+
+                      try {
+                        Sentry.addBreadcrumb({
+                          message: 'Add cardio button pressed',
+                          category: 'user.interaction',
+                          level: 'info',
+                          data: {
+                            currentExerciseCount: localExercises.length,
+                          },
+                        });
+                        onAddCardio?.();
+                      } catch (error) {
+                        Sentry.captureException(error, {
+                          tags: { component: 'ExerciseListModal', action: 'addCardio' },
+                        });
+                        // Still execute the action even if logging fails
+                        onAddCardio?.();
+                      }
                     }}
                     disabled={!onAddCardio}
                     activeOpacity={0.8}

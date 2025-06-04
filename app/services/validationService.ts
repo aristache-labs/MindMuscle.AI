@@ -197,6 +197,58 @@ class ValidationService {
     return safeValidate(TimerSettingsSchema, data, 'timer settings');
   }
 
+  // Workout data service validation methods
+  async validateFetchWorkoutData(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof FetchWorkoutDataSchema>>> {
+    const { FetchWorkoutDataSchema } = await import('../validation/schemas');
+    return safeValidate(FetchWorkoutDataSchema, data, 'fetch workout data');
+  }
+
+  async validateFetchLastExerciseRecords(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof FetchLastExerciseRecordsSchema>>> {
+    const { FetchLastExerciseRecordsSchema } = await import('../validation/schemas');
+    return safeValidate(FetchLastExerciseRecordsSchema, data, 'fetch last exercise records');
+  }
+
+  async validateCheckWorkoutCompletion(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof CheckWorkoutCompletionSchema>>> {
+    const { CheckWorkoutCompletionSchema } = await import('../validation/schemas');
+    return safeValidate(CheckWorkoutCompletionSchema, data, 'check workout completion');
+  }
+
+  async validateGetLastCompletedWorkoutStructure(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof GetLastCompletedWorkoutStructureSchema>>> {
+    const { GetLastCompletedWorkoutStructureSchema } = await import('../validation/schemas');
+    return safeValidate(
+      GetLastCompletedWorkoutStructureSchema,
+      data,
+      'get last completed workout structure',
+    );
+  }
+
+  async validateCheckWorkoutCompletionForCycleWeek(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof CheckWorkoutCompletionForCycleWeekSchema>>> {
+    const { CheckWorkoutCompletionForCycleWeekSchema } = await import('../validation/schemas');
+    return safeValidate(
+      CheckWorkoutCompletionForCycleWeekSchema,
+      data,
+      'check workout completion for cycle week',
+    );
+  }
+
+  // Add Exercise Modal validation methods
+  async validateAddExerciseForm(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof AddExerciseFormSchema>>> {
+    const { AddExerciseFormSchema } = await import('../validation/schemas');
+    return safeValidate(AddExerciseFormSchema, data, 'add exercise form');
+  }
+
   // Generic validation methods
   validateWithSchema<T>(
     schema: z.ZodSchema<T>,

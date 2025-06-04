@@ -28,6 +28,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../../constants/theme';
 import exerciseService, { Exercise, ExerciseCategory } from '../../services/exerciseService';
+import { validationService } from '../../services/validationService';
+import { logger } from '../../utils/logger';
 import ExerciseCard from '../ExerciseCard';
 import DraggableConfigurationItem from './components/DraggableConfigurationItem';
 import { MuscleGroupRender } from './components/MuscleMarkers';
@@ -1437,21 +1439,50 @@ export default function AddExerciseModal({
   );
 
   const handleAddAll = useCallback(
-    (exercisesToAdd: SelectedExercise[]) => {
-      const exerciseConfigurations: ExerciseConfiguration[] = exercisesToAdd.map((exercise) => ({
-        exerciseId: exercise.id,
-        name: exercise.name,
-        sets: exercise.sets,
-        reps_range: exercise.reps_range,
-        image_url: exercise.image_url,
-        muscle_group: exercise.muscle_group || selectedMuscleGroup,
-        primary_muscles: exercise.primary_muscles,
-        requires_weight: exercise.requires_weight,
-      }));
+    async (exercisesToAdd: SelectedExercise[]) => {
+      try {
+        const exerciseConfigurations: ExerciseConfiguration[] = exercisesToAdd.map((exercise) => ({
+          exerciseId: exercise.id,
+          name: exercise.name,
+          sets: exercise.sets,
+          reps_range: exercise.reps_range,
+          image_url: exercise.image_url,
+          muscle_group: exercise.muscle_group || selectedMuscleGroup,
+          primary_muscles: exercise.primary_muscles,
+          requires_weight: exercise.requires_weight,
+        }));
 
-      console.log('AddExerciseModal: Adding exercises:', exerciseConfigurations);
-      onAddExercises(exerciseConfigurations);
-      onClose();
+        // Validate the exercise configurations before adding
+        const validationData = { exercises: exerciseConfigurations };
+        const validationResult = await validationService.validateAddExerciseForm(validationData);
+
+        if (!validationResult.success) {
+          const errorMessage = `Add exercise form validation failed: ${validationResult.errors.map((e: { message: string }) => e.message).join(', ')}`;
+          logger.error('AddExerciseModal validation failed', undefined, {
+            context: {
+              errors: validationResult.errors,
+              exerciseConfigurations,
+            },
+          });
+
+          // Show error to user (you might want to add a state for this)
+          console.error('Validation failed:', errorMessage);
+          return;
+        }
+
+        console.log('AddExerciseModal: Adding exercises:', exerciseConfigurations);
+        onAddExercises(exerciseConfigurations);
+        onClose();
+      } catch (error) {
+        logger.error(
+          'AddExerciseModal: Error adding exercises',
+          error instanceof Error ? error : undefined,
+          {
+            context: { exercisesToAdd },
+          },
+        );
+        console.error('Error adding exercises:', error);
+      }
     },
     [selectedMuscleGroup, onAddExercises, onClose],
   );

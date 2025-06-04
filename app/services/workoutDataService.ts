@@ -351,6 +351,18 @@ export const fetchWorkoutData = async (
   exerciseSets: Record<string, ExerciseSet[]>;
   recommendations: Record<string, unknown>;
 }> => {
+  // Validate input parameters
+  const validationData = { planId, workoutDay, userId, cycleWeek, isRedoWorkout };
+  const validationResult = await validationService.validateFetchWorkoutData(validationData);
+
+  if (!validationResult.success) {
+    const errorMessage = `Fetch workout data validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+    logger.error('Fetch workout data validation failed', new Error(errorMessage), {
+      context: { validationData, errors: validationResult.errors },
+    });
+    throw new Error(errorMessage);
+  }
+
   validateWorkoutParameters(planId, workoutDay);
 
   if (isRedoWorkout) {
@@ -379,6 +391,18 @@ export const fetchLastExerciseRecords = async (
   userId: string,
   exercises: ExerciseData[],
 ): Promise<Record<string, Record<number, { weight: string; reps: string }>>> => {
+  // Validate input parameters
+  const validationData = { userId, exercises };
+  const validationResult = await validationService.validateFetchLastExerciseRecords(validationData);
+
+  if (!validationResult.success) {
+    const errorMessage = `Fetch last exercise records validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+    logger.error('Fetch last exercise records validation failed', new Error(errorMessage), {
+      context: { validationData, errors: validationResult.errors },
+    });
+    throw new Error(errorMessage);
+  }
+
   if (!userId || exercises.length === 0) {
     return {};
   }
@@ -441,6 +465,18 @@ export const checkWorkoutCompletion = async (
   isCompleted: boolean;
   completedWorkoutData?: CompletedWorkoutData;
 }> => {
+  // Validate input parameters
+  const validationData = { userId, planId, workoutDay };
+  const validationResult = await validationService.validateCheckWorkoutCompletion(validationData);
+
+  if (!validationResult.success) {
+    const errorMessage = `Check workout completion validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+    logger.error('Check workout completion validation failed', new Error(errorMessage), {
+      context: { validationData, errors: validationResult.errors },
+    });
+    throw new Error(errorMessage);
+  }
+
   if (!userId || !planId) {
     return { isCompleted: false };
   }
@@ -511,6 +547,23 @@ export const getLastCompletedWorkoutStructure = async (
   workoutDay: number,
   cycleWeek: number,
 ): Promise<ExerciseData[] | null> => {
+  // Validate input parameters
+  const validationData = { userId, planId, workoutDay, cycleWeek };
+  const validationResult =
+    await validationService.validateGetLastCompletedWorkoutStructure(validationData);
+
+  if (!validationResult.success) {
+    const errorMessage = `Get last completed workout structure validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+    logger.error(
+      'Get last completed workout structure validation failed',
+      new Error(errorMessage),
+      {
+        context: { validationData, errors: validationResult.errors },
+      },
+    );
+    throw new Error(errorMessage);
+  }
+
   try {
     // Get the most recent completed workout for this specific day and cycle week
     const { data, error } = await supabase
@@ -571,6 +624,23 @@ export const checkWorkoutCompletionForCycleWeek = async (
   isCompleted: boolean;
   completedWorkoutData?: CompletedWorkoutData;
 }> => {
+  // Validate input parameters
+  const validationData = { userId, planId, workoutDay, cycleWeek };
+  const validationResult =
+    await validationService.validateCheckWorkoutCompletionForCycleWeek(validationData);
+
+  if (!validationResult.success) {
+    const errorMessage = `Check workout completion for cycle week validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+    logger.error(
+      'Check workout completion for cycle week validation failed',
+      new Error(errorMessage),
+      {
+        context: { validationData, errors: validationResult.errors },
+      },
+    );
+    throw new Error(errorMessage);
+  }
+
   if (!userId || !planId) {
     return { isCompleted: false };
   }

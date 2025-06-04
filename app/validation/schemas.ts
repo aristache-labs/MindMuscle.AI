@@ -179,7 +179,7 @@ export const ExerciseConfigurationSchema = z.object({
   name: z.string().min(1, 'Exercise name is required'),
   sets: PositiveNumberSchema,
   reps_range: z.string().regex(/^\d+-\d+$/, 'Reps range must be in format "min-max"'),
-  image_url: UrlSchema,
+  image_url: z.string().url('Invalid URL format').optional().or(z.literal('')),
   muscle_group: z.string(),
   primary_muscles: z.array(z.string()).optional(),
   requires_weight: z.boolean().optional(),
@@ -413,6 +413,45 @@ export const TimerSettingsSchema = z.object({
   vibrationEnabled: z.boolean(),
 });
 
+// Workout data service validation schemas
+export const FetchWorkoutDataSchema = z.object({
+  planId: IdSchema,
+  workoutDay: PositiveNumberSchema,
+  userId: IdSchema,
+  cycleWeek: PositiveNumberSchema,
+  isRedoWorkout: z.boolean().optional(),
+});
+
+export const FetchLastExerciseRecordsSchema = z.object({
+  userId: IdSchema,
+  exercises: z.array(ExerciseSchema),
+});
+
+export const CheckWorkoutCompletionSchema = z.object({
+  userId: IdSchema,
+  planId: IdSchema,
+  workoutDay: PositiveNumberSchema,
+});
+
+export const GetLastCompletedWorkoutStructureSchema = z.object({
+  userId: IdSchema,
+  planId: IdSchema,
+  workoutDay: PositiveNumberSchema,
+  cycleWeek: PositiveNumberSchema,
+});
+
+export const CheckWorkoutCompletionForCycleWeekSchema = z.object({
+  userId: IdSchema,
+  planId: IdSchema,
+  workoutDay: PositiveNumberSchema,
+  cycleWeek: PositiveNumberSchema,
+});
+
+// Add Exercise Modal validation schemas
+export const AddExerciseFormSchema = z.object({
+  exercises: z.array(ExerciseConfigurationSchema).min(1, 'At least one exercise must be selected'),
+});
+
 // Type exports
 export type GeneralExercise = z.infer<typeof GeneralExerciseSchema>;
 export type Exercise = z.infer<typeof ExerciseSchema>;
@@ -448,3 +487,12 @@ export type SaveCompletedWorkout = z.infer<typeof SaveCompletedWorkoutSchema>;
 export type CustomizeExerciseForm = z.infer<typeof CustomizeExerciseFormSchema>;
 export type MeasurementForm = z.infer<typeof MeasurementFormSchema>;
 export type TimerSettings = z.infer<typeof TimerSettingsSchema>;
+export type FetchWorkoutData = z.infer<typeof FetchWorkoutDataSchema>;
+export type FetchLastExerciseRecords = z.infer<typeof FetchLastExerciseRecordsSchema>;
+export type CheckWorkoutCompletion = z.infer<typeof CheckWorkoutCompletionSchema>;
+export type GetLastCompletedWorkoutStructure = z.infer<
+  typeof GetLastCompletedWorkoutStructureSchema
+>;
+export type CheckWorkoutCompletionForCycleWeek = z.infer<
+  typeof CheckWorkoutCompletionForCycleWeekSchema
+>;

@@ -1,5 +1,7 @@
 import { logger } from '../utils/logger';
+import { MeasurementsResponseSchema } from '../validation/apiSchemas';
 import { MeasurementSchema } from '../validation/schemas';
+import { apiClient } from './apiClient';
 import supabase from './supabase';
 import { validationService } from './validationService';
 
@@ -29,16 +31,102 @@ export const MEASUREMENT_CATEGORIES = {
 export type MeasurementCategory = keyof typeof MEASUREMENT_CATEGORIES;
 
 export const measurementService = {
-  // Get all measurements for a user
+  // Get all measurements for a user with API schema validation
   async getUserMeasurements(userId: string): Promise<Measurement[]> {
-    const { data, error } = await supabase
-      .from('measurements')
-      .select('*')
-      .eq('user_id', userId)
-      .order('measured_at', { ascending: false });
+    try {
+      // Try API client with schema validation first
+      try {
+        const response = await apiClient.requestWithValidation(
+          {
+            url: `/rest/v1/measurements?user_id=eq.${userId}&select=*&order=measured_at.desc`,
+            method: 'GET',
+          },
+          MeasurementsResponseSchema,
+          {
+            cache: { enabled: true, ttl: 180000 }, // 3 minutes cache
+            auth: { required: true },
+          },
+        );
 
-    if (error) throw error;
-    return data;
+        const apiResponse = response.data as {
+          success: true;
+          data: Array<{
+            id: string;
+            userId: string;
+            type:
+              | 'weight'
+              | 'height'
+              | 'body_fat'
+              | 'muscle_mass'
+              | 'waist'
+              | 'chest'
+              | 'arms'
+              | 'thighs';
+            value: number;
+            unit: 'kg' | 'lbs' | 'cm' | 'inches' | 'percentage';
+            date: string;
+            notes?: string;
+            createdAt: string;
+          }>;
+        };
+
+        // Transform API response to internal Measurement interface
+        const transformedMeasurements: Measurement[] = apiResponse.data.map((measurement) => ({
+          id: measurement.id,
+          user_id: measurement.userId,
+          category: measurement.type.toUpperCase(),
+          value: measurement.value,
+          unit: measurement.unit,
+          measured_at: measurement.date,
+          previous_value: null, // Will be calculated separately if needed
+          created_at: measurement.createdAt,
+          updated_at: measurement.createdAt, // API doesn't have separate updated_at
+        }));
+
+        logger.info('User measurements fetched and validated successfully via API client', {
+          context: {
+            userId,
+            count: transformedMeasurements.length,
+            fromCache: response.fromCache,
+            validationPassed: response.processed,
+          },
+        });
+
+        return transformedMeasurements;
+      } catch (apiError) {
+        logger.warn(
+          'API client failed for user measurements, falling back to direct Supabase call',
+          {
+            context: { userId, error: (apiError as Error).message },
+          },
+        );
+
+        // Fallback to direct Supabase call
+        const { data, error } = await supabase
+          .from('measurements')
+          .select('*')
+          .eq('user_id', userId)
+          .order('measured_at', { ascending: false });
+
+        if (error) {
+          logger.error('Error fetching user measurements from database', error, {
+            context: { userId },
+          });
+          throw error;
+        }
+
+        logger.info('User measurements fetched successfully via fallback', {
+          context: { userId, count: data?.length || 0 },
+        });
+
+        return data || [];
+      }
+    } catch (error) {
+      logger.error('Failed to fetch user measurements', error as Error, {
+        context: { userId },
+      });
+      throw error;
+    }
   },
 
   // Get latest measurements for each category

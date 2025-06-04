@@ -1,5 +1,7 @@
 import { logger } from '../utils/logger';
+import { ExerciseListResponseSchema } from '../validation/apiSchemas';
 import { GeneralExerciseSchema } from '../validation/schemas';
+import { apiClient } from './apiClient';
 import supabase from './supabase';
 import { validationService } from './validationService';
 
@@ -113,17 +115,105 @@ const exerciseService = {
         return cache.all;
       }
 
-      // Fallback to API call
+      // Try API client with schema validation first
+      try {
+        const response = await apiClient.requestWithValidation(
+          {
+            url: '/rest/v1/exercises?select=*&order=name',
+            method: 'GET',
+          },
+          ExerciseListResponseSchema,
+          {
+            cache: { enabled: true, ttl: 300000 }, // 5 minutes cache
+            auth: { required: true },
+          },
+        );
+
+        // Type assertion for the validated response
+        type ExerciseApiResponse = {
+          success: true;
+          data: Array<{
+            id: string;
+            name: string;
+            description: string;
+            category: string;
+            primaryMuscles: string[];
+            secondaryMuscles: string[];
+            equipment: string;
+            difficulty: 'beginner' | 'intermediate' | 'advanced';
+            createdAt: string;
+            updatedAt: string;
+            imageUrl?: string;
+            videoUrl?: string;
+            instructions: string[];
+          }>;
+          timestamp: string;
+          requestId?: string;
+        };
+
+        const apiResponse = response.data as ExerciseApiResponse;
+
+        // Transform API response to internal Exercise interface
+        const transformedExercises: Exercise[] = apiResponse.data.map((exercise) => ({
+          id: exercise.id,
+          name: exercise.name,
+          description: exercise.description,
+          muscle_group: exercise.category || exercise.primaryMuscles[0] || 'Other',
+          equipment: exercise.equipment,
+          difficulty: exercise.difficulty,
+          created_at: exercise.createdAt,
+          updated_at: exercise.updatedAt,
+          image_url: exercise.imageUrl,
+          video_url: exercise.videoUrl,
+          primary_muscles: exercise.primaryMuscles,
+          secondary_muscles: exercise.secondaryMuscles,
+          instructions: exercise.instructions,
+          is_favorite: false,
+        }));
+
+        // Update cache with validated data
+        if (transformedExercises.length > 0) {
+          updateCache(transformedExercises);
+        }
+
+        logger.info('Exercises fetched and validated successfully via API client', {
+          context: {
+            count: transformedExercises.length,
+            fromCache: response.fromCache,
+            validationPassed: response.processed,
+          },
+        });
+
+        return transformedExercises;
+      } catch (apiError) {
+        logger.warn('API client failed, falling back to direct Supabase call', {
+          context: { error: (apiError as Error).message },
+        });
+
+        // Fallback to direct Supabase call
+        return this.getAllExercisesFallback();
+      }
+    } catch (error) {
+      logger.error('Failed to fetch exercises', error as Error, {
+        context: { operation: 'getAllExercises' },
+      });
+      throw error;
+    }
+  },
+
+  // Fallback method using direct Supabase call
+  async getAllExercisesFallback(): Promise<Exercise[]> {
+    try {
       const { data, error } = await supabase.from('exercises').select('*').order('name');
 
       if (error) {
         logger.error('Error fetching exercises from database', error, {
-          context: { operation: 'getAllExercises' },
+          context: { operation: 'getAllExercisesFallback' },
         });
         throw error;
       }
 
-      // Validate each exercise
+      // Validate each exercise using individual schema validation
       const validatedExercises: Exercise[] = [];
       for (const exercise of data || []) {
         const validationResult = validationService.validateGeneralExercise(exercise);
@@ -144,14 +234,14 @@ const exerciseService = {
         updateCache(validatedExercises);
       }
 
-      logger.info('Exercises fetched and validated successfully', {
+      logger.info('Exercises fetched and validated successfully via fallback', {
         context: { count: validatedExercises.length },
       });
 
       return validatedExercises;
     } catch (error) {
-      logger.error('Failed to fetch exercises', error as Error, {
-        context: { operation: 'getAllExercises' },
+      logger.error('Failed to fetch exercises via fallback', error as Error, {
+        context: { operation: 'getAllExercisesFallback' },
       });
       throw error;
     }
@@ -327,25 +417,126 @@ const exerciseService = {
   },
 
   async getExerciseById(id: string): Promise<Exercise | null> {
-    // Check cache first
-    const cache = getCachedExercises();
-    if (cache?.all) {
-      const exercise = cache.all.find((ex: Exercise) => ex.id === id);
-      if (exercise) {
-        console.log('Using cached data for exercise details');
-        return exercise;
+    try {
+      // Check cache first
+      const cache = getCachedExercises();
+      if (cache?.all) {
+        const exercise = cache.all.find((ex: Exercise) => ex.id === id);
+        if (exercise) {
+          logger.info('Using cached data for exercise details', {
+            context: { exerciseId: id },
+          });
+          return exercise;
+        }
       }
-    }
 
-    // Fallback to API call
-    const { data, error } = await supabase.from('exercises').select('*').eq('id', id).single();
+      // Try API client with schema validation first
+      try {
+        const response = await apiClient.requestWithValidation(
+          {
+            url: `/rest/v1/exercises?id=eq.${id}&select=*`,
+            method: 'GET',
+          },
+          ExerciseListResponseSchema,
+          {
+            cache: { enabled: true, ttl: 300000 }, // 5 minutes cache
+            auth: { required: true },
+          },
+        );
 
-    if (error) {
-      console.error('Error fetching exercise:', error);
+        const apiResponse = response.data as {
+          success: true;
+          data: Array<{
+            id: string;
+            name: string;
+            description: string;
+            category: string;
+            primaryMuscles: string[];
+            secondaryMuscles: string[];
+            equipment: string;
+            difficulty: 'beginner' | 'intermediate' | 'advanced';
+            createdAt: string;
+            updatedAt: string;
+            imageUrl?: string;
+            videoUrl?: string;
+            instructions: string[];
+          }>;
+        };
+
+        // Check if exercise was found
+        if (!apiResponse.data || apiResponse.data.length === 0) {
+          logger.info('Exercise not found via API client', { context: { exerciseId: id } });
+          return null;
+        }
+
+        // Transform API response to internal Exercise interface
+        const exercise = apiResponse.data[0]; // Get first (and should be only) result
+        const transformedExercise: Exercise = {
+          id: exercise.id,
+          name: exercise.name,
+          description: exercise.description,
+          muscle_group: exercise.category || exercise.primaryMuscles[0] || 'Other',
+          equipment: exercise.equipment,
+          difficulty: exercise.difficulty,
+          created_at: exercise.createdAt,
+          updated_at: exercise.updatedAt,
+          image_url: exercise.imageUrl,
+          video_url: exercise.videoUrl,
+          primary_muscles: exercise.primaryMuscles,
+          secondary_muscles: exercise.secondaryMuscles,
+          instructions: exercise.instructions,
+          is_favorite: false,
+        };
+
+        logger.info('Exercise fetched and validated successfully via API client', {
+          context: {
+            exerciseId: id,
+            fromCache: response.fromCache,
+            validationPassed: response.processed,
+          },
+        });
+
+        return transformedExercise;
+      } catch (apiError) {
+        logger.warn('API client failed for single exercise, falling back to direct Supabase call', {
+          context: { exerciseId: id, error: (apiError as Error).message },
+        });
+
+        // Fallback to direct Supabase call
+        const { data, error } = await supabase.from('exercises').select('*').eq('id', id).single();
+
+        if (error) {
+          if (error.code === 'PGRST116') {
+            // No rows returned
+            logger.info('Exercise not found', { context: { exerciseId: id } });
+            return null;
+          }
+          logger.error('Error fetching exercise from database', error, {
+            context: { exerciseId: id },
+          });
+          throw error;
+        }
+
+        // Validate the response
+        const validationResult = validationService.validateGeneralExercise(data);
+        if (validationResult.success) {
+          return validationResult.data as Exercise;
+        } else {
+          logger.warn('Invalid exercise data received from database', {
+            context: {
+              exerciseId: id,
+              errors: validationResult.errors,
+            },
+          });
+          return null;
+        }
+      }
+    } catch (error) {
+      logger.error('Failed to fetch exercise by ID', error as Error, {
+        context: { exerciseId: id },
+      });
       throw error;
     }
-
-    return data;
   },
 
   async searchExercises(query: string): Promise<Exercise[]> {

@@ -1,9 +1,9 @@
-import { validationService } from '../../services/validationService';
+import { validationService } from '../../app/services/validationService';
 import {
   CompleteWorkoutOptionsSchema,
   ExerciseRecordSchema,
   WorkoutHistoryRecordSchema,
-} from '../schemas';
+} from '../../app/validation/schemas';
 
 describe('Workout Data Validation', () => {
   describe('WorkoutHistoryRecordSchema', () => {
@@ -93,6 +93,7 @@ describe('Workout Data Validation', () => {
             name: 'Push-ups',
             sets: 3,
             reps_range: '10-15',
+            image_url: 'https://example.com/pushup.jpg',
             workout_day: 1,
             muscle_group: 'Chest',
             requires_weight: false,
@@ -101,9 +102,11 @@ describe('Workout Data Validation', () => {
         exerciseSets: {
           'exercise-1': [
             {
+              id: 'set-1',
+              setNumber: 1,
               isCompleted: true,
-              weight: 0,
-              reps: 12,
+              weight: '0',
+              reps: '12',
             },
           ],
         },
@@ -184,6 +187,7 @@ describe('Workout Data Validation', () => {
             name: 'Push-ups',
             sets: 3,
             reps_range: '10-15',
+            image_url: 'https://example.com/pushup.jpg',
             workout_day: 1,
             muscle_group: 'Chest',
             requires_weight: false,
@@ -192,9 +196,11 @@ describe('Workout Data Validation', () => {
         exerciseSets: {
           'exercise-1': [
             {
+              id: 'set-1',
+              setNumber: 1,
               isCompleted: true,
-              weight: 0,
-              reps: 12,
+              weight: '0',
+              reps: '12',
             },
           ],
         },

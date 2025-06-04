@@ -1,4 +1,4 @@
-import { validationService } from '../../../services/validationService';
+import { validationService } from '../../app/services/validationService';
 
 describe('AddExerciseModal Validation', () => {
   describe('validateAddExerciseForm', () => {

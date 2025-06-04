@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { validationService } from '../services/validationService';
+import { logger } from '../utils/logger';
 
 interface Profile {
   name: string;
@@ -46,12 +48,33 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const storedProfile = await AsyncStorage.getItem('profile');
       if (storedProfile) {
-        setProfile(JSON.parse(storedProfile));
+        // Validate the stored profile data using Zod
+        const validationResult = await validationService.validateProfileContext(
+          JSON.parse(storedProfile),
+        );
+
+        if (validationResult.success) {
+          setProfile(validationResult.data);
+        } else {
+          logger.warn('Invalid profile data found in storage, using default profile', {
+            context: { errors: validationResult.errors },
+          });
+          setProfile(defaultProfile);
+          // Store the default profile to fix the corrupted data
+          await AsyncStorage.setItem('profile', JSON.stringify(defaultProfile));
+        }
       } else {
         setProfile(defaultProfile);
       }
     } catch (error) {
-      console.error('Error loading profile:', error);
+      logger.error('Error loading profile', error as Error);
+      setProfile(defaultProfile);
+      // Try to store default profile
+      try {
+        await AsyncStorage.setItem('profile', JSON.stringify(defaultProfile));
+      } catch (storeError) {
+        logger.error('Error storing default profile', storeError as Error);
+      }
     } finally {
       setLoading(false);
     }
@@ -59,11 +82,26 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const updateProfile = async (newProfile: Partial<Profile>) => {
     try {
-      const updatedProfile = { ...profile, ...newProfile };
-      await AsyncStorage.setItem('profile', JSON.stringify(updatedProfile));
-      setProfile(updatedProfile as Profile);
+      const updatedProfile = { ...profile, ...newProfile } as Profile;
+
+      // Validate the updated profile before storing
+      const validationResult = await validationService.validateProfileContext(updatedProfile);
+
+      if (!validationResult.success) {
+        const errorMessage = `Invalid profile data: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+        logger.error('Cannot update profile with invalid data', new Error(errorMessage), {
+          context: { updatedProfile, errors: validationResult.errors },
+        });
+        throw new Error(errorMessage);
+      }
+
+      await AsyncStorage.setItem('profile', JSON.stringify(validationResult.data));
+      setProfile(validationResult.data);
     } catch (error) {
-      console.error('Error updating profile:', error);
+      logger.error('Error updating profile', error as Error, {
+        context: { newProfile },
+      });
+      throw error;
     }
   };
 

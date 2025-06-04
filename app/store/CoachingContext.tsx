@@ -1,26 +1,31 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import AICoachingService, { CoachingSession, CoachingContext } from '../services/aiCoaching';
-import { useAuth } from './AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, ReactNode, useContext, useEffect, useState } from 'react';
+import AICoachingService, {
+  CoachingContext as AICoachingContextData,
+  CoachingSession,
+} from '../services/aiCoaching';
+import { validationService } from '../services/validationService';
+import { logger } from '../utils/logger';
+import { useAuth } from './AuthContext';
 
 interface CoachingState {
   sessions: CoachingSession[];
-  context: CoachingContext;
+  context: AICoachingContextData;
   isLoading: boolean;
   error: string | null;
 }
 
 interface CoachingContextType extends CoachingState {
   getCoachingResponse: (prompt: string, type: CoachingSession['type']) => Promise<string>;
-  updateContext: (newContext: Partial<CoachingContext>) => void;
+  updateContext: (newContext: Partial<AICoachingContextData>) => void;
   clearError: () => void;
   saveFeedback: (sessionId: string, feedback: string, rating: number) => Promise<void>;
-  updateUserProfile: (profile: Partial<CoachingContext['userProfile']>) => void;
+  updateUserProfile: (profile: Partial<AICoachingContextData['userProfile']>) => void;
   isCoachingEnabled: boolean;
   toggleCoaching: () => void;
 }
 
-const defaultContext: CoachingContext = {
+const defaultContext: AICoachingContextData = {
   fitnessLevel: 'beginner',
   goals: [],
   preferences: [],
@@ -64,18 +69,33 @@ export const CoachingProvider = ({ children }: { children: ReactNode }) => {
 
   const loadUserProfile = async () => {
     try {
-      const profile = await AsyncStorage.getItem('userProfile');
-      if (profile) {
-        setState((prev) => ({
-          ...prev,
-          context: {
-            ...prev.context,
-            userProfile: JSON.parse(profile),
-          },
-        }));
+      const profileString = await AsyncStorage.getItem('userProfile');
+      if (profileString) {
+        const validationResult = await validationService.validateCoachingUserProfile(
+          JSON.parse(profileString),
+        );
+        if (validationResult.success) {
+          setState((prev) => ({
+            ...prev,
+            context: {
+              ...prev.context,
+              userProfile: validationResult.data,
+            },
+          }));
+        } else {
+          logger.warn('Invalid user profile data in CoachingContext, using default', {
+            context: { errors: validationResult.errors },
+          });
+          // Optionally, save the default profile back to storage if it was invalid
+          await AsyncStorage.setItem('userProfile', JSON.stringify(defaultContext.userProfile));
+        }
       }
     } catch (error) {
-      console.error('Error loading user profile:', error);
+      logger.error('Error loading user profile in CoachingContext', error as Error);
+      // Optionally, reset to default and save if there was a parsing or other error
+      await AsyncStorage.setItem('userProfile', JSON.stringify(defaultContext.userProfile)).catch(
+        (e) => logger.error('Failed to save default profile after error', e),
+      );
     }
   };
 
@@ -97,23 +117,37 @@ export const CoachingProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const updateContext = (newContext: Partial<CoachingContext>) => {
+  const updateContext = (newContext: Partial<AICoachingContextData>) => {
     setState((prev) => ({
       ...prev,
       context: { ...prev.context, ...newContext },
     }));
   };
 
-  const updateUserProfile = async (profile: Partial<CoachingContext['userProfile']>) => {
+  const updateUserProfile = async (profile: Partial<AICoachingContextData['userProfile']>) => {
     const newProfile = { ...state.context.userProfile, ...profile };
-    setState((prev) => ({
-      ...prev,
-      context: {
-        ...prev.context,
-        userProfile: newProfile,
-      },
-    }));
-    await AsyncStorage.setItem('userProfile', JSON.stringify(newProfile));
+    // Validate before saving
+    const validationResult = await validationService.validateCoachingUserProfile(newProfile);
+    if (validationResult.success) {
+      setState((prev) => ({
+        ...prev,
+        context: {
+          ...prev.context,
+          userProfile: validationResult.data,
+        },
+      }));
+      await AsyncStorage.setItem('userProfile', JSON.stringify(validationResult.data));
+    } else {
+      logger.error(
+        'Failed to update user profile due to validation errors',
+        new Error('Validation failed'),
+        {
+          context: { errors: validationResult.errors, profileData: newProfile },
+        },
+      );
+      // Potentially set an error state to inform the user
+      setState((prev) => ({ ...prev, error: 'Failed to save profile settings. Invalid data.' }));
+    }
   };
 
   const saveFeedback = async (sessionId: string, feedback: string, rating: number) => {

@@ -1,4 +1,4 @@
-import { logger } from '../logger';
+import { logger } from '../../app/utils/logger';
 
 // Mock Sentry to avoid initialization issues in tests
 jest.mock('@sentry/react-native', () => ({

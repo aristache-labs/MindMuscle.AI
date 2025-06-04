@@ -9,6 +9,7 @@ export const CONTENT_TYPES = {
 import { Buffer } from 'buffer';
 import * as FileSystem from 'expo-file-system';
 import { logger } from '../utils/logger';
+import { apiClient } from './apiClient';
 import supabase from './supabase';
 import { validationService } from './validationService';
 
@@ -20,10 +21,87 @@ export interface ProgressPhoto {
   userId: string;
 }
 
+export interface ProgressPhotoUploadResult {
+  photo: ProgressPhoto;
+  uploadDuration: number;
+  fileSize: number;
+}
+
+export interface ProgressPhotoStats {
+  totalPhotos: number;
+  beforePhotos: number;
+  afterPhotos: number;
+  latestPhotoDate?: Date;
+  totalStorageUsed: number;
+}
+
 const PROGRESS_PHOTOS_TABLE = 'progress_photos';
 const STORAGE_BUCKET = 'progress-photos';
 
 class ProgressPhotoService {
+  private static readonly CACHE_TTL = 300000; // 5 minutes
+
+  /**
+   * Helper method to validate and transform photo data
+   */
+  private transformPhotoData(
+    photoData: unknown,
+    type: 'before' | 'after',
+    userId: string,
+  ): ProgressPhoto | null {
+    const validationResult = validationService.validateProgressPhotoRecord(photoData);
+
+    if (!validationResult.success) {
+      logger.warn(`Invalid ${type} photo data received from database`, {
+        context: { userId, errors: validationResult.errors },
+      });
+      return null;
+    }
+
+    return {
+      id: validationResult.data.id!,
+      url: validationResult.data.photo_url,
+      type,
+      date: new Date(validationResult.data.taken_at || validationResult.data.created_at!),
+      userId: validationResult.data.user_id,
+    };
+  }
+
+  /**
+   * Helper method to fetch photos by type
+   */
+  private async fetchPhotosByType(userId: string, type: 'before' | 'after'): Promise<unknown[]> {
+    const response = await apiClient.get(
+      `/rest/v1/${PROGRESS_PHOTOS_TABLE}?user_id=eq.${userId}&type=eq.${type}&order=created_at.desc&limit=1`,
+      {
+        cache: {
+          enabled: true,
+          ttl: ProgressPhotoService.CACHE_TTL,
+          tags: ['progress-photos', `user:${userId}`, type],
+        },
+        auth: { required: true },
+      },
+    );
+
+    return Array.isArray(response.data) ? response.data : [];
+  }
+
+  /**
+   * Helper method to process photo response data
+   */
+  private processPhotoResponse(
+    photoData: unknown[],
+    type: 'before' | 'after',
+    userId: string,
+  ): ProgressPhoto | undefined {
+    if (photoData.length === 0) {
+      return undefined;
+    }
+
+    const transformedPhoto = this.transformPhotoData(photoData[0], type, userId);
+    return transformedPhoto || undefined;
+  }
+
   /**
    * Get the latest before and after photos for a user
    */
@@ -38,86 +116,25 @@ class ProgressPhotoService {
 
       logger.info('Fetching latest photos for user', { context: { userId } });
 
-      // Fetch the latest 'before' photo
-      const { data: beforeData, error: beforeError } = await supabase
-        .from(PROGRESS_PHOTOS_TABLE)
-        .select('*')
-        .eq('user_id', userId)
-        .eq('type', 'before')
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (beforeError) {
-        logger.error('Error fetching before photo', beforeError, {
-          context: { userId, operation: 'getLatestPhotos' },
-        });
-        throw beforeError;
-      }
-
-      // Fetch the latest 'after' photo
-      const { data: afterData, error: afterError } = await supabase
-        .from(PROGRESS_PHOTOS_TABLE)
-        .select('*')
-        .eq('user_id', userId)
-        .eq('type', 'after')
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (afterError) {
-        logger.error('Error fetching after photo', afterError, {
-          context: { userId, operation: 'getLatestPhotos' },
-        });
-        throw afterError;
-      }
+      // Fetch both photo types in parallel
+      const [beforeData, afterData] = await Promise.all([
+        this.fetchPhotosByType(userId, 'before'),
+        this.fetchPhotosByType(userId, 'after'),
+      ]);
 
       logger.info('Photos fetched successfully', {
         context: {
           userId,
-          beforeCount: beforeData?.length || 0,
-          afterCount: afterData?.length || 0,
+          beforeCount: beforeData.length,
+          afterCount: afterData.length,
         },
       });
 
-      // Format the results
-      const result: { before?: ProgressPhoto; after?: ProgressPhoto } = {};
-
-      if (beforeData && beforeData.length > 0) {
-        // Validate before photo data
-        const validationResult = validationService.validateProgressPhotoRecord(beforeData[0]);
-        if (validationResult.success) {
-          result.before = {
-            id: validationResult.data.id!,
-            url: validationResult.data.photo_url,
-            type: 'before',
-            date: new Date(validationResult.data.taken_at || validationResult.data.created_at!),
-            userId: validationResult.data.user_id,
-          };
-        } else {
-          logger.warn('Invalid before photo data received from database', {
-            context: { userId, errors: validationResult.errors },
-          });
-        }
-      }
-
-      if (afterData && afterData.length > 0) {
-        // Validate after photo data
-        const validationResult = validationService.validateProgressPhotoRecord(afterData[0]);
-        if (validationResult.success) {
-          result.after = {
-            id: validationResult.data.id!,
-            url: validationResult.data.photo_url,
-            type: 'after',
-            date: new Date(validationResult.data.taken_at || validationResult.data.created_at!),
-            userId: validationResult.data.user_id,
-          };
-        } else {
-          logger.warn('Invalid after photo data received from database', {
-            context: { userId, errors: validationResult.errors },
-          });
-        }
-      }
-
-      return result;
+      // Process and return results
+      return {
+        before: this.processPhotoResponse(beforeData, 'before', userId),
+        after: this.processPhotoResponse(afterData, 'after', userId),
+      };
     } catch (error) {
       logger.error('Error fetching latest photos', error as Error, {
         context: { userId, operation: 'getLatestPhotos' },
@@ -136,22 +153,18 @@ class ProgressPhotoService {
         throw new Error('Valid user ID is required');
       }
 
-      const { data, error } = await supabase
-        .from(PROGRESS_PHOTOS_TABLE)
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        logger.error('Error fetching all photos', error, {
-          context: { userId, operation: 'getAllPhotos' },
-        });
-        throw error;
-      }
+      const response = await apiClient.get(
+        `/rest/v1/${PROGRESS_PHOTOS_TABLE}?user_id=eq.${userId}&order=created_at.desc`,
+        {
+          cache: { enabled: true, ttl: 300000, tags: ['progress-photos', `user:${userId}`] },
+          auth: { required: true },
+        },
+      );
 
       // Validate and transform each photo
       const validatedPhotos: ProgressPhoto[] = [];
-      for (const photo of data || []) {
+      const responseData = Array.isArray(response.data) ? response.data : [];
+      for (const photo of responseData) {
         const validationResult = validationService.validateProgressPhotoRecord(photo);
         if (validationResult.success) {
           validatedPhotos.push({
@@ -182,196 +195,279 @@ class ProgressPhotoService {
   }
 
   /**
-   * Upload a progress photo
+   * Get progress photo statistics for a user
    */
-  async uploadPhoto(
-    userId: string,
-    type: 'before' | 'after',
-    uri: string,
-    date: Date = new Date(),
-  ): Promise<ProgressPhoto> {
+  async getPhotoStats(userId: string): Promise<ProgressPhotoStats> {
     try {
-      // Validate upload data
-      const uploadData = { userId, type, uri, date };
-      const validationResult = validationService.validateProgressPhotoUpload(uploadData);
-
-      if (!validationResult.success) {
-        const errorMessage = `Progress photo upload validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
-        logger.error('Progress photo upload validation failed', new Error(errorMessage), {
-          context: { uploadData, errors: validationResult.errors },
-        });
-        throw new Error(errorMessage);
+      if (!userId || typeof userId !== 'string') {
+        throw new Error('Valid user ID is required');
       }
 
-      logger.info('Uploading progress photo', {
-        context: { userId, type, operation: 'uploadPhoto' },
-      });
+      const photos = await this.getAllPhotos(userId);
 
-      // Generate a unique file name with timestamp
-      const timestamp = Date.now();
-      const filename = `${timestamp}_${type}.jpg`;
-      const filePath = `${userId}/${filename}`;
-
-      // Read the file as base64
-      const fileBase64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      // Upload directly to storage
-      logger.info('Uploading file to storage', { context: { filePath } });
-      const { error: uploadError } = await supabase.storage
-        .from(STORAGE_BUCKET)
-        .upload(filePath, decode(fileBase64), {
-          contentType: CONTENT_TYPES.JPEG,
-          upsert: true,
-        });
-
-      if (uploadError) {
-        logger.error('Error uploading file to storage', uploadError, {
-          context: { userId, type, filePath },
-        });
-        throw uploadError;
-      }
-
-      // Get the public URL
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(filePath);
-
-      logger.info('File uploaded successfully', { context: { publicUrl } });
-
-      // Prepare database record data
-      const recordData = {
-        user_id: userId,
-        type,
-        photo_url: publicUrl,
-        taken_at: date.toISOString(),
+      const stats: ProgressPhotoStats = {
+        totalPhotos: photos.length,
+        beforePhotos: photos.filter((p) => p.type === 'before').length,
+        afterPhotos: photos.filter((p) => p.type === 'after').length,
+        latestPhotoDate: photos.length > 0 ? photos[0].date : undefined,
+        totalStorageUsed: 0, // Would need to calculate from actual file sizes
       };
 
-      // Validate record data before insertion
-      const recordValidationResult = validationService.validateProgressPhotoRecord(recordData);
-      if (!recordValidationResult.success) {
-        const errorMessage = `Progress photo record validation failed: ${recordValidationResult.errors.map((e) => e.message).join(', ')}`;
-        logger.error('Progress photo record validation failed', new Error(errorMessage), {
-          context: { recordData, errors: recordValidationResult.errors },
-        });
-        throw new Error(errorMessage);
-      }
-
-      // Save record to database
-      const { data, error } = await supabase
-        .from(PROGRESS_PHOTOS_TABLE)
-        .insert(recordData)
-        .select()
-        .single();
-
-      if (error) {
-        logger.error('Error saving photo record to database', error, {
-          context: { userId, type, publicUrl },
-        });
-        throw error;
-      }
-
-      logger.info('Photo record saved successfully', {
-        context: { photoId: data.id, userId, type },
+      logger.info('Photo statistics calculated', {
+        context: { userId, stats },
       });
 
-      return {
-        id: data.id,
-        url: publicUrl,
-        type,
-        date,
-        userId,
-      };
+      return stats;
     } catch (error) {
-      logger.error('Failed to upload progress photo', error as Error, {
-        context: { userId, type, operation: 'uploadPhoto' },
+      logger.error('Error calculating photo statistics', error as Error, {
+        context: { userId },
       });
       throw error;
     }
   }
 
   /**
-   * Delete a progress photo
+   * Upload a progress photo with enhanced error handling and progress tracking
+   */
+  async uploadPhoto(
+    userId: string,
+    type: 'before' | 'after',
+    uri: string,
+    date: Date = new Date(),
+  ): Promise<ProgressPhotoUploadResult> {
+    const startTime = Date.now();
+
+    try {
+      // Validate upload data
+      const uploadValidationData = { userId, type, uri, date };
+      const validationResult = validationService.validateProgressPhotoUpload(uploadValidationData);
+
+      if (!validationResult.success) {
+        const errorMessage = `Progress photo upload validation failed: ${validationResult.errors?.map((e) => e.message).join(', ')}`;
+        logger.error('Progress photo upload validation failed', new Error(errorMessage), {
+          context: { uploadData: uploadValidationData, errors: validationResult.errors },
+        });
+        throw new Error(errorMessage);
+      }
+
+      logger.info('Starting progress photo upload', {
+        context: { userId, type, uri: uri.substring(0, 50) + '...' },
+      });
+
+      // Read the file and get its info
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      if (!fileInfo.exists) {
+        throw new Error('File does not exist');
+      }
+
+      const fileSize = fileInfo.size || 0;
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      // Generate unique filename
+      const timestamp = Date.now();
+      const fileName = `${userId}/${type}/${timestamp}.jpg`;
+
+      // Upload to Supabase Storage
+      const { data: _uploadData, error: uploadError } = await supabase.storage
+        .from(STORAGE_BUCKET)
+        .upload(fileName, decode(base64), {
+          contentType: 'image/jpeg',
+          upsert: false,
+        });
+
+      if (uploadError) {
+        logger.error('Error uploading photo to storage', uploadError, {
+          context: { userId, type, fileName },
+        });
+        throw uploadError;
+      }
+
+      // Get public URL
+      const { data: urlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(fileName);
+
+      // Save photo record to database using API client
+      const photoRecord = {
+        user_id: userId,
+        type,
+        photo_url: urlData.publicUrl,
+        taken_at: date.toISOString(),
+      };
+
+      const response = await apiClient.post(`/rest/v1/${PROGRESS_PHOTOS_TABLE}`, photoRecord, {
+        auth: { required: true },
+        cache: { enabled: false },
+      });
+
+      // Invalidate related cache
+      await apiClient.invalidateCache(['progress-photos', `user:${userId}`]);
+
+      const uploadDuration = Date.now() - startTime;
+
+      const responseData = response.data as { id: string };
+      const photo: ProgressPhoto = {
+        id: responseData.id,
+        url: urlData.publicUrl,
+        type,
+        date,
+        userId,
+      };
+
+      logger.info('Progress photo uploaded successfully', {
+        context: {
+          userId,
+          type,
+          photoId: photo.id,
+          uploadDuration,
+          fileSize,
+        },
+      });
+
+      return {
+        photo,
+        uploadDuration,
+        fileSize,
+      };
+    } catch (error) {
+      const uploadDuration = Date.now() - startTime;
+      logger.error('Error uploading progress photo', error as Error, {
+        context: { userId, type, uploadDuration },
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a progress photo with proper cleanup
    */
   async deletePhoto(userId: string, photoId: string): Promise<void> {
     try {
-      console.log(`Deleting photo with ID: ${photoId} for user: ${userId}`);
+      // Validate input
+      if (!userId || typeof userId !== 'string') {
+        throw new Error('Valid user ID is required');
+      }
+      if (!photoId || typeof photoId !== 'string') {
+        throw new Error('Valid photo ID is required');
+      }
 
-      // Get the photo record to find the file path
-      const { data, error } = await supabase
+      logger.info('Starting progress photo deletion', {
+        context: { userId, photoId },
+      });
+
+      // Get photo details first
+      const { data: photoData, error: fetchError } = await supabase
         .from(PROGRESS_PHOTOS_TABLE)
         .select('*')
         .eq('id', photoId)
         .eq('user_id', userId)
         .single();
 
-      if (error) {
-        console.error('Error finding photo record:', error);
-        throw error;
+      if (fetchError) {
+        logger.error('Error fetching photo for deletion', fetchError as Error, {
+          context: { userId, photoId },
+        });
+        throw fetchError;
       }
 
-      if (!data) {
-        console.warn(`No photo found with ID ${photoId} for user ${userId}`);
-        return;
+      if (!photoData) {
+        throw new Error('Photo not found or access denied');
       }
 
-      // Extract file path from URL
-      // Format: https://[projectref].supabase.co/storage/v1/object/public/progress-photos/[userId]/[filename]
-      const url = new URL(data.photo_url);
-      const pathParts = url.pathname.split('/');
-      const bucketIndex = pathParts.findIndex((part) => part === STORAGE_BUCKET);
+      // Extract filename from URL
+      const url = new URL(photoData.photo_url);
+      const fileName = url.pathname.split('/').pop();
 
-      if (bucketIndex !== -1 && bucketIndex < pathParts.length - 1) {
-        const filePath = pathParts.slice(bucketIndex + 1).join('/');
-
-        console.log(`Deleting file from storage: ${filePath}`);
-        const { error: deleteStorageError } = await supabase.storage
+      // Delete from storage
+      if (fileName) {
+        const { error: storageError } = await supabase.storage
           .from(STORAGE_BUCKET)
-          .remove([filePath]);
+          .remove([`${userId}/${photoData.type}/${fileName}`]);
 
-        if (deleteStorageError) {
-          console.error('Error deleting file from storage:', deleteStorageError);
-          // Continue with DB deletion even if storage delete fails
+        if (storageError) {
+          logger.warn('Error deleting photo from storage', {
+            context: { userId, photoId, fileName, error: storageError },
+          });
+          // Continue with database deletion even if storage deletion fails
         }
       }
 
-      // Delete from database
-      const { error: deleteDbError } = await supabase
-        .from(PROGRESS_PHOTOS_TABLE)
-        .delete()
-        .eq('id', photoId)
-        .eq('user_id', userId);
+      // Delete from database using API client
+      await apiClient.delete(
+        `/rest/v1/${PROGRESS_PHOTOS_TABLE}?id=eq.${photoId}&user_id=eq.${userId}`,
+        {
+          auth: { required: true },
+        },
+      );
 
-      if (deleteDbError) {
-        console.error('Error deleting photo record from database:', deleteDbError);
-        throw deleteDbError;
+      // Invalidate related cache
+      await apiClient.invalidateCache(['progress-photos', `user:${userId}`]);
+
+      logger.info('Progress photo deleted successfully', {
+        context: { userId, photoId, type: photoData.type },
+      });
+    } catch (error) {
+      logger.error('Error deleting progress photo', error as Error, {
+        context: { userId, photoId },
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Sync progress photos with cloud storage
+   */
+  async syncPhotos(userId: string): Promise<{ synced: number; errors: number }> {
+    try {
+      logger.info('Starting progress photos sync', { context: { userId } });
+
+      const localPhotos = await this.getAllPhotos(userId);
+      let synced = 0;
+      let errors = 0;
+
+      for (const photo of localPhotos) {
+        try {
+          // Verify photo exists in storage
+          const response = await fetch(photo.url, { method: 'HEAD' });
+          if (response.ok) {
+            synced++;
+          } else {
+            errors++;
+            logger.warn('Photo not accessible in storage', {
+              context: { userId, photoId: photo.id, url: photo.url },
+            });
+          }
+        } catch (error) {
+          errors++;
+          logger.warn('Error checking photo accessibility', {
+            context: { userId, photoId: photo.id, error: (error as Error).message },
+          });
+        }
       }
 
-      console.log(`Successfully deleted photo with ID: ${photoId}`);
+      logger.info('Progress photos sync completed', {
+        context: { userId, synced, errors, total: localPhotos.length },
+      });
+
+      return { synced, errors };
     } catch (error) {
-      console.error('Error deleting photo:', error);
+      logger.error('Error syncing progress photos', error as Error, {
+        context: { userId },
+      });
       throw error;
     }
   }
 }
 
-// Helper function to decode base64
+// Helper function to decode base64 string to Uint8Array
 function decode(str: string): Uint8Array {
-  // Browser
-  if (typeof atob === 'function') {
-    return Uint8Array.from(atob(str), (c) => c.charCodeAt(0));
+  const binaryString = Buffer.from(str, 'base64').toString('binary');
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
   }
-  // Node
-  else {
-    try {
-      return new Uint8Array(Buffer.from(str, 'base64'));
-    } catch {
-      throw new Error('Failed to decode base64 string');
-    }
-  }
+  return bytes;
 }
 
-// Create and export a singleton instance
-const progressPhotoService = new ProgressPhotoService();
+export const progressPhotoService = new ProgressPhotoService();
 export default progressPhotoService;

@@ -1,17 +1,18 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { z } from 'zod';
+import { logger } from '../utils/logger';
+import { WorkoutPlanListResponseSchema, type WorkoutPlanApi } from '../validation/apiSchemas';
+import { SavedPlanSchema, WorkoutDaySchema } from '../validation/schemas';
+import { apiClient } from './apiClient';
 import supabase from './supabase';
+import { validationService } from './validationService';
 
 // Key for the active plan in AsyncStorage
 const ACTIVE_PLAN_KEY = 'mindmuscle_active_plan';
 
-// Interface for plan workout day
-export interface WorkoutDay {
-  day: number;
-  exercises: PlanExercise[];
-  total_exercises: number;
-  estimated_duration: number;
-  total_calories: number;
-}
+// Define types using z.infer
+export type WorkoutDay = z.infer<typeof WorkoutDaySchema>;
+export type SavedPlan = z.infer<typeof SavedPlanSchema>;
 
 // Interface for workout plan exercise
 export interface PlanExercise {
@@ -25,73 +26,205 @@ export interface PlanExercise {
   workout_day: number;
 }
 
-// Interface for a saved workout plan
-export interface SavedPlan {
-  id: string;
-  title: string;
-  difficulty_level?: string;
-  category_name?: string;
-  subtitle?: string;
-  workout_frequency?: number;
-  workoutDays: WorkoutDay[];
-  activeDay?: number;
-  started_at: string;
-}
-
 // Save a plan as the active plan
-export const saveActivePlan = async (plan: SavedPlan): Promise<void> => {
-  // Set the started date
-  plan.started_at = new Date().toISOString();
+export const setActivePlan = async (plan: SavedPlan): Promise<void> => {
+  try {
+    const planToSave = {
+      id: plan.id,
+      title: plan.title,
+      difficulty_level: plan.difficulty_level,
+      subtitle: plan.subtitle,
+      category_name: plan.category_name,
+      workoutDays: plan.workoutDays,
+      created_at: plan.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    // Validate before saving
+    const validationResult = await validationService.validateSavedPlan(planToSave);
+    if (!validationResult.success) {
+      const errorMessage = `Invalid active plan data: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+      logger.error('Cannot set active plan with invalid data', new Error(errorMessage), {
+        context: { planToSave, errors: validationResult.errors },
+      });
+      throw new Error(errorMessage);
+    }
 
-  // Default to day 1 (index 0)
-  plan.activeDay = 0;
-
-  // Save the plan to AsyncStorage
-  await AsyncStorage.setItem(ACTIVE_PLAN_KEY, JSON.stringify(plan));
-
-  // Optionally, also save to the server/database
-  // await uploadActivePlanToServer(plan);
+    await AsyncStorage.setItem(ACTIVE_PLAN_KEY, JSON.stringify(validationResult.data));
+  } catch (error) {
+    logger.error('Error setting active plan:', error as Error, { context: { plan } });
+    throw error;
+  }
 };
 
 // Get the active plan
 export const getActivePlan = async (): Promise<SavedPlan | null> => {
   try {
     const planJson = await AsyncStorage.getItem(ACTIVE_PLAN_KEY);
-    if (!planJson) return null;
-
-    return JSON.parse(planJson) as SavedPlan;
-  } catch {
-    // Error fetching active plan
+    if (planJson) {
+      const validationResult = await validationService.validateSavedPlan(JSON.parse(planJson));
+      if (validationResult.success) {
+        const validatedPlan = validationResult.data;
+        return {
+          ...validatedPlan,
+          created_at: validatedPlan.created_at || new Date(0).toISOString(),
+          updated_at: validatedPlan.updated_at || new Date().toISOString(),
+        };
+      } else {
+        logger.warn('Invalid active plan data found in storage, clearing it', {
+          context: { errors: validationResult.errors },
+        });
+        await AsyncStorage.removeItem(ACTIVE_PLAN_KEY);
+        return null;
+      }
+    }
+    return null;
+  } catch (error) {
+    logger.error('Error getting active plan:', error as Error);
+    await AsyncStorage.removeItem(ACTIVE_PLAN_KEY).catch(() => {});
     return null;
   }
 };
 
-// Update the active day of the current plan
-export const updateActivePlanDay = async (dayIndex: number): Promise<void> => {
-  const plan = await getActivePlan();
-  if (!plan) throw new Error('No active plan found');
+// Update the current day of the active plan
+export const updateActivePlanDay = async (
+  userId: string,
+  planId: string,
+  newDay: number,
+): Promise<void> => {
+  try {
+    const { error } = await supabase
+      .from('user_active_plans')
+      .update({ current_day: newDay })
+      .eq('user_id', userId)
+      .eq('plan_id', planId)
+      .eq('is_active', true);
 
-  plan.activeDay = dayIndex;
-  await AsyncStorage.setItem(ACTIVE_PLAN_KEY, JSON.stringify(plan));
+    if (error) {
+      logger.error('Error updating active plan day:', error, {
+        context: { userId, planId, newDay },
+      });
+      throw error;
+    }
+
+    logger.info('Active plan day updated successfully', {
+      context: { userId, planId, newDay },
+    });
+  } catch (error) {
+    logger.error('Error updating active plan day:', error as Error, {
+      context: { userId, planId, newDay },
+    });
+    throw error;
+  }
 };
 
 // Clear the active plan
 export const clearActivePlan = async (): Promise<void> => {
-  await AsyncStorage.removeItem(ACTIVE_PLAN_KEY);
+  try {
+    await AsyncStorage.removeItem(ACTIVE_PLAN_KEY);
+  } catch (error) {
+    logger.error('Error clearing active plan:', error as Error);
+    throw error;
+  }
 };
 
-// Get plan details by ID from Supabase
-export const getPlanById = async (planId: string): Promise<unknown> => {
-  const { data, error } = await supabase
-    .from('workout_plans')
-    .select(
-      '*, workout_subcategories!workout_plans_subcategory_id_fkey(title, category_identifier, subtitle)',
-    )
-    .eq('id', planId)
-    .single();
+// Get plan details by ID with API schema validation
+export const getPlanById = async (planId: string): Promise<WorkoutPlanApi | null> => {
+  try {
+    // Try API client with schema validation first
+    try {
+      const response = await apiClient.requestWithValidation(
+        {
+          url: `/rest/v1/workout_plans?id=eq.${planId}&select=*,workout_subcategories!workout_plans_subcategory_id_fkey(title,category_identifier,subtitle)`,
+          method: 'GET',
+        },
+        WorkoutPlanListResponseSchema,
+        {
+          cache: { enabled: true, ttl: 300000 }, // 5 minutes cache
+          auth: { required: true },
+        },
+      );
 
-  if (error) throw error;
-  return data;
+      const apiResponse = response.data as {
+        success: true;
+        data: Array<{
+          id: string;
+          name: string;
+          description: string;
+          difficulty: 'beginner' | 'intermediate' | 'advanced';
+          duration: number;
+          frequency: number;
+          exercises: Array<{
+            exerciseId: string;
+            sets: number;
+            reps: string;
+            weight?: number;
+            restTime: number;
+            notes?: string;
+          }>;
+          tags: string[];
+          isPublic: boolean;
+          createdBy: string;
+          createdAt: string;
+          updatedAt: string;
+        }>;
+      };
+
+      // Check if plan was found
+      if (!apiResponse.data || apiResponse.data.length === 0) {
+        logger.info('Workout plan not found via API client', { context: { planId } });
+        return null;
+      }
+
+      const plan = apiResponse.data[0];
+
+      logger.info('Workout plan fetched and validated successfully via API client', {
+        context: {
+          planId,
+          planName: plan.name,
+          fromCache: response.fromCache,
+          validationPassed: response.processed,
+        },
+      });
+
+      return plan;
+    } catch (apiError) {
+      logger.warn('API client failed for workout plan, falling back to direct Supabase call', {
+        context: { planId, error: (apiError as Error).message },
+      });
+
+      // Fallback to direct Supabase call
+      const { data, error } = await supabase
+        .from('workout_plans')
+        .select(
+          '*, workout_subcategories!workout_plans_subcategory_id_fkey(title, category_identifier, subtitle)',
+        )
+        .eq('id', planId)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // No rows returned
+          logger.info('Workout plan not found', { context: { planId } });
+          return null;
+        }
+        logger.error('Error fetching workout plan from database', error, {
+          context: { planId },
+        });
+        throw error;
+      }
+
+      logger.info('Workout plan fetched successfully via fallback', {
+        context: { planId, planName: data?.name },
+      });
+
+      return data as WorkoutPlanApi;
+    }
+  } catch (error) {
+    logger.error('Failed to fetch workout plan by ID', error as Error, {
+      context: { planId },
+    });
+    throw error;
+  }
 };
 
 // Update user workout days
@@ -227,6 +360,64 @@ export const startPlan = async (userId: string, planId: string): Promise<boolean
 
   return true;
 };
+
+const SAVED_PLAN_KEY = 'savedCustomPlan';
+
+export const saveCustomPlan = async (plan: SavedPlan): Promise<void> => {
+  try {
+    const validationResult = await validationService.validateSavedPlan(plan);
+    if (!validationResult.success) {
+      const errorMessage = `Invalid plan data: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+      logger.error('Cannot save invalid plan', new Error(errorMessage), {
+        context: { plan, errors: validationResult.errors },
+      });
+      throw new Error(errorMessage);
+    }
+    await AsyncStorage.setItem(SAVED_PLAN_KEY, JSON.stringify(validationResult.data));
+  } catch (error) {
+    logger.error('Error saving custom plan:', error as Error, { context: { plan } });
+    throw error;
+  }
+};
+
+export const loadCustomPlan = async (): Promise<SavedPlan | null> => {
+  try {
+    const planJson = await AsyncStorage.getItem(SAVED_PLAN_KEY);
+    if (planJson) {
+      const validationResult = await validationService.validateSavedPlan(JSON.parse(planJson));
+      if (validationResult.success) {
+        return validationResult.data;
+      } else {
+        logger.warn('Invalid saved plan data found in storage, clearing it', {
+          context: { errors: validationResult.errors },
+        });
+        await AsyncStorage.removeItem(SAVED_PLAN_KEY);
+        return null;
+      }
+    }
+    return null;
+  } catch (error) {
+    logger.error('Error loading custom plan:', error as Error);
+    await AsyncStorage.removeItem(SAVED_PLAN_KEY).catch(() => {});
+    return null;
+  }
+};
+
+export const deleteCustomPlan = async (): Promise<void> => {
+  try {
+    await AsyncStorage.removeItem(SAVED_PLAN_KEY);
+  } catch (error) {
+    logger.error('Error deleting custom plan:', error as Error);
+    throw error;
+  }
+};
+
+// Check if there is an active plan
+export const hasActivePlan = async (): Promise<boolean> => {
+  const plan = await getActivePlan();
+  return !!plan;
+};
+
 export default function disablewarn() {
   return null;
 }

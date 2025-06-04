@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { logger } from '../utils/logger';
 import supabase from './supabase';
+import { validationService } from './validationService';
 
 // Key for the paused workout in AsyncStorage
 const PAUSED_WORKOUT_KEY = 'mindmuscle_paused_workout';
@@ -167,8 +169,19 @@ export const savePausedWorkout = async (options: SavePausedWorkoutOptions): Prom
       pausedAt: new Date().toISOString(),
     };
 
+    // Validate the paused workout data before saving
+    const validationResult = await validationService.validatePausedWorkoutData(pausedWorkout);
+
+    if (!validationResult.success) {
+      const errorMessage = `Invalid paused workout data: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+      logger.error('Cannot save invalid paused workout data', new Error(errorMessage), {
+        context: { pausedWorkout, errors: validationResult.errors },
+      });
+      throw new Error(errorMessage);
+    }
+
     // Save to AsyncStorage
-    await AsyncStorage.setItem(PAUSED_WORKOUT_KEY, JSON.stringify(pausedWorkout));
+    await AsyncStorage.setItem(PAUSED_WORKOUT_KEY, JSON.stringify(validationResult.data));
 
     // Save to Supabase for cross-device sync
     if (userId) {
@@ -207,7 +220,25 @@ export const savePausedWorkout = async (options: SavePausedWorkoutOptions): Prom
 // Helper function to get paused workout from AsyncStorage
 const getPausedWorkoutFromStorage = async (): Promise<PausedWorkoutData | null> => {
   const pausedWorkoutJson = await AsyncStorage.getItem(PAUSED_WORKOUT_KEY);
-  return pausedWorkoutJson ? JSON.parse(pausedWorkoutJson) : null;
+  if (!pausedWorkoutJson) {
+    return null;
+  }
+
+  // Validate the parsed paused workout data using Zod
+  const validationResult = await validationService.validatePausedWorkoutData(
+    JSON.parse(pausedWorkoutJson),
+  );
+
+  if (validationResult.success) {
+    return validationResult.data;
+  } else {
+    logger.warn('Invalid paused workout data found in storage, clearing it', {
+      context: { errors: validationResult.errors },
+    });
+    // Clear invalid data
+    await AsyncStorage.removeItem(PAUSED_WORKOUT_KEY);
+    return null;
+  }
 };
 
 // Helper function to validate paused workout against requested parameters

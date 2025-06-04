@@ -7,7 +7,7 @@ import {
   getActivePlan,
   getPlanById,
   getUserWorkoutDays,
-  saveActivePlan,
+  setActivePlan as saveActivePlan,
   updateActivePlanDay,
   updateUserWorkoutDays,
   type PlanExercise,
@@ -275,7 +275,7 @@ export const updatePlanProgress = async (
 ): Promise<void> => {
   try {
     // Update the active plan's current day (just pass the day index)
-    await updateActivePlanDay(workoutDay + 1);
+    await updateActivePlanDay(userId, planId, workoutDay + 1);
 
     // Check if we need to progress to the next week
     const weekProgression = await checkWeekProgressionCycle(userId, planId);

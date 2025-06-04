@@ -1,4 +1,4 @@
-import { validationService } from '../validationService';
+import { validationService } from '../../app/services/validationService';
 
 describe('WorkoutDataService Validation', () => {
   describe('validateFetchWorkoutData', () => {

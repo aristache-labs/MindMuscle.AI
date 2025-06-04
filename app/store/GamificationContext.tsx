@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { validationService } from '../services/validationService';
+import { logger } from '../utils/logger';
 
 interface Achievement {
   id: string;
@@ -138,10 +140,29 @@ export const GamificationProvider: React.FC<{ children: React.ReactNode; metrics
     try {
       const storedStats = await AsyncStorage.getItem('gamificationStats');
       if (storedStats) {
-        setStats(JSON.parse(storedStats));
+        // Validate the stored stats data using Zod
+        const validationResult = await validationService.validateUserStats(JSON.parse(storedStats));
+
+        if (validationResult.success) {
+          setStats(validationResult.data);
+        } else {
+          logger.warn('Invalid gamification stats found in storage, using default stats', {
+            context: { errors: validationResult.errors },
+          });
+          setStats(defaultStats);
+          // Store the default stats to fix the corrupted data
+          await AsyncStorage.setItem('gamificationStats', JSON.stringify(defaultStats));
+        }
       }
     } catch (error) {
-      console.error('Error loading gamification stats:', error);
+      logger.error('Error loading gamification stats', error as Error);
+      setStats(defaultStats);
+      // Try to store default stats
+      try {
+        await AsyncStorage.setItem('gamificationStats', JSON.stringify(defaultStats));
+      } catch (storeError) {
+        logger.error('Error storing default gamification stats', storeError as Error);
+      }
     } finally {
       setLoading(false);
     }
@@ -172,10 +193,23 @@ export const GamificationProvider: React.FC<{ children: React.ReactNode; metrics
         nextLevelXp: newNextLevelXp,
       };
 
-      await AsyncStorage.setItem('gamificationStats', JSON.stringify(updatedStats));
-      setStats(updatedStats);
+      // Validate the updated stats before storing
+      const validationResult = await validationService.validateUserStats(updatedStats);
+
+      if (!validationResult.success) {
+        const errorMessage = `Invalid stats data: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+        logger.error('Cannot update stats with invalid data', new Error(errorMessage), {
+          context: { updatedStats, errors: validationResult.errors },
+        });
+        throw new Error(errorMessage);
+      }
+
+      await AsyncStorage.setItem('gamificationStats', JSON.stringify(validationResult.data));
+      setStats(validationResult.data);
     } catch (error) {
-      console.error('Error adding XP:', error);
+      logger.error('Error adding XP', error as Error, {
+        context: { amount, currentStats: stats },
+      });
     }
   };
 
@@ -221,10 +255,22 @@ export const GamificationProvider: React.FC<{ children: React.ReactNode; metrics
         achievements: updatedAchievements,
       };
 
-      await AsyncStorage.setItem('gamificationStats', JSON.stringify(updatedStats));
-      setStats(updatedStats);
+      // Validate the updated stats before storing
+      const validationResult = await validationService.validateUserStats(updatedStats);
+
+      if (!validationResult.success) {
+        logger.warn('Invalid achievement stats, skipping update', {
+          context: { errors: validationResult.errors },
+        });
+        return;
+      }
+
+      await AsyncStorage.setItem('gamificationStats', JSON.stringify(validationResult.data));
+      setStats(validationResult.data);
     } catch (error) {
-      console.error('Error checking achievements:', error);
+      logger.error('Error checking achievements', error as Error, {
+        context: { metrics },
+      });
     }
   };
 

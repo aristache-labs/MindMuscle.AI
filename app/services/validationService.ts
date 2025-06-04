@@ -241,12 +241,99 @@ class ValidationService {
     );
   }
 
-  // Add Exercise Modal validation methods
+  // Add exercise form validation
   async validateAddExerciseForm(
     data: unknown,
   ): Promise<ValidationResult<z.infer<typeof AddExerciseFormSchema>>> {
     const { AddExerciseFormSchema } = await import('../validation/schemas');
     return safeValidate(AddExerciseFormSchema, data, 'add exercise form');
+  }
+
+  // AI Coaching validation methods
+  validateCoachingRequest(data: unknown): ValidationResult<{
+    prompt: string;
+    context: {
+      fitnessLevel: 'beginner' | 'intermediate' | 'advanced';
+      goals: string[];
+      preferences: string[];
+      recentWorkouts: string[];
+      userProfile: {
+        age: number;
+        gender: string;
+        weight: number;
+        height: number;
+        medicalConditions?: string[];
+      };
+    };
+    type: 'workout' | 'nutrition' | 'mindset';
+  }> {
+    const CoachingRequestSchema = z.object({
+      prompt: z.string().min(1, 'Prompt is required').max(1000, 'Prompt too long'),
+      context: z.object({
+        fitnessLevel: z.enum(['beginner', 'intermediate', 'advanced']),
+        goals: z.array(z.string()).min(1, 'At least one goal is required'),
+        preferences: z.array(z.string()),
+        recentWorkouts: z.array(z.string()),
+        userProfile: z.object({
+          age: z.number().min(13, 'Age must be at least 13').max(120, 'Age must be realistic'),
+          gender: z.string().min(1, 'Gender is required'),
+          weight: z
+            .number()
+            .min(20, 'Weight must be realistic')
+            .max(500, 'Weight must be realistic'),
+          height: z
+            .number()
+            .min(50, 'Height must be realistic')
+            .max(300, 'Height must be realistic'),
+          medicalConditions: z.array(z.string()).optional(),
+        }),
+      }),
+      type: z.enum(['workout', 'nutrition', 'mindset']),
+    });
+
+    return safeValidate(CoachingRequestSchema, data, 'coaching request');
+  }
+
+  validateCoachingFeedback(data: unknown): ValidationResult<{
+    sessionId: string;
+    feedback: string;
+    rating: number;
+  }> {
+    const CoachingFeedbackSchema = z.object({
+      sessionId: z.string().min(1, 'Session ID is required'),
+      feedback: z.string().min(1, 'Feedback is required').max(500, 'Feedback too long'),
+      rating: z.number().min(1, 'Rating must be at least 1').max(5, 'Rating must be at most 5'),
+    });
+
+    return safeValidate(CoachingFeedbackSchema, data, 'coaching feedback');
+  }
+
+  // Notification validation methods
+  validateNotificationPayload(data: unknown): ValidationResult<{
+    userId: string;
+    type: 'workout_reminder' | 'achievement_unlocked' | 'progress_update' | 'coaching_insight';
+    title: string;
+    message: string;
+    data?: Record<string, string | number | boolean>;
+    priority: 'low' | 'normal' | 'high';
+    scheduledFor?: Date;
+  }> {
+    const NotificationPayloadSchema = z.object({
+      userId: z.string().min(1, 'User ID is required'),
+      type: z.enum([
+        'workout_reminder',
+        'achievement_unlocked',
+        'progress_update',
+        'coaching_insight',
+      ]),
+      title: z.string().min(1, 'Title is required').max(100, 'Title too long'),
+      message: z.string().min(1, 'Message is required').max(500, 'Message too long'),
+      data: z.record(z.any()).optional(),
+      priority: z.enum(['low', 'normal', 'high']),
+      scheduledFor: z.date().optional(),
+    });
+
+    return safeValidate(NotificationPayloadSchema, data, 'notification payload');
   }
 
   // Generic validation methods
@@ -482,6 +569,108 @@ class ValidationService {
     }
 
     return result;
+  }
+
+  // Storage and Context validation methods
+  async validateProfileContext(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof ProfileContextSchema>>> {
+    const { ProfileContextSchema } = await import('../validation/schemas');
+    return safeValidate(ProfileContextSchema, data, 'profile context');
+  }
+
+  async validateUserStats(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof UserStatsSchema>>> {
+    const { UserStatsSchema } = await import('../validation/schemas');
+    return safeValidate(UserStatsSchema, data, 'user stats');
+  }
+
+  async validateAuthState(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof AuthStateSchema>>> {
+    const { AuthStateSchema } = await import('../validation/schemas');
+    return safeValidate(AuthStateSchema, data, 'auth state');
+  }
+
+  async validatePausedWorkoutData(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof PausedWorkoutDataSchema>>> {
+    const { PausedWorkoutDataSchema } = await import('../validation/schemas');
+    return safeValidate(PausedWorkoutDataSchema, data, 'paused workout data');
+  }
+
+  async validateSavedPlan(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof SavedPlanSchema>>> {
+    const { SavedPlanSchema } = await import('../validation/schemas');
+    return safeValidate(SavedPlanSchema, data, 'saved plan');
+  }
+
+  async validateCacheEntry(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof CacheEntrySchema>>> {
+    const { CacheEntrySchema } = await import('../validation/schemas');
+    return safeValidate(CacheEntrySchema, data, 'cache entry');
+  }
+
+  async validatePersistedClient(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof PersistedClientSchema>>> {
+    const { PersistedClientSchema } = await import('../validation/schemas');
+    return safeValidate(PersistedClientSchema, data, 'persisted client');
+  }
+
+  async validateCoachingHistory(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof CoachingHistorySchema>>> {
+    const { CoachingHistorySchema } = await import('../validation/schemas');
+    return safeValidate(CoachingHistorySchema, data, 'coaching history');
+  }
+
+  async validateWorkoutDaysData(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof WorkoutDaysDataSchema>>> {
+    const { WorkoutDaysDataSchema } = await import('../validation/schemas');
+    return safeValidate(WorkoutDaysDataSchema, data, 'workout days data');
+  }
+
+  async validateCoachingUserProfile(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof CoachingUserProfileSchema>>> {
+    const { CoachingUserProfileSchema } = await import('../validation/schemas');
+    return safeValidate(CoachingUserProfileSchema, data, 'coaching user profile');
+  }
+
+  // Helper method for safe JSON parsing with validation
+  safeParseJson<T>(
+    jsonString: string | null,
+    schema: z.ZodSchema<T>,
+    context?: string,
+    fallback?: T,
+  ): T | null {
+    if (!jsonString) {
+      return fallback || null;
+    }
+
+    try {
+      const parsed = JSON.parse(jsonString);
+      const validationResult = safeValidate(schema, parsed, context);
+
+      if (validationResult.success) {
+        return validationResult.data;
+      } else {
+        logger.warn(`JSON validation failed for ${context || 'unknown context'}`, {
+          context: { jsonString, errors: validationResult.errors },
+        });
+        return fallback || null;
+      }
+    } catch (error) {
+      logger.error(`JSON parsing failed for ${context || 'unknown context'}`, error as Error, {
+        context: { jsonString },
+      });
+      return fallback || null;
+    }
   }
 }
 

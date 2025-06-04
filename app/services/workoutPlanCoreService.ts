@@ -2,38 +2,38 @@ import supabase from './supabase';
 
 // Import from modular services
 import {
-  saveActivePlan,
-  getActivePlan,
-  updateActivePlanDay,
   clearActivePlan,
+  getActivePlan,
   getPlanById,
-  updateUserWorkoutDays,
   getUserWorkoutDays,
+  setActivePlan,
   startPlan,
+  updateActivePlanDay,
+  updateUserWorkoutDays,
+  type PlanExercise,
   type SavedPlan,
   type WorkoutDay,
-  type PlanExercise,
 } from './workoutPlanCore';
 
 import {
-  savePausedWorkout,
-  getPausedWorkout,
   clearPausedWorkout,
+  fetchExerciseAbsoluteMaxWeight,
   fetchExerciseDetails,
   fetchExerciseMaxWeightData,
-  fetchExerciseAbsoluteMaxWeight,
+  getPausedWorkout,
+  savePausedWorkout,
   type ExerciseData,
   type ExerciseSet,
 } from './workoutSessionService';
 
 import {
-  getCycleWeekInfo,
-  getAllCycleWeeks,
-  getExerciseRecommendations,
   calculateProgressiveWorkoutSchedule,
-  setupCalendarDatesProgressive,
-  getCurrentCycleProgress,
   checkWeekProgression,
+  getAllCycleWeeks,
+  getCurrentCycleProgress,
+  getCycleWeekInfo,
+  getExerciseRecommendations,
+  setupCalendarDatesProgressive,
   type CycleWeekInfo,
   type ExerciseRecommendation,
 } from './workoutCycleService';
@@ -52,13 +52,13 @@ export interface CompletedWorkoutData {
 
 // Re-export all interfaces from modular services
 export {
+  CycleWeekInfo,
   ExerciseData,
+  ExerciseRecommendation,
   ExerciseSet,
+  PlanExercise,
   SavedPlan,
   WorkoutDay,
-  PlanExercise,
-  CycleWeekInfo,
-  ExerciseRecommendation,
 };
 
 // Get the active plan with cycle week information
@@ -122,37 +122,35 @@ const getDefaultWeekName = (weekNumber: number): string => {
 
 // Export all functions from modular services
 export {
-  // Core functions
-  saveActivePlan,
-  getActivePlan,
-  updateActivePlanDay,
+  calculateProgressiveWorkoutSchedule,
+  checkWeekProgression,
   clearActivePlan,
-  getPlanById,
-  updateUserWorkoutDays,
-  getUserWorkoutDays,
-  startPlan,
-
-  // Session functions
-  savePausedWorkout,
-  getPausedWorkout,
   clearPausedWorkout,
+  fetchExerciseAbsoluteMaxWeight,
   fetchExerciseDetails,
   fetchExerciseMaxWeightData,
-  fetchExerciseAbsoluteMaxWeight,
-
+  getActivePlan,
+  getAllCycleWeeks,
+  getCurrentCycleProgress,
   // Cycle functions
   getCycleWeekInfo,
-  getAllCycleWeeks,
   getExerciseRecommendations,
-  calculateProgressiveWorkoutSchedule,
+  getPausedWorkout,
+  getPlanById,
+  getUserWorkoutDays,
+  // Core functions
+  setActivePlan as saveActivePlan,
+  // Session functions
+  savePausedWorkout,
   setupCalendarDatesProgressive,
-  getCurrentCycleProgress,
-  checkWeekProgression,
+  startPlan,
+  updateActivePlanDay,
+  updateUserWorkoutDays,
 };
 
 // Export a default service object for backward compatibility
 const workoutPlanService = {
-  saveActivePlan,
+  saveActivePlan: setActivePlan,
   getActivePlan,
   updateActivePlanDay,
   clearActivePlan,

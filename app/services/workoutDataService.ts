@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { logger } from '../utils/logger';
 import supabase from './supabase';
 import { validationService } from './validationService';
@@ -565,7 +566,6 @@ export const getLastCompletedWorkoutStructure = async (
   }
 
   try {
-    // Get the most recent completed workout for this specific day and cycle week
     const { data, error } = await supabase
       .from('user_workout_history')
       .select('exercise_structure')
@@ -578,38 +578,52 @@ export const getLastCompletedWorkoutStructure = async (
       .single();
 
     if (error || !data?.exercise_structure) {
+      if (error) {
+        logger.error('Error fetching last workout structure from DB', error, {
+          context: validationData,
+        });
+      }
       return null;
     }
 
-    try {
-      // Parse the saved exercise structure
-      const exerciseStructure = JSON.parse(data.exercise_structure);
+    const { SavedExerciseStructureSchema } = await import('../validation/schemas');
+    const exerciseStructureArray = validationService.safeParseJson(
+      data.exercise_structure,
+      z.array(SavedExerciseStructureSchema), // Validate as an array of SavedExerciseStructure
+      'saved_exercise_structure',
+      [], // Fallback to an empty array
+    );
 
-      // Convert back to ExerciseData format
-      const exercises: ExerciseData[] = (exerciseStructure as SavedExerciseStructure[]).map(
-        (ex: SavedExerciseStructure) => ({
-          id: ex.id,
-          exercise_id: ex.exercise_id,
-          name: ex.name,
-          sets: ex.sets,
-          reps_range: ex.reps_range,
-          image_url: ex.image_url,
-          primary_muscles: ex.primary_muscles,
-          requires_weight: ex.requires_weight,
-          workout_day: ex.workout_day,
-          order: ex.order,
-          restTime: ex.restTime,
-          isChangedExercise: ex.isChangedExercise,
-        }),
-      );
-
-      return exercises;
-    } catch (parseError) {
-      console.error('Error parsing exercise structure:', parseError);
+    if (!exerciseStructureArray || exerciseStructureArray.length === 0) {
+      logger.warn('Failed to parse or validate exercise_structure, or it was empty', {
+        context: validationData,
+      });
       return null;
     }
+
+    // Convert back to ExerciseData format
+    // Ensure that the mapping correctly aligns with ExerciseData fields
+    const exercises: ExerciseData[] = exerciseStructureArray.map((ex) => ({
+      id: ex.id,
+      exercise_id: ex.exercise_id,
+      name: ex.name,
+      sets: ex.sets,
+      reps_range: ex.reps_range,
+      image_url: ex.image_url,
+      primary_muscles: ex.primary_muscles,
+      requires_weight: ex.requires_weight,
+      workout_day: ex.workout_day, // Ensure this field is present in SavedExerciseStructureSchema or handled if optional
+      order: ex.order, // Ensure this field is present
+      restTime: ex.restTime, // Ensure this field is present
+      isChangedExercise: ex.isChangedExercise, // Ensure this field is present
+      // Add any other fields required by ExerciseData, ensuring they exist on ex (SavedExerciseStructure)
+    }));
+
+    return exercises;
   } catch (error) {
-    console.error('Error fetching last completed workout structure:', error);
+    logger.error('Error processing last completed workout structure', error as Error, {
+      context: validationData,
+    });
     return null;
   }
 };

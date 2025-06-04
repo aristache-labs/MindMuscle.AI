@@ -19,5 +19,6 @@
   "services/**",
   "store/**",
   "types/**",
-  "utils/**"
-] 
+  "utils/**",
+  "validation/**"
+]

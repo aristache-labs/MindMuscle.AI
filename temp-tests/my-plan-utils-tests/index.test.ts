@@ -1,5 +1,5 @@
-import { Exercise } from '../../types';
-import { calculateWorkoutStats, formatDurationAsHMM } from '../index';
+import { Exercise } from '../../app/features/my-plan/types/index';
+import { calculateWorkoutStats, formatDurationAsHMM } from '../../app/features/my-plan/utils/index';
 
 describe('My Plan Utils', () => {
   describe('formatDurationAsHMM', () => {

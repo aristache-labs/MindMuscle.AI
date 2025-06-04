@@ -6,7 +6,7 @@ import {
   MeasurementSchema,
   RegisterFormSchema,
   UserProfileSchema,
-} from '../schemas';
+} from '../../app/validation/schemas';
 
 describe('Validation Schemas', () => {
   describe('GeneralExerciseSchema', () => {

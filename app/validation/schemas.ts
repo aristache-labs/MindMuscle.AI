@@ -10,11 +10,11 @@ export const NonNegativeNumberSchema = z.number().min(0, 'Cannot be negative');
 
 // Exercise validation schemas
 export const ExerciseSetSchema = z.object({
+  id: z.string(),
+  setNumber: z.number(),
+  weight: z.string(),
+  reps: z.string(),
   isCompleted: z.boolean(),
-  weight: z.number().optional(),
-  reps: z.number().optional(),
-  restTime: z.number().optional(),
-  notes: z.string().optional(),
 });
 
 // General exercise schema (for exercise library)
@@ -451,6 +451,145 @@ export const CheckWorkoutCompletionForCycleWeekSchema = z.object({
 export const AddExerciseFormSchema = z.object({
   exercises: z.array(ExerciseConfigurationSchema).min(1, 'At least one exercise must be selected'),
 });
+
+// Storage and Context validation schemas
+export const ProfileContextSchema = z.object({
+  name: z.string(),
+  email: z.string().email('Invalid email format'),
+  avatar: z.string().optional(),
+  preferences: z.object({
+    notifications: z.boolean(),
+    darkMode: z.boolean(),
+    language: z.string(),
+  }),
+});
+
+export const AchievementContextSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string(),
+  icon: z.string(),
+  xp: z.number().nonnegative(),
+  completed: z.boolean(),
+  progress: z.number().nonnegative(),
+  target: z.number().positive(),
+  type: z.enum(['workouts', 'exercises', 'streak', 'personalRecords', 'duration']),
+  completedAt: z.string().optional(),
+});
+
+export const UserStatsSchema = z.object({
+  level: z.number().positive(),
+  xp: z.number().nonnegative(),
+  totalXp: z.number().nonnegative(),
+  nextLevelXp: z.number().positive(),
+  achievements: z.array(AchievementContextSchema),
+});
+
+export const AuthStateSchema = z.object({
+  user: z
+    .object({
+      id: z.string(),
+      email: z.string().email(),
+      name: z.string(),
+    })
+    .nullable(),
+  token: z.string().nullable(),
+});
+
+export const ExerciseDataSchema = z.object({
+  id: z.string(),
+  exercise_id: z.string(),
+  name: z.string(),
+  sets: z.number().positive(),
+  reps_range: z.string(),
+  image_url: z.string().optional(),
+  primary_muscles: z.array(z.string()).optional(),
+  restTime: z.number().optional(),
+  order: z.number().nonnegative(),
+  workout_day: z.number().nonnegative(),
+  requires_weight: z.boolean().optional(),
+  isChangedExercise: z.boolean().optional(),
+});
+
+export const PausedWorkoutDataSchema = z.object({
+  userId: z.string(),
+  planId: z.string(),
+  workoutDay: z.number().nonnegative(),
+  cycleWeek: z.number().positive(),
+  weekName: z.string(),
+  exercises: z.array(ExerciseDataSchema),
+  exerciseSets: z.record(z.array(ExerciseSetSchema)),
+  workoutDuration: z.number().nonnegative(),
+  totalVolume: z.number().nonnegative(),
+  totalReps: z.number().nonnegative(),
+  currentExerciseIndex: z.number().nonnegative(),
+  originalCycleWeek: z.number().positive().nullable().optional(),
+  pausedAt: z.string().optional(),
+});
+
+export const SavedPlanSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  difficulty_level: z.string().optional(),
+  subtitle: z.string().optional(),
+  category_name: z.string().optional(),
+  workoutDays: z.array(WorkoutDaySchema),
+  created_at: z.string().optional(),
+  updated_at: z.string().optional(),
+});
+
+export const CacheEntrySchema = z.object({
+  data: z.unknown(),
+  timestamp: z.number(),
+  ttl: z.number().optional(),
+  version: z.string().optional(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+export const PersistedClientSchema = z.object({
+  clientState: z.object({
+    queries: z.array(z.unknown()),
+    mutations: z.array(z.unknown()),
+  }),
+  buster: z.string(),
+});
+
+export const CoachingHistorySchema = z.array(
+  z.object({
+    id: z.string(),
+    message: z.string(),
+    response: z.string(),
+    timestamp: z.string(),
+    context: z.record(z.unknown()).optional(),
+  }),
+);
+
+export const WorkoutDaysDataSchema = z.object({
+  selectedDays: z.array(z.number().min(0).max(6)),
+  lastUpdated: z.string().optional(),
+  version: z.number().optional(),
+});
+
+export const CoachingUserProfileSchema = z.object({
+  age: z.number().min(13).max(120),
+  gender: z.string().min(1),
+  weight: z.number().positive(),
+  height: z.number().positive(),
+  medicalConditions: z.array(z.string()).optional(),
+});
+
+// Type exports for new schemas
+export type ProfileContext = z.infer<typeof ProfileContextSchema>;
+export type AchievementContext = z.infer<typeof AchievementContextSchema>;
+export type UserStats = z.infer<typeof UserStatsSchema>;
+export type AuthState = z.infer<typeof AuthStateSchema>;
+export type ExerciseData = z.infer<typeof ExerciseDataSchema>;
+export type PausedWorkoutData = z.infer<typeof PausedWorkoutDataSchema>;
+export type SavedPlan = z.infer<typeof SavedPlanSchema>;
+export type CacheEntry = z.infer<typeof CacheEntrySchema>;
+export type PersistedClient = z.infer<typeof PersistedClientSchema>;
+export type CoachingHistory = z.infer<typeof CoachingHistorySchema>;
+export type WorkoutDaysData = z.infer<typeof WorkoutDaysDataSchema>;
 
 // Type exports
 export type GeneralExercise = z.infer<typeof GeneralExerciseSchema>;

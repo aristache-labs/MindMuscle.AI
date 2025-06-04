@@ -251,65 +251,64 @@ export const getUserWorkoutDays = async (userId: string): Promise<number[]> => {
 
     if (error) {
       console.error('Error fetching user workout days:', error);
-      // Default to Tuesday, Thursday, Sunday if error
-      return [3, 5, 1];
+      // Default to Tuesday, Thursday, Sunday in 0-6 format (2, 4, 0)
+      return [0, 2, 4];
     }
 
-    if (data && data.workout_days) {
-      // Use the database function to convert workout days to numeric format
-      const { data: convertedData, error: conversionError } = await supabase.rpc(
-        'convert_workout_days_to_numeric',
-        {
-          input_days: data.workout_days,
-        },
-      );
+    if (
+      data &&
+      data.workout_days &&
+      Array.isArray(data.workout_days) &&
+      data.workout_days.length > 0
+    ) {
+      if (typeof data.workout_days[0] === 'string') {
+        // Legacy string format - convert to 0-6 numeric format
+        const dayNameToNumber: { [key: string]: number } = {
+          Sunday: 0,
+          '1': 0, // Legacy 1 = Sunday = 0
+          Monday: 1,
+          '2': 1, // Legacy 2 = Monday = 1
+          Tuesday: 2,
+          '3': 2, // Legacy 3 = Tuesday = 2
+          Wednesday: 3,
+          '4': 3, // Legacy 4 = Wednesday = 3
+          Thursday: 4,
+          '5': 4, // Legacy 5 = Thursday = 4
+          Friday: 5,
+          '6': 5, // Legacy 6 = Friday = 5
+          Saturday: 6,
+          '7': 6, // Legacy 7 = Saturday = 6
+        };
 
-      if (conversionError) {
-        console.error('Error converting workout days:', conversionError);
-        // Fallback to manual conversion
-        if (Array.isArray(data.workout_days) && data.workout_days.length > 0) {
-          if (typeof data.workout_days[0] === 'string') {
-            // Legacy format - convert to numeric
-            const dayNameToNumber: { [key: string]: number } = {
-              Sunday: 1,
-              '1': 1,
-              Monday: 2,
-              '2': 2,
-              Tuesday: 3,
-              '3': 3,
-              Wednesday: 4,
-              '4': 4,
-              Thursday: 5,
-              '5': 5,
-              Friday: 6,
-              '6': 6,
-              Saturday: 7,
-              '7': 7,
-            };
+        const numericDays = data.workout_days
+          .map((day: string) => dayNameToNumber[day])
+          .filter((dayNum: number) => dayNum !== undefined)
+          .sort((a: number, b: number) => a - b);
 
-            const numericDays = data.workout_days
-              .map((day: string) => dayNameToNumber[day])
-              .filter((dayNum: number) => dayNum !== undefined)
-              .sort((a: number, b: number) => a - b);
-
-            return numericDays.length > 0 ? numericDays : [3, 5, 1]; // Default: Tuesday, Thursday, Sunday
-          } else {
-            // Already numeric format
-            return data.workout_days.sort((a: number, b: number) => a - b);
-          }
-        }
+        return numericDays.length > 0 ? numericDays : [0, 2, 4]; // Default: Sunday, Tuesday, Thursday
       } else {
-        // Successfully converted using database function
-        return convertedData || [3, 5, 1]; // Default: Tuesday, Thursday, Sunday
+        // Numeric format - ensure it's in 0-6 range
+        const numericDays = data.workout_days
+          .map((day: number) => {
+            // Convert from 1-7 to 0-6 if needed (only if 7 is present, indicating old format)
+            if (data.workout_days.includes(7) && day >= 1 && day <= 7) {
+              return day - 1;
+            }
+            return day;
+          })
+          .filter((day: number) => day >= 0 && day <= 6)
+          .sort((a: number, b: number) => a - b);
+
+        return numericDays.length > 0 ? numericDays : [0, 2, 4]; // Default: Sunday, Tuesday, Thursday
       }
     }
 
-    // Default to Tuesday, Thursday, Sunday if no preference set
-    return [3, 5, 1]; // Tuesday, Thursday, Sunday
+    // Default to Sunday, Tuesday, Thursday in 0-6 format if no preference set
+    return [0, 2, 4];
   } catch {
     // Error fetching workout days
-    // Default to Tuesday, Thursday, Sunday if error
-    return [3, 5, 1]; // Tuesday, Thursday, Sunday
+    // Default to Sunday, Tuesday, Thursday in 0-6 format if error
+    return [0, 2, 4];
   }
 };
 

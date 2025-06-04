@@ -7,8 +7,6 @@ import { ActivityIndicator, Button, IconButton, Switch, Text } from 'react-nativ
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import WorkoutDaysModal from '../components/WorkoutDaysModal';
 import { COLORS, SPACING } from '../constants/theme';
-import supabase from '../services/supabase';
-import { validationService } from '../services/validationService';
 import { useAuth } from '../store/AuthContext';
 import { CacheStats, clearImageCache, getCacheStats } from '../utils/imagePreloader';
 import { logger } from '../utils/logger';
@@ -16,7 +14,7 @@ import { logger } from '../utils/logger';
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user: _user } = useAuth();
   const [isDarkTheme, setIsDarkTheme] = React.useState(true);
   const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
   const [clearingCache, setClearingCache] = useState(false);
@@ -24,48 +22,51 @@ export default function SettingsScreen() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [workoutReminders, setWorkoutReminders] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
-  const [isLoading, setIsLoading] = useState(false);
+  const [validationErrors, _setValidationErrors] = useState<Record<string, string>>({});
+  const [isLoading, _setIsLoading] = useState(false);
 
   // Fetch cache statistics when the component mounts
   useEffect(() => {
     updateCacheStats();
-    loadUserPreferences();
+    // TODO: Re-enable when notification features are implemented
+    // loadUserPreferences();
   }, []);
 
+  // TODO: Re-enable when notification features are implemented
   // Load user preferences from database
-  const loadUserPreferences = async () => {
-    if (!user?.id) return;
+  // const loadUserPreferences = async () => {
+  //   if (!user?.id) return;
 
-    try {
-      const { data, error } = await supabase
-        .from('user_profile_details')
-        .select(
-          'preferred_weight_unit, preferred_height_unit, notifications_enabled, workout_reminders, dark_theme, sound_enabled',
-        )
-        .eq('user_id', user.id)
-        .maybeSingle();
+  //   try {
+  //     const { data, error } = await supabase
+  //       .from('user_profile_details')
+  //       .select(
+  //         'preferred_weight_unit, preferred_height_unit, notifications_enabled, workout_reminders, dark_theme, sound_enabled',
+  //       )
+  //       .eq('user_id', user.id)
+  //       .maybeSingle();
 
-      if (error && error.code !== 'PGRST116') {
-        logger.error('Error loading user preferences', error, {
-          context: { userId: user.id },
-        });
-        return;
-      }
+  //     if (error && error.code !== 'PGRST116') {
+  //       logger.error('Error loading user preferences', error, {
+  //         context: { userId: user.id },
+  //       });
+  //       return;
+  //     }
 
-      if (data) {
-        setNotificationsEnabled(data.notifications_enabled ?? true);
-        setWorkoutReminders(data.workout_reminders ?? true);
-        setIsDarkTheme(data.dark_theme ?? true);
-        setSoundEnabled(data.sound_enabled ?? true);
-      }
-    } catch (error) {
-      logger.error('Failed to load user preferences', error as Error, {
-        context: { userId: user.id },
-      });
-    }
-  };
+  //     if (data) {
+  //       setNotificationsEnabled(data.notifications_enabled ?? true);
+  //       setWorkoutReminders(data.workout_reminders ?? true);
+  //       setIsDarkTheme(data.dark_theme ?? true);
+  //       setSoundEnabled(data.sound_enabled ?? true);
+  //     }
+  //   } catch (error) {
+  //     logger.error('Failed to load user preferences', error as Error, {
+  //       context: { userId: user.id },
+  //     });
+  //   }
+  // };
 
+  // TODO: Re-enable when notification features are implemented
   // Validate and save user preferences
   const saveUserPreferences = async (preferences: {
     notifications_enabled?: boolean;
@@ -73,68 +74,11 @@ export default function SettingsScreen() {
     dark_theme?: boolean;
     sound_enabled?: boolean;
   }) => {
-    if (!user?.id) {
-      setValidationErrors({ general: 'User not authenticated' });
-      return false;
-    }
-
-    // Validate preferences data
-    const validationData = {
-      preferred_weight_unit: 'KG', // Default values for validation
-      preferred_height_unit: 'CM',
-      notifications_enabled: preferences.notifications_enabled,
-      workout_reminders: preferences.workout_reminders,
-      dark_theme: preferences.dark_theme,
-      sound_enabled: preferences.sound_enabled,
-    };
-
-    const validationResult = validationService.validateUserPreferences(validationData);
-
-    if (!validationResult.success) {
-      const errors: Record<string, string> = {};
-      validationResult.errors.forEach((error) => {
-        errors[error.field] = error.message;
-      });
-      setValidationErrors(errors);
-
-      logger.warn('User preferences validation failed', {
-        context: { validationData, errors: validationResult.errors },
-      });
-      return false;
-    }
-
-    setValidationErrors({});
-
-    try {
-      setIsLoading(true);
-
-      const { error } = await supabase.from('user_profile_details').upsert({
-        user_id: user.id,
-        ...preferences,
-        updated_at: new Date().toISOString(),
-      });
-
-      if (error) {
-        logger.error('Error saving user preferences', error, {
-          context: { userId: user.id, preferences },
-        });
-        setValidationErrors({ general: 'Failed to save preferences' });
-        return false;
-      }
-
-      logger.info('User preferences saved successfully', {
-        context: { userId: user.id, preferences },
-      });
-      return true;
-    } catch (error) {
-      logger.error('Failed to save user preferences', error as Error, {
-        context: { userId: user.id, preferences },
-      });
-      setValidationErrors({ general: 'Failed to save preferences' });
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
+    // Temporarily disabled - no database operations for these features yet
+    logger.info('User preferences save disabled - features not implemented yet', {
+      context: { preferences },
+    });
+    return true;
   };
 
   // Handle theme toggle with validation

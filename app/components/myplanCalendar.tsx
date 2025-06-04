@@ -160,7 +160,7 @@ export default function MyPlanCalendar({
 
   // Function to get day abbreviation
   const getDayAbbreviation = (date: Date) => {
-    const dayOfWeek = getDay(date);
+    const dayOfWeek = getDay(date); // getDay() returns 0-6 (0=Sunday, 6=Saturday)
     const days = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
     return days[dayOfWeek];
   };

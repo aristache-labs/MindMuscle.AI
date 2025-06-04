@@ -24,15 +24,15 @@ interface Props {
   onClose: () => void;
 }
 
-// Standardized day mapping: 1=Sunday, 2=Monday, 3=Tuesday, 4=Wednesday, 5=Thursday, 6=Friday, 7=Saturday
+// Standardized day mapping: 0=Sunday, 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday, 5=Friday, 6=Saturday
 const DAY_MAPPING = {
-  Sunday: 1,
-  Monday: 2,
-  Tuesday: 3,
-  Wednesday: 4,
-  Thursday: 5,
-  Friday: 6,
-  Saturday: 7,
+  Sunday: 0,
+  Monday: 1,
+  Tuesday: 2,
+  Wednesday: 3,
+  Thursday: 4,
+  Friday: 5,
+  Saturday: 6,
 } as const;
 
 export default function WorkoutDaysModal({ visible, onClose }: Props) {
@@ -139,14 +139,16 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
       .map((day) => {
         // Handle both string numbers and day names
         if (/^\d+$/.test(day)) {
-          // If it's a string number, convert to number
-          return parseInt(day);
+          // If it's a string number, convert to number and adjust for 0-6 range
+          const dayNum = parseInt(day);
+          // Convert from 1-7 range to 0-6 range if needed
+          return dayNum >= 1 && dayNum <= 7 ? dayNum - 1 : dayNum;
         } else {
           // If it's a day name, use the mapping
           return DAY_MAPPING[day as keyof typeof DAY_MAPPING];
         }
       })
-      .filter((dayNum) => dayNum !== undefined && dayNum >= 1 && dayNum <= 7)
+      .filter((dayNum) => dayNum !== undefined && dayNum >= 0 && dayNum <= 6)
       .sort((a, b) => a - b);
   };
 
@@ -190,8 +192,32 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
         return convertedDays;
       }
 
-      // New numeric format
-      return data.workout_days.sort((a: number, b: number) => a - b);
+      // New numeric format - ensure values are in 0-6 range
+      // Only convert if we detect 1-7 format (presence of 7 indicates old format)
+      const hasOldFormat = data.workout_days.some((day: number) => day === 7);
+
+      const numericDays = data.workout_days
+        .map((day: number) => {
+          // Only convert if we detected old 1-7 format
+          if (hasOldFormat && day >= 1 && day <= 7) {
+            return day - 1;
+          }
+          return day;
+        })
+        .filter((day: number) => day >= 0 && day <= 6);
+
+      // Only update database if we actually converted from old format
+      if (
+        hasOldFormat &&
+        numericDays.some((day: number, index: number) => day !== data.workout_days[index])
+      ) {
+        logger.info('Converting numeric workout days from 1-7 to 0-6 range', {
+          context: { oldFormat: data.workout_days, newFormat: numericDays },
+        });
+        await saveWorkoutDays(numericDays, false);
+      }
+
+      return numericDays.sort((a: number, b: number) => a - b);
     } catch (error) {
       logger.error('Failed to load workout days from Supabase', error as Error, {
         context: { userId: user.id },
@@ -309,7 +335,7 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
   // Toggle a workout day and save immediately
   const toggleWorkoutDay = async (day: string) => {
     const dayNumber = DAY_MAPPING[day as keyof typeof DAY_MAPPING];
-    if (!dayNumber) return;
+    if (dayNumber === undefined) return;
 
     const updatedDays = workoutDays.includes(dayNumber)
       ? workoutDays.filter((d) => d !== dayNumber)
@@ -327,7 +353,7 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
   // Check if a day is selected
   const isDaySelected = (day: string): boolean => {
     const dayNumber = DAY_MAPPING[day as keyof typeof DAY_MAPPING];
-    return dayNumber ? workoutDays.includes(dayNumber) : false;
+    return dayNumber !== undefined ? workoutDays.includes(dayNumber) : false;
   };
 
   if (!visible) return null;

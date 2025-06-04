@@ -175,7 +175,7 @@ export const calculateProgressiveWorkoutSchedule = (
   const totalWorkouts = planWorkoutFrequency * totalWeeks;
 
   while (workoutCount < totalWorkouts && currentWeek <= totalWeeks) {
-    const currentDayOfWeek = currentDate.getDay() + 1; // Convert to 1-7 format
+    const currentDayOfWeek = currentDate.getDay(); // Keep in 0-6 format (0=Sunday, 6=Saturday)
 
     // Check if current day is a user's preferred workout day
     if (sortedUserDays.includes(currentDayOfWeek)) {
@@ -207,16 +207,9 @@ export const calculateProgressiveWorkoutSchedule = (
           workoutDayIndex,
           cycleWeek,
           weekName,
-          dayName: [
-            '',
-            'Sunday',
-            'Monday',
-            'Tuesday',
-            'Wednesday',
-            'Thursday',
-            'Friday',
-            'Saturday',
-          ][currentDayOfWeek],
+          dayName: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][
+            currentDayOfWeek
+          ],
           userDayNumber: currentDayOfWeek,
         };
 

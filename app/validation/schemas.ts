@@ -4,21 +4,7 @@ import { z } from 'zod';
 export const IdSchema = z.string().min(1, 'ID cannot be empty');
 export const EmailSchema = z.string().email('Invalid email format');
 export const UrlSchema = z.string().url('Invalid URL format').optional().or(z.literal(''));
-export const DateStringSchema = z.string().refine(
-  (val) => {
-    // Accept ISO 8601 datetime strings with optional timezone offset and microseconds
-    // Examples: "2025-04-20T03:09:25.769655+00:00", "2025-04-20T03:09:25Z", "2025-04-20T03:09:25.123Z"
-    const isoDateTimeRegex =
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})?$/;
-    if (!isoDateTimeRegex.test(val)) {
-      return false;
-    }
-    // Additional check: ensure it's a valid date
-    const date = new Date(val);
-    return !isNaN(date.getTime());
-  },
-  { message: 'Invalid date format' },
-);
+export const DateStringSchema = z.string().datetime({ offset: true });
 export const PositiveNumberSchema = z.number().positive('Must be a positive number');
 export const NonNegativeNumberSchema = z.number().min(0, 'Cannot be negative');
 
@@ -328,10 +314,11 @@ export const UserAchievementSchema = z.object({
   user_id: IdSchema,
   achievement_id: IdSchema,
   is_completed: z.boolean(),
-  completed_at: DateStringSchema.optional(),
+  completed_at: DateStringSchema.nullable().optional(),
   current_progress: NonNegativeNumberSchema,
   created_at: DateStringSchema.optional(),
   updated_at: DateStringSchema.optional(),
+  achievement: AchievementSchema.optional(),
 });
 
 export const UpdateAchievementProgressSchema = z.object({

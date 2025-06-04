@@ -20,7 +20,7 @@ export interface UserAchievement {
   user_id: string;
   achievement_id: string;
   is_completed: boolean;
-  completed_at?: string;
+  completed_at?: string | null;
   current_progress: number;
   created_at: string;
   updated_at: string;

@@ -64,6 +64,8 @@ export default function Achievements() {
       }, 500);
 
       const userAchievements = await achievementService.getUserAchievements(user.id);
+      console.log('🏆 Loaded achievements:', userAchievements.length);
+      console.log('🏆 First achievement:', userAchievements[0]);
       setAchievements(userAchievements);
     } catch (error) {
       console.error('Error loading achievements:', error);
@@ -84,9 +86,13 @@ export default function Achievements() {
 
   const renderProgress = (userAchievement: UserAchievement) => {
     if (!userAchievement.achievement?.total_progress) return null;
+
+    const progress = userAchievement.current_progress || 0;
+    const total = userAchievement.achievement.total_progress;
+
     return (
       <Text style={styles.progressText}>
-        {userAchievement.current_progress}/{userAchievement.achievement.total_progress}
+        {progress}/{total}
       </Text>
     );
   };
@@ -158,7 +164,7 @@ export default function Achievements() {
                           !userAchievement.is_completed && styles.achievementTextLocked,
                         ]}
                       >
-                        {userAchievement.achievement?.title}
+                        {userAchievement.achievement?.title || 'Achievement Title'}
                       </Text>
                       <Text
                         style={[
@@ -166,7 +172,7 @@ export default function Achievements() {
                           !userAchievement.is_completed && styles.achievementTextLocked,
                         ]}
                       >
-                        {userAchievement.achievement?.subtitle}
+                        {userAchievement.achievement?.subtitle || 'Achievement Description'}
                       </Text>
                       {renderProgress(userAchievement)}
                     </View>
@@ -208,9 +214,11 @@ export default function Achievements() {
                   >
                     <IconButton icon={selectedAchievement.icon} size={40} iconColor="#000" />
                   </View>
-                  <Text style={styles.achievementDetailTitle}>{selectedAchievement.title}</Text>
+                  <Text style={styles.achievementDetailTitle}>
+                    {selectedAchievement.title || 'Achievement'}
+                  </Text>
                   <Text style={styles.achievementDescription}>
-                    {selectedAchievement.description}
+                    {selectedAchievement.description || 'Achievement description'}
                   </Text>
                   {selectedAchievement.total_progress && (
                     <Text style={styles.achievementProgress}>
@@ -228,7 +236,17 @@ export default function Achievements() {
                       foundAchievement?.completed_at && (
                         <Text style={styles.achievementDate}>
                           Completed on{' '}
-                          {format(new Date(foundAchievement.completed_at), 'MMM dd, yyyy')}
+                          {(() => {
+                            try {
+                              return format(
+                                new Date(foundAchievement.completed_at),
+                                'MMM dd, yyyy',
+                              );
+                            } catch (error) {
+                              console.error('Date formatting error:', error);
+                              return 'Recently';
+                            }
+                          })()}
                         </Text>
                       )
                     );

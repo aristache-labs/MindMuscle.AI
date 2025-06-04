@@ -1,21 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  StyleSheet,
-  View,
-  Modal,
-  TouchableWithoutFeedback,
-  Dimensions,
-  Platform,
-  Animated,
-  ScrollView,
-  PanResponder,
-} from 'react-native';
-import { Text, IconButton, Switch } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import supabase from '../services/supabase';
-import { useAuth } from '../store/AuthContext';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  Animated,
+  Dimensions,
+  Modal,
+  PanResponder,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  TouchableWithoutFeedback,
+  View,
+} from 'react-native';
+import { IconButton, Switch, Text } from 'react-native-paper';
 import { COLORS, SPACING } from '../constants/theme';
+import supabase from '../services/supabase';
+import { validationService } from '../services/validationService';
+import { useAuth } from '../store/AuthContext';
+import { logger } from '../utils/logger';
 
 interface Props {
   visible: boolean;
@@ -38,6 +40,7 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
   const [workoutDays, setWorkoutDays] = useState<number[]>([]);
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const [isSaving, setIsSaving] = useState(false);
+  const [validationError, setValidationError] = useState<string>('');
   const modalAnim = useRef(new Animated.Value(Dimensions.get('window').height)).current;
 
   // Create pan responder for drag-to-dismiss
@@ -87,8 +90,37 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
         duration: 300,
         useNativeDriver: true,
       }).start();
+      // Clear validation error when modal opens
+      setValidationError('');
     }
   }, [visible]);
+
+  // Validate workout days selection
+  const validateWorkoutDays = (daysToValidate: number[]) => {
+    if (!user?.id) {
+      setValidationError('User not authenticated');
+      return false;
+    }
+
+    const validationData = {
+      userId: user.id,
+      workoutDays: daysToValidate,
+    };
+
+    const validationResult = validationService.validateWorkoutDaysPreference(validationData);
+
+    if (!validationResult.success) {
+      const errorMessage = validationResult.errors.map((e) => e.message).join(', ');
+      setValidationError(errorMessage);
+      logger.warn('Workout days validation failed', {
+        context: { validationData, errors: validationResult.errors },
+      });
+      return false;
+    }
+
+    setValidationError('');
+    return true;
+  };
 
   // Handle closing with animation
   const handleClose = () => {
@@ -122,72 +154,88 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
   const loadFromSupabase = async (): Promise<number[] | null> => {
     if (!user?.id) return null;
 
-    const { data, error } = await supabase
-      .from('user_profile_details')
-      .select('workout_days')
-      .eq('user_id', user.id)
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from('user_profile_details')
+        .select('workout_days')
+        .eq('user_id', user.id)
+        .single();
 
-    if (error && error.code !== 'PGRST116') {
-      console.error('Error loading workout days from database:', error);
+      if (error && error.code !== 'PGRST116') {
+        logger.error('Error loading workout days from database', error, {
+          context: { userId: user.id },
+        });
+        return null;
+      }
+
+      if (!data || !data.workout_days || !Array.isArray(data.workout_days)) {
+        return [];
+      }
+
+      if (data.workout_days.length === 0) {
+        return [];
+      }
+
+      if (typeof data.workout_days[0] === 'string') {
+        // Legacy format - convert to numeric
+        const convertedDays = convertLegacyWorkoutDays(data.workout_days);
+        logger.info('Converting legacy workout days', {
+          context: { oldFormat: data.workout_days, newFormat: convertedDays },
+        });
+
+        // Update database with new format
+        if (convertedDays.length > 0) {
+          await saveWorkoutDays(convertedDays, false);
+        }
+        return convertedDays;
+      }
+
+      // New numeric format
+      return data.workout_days.sort((a: number, b: number) => a - b);
+    } catch (error) {
+      logger.error('Failed to load workout days from Supabase', error as Error, {
+        context: { userId: user.id },
+      });
       return null;
     }
-
-    if (!data || !data.workout_days || !Array.isArray(data.workout_days)) {
-      return [];
-    }
-
-    if (data.workout_days.length === 0) {
-      return [];
-    }
-
-    if (typeof data.workout_days[0] === 'string') {
-      // Legacy format - convert to numeric
-      const convertedDays = convertLegacyWorkoutDays(data.workout_days);
-      console.log('Converting legacy workout days:', data.workout_days, 'to:', convertedDays);
-
-      // Update database with new format
-      if (convertedDays.length > 0) {
-        await saveWorkoutDays(convertedDays, false);
-      }
-      return convertedDays;
-    }
-
-    // New numeric format
-    return data.workout_days.sort((a: number, b: number) => a - b);
   };
 
   // Helper function to load from AsyncStorage
   const loadFromAsyncStorage = async (): Promise<number[] | null> => {
-    // Try new numeric format first
-    const savedDays = await AsyncStorage.getItem('workout-days-numeric');
-    if (savedDays) {
-      const parsedDays = JSON.parse(savedDays);
+    try {
+      // Try new numeric format first
+      const savedDays = await AsyncStorage.getItem('workout-days-numeric');
+      if (savedDays) {
+        const parsedDays = JSON.parse(savedDays);
 
-      // If user is logged in, sync to database
-      if (user?.id && parsedDays.length > 0) {
-        await saveWorkoutDays(parsedDays, false);
+        // If user is logged in, sync to database
+        if (user?.id && parsedDays.length > 0) {
+          await saveWorkoutDays(parsedDays, false);
+        }
+        return parsedDays;
       }
-      return parsedDays;
-    }
 
-    // Fallback to legacy string format
-    const legacySavedDays = await AsyncStorage.getItem('workout-days');
-    if (legacySavedDays) {
-      const legacyDays = JSON.parse(legacySavedDays);
-      const numericDays = convertLegacyWorkoutDays(legacyDays);
+      // Fallback to legacy string format
+      const legacySavedDays = await AsyncStorage.getItem('workout-days');
+      if (legacySavedDays) {
+        const legacyDays = JSON.parse(legacySavedDays);
+        const numericDays = convertLegacyWorkoutDays(legacyDays);
 
-      // Save in new format
-      await AsyncStorage.setItem('workout-days-numeric', JSON.stringify(numericDays));
+        // Save in new format
+        await AsyncStorage.setItem('workout-days-numeric', JSON.stringify(numericDays));
 
-      // If user is logged in, sync to database
-      if (user?.id && numericDays.length > 0) {
-        await saveWorkoutDays(numericDays, false);
+        // If user is logged in, sync to database
+        if (user?.id && numericDays.length > 0) {
+          await saveWorkoutDays(numericDays, false);
+        }
+        return numericDays;
       }
-      return numericDays;
-    }
 
-    return null;
+      return null;
+    } catch (error) {
+      logger.error('Failed to load workout days from AsyncStorage', error as Error);
+      return null;
+    }
   };
 
   // Load saved workout days from Supabase and AsyncStorage
@@ -267,6 +315,11 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
       ? workoutDays.filter((d) => d !== dayNumber)
       : [...workoutDays, dayNumber].sort((a, b) => a - b);
 
+    // Validate the updated workout days before saving
+    if (!validateWorkoutDays(updatedDays)) {
+      return; // Don't update if validation fails
+    }
+
     setWorkoutDays(updatedDays);
     await saveWorkoutDays(updatedDays);
   };
@@ -333,6 +386,17 @@ export default function WorkoutDaysModal({ visible, onClose }: Props) {
                         Choose which days you plan to work out. The app will schedule your exercises
                         on these days.
                       </Text>
+
+                      {validationError ? (
+                        <View style={styles.errorContainer}>
+                          <MaterialCommunityIcons
+                            name="alert-circle-outline"
+                            size={16}
+                            color={COLORS.error}
+                          />
+                          <Text style={styles.errorText}>{validationError}</Text>
+                        </View>
+                      ) : null}
 
                       <View style={styles.daysContainer}>
                         {days.map((day) => (
@@ -579,5 +643,22 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 14,
     lineHeight: 20,
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 59, 48, 0.1)',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 59, 48, 0.3)',
+  },
+  errorText: {
+    flex: 1,
+    color: COLORS.error,
+    fontSize: 14,
+    marginLeft: 8,
+    lineHeight: 18,
   },
 });

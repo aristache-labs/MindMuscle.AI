@@ -1,24 +1,27 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { format, isAfter, isBefore, isValid, subYears } from 'date-fns';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  StyleSheet,
-  View,
-  ScrollView,
+  Keyboard,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
-  KeyboardAvoidingView,
+  ScrollView,
+  StyleSheet,
   TouchableWithoutFeedback,
-  Keyboard,
+  View,
 } from 'react-native';
-import { Text, TextInput, IconButton, Menu } from 'react-native-paper';
-import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
-import { useRouter } from 'expo-router';
+import { IconButton, Menu, Text, TextInput } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '../store/AuthContext';
-import { useMeasurements } from '../store/MeasurementsContext';
-import { format, isValid, subYears, isAfter, isBefore } from 'date-fns';
-import supabase from '../services/supabase';
 import { ThemedDatePicker } from '../components/ThemedDatePicker';
 import { ThemedNumberPicker } from '../components/ThemedNumberPicker';
+import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
+import supabase from '../services/supabase';
+import { validationService } from '../services/validationService';
+import { useAuth } from '../store/AuthContext';
+import { useMeasurements } from '../store/MeasurementsContext';
+import { logger } from '../utils/logger';
+import { ProfileUpdateSchema } from '../validation/schemas';
 
 // Define types for form data
 interface FormData {
@@ -166,6 +169,76 @@ function useSaveProfile() {
 
       if (!user) {
         throw new Error('User not authenticated');
+      }
+
+      // Validate form data before processing
+      const profileUpdateData = {
+        full_name: formData.fullName,
+        avatar_url: undefined, // Optional field
+        preferences: {
+          preferred_weight_unit: weightUnit,
+          preferred_height_unit: heightUnit,
+        },
+      };
+
+      const validationResult = validationService.validateWithSchema(
+        ProfileUpdateSchema,
+        profileUpdateData,
+        'profile update',
+      );
+
+      if (!validationResult.success) {
+        const errorMessage = `Profile validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+        logger.error('Profile update validation failed', new Error(errorMessage), {
+          context: { profileUpdateData, errors: validationResult.errors },
+        });
+        throw new Error(errorMessage);
+      }
+
+      // Validate user preferences separately
+      const preferencesData = {
+        preferred_weight_unit: weightUnit,
+        preferred_height_unit: heightUnit,
+        notifications_enabled: true, // Default values for validation
+        workout_reminders: true,
+        dark_theme: true,
+        sound_enabled: true,
+      };
+
+      const preferencesValidationResult =
+        validationService.validateUserPreferences(preferencesData);
+
+      if (!preferencesValidationResult.success) {
+        const errorMessage = `Preferences validation failed: ${preferencesValidationResult.errors.map((e) => e.message).join(', ')}`;
+        logger.error('Preferences validation failed', new Error(errorMessage), {
+          context: { preferencesData, errors: preferencesValidationResult.errors },
+        });
+        throw new Error(errorMessage);
+      }
+
+      // Validate numeric values
+      if (isNaN(parseFloat(formData.weight)) || parseFloat(formData.weight) <= 0) {
+        throw new Error('Please enter a valid weight');
+      }
+
+      if (isNaN(parseFloat(formData.height)) || parseFloat(formData.height) <= 0) {
+        throw new Error('Please enter a valid height');
+      }
+
+      // Validate date of birth
+      if (!isValid(formData.dateOfBirth)) {
+        throw new Error('Please select a valid date of birth');
+      }
+
+      const minDate = subYears(new Date(), 100);
+      const maxDate = subYears(new Date(), 13);
+
+      if (isAfter(formData.dateOfBirth, maxDate)) {
+        throw new Error('You must be at least 13 years old');
+      }
+
+      if (isBefore(formData.dateOfBirth, minDate)) {
+        throw new Error('Please select a more recent date');
       }
 
       await updateUserMetadata({

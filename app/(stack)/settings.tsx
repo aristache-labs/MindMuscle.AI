@@ -1,26 +1,165 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, Platform, Pressable, Alert } from 'react-native';
-import { Text, IconButton, Switch, Button, ActivityIndicator } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, SPACING } from '../constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
-import { clearImageCache, getCacheStats, CacheStats } from '../utils/imagePreloader';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Button, IconButton, Switch, Text } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import WorkoutDaysModal from '../components/WorkoutDaysModal';
+import { COLORS, SPACING } from '../constants/theme';
+import supabase from '../services/supabase';
+import { validationService } from '../services/validationService';
+import { useAuth } from '../store/AuthContext';
+import { CacheStats, clearImageCache, getCacheStats } from '../utils/imagePreloader';
+import { logger } from '../utils/logger';
 
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [isDarkTheme, setIsDarkTheme] = React.useState(true);
   const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
   const [clearingCache, setClearingCache] = useState(false);
   const [workoutDaysModalVisible, setWorkoutDaysModalVisible] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [workoutReminders, setWorkoutReminders] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [isLoading, setIsLoading] = useState(false);
 
   // Fetch cache statistics when the component mounts
   useEffect(() => {
     updateCacheStats();
+    loadUserPreferences();
   }, []);
+
+  // Load user preferences from database
+  const loadUserPreferences = async () => {
+    if (!user?.id) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('user_profile_details')
+        .select(
+          'preferred_weight_unit, preferred_height_unit, notifications_enabled, workout_reminders, dark_theme, sound_enabled',
+        )
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (error && error.code !== 'PGRST116') {
+        logger.error('Error loading user preferences', error, {
+          context: { userId: user.id },
+        });
+        return;
+      }
+
+      if (data) {
+        setNotificationsEnabled(data.notifications_enabled ?? true);
+        setWorkoutReminders(data.workout_reminders ?? true);
+        setIsDarkTheme(data.dark_theme ?? true);
+        setSoundEnabled(data.sound_enabled ?? true);
+      }
+    } catch (error) {
+      logger.error('Failed to load user preferences', error as Error, {
+        context: { userId: user.id },
+      });
+    }
+  };
+
+  // Validate and save user preferences
+  const saveUserPreferences = async (preferences: {
+    notifications_enabled?: boolean;
+    workout_reminders?: boolean;
+    dark_theme?: boolean;
+    sound_enabled?: boolean;
+  }) => {
+    if (!user?.id) {
+      setValidationErrors({ general: 'User not authenticated' });
+      return false;
+    }
+
+    // Validate preferences data
+    const validationData = {
+      preferred_weight_unit: 'KG', // Default values for validation
+      preferred_height_unit: 'CM',
+      notifications_enabled: preferences.notifications_enabled,
+      workout_reminders: preferences.workout_reminders,
+      dark_theme: preferences.dark_theme,
+      sound_enabled: preferences.sound_enabled,
+    };
+
+    const validationResult = validationService.validateUserPreferences(validationData);
+
+    if (!validationResult.success) {
+      const errors: Record<string, string> = {};
+      validationResult.errors.forEach((error) => {
+        errors[error.field] = error.message;
+      });
+      setValidationErrors(errors);
+
+      logger.warn('User preferences validation failed', {
+        context: { validationData, errors: validationResult.errors },
+      });
+      return false;
+    }
+
+    setValidationErrors({});
+
+    try {
+      setIsLoading(true);
+
+      const { error } = await supabase.from('user_profile_details').upsert({
+        user_id: user.id,
+        ...preferences,
+        updated_at: new Date().toISOString(),
+      });
+
+      if (error) {
+        logger.error('Error saving user preferences', error, {
+          context: { userId: user.id, preferences },
+        });
+        setValidationErrors({ general: 'Failed to save preferences' });
+        return false;
+      }
+
+      logger.info('User preferences saved successfully', {
+        context: { userId: user.id, preferences },
+      });
+      return true;
+    } catch (error) {
+      logger.error('Failed to save user preferences', error as Error, {
+        context: { userId: user.id, preferences },
+      });
+      setValidationErrors({ general: 'Failed to save preferences' });
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle theme toggle with validation
+  const handleThemeToggle = async (value: boolean) => {
+    setIsDarkTheme(value);
+    await saveUserPreferences({ dark_theme: value });
+  };
+
+  // Handle notifications toggle with validation
+  const handleNotificationsToggle = async (value: boolean) => {
+    setNotificationsEnabled(value);
+    await saveUserPreferences({ notifications_enabled: value });
+  };
+
+  // Handle workout reminders toggle with validation
+  const handleWorkoutRemindersToggle = async (value: boolean) => {
+    setWorkoutReminders(value);
+    await saveUserPreferences({ workout_reminders: value });
+  };
+
+  // Handle sound toggle with validation
+  const handleSoundToggle = async (value: boolean) => {
+    setSoundEnabled(value);
+    await saveUserPreferences({ sound_enabled: value });
+  };
 
   // Update cache statistics
   const updateCacheStats = () => {
@@ -39,63 +178,59 @@ export default function SettingsScreen() {
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
   };
 
-  // Format timestamp to relative time
+  // Format relative time
   const formatRelativeTime = (timestamp: number | null): string => {
-    if (timestamp === null) return 'N/A';
+    if (!timestamp) return 'Never';
 
     const now = Date.now();
     const diff = now - timestamp;
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
 
-    // Convert to minutes, hours, or days
-    if (diff < 60000) return 'Just now';
-    if (diff < 3600000) return `${Math.floor(diff / 60000)} min ago`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)} hours ago`;
-    return `${Math.floor(diff / 86400000)} days ago`;
+    if (days > 0) return `${days} day${days > 1 ? 's' : ''} ago`;
+    if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+    if (minutes > 0) return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+    return 'Just now';
   };
 
-  // Handle clearing cache
+  // Handle cache clearing with validation
   const handleClearCache = async () => {
-    Alert.alert(
-      'Clear Image Cache',
-      'This will clear all cached images. The app may load more slowly until images are cached again.',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Clear All',
-          style: 'destructive',
-          onPress: async () => {
-            setClearingCache(true);
-            try {
-              const result = await clearImageCache();
-              setClearingCache(false);
-              updateCacheStats();
+    Alert.alert('Clear All Cache', 'Are you sure you want to clear all cached images?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Clear All',
+        style: 'destructive',
+        onPress: async () => {
+          setClearingCache(true);
+          try {
+            const result = await clearImageCache();
+            setClearingCache(false);
+            updateCacheStats();
 
-              Alert.alert(
-                'Cache Cleared',
-                `Successfully cleared ${result.memoryClearedCount} cached images.`,
-                [{ text: 'OK' }],
-              );
-            } catch (error) {
-              console.error('Error clearing cache:', error);
-              setClearingCache(false);
-              Alert.alert('Error', 'Failed to clear cache');
-            }
-          },
+            Alert.alert(
+              'Cache Cleared',
+              `Successfully cleared ${result.memoryClearedCount} cached images.`,
+              [{ text: 'OK' }],
+            );
+
+            logger.info('Cache cleared successfully', {
+              context: { clearedCount: result.memoryClearedCount },
+            });
+          } catch (error) {
+            logger.error('Error clearing cache', error as Error);
+            setClearingCache(false);
+            Alert.alert('Error', 'Failed to clear cache');
+          }
         },
-      ],
-    );
+      },
+    ]);
   };
 
-  // Handle clearing old cache entries
+  // Handle old cache clearing with validation
   const handleClearOldCache = async () => {
-    Alert.alert('Clear Old Cache', 'This will clear cached images older than 24 hours.', [
-      {
-        text: 'Cancel',
-        style: 'cancel',
-      },
+    Alert.alert('Clear Old Cache', 'Clear cached images older than 24 hours?', [
+      { text: 'Cancel', style: 'cancel' },
       {
         text: 'Clear Old Items',
         onPress: async () => {
@@ -111,8 +246,12 @@ export default function SettingsScreen() {
               `Successfully cleared ${result.memoryClearedCount} old cached images.`,
               [{ text: 'OK' }],
             );
+
+            logger.info('Old cache cleared successfully', {
+              context: { clearedCount: result.memoryClearedCount },
+            });
           } catch (error) {
-            console.error('Error clearing old cache:', error);
+            logger.error('Error clearing old cache', error as Error);
             setClearingCache(false);
             Alert.alert('Error', 'Failed to clear old cache');
           }
@@ -196,9 +335,38 @@ export default function SettingsScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {/* Display validation errors */}
+        {Object.keys(validationErrors).length > 0 && (
+          <View style={styles.errorContainer}>
+            {Object.entries(validationErrors).map(([field, error]) => (
+              <Text key={field} style={styles.errorText}>
+                {error}
+              </Text>
+            ))}
+          </View>
+        )}
+
         <View style={styles.section}>
-          {renderMenuItem('bell-outline', 'Notifications')}
-          {renderMenuItem('clock-outline', 'Workout Reminders')}
+          {renderMenuItem(
+            'bell-outline',
+            'Notifications',
+            <Switch
+              value={notificationsEnabled}
+              onValueChange={handleNotificationsToggle}
+              color={COLORS.primary}
+              disabled={isLoading}
+            />,
+          )}
+          {renderMenuItem(
+            'clock-outline',
+            'Workout Reminders',
+            <Switch
+              value={workoutReminders}
+              onValueChange={handleWorkoutRemindersToggle}
+              color={COLORS.primary}
+              disabled={isLoading}
+            />,
+          )}
           {renderMenuItem(
             'calendar-check-outline',
             'Workout Days',
@@ -210,11 +378,25 @@ export default function SettingsScreen() {
           {renderMenuItem('watch', 'Apple Watch')}
           {renderMenuItem('heart', 'Apple Health')}
           {renderMenuItem('ruler', 'Units of Measure')}
-          {renderMenuItem('volume-high', 'Smart Weight & Reps Sounds')}
+          {renderMenuItem(
+            'volume-high',
+            'Smart Weight & Reps Sounds',
+            <Switch
+              value={soundEnabled}
+              onValueChange={handleSoundToggle}
+              color={COLORS.primary}
+              disabled={isLoading}
+            />,
+          )}
           {renderMenuItem(
             'theme-light-dark',
             'Dark Theme',
-            <Switch value={isDarkTheme} onValueChange={setIsDarkTheme} color={COLORS.primary} />,
+            <Switch
+              value={isDarkTheme}
+              onValueChange={handleThemeToggle}
+              color={COLORS.primary}
+              disabled={isLoading}
+            />,
           )}
         </View>
 
@@ -427,4 +609,14 @@ const styles = StyleSheet.create({
     marginHorizontal: 6,
   },
   clearAllButton: { backgroundColor: COLORS.error },
+  errorContainer: {
+    padding: 16,
+    backgroundColor: COLORS.error,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  errorText: {
+    color: COLORS.text,
+    fontSize: 14,
+  },
 });

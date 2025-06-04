@@ -1,4 +1,7 @@
+import { logger } from '../utils/logger';
+import { GeneralExerciseSchema } from '../validation/schemas';
 import supabase from './supabase';
+import { validationService } from './validationService';
 
 export interface Exercise {
   id: string;
@@ -100,27 +103,58 @@ const updateCache = (allExercises: Exercise[], byCategory?: Record<string, Exerc
 
 const exerciseService = {
   async getAllExercises(): Promise<Exercise[]> {
-    // Check cache first
-    const cache = getCachedExercises();
-    if (cache?.all) {
-      console.log('Using cached exercises data (all)');
-      return cache.all;
-    }
+    try {
+      // Check cache first
+      const cache = getCachedExercises();
+      if (cache?.all) {
+        logger.info('Using cached exercises data (all)', {
+          context: { count: cache.all.length },
+        });
+        return cache.all;
+      }
 
-    // Fallback to API call
-    const { data, error } = await supabase.from('exercises').select('*').order('name');
+      // Fallback to API call
+      const { data, error } = await supabase.from('exercises').select('*').order('name');
 
-    if (error) {
-      console.error('Error fetching exercises:', error);
+      if (error) {
+        logger.error('Error fetching exercises from database', error, {
+          context: { operation: 'getAllExercises' },
+        });
+        throw error;
+      }
+
+      // Validate each exercise
+      const validatedExercises: Exercise[] = [];
+      for (const exercise of data || []) {
+        const validationResult = validationService.validateGeneralExercise(exercise);
+        if (validationResult.success) {
+          validatedExercises.push(validationResult.data as Exercise);
+        } else {
+          logger.warn('Invalid exercise data received from database', {
+            context: {
+              exerciseId: exercise?.id,
+              errors: validationResult.errors,
+            },
+          });
+        }
+      }
+
+      // Update cache with validated data
+      if (validatedExercises.length > 0) {
+        updateCache(validatedExercises);
+      }
+
+      logger.info('Exercises fetched and validated successfully', {
+        context: { count: validatedExercises.length },
+      });
+
+      return validatedExercises;
+    } catch (error) {
+      logger.error('Failed to fetch exercises', error as Error, {
+        context: { operation: 'getAllExercises' },
+      });
       throw error;
     }
-
-    // Update cache with new data
-    if (data && data.length > 0) {
-      updateCache(data);
-    }
-
-    return data || [];
   },
 
   async getExercisesByCategory(category: ExerciseCategory): Promise<Exercise[]> {
@@ -345,56 +379,141 @@ const exerciseService = {
   async createExercise(
     exercise: Omit<Exercise, 'id' | 'created_at' | 'updated_at'>,
   ): Promise<Exercise> {
-    const { data, error } = await supabase.from('exercises').insert([exercise]).select().single();
+    try {
+      // Validate exercise data before database operation
+      const validationResult = validationService.validateGeneralExercise({
+        ...exercise,
+        id: 'temp-id', // Add temporary ID for validation, will be removed by database
+      });
 
-    if (error) {
-      console.error('Error creating exercise:', error);
+      if (!validationResult.success) {
+        const errorMessage = `Exercise validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+        logger.error('Exercise validation failed', new Error(errorMessage), {
+          context: { exercise, errors: validationResult.errors },
+        });
+        throw new Error(errorMessage);
+      }
+
+      const { data, error } = await supabase
+        .from('exercises')
+        .insert([validationResult.data])
+        .select()
+        .single();
+
+      if (error) {
+        logger.error('Error creating exercise in database', error, {
+          context: { exercise: validationResult.data },
+        });
+        throw error;
+      }
+
+      // Invalidate cache after creating a new exercise
+      const globalCache = global as { exercisesCache?: ExerciseCache };
+      if (globalCache.exercisesCache) {
+        globalCache.exercisesCache = undefined;
+        logger.info('Exercise cache invalidated after creation');
+      }
+
+      logger.info('Exercise created successfully', {
+        context: { exerciseId: data.id, name: data.name },
+      });
+      return data;
+    } catch (error) {
+      logger.error('Failed to create exercise', error as Error, {
+        context: { exercise },
+      });
       throw error;
     }
-
-    // Invalidate cache after creating a new exercise
-    const globalCache = global as { exercisesCache?: ExerciseCache };
-    if (globalCache.exercisesCache) {
-      globalCache.exercisesCache = undefined;
-    }
-
-    return data;
   },
 
   async updateExercise(id: string, updates: Partial<Exercise>): Promise<Exercise> {
-    const { data, error } = await supabase
-      .from('exercises')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .single();
+    try {
+      // Validate the ID
+      if (!id || typeof id !== 'string') {
+        throw new Error('Valid exercise ID is required');
+      }
 
-    if (error) {
-      console.error('Error updating exercise:', error);
+      // Validate update data if provided
+      if (Object.keys(updates).length > 0) {
+        const validationResult = validationService.validateWithSchema(
+          GeneralExerciseSchema.partial(),
+          updates,
+          'exercise update',
+        );
+
+        if (!validationResult.success) {
+          const errorMessage = `Exercise update validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+          logger.error('Exercise update validation failed', new Error(errorMessage), {
+            context: { exerciseId: id, updates, errors: validationResult.errors },
+          });
+          throw new Error(errorMessage);
+        }
+      }
+
+      const { data, error } = await supabase
+        .from('exercises')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        logger.error('Error updating exercise in database', error, {
+          context: { exerciseId: id, updates },
+        });
+        throw error;
+      }
+
+      // Invalidate cache after updating an exercise
+      const globalCache = global as { exercisesCache?: ExerciseCache };
+      if (globalCache.exercisesCache) {
+        globalCache.exercisesCache = undefined;
+        logger.info('Exercise cache invalidated after update');
+      }
+
+      logger.info('Exercise updated successfully', {
+        context: { exerciseId: data.id, name: data.name },
+      });
+      return data;
+    } catch (error) {
+      logger.error('Failed to update exercise', error as Error, {
+        context: { exerciseId: id, updates },
+      });
       throw error;
     }
-
-    // Invalidate cache after updating an exercise
-    const globalCache = global as { exercisesCache?: ExerciseCache };
-    if (globalCache.exercisesCache) {
-      globalCache.exercisesCache = undefined;
-    }
-
-    return data;
   },
 
   async deleteExercise(id: string): Promise<void> {
-    const { error } = await supabase.from('exercises').delete().eq('id', id);
+    try {
+      // Validate the ID
+      if (!id || typeof id !== 'string') {
+        throw new Error('Valid exercise ID is required');
+      }
 
-    if (error) {
-      console.error('Error deleting exercise:', error);
+      const { error } = await supabase.from('exercises').delete().eq('id', id);
+
+      if (error) {
+        logger.error('Error deleting exercise from database', error, {
+          context: { exerciseId: id },
+        });
+        throw error;
+      }
+
+      // Invalidate cache after deleting an exercise
+      const globalCache = global as { exercisesCache?: ExerciseCache };
+      if (globalCache.exercisesCache) {
+        globalCache.exercisesCache = undefined;
+        logger.info('Exercise cache invalidated after deletion');
+      }
+
+      logger.info('Exercise deleted successfully', {
+        context: { exerciseId: id },
+      });
+    } catch (error) {
+      logger.error('Failed to delete exercise', error as Error, {
+        context: { exerciseId: id },
+      });
       throw error;
-    }
-
-    // Invalidate cache after deleting an exercise
-    const globalCache = global as { exercisesCache?: ExerciseCache };
-    if (globalCache.exercisesCache) {
-      globalCache.exercisesCache = undefined;
     }
   },
 };

@@ -1,4 +1,6 @@
+import { logger } from '../utils/logger';
 import supabase from './supabase';
+import { validationService } from './validationService';
 import { getCycleWeekInfo } from './workoutCycleService';
 import { ExerciseData, ExerciseSet } from './workoutSessionService';
 
@@ -772,6 +774,37 @@ const insertWorkoutHistory = async (options: {
 
   const workoutDurationMinutes = Math.round(workoutDuration / 60);
 
+  // Prepare workout history data for validation
+  const workoutHistoryData = {
+    user_id: userId,
+    plan_id: planId,
+    workout_day: workoutDay,
+    cycle_week: cycleWeek,
+    week_name: weekName,
+    workout_duration: formattedDuration,
+    calories_burned: Math.round(workoutDurationMinutes * 8.5),
+    total_volume: totalVolume,
+    total_reps: totalReps,
+    completed_at: new Date().toISOString(),
+    exercises_count: exercises.length,
+    exercise_structure: JSON.stringify(exerciseStructure),
+  };
+
+  // Validate workout history data
+  try {
+    const validationResult =
+      await validationService.validateWorkoutHistoryRecord(workoutHistoryData);
+
+    if (!validationResult.success) {
+      const errorMessage = `Workout history validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+      console.error(errorMessage, { workoutHistoryData, errors: validationResult.errors });
+      throw new Error(errorMessage);
+    }
+  } catch (validationError) {
+    console.error('Validation error in insertWorkoutHistory:', validationError);
+    throw validationError;
+  }
+
   const { data: workoutData, error: workoutError } = await supabase
     .from('user_workout_history')
     .insert({
@@ -847,6 +880,20 @@ const createExerciseRecords = (
 // Helper function to insert exercise records
 const insertExerciseRecords = async (exerciseRecords: unknown[]): Promise<void> => {
   if (exerciseRecords.length > 0) {
+    // Validate exercise records before insertion
+    try {
+      const validationResult = await validationService.validateExerciseRecords(exerciseRecords);
+
+      if (!validationResult.success) {
+        const errorMessage = `Exercise records validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+        console.error(errorMessage, { exerciseRecords, errors: validationResult.errors });
+        throw new Error(errorMessage);
+      }
+    } catch (validationError) {
+      console.error('Validation error in insertExerciseRecords:', validationError);
+      throw validationError;
+    }
+
     const { error: recordsError } = await supabase
       .from('user_exercise_records')
       .insert(exerciseRecords);
@@ -936,6 +983,22 @@ const updateActivePlan = async (
 
 // Complete a workout and save all data
 export const completeWorkout = async (options: CompleteWorkoutOptions): Promise<boolean> => {
+  // Validate input data
+  try {
+    const validationResult = await validationService.validateCompleteWorkoutOptions(options);
+
+    if (!validationResult.success) {
+      const errorMessage = `Workout completion validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+      logger.error('Workout completion validation failed', new Error(errorMessage), {
+        context: { options, errors: validationResult.errors },
+      });
+      throw new Error(errorMessage);
+    }
+  } catch (validationError) {
+    console.error('Validation error in completeWorkout:', validationError);
+    return false;
+  }
+
   const {
     userId,
     planId,

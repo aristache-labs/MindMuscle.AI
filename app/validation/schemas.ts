@@ -236,6 +236,183 @@ export const CreateWorkoutPlanSchema = z.object({
   workoutDays: z.array(WorkoutDaySchema),
 });
 
+// Workout data service validation schemas
+export const WorkoutHistoryRecordSchema = z.object({
+  id: IdSchema.optional(),
+  user_id: IdSchema,
+  plan_id: IdSchema,
+  workout_day: PositiveNumberSchema,
+  cycle_week: PositiveNumberSchema,
+  week_name: z.string().min(1, 'Week name is required'),
+  workout_duration: z.string().min(1, 'Workout duration is required'),
+  calories_burned: NonNegativeNumberSchema,
+  total_volume: NonNegativeNumberSchema,
+  total_reps: NonNegativeNumberSchema,
+  completed_at: DateStringSchema,
+  exercises_count: PositiveNumberSchema,
+  exercise_structure: z.string().optional(),
+});
+
+export const ExerciseRecordSchema = z.object({
+  id: IdSchema.optional(),
+  workout_history_id: IdSchema,
+  exercise_id: IdSchema,
+  workout_plan_exercise_id: IdSchema,
+  set_number: PositiveNumberSchema,
+  weight: NonNegativeNumberSchema,
+  reps: NonNegativeNumberSchema,
+  completed: z.boolean(),
+  created_at: DateStringSchema.optional(),
+});
+
+export const CompleteWorkoutOptionsSchema = z.object({
+  userId: IdSchema,
+  planId: IdSchema,
+  workoutDay: PositiveNumberSchema,
+  cycleWeek: PositiveNumberSchema,
+  weekName: z.string().min(1, 'Week name is required'),
+  exercises: z.array(ExerciseSchema),
+  exerciseSets: z.record(z.array(ExerciseSetSchema)),
+  workoutDuration: PositiveNumberSchema,
+  totalVolume: NonNegativeNumberSchema,
+  totalReps: NonNegativeNumberSchema,
+  isRedoWorkout: z.boolean().optional(),
+  originalCycleWeek: PositiveNumberSchema.optional(),
+});
+
+export const SavedExerciseStructureSchema = z.object({
+  id: IdSchema,
+  exercise_id: IdSchema,
+  name: z.string().min(1, 'Exercise name is required'),
+  sets: PositiveNumberSchema,
+  reps_range: z.string().regex(/^\d+-\d+$/, 'Reps range must be in format "min-max"'),
+  image_url: UrlSchema,
+  primary_muscles: z.array(z.string()).optional(),
+  requires_weight: z.boolean(),
+  workout_day: PositiveNumberSchema,
+  order: NonNegativeNumberSchema,
+  restTime: NonNegativeNumberSchema,
+  isChangedExercise: z.boolean().optional(),
+});
+
+// Achievement validation schemas
+export const AchievementSchema = z.object({
+  id: IdSchema.optional(),
+  title: z.string().min(1, 'Achievement title is required'),
+  description: z.string().min(1, 'Achievement description is required'),
+  subtitle: z.string().optional(),
+  requirement: z.string().min(1, 'Achievement requirement is required'),
+  icon: z.string().min(1, 'Achievement icon is required'),
+  icon_background_color: z.string().optional(),
+  total_progress: PositiveNumberSchema.optional(),
+  created_at: DateStringSchema.optional(),
+  updated_at: DateStringSchema.optional(),
+});
+
+export const UserAchievementSchema = z.object({
+  id: IdSchema.optional(),
+  user_id: IdSchema,
+  achievement_id: IdSchema,
+  is_completed: z.boolean(),
+  completed_at: DateStringSchema.optional(),
+  current_progress: NonNegativeNumberSchema,
+  created_at: DateStringSchema.optional(),
+  updated_at: DateStringSchema.optional(),
+});
+
+export const UpdateAchievementProgressSchema = z.object({
+  userId: IdSchema,
+  achievementId: IdSchema,
+  progress: NonNegativeNumberSchema,
+});
+
+// Progress photo validation schemas (enhanced)
+export const ProgressPhotoUploadSchema = z.object({
+  userId: IdSchema,
+  type: z.enum(['before', 'after']),
+  uri: z.string().min(1, 'Photo URI is required'),
+  date: z.date().optional(),
+});
+
+export const ProgressPhotoRecordSchema = z.object({
+  id: IdSchema.optional(),
+  user_id: IdSchema,
+  photo_url: z.string().min(1, 'Photo URL is required'),
+  type: z.enum(['before', 'after']),
+  created_at: DateStringSchema.optional(),
+  taken_at: DateStringSchema,
+});
+
+// Settings and preferences validation schemas
+export const UserPreferencesSchema = z.object({
+  preferred_weight_unit: z.enum(['KG', 'LB']).optional(),
+  preferred_height_unit: z.enum(['CM', 'INCH']).optional(),
+  notifications_enabled: z.boolean().optional(),
+  workout_reminders: z.boolean().optional(),
+  dark_theme: z.boolean().optional(),
+  sound_enabled: z.boolean().optional(),
+});
+
+export const WorkoutDaysPreferenceSchema = z.object({
+  userId: IdSchema,
+  workoutDays: z.array(z.number().min(0).max(6)).min(1, 'At least one workout day is required'),
+});
+
+export const NotificationSettingsSchema = z.object({
+  userId: IdSchema,
+  workout_reminders: z.boolean(),
+  achievement_notifications: z.boolean(),
+  progress_updates: z.boolean(),
+  reminder_time: z
+    .string()
+    .regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Invalid time format')
+    .optional(),
+});
+
+// Workout plan service validation schemas
+export const ActivePlanDataSchema = z.object({
+  currentWeek: PositiveNumberSchema,
+  weekName: z.string().min(1, 'Week name is required'),
+  planId: IdSchema,
+  workoutDay: NonNegativeNumberSchema,
+});
+
+export const SaveCompletedWorkoutSchema = z.object({
+  userId: IdSchema,
+  planId: IdSchema,
+  workoutDay: PositiveNumberSchema,
+  cycleWeek: PositiveNumberSchema,
+  weekName: z.string().min(1, 'Week name is required'),
+  exercises: z.array(ExerciseSchema),
+  exerciseSets: z.record(z.array(ExerciseSetSchema)),
+  totalVolume: NonNegativeNumberSchema,
+  totalReps: NonNegativeNumberSchema,
+  duration: PositiveNumberSchema,
+  completedAt: z.string().min(1, 'Completion time is required'),
+});
+
+// Form component validation schemas
+export const CustomizeExerciseFormSchema = z.object({
+  exerciseId: IdSchema,
+  sets: PositiveNumberSchema.min(1).max(20),
+  repsRange: z.string().regex(/^\d+-\d+$/, 'Reps range must be in format "min-max"'),
+  restTime: NonNegativeNumberSchema.max(600), // Max 10 minutes
+});
+
+export const MeasurementFormSchema = z.object({
+  category: z.enum(['WEIGHT', 'CHEST', 'WAIST', 'BICEPS', 'THIGH', 'CALF', 'SHOULDERS', 'ABS']),
+  value: PositiveNumberSchema,
+  unit: z.string().min(1, 'Unit is required'),
+  measuredAt: z.date().optional(),
+});
+
+export const TimerSettingsSchema = z.object({
+  restTime: NonNegativeNumberSchema.max(600), // Max 10 minutes
+  autoStart: z.boolean(),
+  soundEnabled: z.boolean(),
+  vibrationEnabled: z.boolean(),
+});
+
 // Type exports
 export type GeneralExercise = z.infer<typeof GeneralExerciseSchema>;
 export type Exercise = z.infer<typeof ExerciseSchema>;
@@ -254,3 +431,20 @@ export type ProfileUpdate = z.infer<typeof ProfileUpdateSchema>;
 export type CreateWorkoutPlan = z.infer<typeof CreateWorkoutPlanSchema>;
 export type AICoachingRequest = z.infer<typeof AICoachingRequestSchema>;
 export type AICoachingResponse = z.infer<typeof AICoachingResponseSchema>;
+export type WorkoutHistoryRecord = z.infer<typeof WorkoutHistoryRecordSchema>;
+export type ExerciseRecord = z.infer<typeof ExerciseRecordSchema>;
+export type CompleteWorkoutOptions = z.infer<typeof CompleteWorkoutOptionsSchema>;
+export type SavedExerciseStructure = z.infer<typeof SavedExerciseStructureSchema>;
+export type Achievement = z.infer<typeof AchievementSchema>;
+export type UserAchievement = z.infer<typeof UserAchievementSchema>;
+export type UpdateAchievementProgress = z.infer<typeof UpdateAchievementProgressSchema>;
+export type ProgressPhotoUpload = z.infer<typeof ProgressPhotoUploadSchema>;
+export type ProgressPhotoRecord = z.infer<typeof ProgressPhotoRecordSchema>;
+export type UserPreferences = z.infer<typeof UserPreferencesSchema>;
+export type WorkoutDaysPreference = z.infer<typeof WorkoutDaysPreferenceSchema>;
+export type NotificationSettings = z.infer<typeof NotificationSettingsSchema>;
+export type ActivePlanData = z.infer<typeof ActivePlanDataSchema>;
+export type SaveCompletedWorkout = z.infer<typeof SaveCompletedWorkoutSchema>;
+export type CustomizeExerciseForm = z.infer<typeof CustomizeExerciseFormSchema>;
+export type MeasurementForm = z.infer<typeof MeasurementFormSchema>;
+export type TimerSettings = z.infer<typeof TimerSettingsSchema>;

@@ -1,16 +1,30 @@
 import { z } from 'zod';
 import { logger } from '../utils/logger';
 import {
+  AchievementSchema,
+  ActivePlanDataSchema,
+  CustomizeExerciseFormSchema,
   ExerciseConfigurationSchema,
   ExerciseSchema,
+  GeneralExerciseSchema,
   LoginFormSchema,
+  MeasurementFormSchema,
   MeasurementSchema,
+  NotificationSettingsSchema,
   PausedWorkoutSchema,
   PlanSchema,
+  ProgressPhotoRecordSchema,
   ProgressPhotoSchema,
+  ProgressPhotoUploadSchema,
   RegisterFormSchema,
+  SaveCompletedWorkoutSchema,
+  TimerSettingsSchema,
+  UpdateAchievementProgressSchema,
+  UserAchievementSchema,
+  UserPreferencesSchema,
   UserProfileSchema,
   WorkoutDaySchema,
+  WorkoutDaysPreferenceSchema,
 } from '../validation/schemas';
 import {
   safeValidate,
@@ -23,6 +37,10 @@ class ValidationService {
   // Exercise validation methods
   validateExercise(data: unknown): ValidationResult<z.infer<typeof ExerciseSchema>> {
     return safeValidate(ExerciseSchema, data, 'exercise');
+  }
+
+  validateGeneralExercise(data: unknown): ValidationResult<z.infer<typeof GeneralExerciseSchema>> {
+    return safeValidate(GeneralExerciseSchema, data, 'general exercise');
   }
 
   validateExerciseConfiguration(
@@ -70,6 +88,113 @@ class ValidationService {
 
   validateProgressPhoto(data: unknown): ValidationResult<z.infer<typeof ProgressPhotoSchema>> {
     return safeValidate(ProgressPhotoSchema, data, 'progress photo');
+  }
+
+  // Workout data service validation methods
+  async validateWorkoutHistoryRecord(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof WorkoutHistoryRecordSchema>>> {
+    const { WorkoutHistoryRecordSchema } = await import('../validation/schemas');
+    return safeValidate(WorkoutHistoryRecordSchema, data, 'workout history record');
+  }
+
+  async validateExerciseRecord(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof ExerciseRecordSchema>>> {
+    const { ExerciseRecordSchema } = await import('../validation/schemas');
+    return safeValidate(ExerciseRecordSchema, data, 'exercise record');
+  }
+
+  async validateCompleteWorkoutOptions(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof CompleteWorkoutOptionsSchema>>> {
+    const { CompleteWorkoutOptionsSchema } = await import('../validation/schemas');
+    return safeValidate(CompleteWorkoutOptionsSchema, data, 'complete workout options');
+  }
+
+  async validateSavedExerciseStructure(
+    data: unknown,
+  ): Promise<ValidationResult<z.infer<typeof SavedExerciseStructureSchema>>> {
+    const { SavedExerciseStructureSchema } = await import('../validation/schemas');
+    return safeValidate(SavedExerciseStructureSchema, data, 'saved exercise structure');
+  }
+
+  async validateExerciseRecords(
+    data: unknown[],
+  ): Promise<ValidationResult<z.infer<typeof ExerciseRecordSchema>[]>> {
+    const { ExerciseRecordSchema } = await import('../validation/schemas');
+    return validateArray(ExerciseRecordSchema, data, 'exercise records');
+  }
+
+  // Achievement validation methods
+  validateAchievement(data: unknown): ValidationResult<z.infer<typeof AchievementSchema>> {
+    return safeValidate(AchievementSchema, data, 'achievement');
+  }
+
+  validateUserAchievement(data: unknown): ValidationResult<z.infer<typeof UserAchievementSchema>> {
+    return safeValidate(UserAchievementSchema, data, 'user achievement');
+  }
+
+  validateUpdateAchievementProgress(
+    data: unknown,
+  ): ValidationResult<z.infer<typeof UpdateAchievementProgressSchema>> {
+    return safeValidate(UpdateAchievementProgressSchema, data, 'achievement progress update');
+  }
+
+  // Progress photo validation methods
+  validateProgressPhotoUpload(
+    data: unknown,
+  ): ValidationResult<z.infer<typeof ProgressPhotoUploadSchema>> {
+    return safeValidate(ProgressPhotoUploadSchema, data, 'progress photo upload');
+  }
+
+  validateProgressPhotoRecord(
+    data: unknown,
+  ): ValidationResult<z.infer<typeof ProgressPhotoRecordSchema>> {
+    return safeValidate(ProgressPhotoRecordSchema, data, 'progress photo record');
+  }
+
+  // Settings and preferences validation methods
+  validateUserPreferences(data: unknown): ValidationResult<z.infer<typeof UserPreferencesSchema>> {
+    return safeValidate(UserPreferencesSchema, data, 'user preferences');
+  }
+
+  validateWorkoutDaysPreference(
+    data: unknown,
+  ): ValidationResult<z.infer<typeof WorkoutDaysPreferenceSchema>> {
+    return safeValidate(WorkoutDaysPreferenceSchema, data, 'workout days preference');
+  }
+
+  validateNotificationSettings(
+    data: unknown,
+  ): ValidationResult<z.infer<typeof NotificationSettingsSchema>> {
+    return safeValidate(NotificationSettingsSchema, data, 'notification settings');
+  }
+
+  // Workout plan service validation methods
+  validateActivePlanData(data: unknown): ValidationResult<z.infer<typeof ActivePlanDataSchema>> {
+    return safeValidate(ActivePlanDataSchema, data, 'active plan data');
+  }
+
+  validateSaveCompletedWorkout(
+    data: unknown,
+  ): ValidationResult<z.infer<typeof SaveCompletedWorkoutSchema>> {
+    return safeValidate(SaveCompletedWorkoutSchema, data, 'save completed workout');
+  }
+
+  // Form component validation methods
+  validateCustomizeExerciseForm(
+    data: unknown,
+  ): ValidationResult<z.infer<typeof CustomizeExerciseFormSchema>> {
+    return safeValidate(CustomizeExerciseFormSchema, data, 'customize exercise form');
+  }
+
+  validateMeasurementForm(data: unknown): ValidationResult<z.infer<typeof MeasurementFormSchema>> {
+    return safeValidate(MeasurementFormSchema, data, 'measurement form');
+  }
+
+  validateTimerSettings(data: unknown): ValidationResult<z.infer<typeof TimerSettingsSchema>> {
+    return safeValidate(TimerSettingsSchema, data, 'timer settings');
   }
 
   // Generic validation methods
@@ -265,6 +390,46 @@ class ValidationService {
       invalidItems,
       hasErrors: invalidItems.length > 0,
     };
+  }
+
+  // Conditional validation
+  validateConditionally<T>(
+    schema: z.ZodSchema<T>,
+    data: unknown,
+    condition: (data: unknown) => boolean,
+    context?: string,
+  ): ValidationResult<T> | null {
+    if (!condition(data)) {
+      return null; // Skip validation
+    }
+
+    return safeValidate(schema, data, context);
+  }
+
+  // Validation with custom error messages
+  validateWithCustomErrors<T>(
+    schema: z.ZodSchema<T>,
+    data: unknown,
+    errorMap: Record<string, string>,
+    context?: string,
+  ): ValidationResult<T> {
+    const result = safeValidate(schema, data, context);
+
+    if (!result.success) {
+      // Apply custom error messages
+      const customErrors = result.errors.map((error) => ({
+        ...error,
+        message: errorMap[error.field] || error.message,
+      }));
+
+      return {
+        success: false,
+        data: null,
+        errors: customErrors,
+      };
+    }
+
+    return result;
   }
 }
 

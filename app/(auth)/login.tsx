@@ -1,22 +1,22 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  StyleSheet,
-  View,
+  ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  TouchableWithoutFeedback,
-  Keyboard,
-  ActivityIndicator,
   TextInput as RNTextInput,
+  StyleSheet,
+  TouchableWithoutFeedback,
+  View,
 } from 'react-native';
-import { TextInput, Text, HelperText } from 'react-native-paper';
-import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import secureStorage from '../utils/secureStorage';
-import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
-import { useAuth } from '../store/AuthContext';
+import { HelperText, Text, TextInput } from 'react-native-paper';
+import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import { useNavigationDebounce } from '../hooks/useDebounce';
+import { useAuth } from '../store/AuthContext';
+import secureStorage from '../utils/secureStorage';
 
 // Keys for secure storage
 const SAVED_EMAIL_KEY = 'mindmuscle_saved_email';
@@ -106,29 +106,44 @@ function useCredentialManagement() {
   };
 }
 
+// Import validation service
+import { validationService } from '../services/validationService';
+
 // Custom hook for form validation
 function useFormValidation() {
-  const [validationError, setValidationError] = useState('');
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   const validateInputs = (email: string, password: string) => {
-    if (!email.trim()) {
-      setValidationError('Email is required');
+    const formData = { email, password };
+    const validationResult = validationService.validateLoginForm(formData);
+
+    if (!validationResult.success) {
+      const errors: Record<string, string> = {};
+      validationResult.errors.forEach((error) => {
+        errors[error.field] = error.message;
+      });
+      setValidationErrors(errors);
       return false;
     }
-    if (!password.trim()) {
-      setValidationError('Password is required');
-      return false;
-    }
-    if (!/\S+@\S+\.\S+/.test(email)) {
-      setValidationError('Please enter a valid email address');
-      return false;
-    }
+
+    setValidationErrors({});
     return true;
   };
 
-  const clearValidationError = () => setValidationError('');
+  const clearValidationError = () => setValidationErrors({});
 
-  return { validationError, validateInputs, clearValidationError };
+  const getValidationError = () => {
+    const errorValues = Object.values(validationErrors);
+    return errorValues.length > 0 ? errorValues[0] : '';
+  };
+
+  return {
+    validationErrors,
+    validateInputs,
+    clearValidationError,
+    getValidationError,
+    hasValidationError: Object.keys(validationErrors).length > 0,
+  };
 }
 
 // Custom hook for UI state
@@ -328,7 +343,8 @@ export default function LoginScreen() {
 
   const { isLoadingCredentials, loadSavedCredentials, saveCredentials, clearSavedCredentials } =
     useCredentialManagement();
-  const { validationError, validateInputs, clearValidationError } = useFormValidation();
+  const { validateInputs, clearValidationError, getValidationError, hasValidationError } =
+    useFormValidation();
   const { showPassword, setShowPassword, focusedInput, setFocusedInput } = useUIState();
   const debouncedNavigate = useNavigationDebounce();
 
@@ -390,6 +406,7 @@ export default function LoginScreen() {
   };
 
   const getErrorMessage = () => {
+    const validationError = getValidationError();
     if (validationError) return validationError;
     if (error?.message) return error.message;
     return '';
@@ -422,7 +439,7 @@ export default function LoginScreen() {
               setEmail={setEmail}
               focusedInput={focusedInput}
               setFocusedInput={setFocusedInput}
-              hasError={!!error || !!validationError}
+              hasError={!!error || hasValidationError}
               isLoading={isLoading}
               onSubmitEditing={() => passwordInputRef.current?.focus()}
             />
@@ -434,13 +451,13 @@ export default function LoginScreen() {
               setShowPassword={setShowPassword}
               focusedInput={focusedInput}
               setFocusedInput={setFocusedInput}
-              hasError={!!error || !!validationError}
+              hasError={!!error || hasValidationError}
               isLoading={isLoading}
               onSubmitEditing={handleLogin}
               inputRef={passwordInputRef}
             />
 
-            {(error || validationError) && (
+            {(error || hasValidationError) && (
               <HelperText type="error" style={styles.errorText}>
                 {getErrorMessage()}
               </HelperText>

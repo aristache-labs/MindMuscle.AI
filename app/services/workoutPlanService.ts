@@ -1,71 +1,71 @@
-import supabase from './supabase';
 import { SentryLogger } from './sentry';
+import supabase from './supabase';
 
 // Import all functions from modular services
 import {
-  saveActivePlan,
-  getActivePlan,
-  updateActivePlanDay,
   clearActivePlan,
+  getActivePlan,
   getPlanById,
-  updateUserWorkoutDays,
   getUserWorkoutDays,
+  saveActivePlan,
+  updateActivePlanDay,
+  updateUserWorkoutDays,
+  type PlanExercise,
   type SavedPlan,
   type WorkoutDay,
-  type PlanExercise,
 } from './workoutPlanCore';
 
 import {
-  savePausedWorkout as savePausedWorkoutSession,
-  getPausedWorkout as getPausedWorkoutSession,
   clearPausedWorkout as clearPausedWorkoutSession,
+  fetchExerciseAbsoluteMaxWeight as fetchExerciseAbsoluteMaxWeightSession,
   fetchExerciseDetails as fetchExerciseDetailsSession,
   fetchExerciseMaxWeightData as fetchExerciseMaxWeightDataSession,
-  fetchExerciseAbsoluteMaxWeight as fetchExerciseAbsoluteMaxWeightSession,
+  getPausedWorkout as getPausedWorkoutSession,
+  savePausedWorkout as savePausedWorkoutSession,
   type ExerciseData,
   type ExerciseSet,
 } from './workoutSessionService';
 
 import {
-  getCycleWeekInfo,
-  getAllCycleWeeks,
-  getExerciseRecommendations,
   calculateProgressiveWorkoutSchedule as calculateProgressiveWorkoutScheduleCycle,
-  setupCalendarDatesProgressive as setupCalendarDatesProgressiveCycle,
-  getCurrentCycleProgress as getCurrentCycleProgressCycle,
   checkWeekProgression as checkWeekProgressionCycle,
+  getAllCycleWeeks,
+  getCurrentCycleProgress as getCurrentCycleProgressCycle,
+  getCycleWeekInfo,
+  getExerciseRecommendations,
+  setupCalendarDatesProgressive as setupCalendarDatesProgressiveCycle,
   type CycleWeekInfo,
   type ExerciseRecommendation,
 } from './workoutCycleService';
 
 import {
-  fetchWorkoutData,
-  fetchLastExerciseRecords,
   checkWorkoutCompletion,
-  getLastCompletedWorkoutStructure,
   checkWorkoutCompletionForCycleWeek,
   completeWorkout,
+  fetchLastExerciseRecords,
+  fetchWorkoutData,
+  getLastCompletedWorkoutStructure,
   type CompletedWorkoutData,
 } from './workoutDataService';
 
 import {
-  fetchActivePlan,
-  setupCalendarDates,
   checkWorkoutCompletionForPlan,
+  fetchActivePlan,
   fetchPlanDetails,
+  setupCalendarDates,
   startPlan as startPlanManagement,
 } from './workoutPlanManagementService';
 
 // Re-export interfaces from modular services
 export {
+  CompletedWorkoutData,
+  CycleWeekInfo,
   ExerciseData,
+  ExerciseRecommendation,
   ExerciseSet,
+  PlanExercise,
   SavedPlan,
   WorkoutDay,
-  PlanExercise,
-  CycleWeekInfo,
-  ExerciseRecommendation,
-  CompletedWorkoutData,
 };
 
 // Get the active plan with cycle week information
@@ -305,46 +305,43 @@ const getDefaultWeekName = (weekNumber: number): string => {
 
 // Re-export functions from modular services with consistent naming
 export {
-  // Core functions
-  saveActivePlan,
-  getActivePlan,
-  updateActivePlanDay,
-  clearActivePlan,
-  getPlanById,
-  updateUserWorkoutDays,
-  getUserWorkoutDays,
-
-  // Session functions
-  savePausedWorkoutSession as savePausedWorkout,
-  getPausedWorkoutSession as getPausedWorkout,
-  clearPausedWorkoutSession as clearPausedWorkout,
-  fetchExerciseDetailsSession as fetchExerciseDetails,
-  fetchExerciseMaxWeightDataSession as fetchExerciseMaxWeightData,
-  fetchExerciseAbsoluteMaxWeightSession as fetchExerciseAbsoluteMaxWeight,
-
-  // Cycle functions
-  getCycleWeekInfo,
-  getAllCycleWeeks,
-  getExerciseRecommendations,
   calculateProgressiveWorkoutScheduleCycle as calculateProgressiveWorkoutSchedule,
-  setupCalendarDatesProgressiveCycle as setupCalendarDatesProgressive,
-  getCurrentCycleProgressCycle as getCurrentCycleProgress,
   checkWeekProgressionCycle as checkWeekProgression,
-
-  // Data functions
-  fetchWorkoutData,
-  fetchLastExerciseRecords,
   checkWorkoutCompletion,
-  getLastCompletedWorkoutStructure,
   checkWorkoutCompletionForCycleWeek,
+  checkWorkoutCompletionForPlan,
+  clearActivePlan,
+  clearPausedWorkoutSession as clearPausedWorkout,
   completeWorkout,
 
   // Management functions
   fetchActivePlan,
-  setupCalendarDates,
-  checkWorkoutCompletionForPlan,
+  fetchExerciseAbsoluteMaxWeightSession as fetchExerciseAbsoluteMaxWeight,
+  fetchExerciseDetailsSession as fetchExerciseDetails,
+  fetchExerciseMaxWeightDataSession as fetchExerciseMaxWeightData,
+  fetchLastExerciseRecords,
   fetchPlanDetails,
+  // Data functions
+  fetchWorkoutData,
+  getActivePlan,
+  getAllCycleWeeks,
+  getCurrentCycleProgressCycle as getCurrentCycleProgress,
+  // Cycle functions
+  getCycleWeekInfo,
+  getExerciseRecommendations,
+  getLastCompletedWorkoutStructure,
+  getPausedWorkoutSession as getPausedWorkout,
+  getPlanById,
+  getUserWorkoutDays,
+  // Core functions
+  saveActivePlan,
+  // Session functions
+  savePausedWorkoutSession as savePausedWorkout,
+  setupCalendarDates,
+  setupCalendarDatesProgressiveCycle as setupCalendarDatesProgressive,
   startPlanManagement as startPlan,
+  updateActivePlanDay,
+  updateUserWorkoutDays,
 };
 
 // Export all functions as a default object for backward compatibility

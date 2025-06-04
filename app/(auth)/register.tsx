@@ -13,69 +13,15 @@ import {
 import { Checkbox, HelperText, Text, TextInput } from 'react-native-paper';
 import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import { useNavigationDebounce } from '../hooks/useDebounce';
+import { validationService } from '../services/validationService';
 import { useAuth } from '../store/AuthContext';
 
-// Custom hook for form validation
-function useFormValidation() {
-  const [fieldErrors, setFieldErrors] = useState({
-    fullName: '',
-    email: '',
-    password: '',
-    confirmPassword: '',
-  });
-
-  const validateInputs = (
-    fullName: string,
-    email: string,
-    password: string,
-    confirmPassword: string,
-  ) => {
-    const errors = {
-      fullName: '',
-      email: '',
-      password: '',
-      confirmPassword: '',
-    };
-
-    if (!fullName.trim()) {
-      errors.fullName = 'Full name is required';
-    }
-    if (!email.trim()) {
-      errors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(email)) {
-      errors.email = 'Please enter a valid email address';
-    }
-    if (!password.trim()) {
-      errors.password = 'Password is required';
-    } else if (password.trim().length < 6) {
-      errors.password = 'Password should be at least 6 characters';
-    }
-    if (!confirmPassword.trim()) {
-      errors.confirmPassword = 'Please confirm your password';
-    } else if (password.trim() !== confirmPassword.trim()) {
-      errors.confirmPassword = 'Passwords do not match';
-    }
-
-    setFieldErrors(errors);
-    return !Object.values(errors).some((error) => error !== '');
-  };
-
-  const clearFieldError = (field: keyof typeof fieldErrors) => {
-    setFieldErrors((prev) => ({ ...prev, [field]: '' }));
-  };
-
-  return { fieldErrors, validateInputs, clearFieldError };
-}
-
 // Custom hook for input handlers
-function useInputHandlers(
-  clearError: () => void,
-  clearFieldError: (field: keyof ReturnType<typeof useFormValidation>['fieldErrors']) => void,
-) {
+function useInputHandlers(clearError: () => void, clearFieldError: (field: string) => void) {
   const createInputHandler = (setter: (value: string) => void, field: string) => {
     return (text: string) => {
       setter(text);
-      clearFieldError(field as keyof ReturnType<typeof useFormValidation>['fieldErrors']);
+      clearFieldError(field);
       clearError();
     };
   };
@@ -193,12 +139,22 @@ export default function RegisterScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [focusedInput, setFocusedInput] = useState('');
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   const isMountedRef = useRef(true);
   const { signUp, isLoading, error, clearError } = useAuth();
-  const { fieldErrors, validateInputs, clearFieldError } = useFormValidation();
-  const { createInputHandler } = useInputHandlers(clearError, clearFieldError);
   const debouncedNavigate = useNavigationDebounce();
+
+  // Clear field error helper
+  const clearFieldError = (field: string) => {
+    setValidationErrors((prev) => {
+      const newErrors = { ...prev };
+      delete newErrors[field];
+      return newErrors;
+    });
+  };
+
+  const { createInputHandler } = useInputHandlers(clearError, clearFieldError);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -220,7 +176,24 @@ export default function RegisterScreen() {
 
   const handleRegister = async () => {
     clearError();
-    if (!validateInputs(fullName, email, password, confirmPassword)) return;
+    setValidationErrors({});
+
+    const formData = {
+      fullName,
+      email,
+      password,
+      confirmPassword,
+    };
+
+    const validationResult = validationService.validateRegisterForm(formData);
+    if (!validationResult.success) {
+      const errors: Record<string, string> = {};
+      validationResult.errors.forEach((error) => {
+        errors[error.field] = error.message;
+      });
+      setValidationErrors(errors);
+      return;
+    }
 
     try {
       await signUp(email, password, fullName, rememberMe);
@@ -275,9 +248,9 @@ export default function RegisterScreen() {
               autoComplete="name"
               textContentType="name"
             />
-            {fieldErrors.fullName ? (
+            {validationErrors.fullName ? (
               <HelperText type="error" style={styles.errorText}>
-                {fieldErrors.fullName}
+                {validationErrors.fullName}
               </HelperText>
             ) : null}
 
@@ -295,9 +268,9 @@ export default function RegisterScreen() {
               autoComplete="email"
               textContentType="emailAddress"
             />
-            {fieldErrors.email ? (
+            {validationErrors.email ? (
               <HelperText type="error" style={styles.errorText}>
-                {fieldErrors.email}
+                {validationErrors.email}
               </HelperText>
             ) : null}
 
@@ -317,9 +290,9 @@ export default function RegisterScreen() {
               autoComplete="new-password"
               textContentType="newPassword"
             />
-            {fieldErrors.password ? (
+            {validationErrors.password ? (
               <HelperText type="error" style={styles.errorText}>
-                {fieldErrors.password}
+                {validationErrors.password}
               </HelperText>
             ) : null}
 
@@ -339,9 +312,9 @@ export default function RegisterScreen() {
               autoComplete="new-password"
               textContentType="newPassword"
             />
-            {fieldErrors.confirmPassword ? (
+            {validationErrors.confirmPassword ? (
               <HelperText type="error" style={styles.errorText}>
-                {fieldErrors.confirmPassword}
+                {validationErrors.confirmPassword}
               </HelperText>
             ) : null}
 

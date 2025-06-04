@@ -16,7 +16,10 @@ import {
 import { IconButton, Portal, Provider, Text } from 'react-native-paper';
 import { COLORS } from '../constants/theme';
 import { Measurement, MeasurementCategory, measurementService } from '../services/measurements';
+import { validationService } from '../services/validationService';
+import { logger } from '../utils/logger';
 import MeasurementHistory from './MeasurementHistory';
+
 interface Props {
   visible: boolean;
   category: MeasurementCategory;
@@ -86,6 +89,7 @@ export default function MeasurementModal({
   const [value, setValue] = useState(lastValue?.toString() || MIN_VALUE.toString());
   const [sliderValue, setSliderValue] = useState(lastValue || MIN_VALUE);
   const [measurements, setMeasurements] = useState<Measurement[]>(initialMeasurements);
+  const [validationError, setValidationError] = useState<string>('');
 
   useEffect(() => {
     setMeasurements(initialMeasurements);
@@ -99,24 +103,63 @@ export default function MeasurementModal({
       setValue(MIN_VALUE.toString());
       setSliderValue(MIN_VALUE);
     }
+    // Clear validation error when modal opens
+    setValidationError('');
   }, [visible, lastValue]);
+
+  const validateMeasurement = (measurementValue: number) => {
+    const formData = {
+      category,
+      value: measurementValue,
+      unit: category === 'WEIGHT' ? 'kg' : 'cm',
+      measuredAt: new Date(),
+    };
+
+    const validationResult = validationService.validateMeasurementForm(formData);
+
+    if (!validationResult.success) {
+      const errorMessage = validationResult.errors.map((e) => e.message).join(', ');
+      setValidationError(errorMessage);
+      logger.warn('Measurement validation failed', {
+        context: { formData, errors: validationResult.errors },
+      });
+      return false;
+    }
+
+    setValidationError('');
+    return true;
+  };
 
   const handleAddMeasurement = () => {
     setValue(lastValue?.toString() || MIN_VALUE.toString());
     setSliderValue(lastValue || MIN_VALUE);
+    setValidationError('');
     setShowInput(true);
   };
 
   const handleSave = async (value: number) => {
     try {
       const numericValue = Number.isNaN(value) ? 0 : parseFloat(value.toFixed(1));
+
+      // Validate the measurement before saving
+      if (!validateMeasurement(numericValue)) {
+        return; // Don't save if validation fails
+      }
+
       await onSave(numericValue);
       const updatedMeasurements = await measurementService.getMeasurementHistory(userId, category);
       setMeasurements(updatedMeasurements);
       onMeasurementsChange?.();
       setShowInput(false);
+
+      logger.info('Measurement saved successfully', {
+        context: { userId, category, value: numericValue },
+      });
     } catch (error) {
-      console.error('Error saving measurement:', error);
+      logger.error('Error saving measurement', error as Error, {
+        context: { userId, category, value },
+      });
+      setValidationError('Failed to save measurement. Please try again.');
     }
   };
 
@@ -125,6 +168,7 @@ export default function MeasurementModal({
     setShowInput(false);
     setValue(lastValue?.toString() || MIN_VALUE.toString());
     setSliderValue(lastValue || MIN_VALUE);
+    setValidationError('');
     onClose();
   };
 
@@ -143,8 +187,15 @@ export default function MeasurementModal({
         setValue(newLastValue.toFixed(1));
         setSliderValue(newLastValue);
       }
+
+      logger.info('Measurement deleted successfully', {
+        context: { userId, category, measurementId },
+      });
     } catch (error) {
-      console.error('Error deleting measurement:', error);
+      logger.error('Error deleting measurement', error as Error, {
+        context: { userId, category, measurementId },
+      });
+      setValidationError('Failed to delete measurement. Please try again.');
     }
   };
 
@@ -152,6 +203,12 @@ export default function MeasurementModal({
     // Allow user to type freely, only numbers and dot
     const sanitizedText = text.replace(/[^0-9.]/g, '');
     setValue(sanitizedText);
+
+    // Clear validation error when user makes changes
+    if (validationError) {
+      setValidationError('');
+    }
+
     // Only update slider if value is within bounds
     const numValue = parseFloat(sanitizedText);
     if (!Number.isNaN(numValue) && numValue >= MIN_VALUE && numValue <= MAX_VALUE) {
@@ -167,6 +224,9 @@ export default function MeasurementModal({
     if (numValue > MAX_VALUE) numValue = MAX_VALUE;
     setValue(numValue.toFixed(1));
     setSliderValue(numValue);
+
+    // Validate the value when user finishes editing
+    validateMeasurement(numValue);
   };
 
   const handleSliderChange = (newValue: number) => {
@@ -174,6 +234,11 @@ export default function MeasurementModal({
     const formattedValue = clampedValue.toFixed(1);
     setValue(formattedValue);
     setSliderValue(clampedValue);
+
+    // Clear validation error when user makes changes
+    if (validationError) {
+      setValidationError('');
+    }
   };
 
   const adjustValue = (increment: boolean) => {
@@ -183,6 +248,11 @@ export default function MeasurementModal({
       : Math.max(MIN_VALUE, current - STEP);
     setValue(newValue.toFixed(1));
     setSliderValue(newValue);
+
+    // Clear validation error when user makes changes
+    if (validationError) {
+      setValidationError('');
+    }
   };
 
   if (!visible) return null;

@@ -1,4 +1,7 @@
+import { logger } from '../utils/logger';
+import { MeasurementSchema } from '../validation/schemas';
 import supabase from './supabase';
+import { validationService } from './validationService';
 
 export interface Measurement {
   id: string;
@@ -114,53 +117,96 @@ export const measurementService = {
     unit: string,
     measured_at?: string,
   ): Promise<Measurement> {
-    // First, get all measurements for this category
-    const { data: existingMeasurements, error: fetchError } = await supabase
-      .from('measurements')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('category', category)
-      .order('created_at', { ascending: true });
+    try {
+      // Validate measurement data before database operation
+      const measurementData = {
+        user_id: userId,
+        measurement_type: category.toLowerCase(),
+        value,
+        unit,
+        measured_at: measured_at || new Date().toISOString(),
+      };
 
-    if (fetchError) throw fetchError;
-
-    // Add the new measurement
-    const { data: newMeasurement, error: insertError } = await supabase
-      .from('measurements')
-      .insert([
-        {
-          user_id: userId,
-          category,
-          value,
-          unit,
-          measured_at: measured_at || new Date().toISOString(),
-        },
-      ])
-      .select()
-      .single();
-
-    if (insertError) throw insertError;
-
-    // If we have more than 3 measurements (first + last 2), delete the extras
-    if (existingMeasurements && existingMeasurements.length > 2) {
-      // Keep the first measurement
-
-      // Get IDs of measurements to delete (excluding first measurement and last measurement)
-      const measurementsToDelete = existingMeasurements
-        .slice(1, -1) // Exclude first and last measurement
-        .map((m) => m.id);
-
-      if (measurementsToDelete.length > 0) {
-        const { error: deleteError } = await supabase
-          .from('measurements')
-          .delete()
-          .in('id', measurementsToDelete);
-
-        if (deleteError) throw deleteError;
+      const validationResult = validationService.validateMeasurement(measurementData);
+      if (!validationResult.success) {
+        const errorMessage = `Measurement validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+        logger.error('Measurement validation failed', new Error(errorMessage), {
+          context: { measurementData, errors: validationResult.errors },
+        });
+        throw new Error(errorMessage);
       }
-    }
 
-    return newMeasurement;
+      // First, get all measurements for this category
+      const { data: existingMeasurements, error: fetchError } = await supabase
+        .from('measurements')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('category', category)
+        .order('created_at', { ascending: true });
+
+      if (fetchError) {
+        logger.error('Error fetching existing measurements', fetchError, {
+          context: { userId, category },
+        });
+        throw fetchError;
+      }
+
+      // Add the new measurement
+      const { data: newMeasurement, error: insertError } = await supabase
+        .from('measurements')
+        .insert([
+          {
+            user_id: userId,
+            category,
+            value,
+            unit,
+            measured_at: measured_at || new Date().toISOString(),
+          },
+        ])
+        .select()
+        .single();
+
+      if (insertError) {
+        logger.error('Error inserting new measurement', insertError, {
+          context: { measurementData },
+        });
+        throw insertError;
+      }
+
+      // If we have more than 3 measurements (first + last 2), delete the extras
+      if (existingMeasurements && existingMeasurements.length > 2) {
+        // Keep the first measurement
+
+        // Get IDs of measurements to delete (excluding first measurement and last measurement)
+        const measurementsToDelete = existingMeasurements
+          .slice(1, -1) // Exclude first and last measurement
+          .map((m) => m.id);
+
+        if (measurementsToDelete.length > 0) {
+          const { error: deleteError } = await supabase
+            .from('measurements')
+            .delete()
+            .in('id', measurementsToDelete);
+
+          if (deleteError) {
+            logger.error('Error deleting old measurements', deleteError, {
+              context: { measurementsToDelete },
+            });
+            throw deleteError;
+          }
+        }
+      }
+
+      logger.info('Measurement added successfully', {
+        context: { measurementId: newMeasurement.id, category, value, unit },
+      });
+      return newMeasurement;
+    } catch (error) {
+      logger.error('Failed to add measurement', error as Error, {
+        context: { userId, category, value, unit, measured_at },
+      });
+      throw error;
+    }
   },
 
   // Update a measurement
@@ -168,22 +214,81 @@ export const measurementService = {
     measurementId: string,
     updates: Partial<Measurement>,
   ): Promise<Measurement> {
-    const { data, error } = await supabase
-      .from('measurements')
-      .update(updates)
-      .eq('id', measurementId)
-      .select()
-      .single();
+    try {
+      // Validate the measurement ID
+      if (!measurementId || typeof measurementId !== 'string') {
+        throw new Error('Valid measurement ID is required');
+      }
 
-    if (error) throw error;
-    return data;
+      // Validate update data if provided
+      if (Object.keys(updates).length > 0) {
+        const validationResult = validationService.validateWithSchema(
+          MeasurementSchema.partial(),
+          updates,
+          'measurement update',
+        );
+
+        if (!validationResult.success) {
+          const errorMessage = `Measurement update validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+          logger.error('Measurement update validation failed', new Error(errorMessage), {
+            context: { measurementId, updates, errors: validationResult.errors },
+          });
+          throw new Error(errorMessage);
+        }
+      }
+
+      const { data, error } = await supabase
+        .from('measurements')
+        .update(updates)
+        .eq('id', measurementId)
+        .select()
+        .single();
+
+      if (error) {
+        logger.error('Error updating measurement in database', error, {
+          context: { measurementId, updates },
+        });
+        throw error;
+      }
+
+      logger.info('Measurement updated successfully', {
+        context: { measurementId: data.id, category: data.category, value: data.value },
+      });
+      return data;
+    } catch (error) {
+      logger.error('Failed to update measurement', error as Error, {
+        context: { measurementId, updates },
+      });
+      throw error;
+    }
   },
 
   // Delete a measurement
   async deleteMeasurement(measurementId: string): Promise<void> {
-    const { error } = await supabase.from('measurements').delete().eq('id', measurementId);
+    try {
+      // Validate the measurement ID
+      if (!measurementId || typeof measurementId !== 'string') {
+        throw new Error('Valid measurement ID is required');
+      }
 
-    if (error) throw error;
+      const { error } = await supabase.from('measurements').delete().eq('id', measurementId);
+
+      if (error) {
+        logger.error('Error deleting measurement from database', error, {
+          context: { measurementId },
+        });
+        throw error;
+      }
+
+      logger.info('Measurement deleted successfully', {
+        context: { measurementId },
+      });
+    } catch (error) {
+      logger.error('Failed to delete measurement', error as Error, {
+        context: { measurementId },
+      });
+      throw error;
+    }
   },
 };
 

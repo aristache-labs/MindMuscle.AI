@@ -1,28 +1,27 @@
-import { Tabs } from 'expo-router';
-import { View, Pressable, Text } from 'react-native';
-import { useAuth } from '../store/AuthContext';
-import { useRouter, usePathname } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { logger } from '../utils/logger';
+import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Tabs, usePathname } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { Pressable, Text, View } from 'react-native';
 import Animated, {
-  useAnimatedStyle,
-  withSpring,
-  useSharedValue,
-  withTiming,
   Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { TabBarBackground, CircleBackground } from '../components/NavigationBackgrounds';
+import { CircleBackground, TabBarBackground } from '../components/NavigationBackgrounds';
 import {
-  HomeIcon,
-  SearchIcon,
   DumbbellIcon,
+  HomeIcon,
   InsightsIcon,
   ProfileIcon,
+  SearchIcon,
 } from '../components/NavigationIcons';
 import { COLORS } from '../constants/theme';
-import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { useAuth } from '../store/AuthContext';
+import { logger } from '../utils/logger';
 
 // List of screens that should hide the tab bar
 const HIDE_TAB_BAR_SCREENS = [
@@ -316,7 +315,6 @@ const FloatingTabBar = ({ state, navigation, descriptors }: BottomTabBarProps) =
 };
 
 export default function TabsLayout() {
-  const router = useRouter();
   const { session, loading } = useAuth();
   const [navigated, setNavigated] = useState(false);
   const pathname = usePathname();
@@ -327,17 +325,11 @@ export default function TabsLayout() {
   // Check authentication and navigate if needed
   useEffect(() => {
     if (!loading && !session && !navigated) {
-      logger.info('User not authenticated in tabs layout, redirecting to login');
-
-      // Add a short delay to ensure layout mounting is complete
-      const timer = setTimeout(() => {
-        setNavigated(true);
-        router.replace('/(auth)/login');
-      }, 100);
-
-      return () => clearTimeout(timer);
+      logger.info('User not authenticated in tabs layout');
+      setNavigated(true);
+      // AuthGuard will handle the redirect automatically when session becomes null
     }
-  }, [loading, session, router, navigated]);
+  }, [loading, session, navigated]);
 
   // Show a blank View while determining auth state to avoid flash
   if (loading || (!session && !navigated)) {

@@ -1,8 +1,6 @@
-import * as FileSystem from 'expo-file-system';
-import { ref, deleteObject } from 'firebase/storage';
-import { storage } from './firebase';
-import supabase from './supabase';
 import { Asset } from 'expo-asset';
+import * as FileSystem from 'expo-file-system';
+import supabase from './supabase';
 
 export interface UserAvatar {
   url: string;
@@ -127,6 +125,12 @@ class FirebaseAvatarService {
       // Get Firebase storage bucket and API key from environment variables
       const storageBucket = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET;
       const apiKey = process.env.EXPO_PUBLIC_FIREBASE_API_KEY;
+
+      if (!storageBucket || !apiKey) {
+        throw new Error(
+          'Firebase configuration not available. Please check your environment variables.',
+        );
+      }
 
       // Create a temporary Firebase upload URL - include the API key for auth
       const uploadURL = `https://firebasestorage.googleapis.com/v0/b/${storageBucket}/o?name=${encodeURIComponent(filePath)}&key=${apiKey}`;
@@ -259,7 +263,7 @@ class FirebaseAvatarService {
   }
 
   /**
-   * Delete the old avatar image from Firebase Storage
+   * Delete the old avatar image from Firebase Storage using REST API
    */
   private async deleteOldAvatarImage(userId: string): Promise<void> {
     try {
@@ -268,6 +272,15 @@ class FirebaseAvatarService {
 
       if (!avatar || !avatar.url || !avatar.url.includes('firebasestorage')) {
         return; // No existing avatar or not a Firebase URL
+      }
+
+      // Check if Firebase configuration is available
+      const storageBucket = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET;
+      const apiKey = process.env.EXPO_PUBLIC_FIREBASE_API_KEY;
+
+      if (!storageBucket || !apiKey) {
+        console.warn('Firebase configuration not available, skipping avatar deletion');
+        return;
       }
 
       try {
@@ -294,23 +307,31 @@ class FirebaseAvatarService {
           storagePath = `user-avatars/${userId}/${avatar.url.split('/').pop()}`;
         }
 
-        // Delete from Firebase Storage
-        if (!storage) {
-          console.error('Firebase storage is not initialized');
-          throw new Error('Firebase storage is not available');
+        // Delete from Firebase Storage using REST API
+        const deleteURL = `https://firebasestorage.googleapis.com/v0/b/${storageBucket}/o/${encodeURIComponent(storagePath)}?key=${apiKey}`;
+
+        const response = await fetch(deleteURL, {
+          method: 'DELETE',
+        });
+
+        if (response.ok) {
+          console.log('Successfully deleted old avatar from Firebase Storage');
+        } else {
+          console.warn(
+            'Failed to delete old avatar, but continuing with upload. Status:',
+            response.status,
+          );
         }
-        const photoRef = ref(storage, storagePath);
-        await deleteObject(photoRef);
 
         // Clear cache for this user
         this.clearCache(userId);
       } catch (storageError) {
-        console.error('Error deleting old avatar from Firebase Storage:', storageError);
-        // Continue even if deletion fails
+        console.warn('Error deleting old avatar from Firebase Storage:', storageError);
+        // Continue even if deletion fails - this is not critical
       }
     } catch (error) {
-      console.error('Error in deleteOldAvatarImage:', error);
-      // Don't throw, just log the error
+      console.warn('Error in deleteOldAvatarImage:', error);
+      // Don't throw, just log the error - avatar deletion is not critical
     }
   }
 }

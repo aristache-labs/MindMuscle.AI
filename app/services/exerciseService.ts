@@ -115,84 +115,8 @@ const exerciseService = {
         return cache.all;
       }
 
-      // Try API client with schema validation first
-      try {
-        const response = await apiClient.requestWithValidation(
-          {
-            url: '/rest/v1/exercises?select=*&order=name',
-            method: 'GET',
-          },
-          ExerciseListResponseSchema,
-          {
-            cache: { enabled: true, ttl: 300000 }, // 5 minutes cache
-            auth: { required: true },
-          },
-        );
-
-        // Type assertion for the validated response
-        type ExerciseApiResponse = {
-          success: true;
-          data: Array<{
-            id: string;
-            name: string;
-            description: string;
-            category: string;
-            primaryMuscles: string[];
-            secondaryMuscles: string[];
-            equipment: string;
-            difficulty: 'beginner' | 'intermediate' | 'advanced';
-            createdAt: string;
-            updatedAt: string;
-            imageUrl?: string;
-            videoUrl?: string;
-            instructions: string[];
-          }>;
-          timestamp: string;
-          requestId?: string;
-        };
-
-        const apiResponse = response.data as ExerciseApiResponse;
-
-        // Transform API response to internal Exercise interface
-        const transformedExercises: Exercise[] = apiResponse.data.map((exercise) => ({
-          id: exercise.id,
-          name: exercise.name,
-          description: exercise.description,
-          muscle_group: exercise.category || exercise.primaryMuscles[0] || 'Other',
-          equipment: exercise.equipment,
-          difficulty: exercise.difficulty,
-          created_at: exercise.createdAt,
-          updated_at: exercise.updatedAt,
-          image_url: exercise.imageUrl,
-          video_url: exercise.videoUrl,
-          primary_muscles: exercise.primaryMuscles,
-          secondary_muscles: exercise.secondaryMuscles,
-          instructions: exercise.instructions,
-          is_favorite: false,
-        }));
-
-        // Update cache with validated data
-        if (transformedExercises.length > 0) {
-          updateCache(transformedExercises);
-        }
-
-        logger.info('Exercises fetched and validated successfully via API client', {
-          context: {
-            count: transformedExercises.length,
-            fromCache: response.fromCache,
-            validationPassed: response.processed,
-          },
-        });
-
-        return transformedExercises;
-      } catch (apiError) {
-        logger.warn('API client failed, falling back to direct Supabase call', {
-          context: { error: (apiError as Error).message },
-        });
-
-        // Fallback to direct Supabase call
-        return this.getAllExercisesFallback();
-      }
+      // Use direct Supabase call (more reliable than API client for now)
+      return this.getAllExercisesFallback();
     } catch (error) {
       logger.error('Failed to fetch exercises', error as Error, {
         context: { operation: 'getAllExercises' },
@@ -440,7 +364,7 @@ const exerciseService = {
           ExerciseListResponseSchema,
           {
             cache: { enabled: true, ttl: 300000 }, // 5 minutes cache
-            auth: { required: true },
+            auth: { required: false },
           },
         );
 

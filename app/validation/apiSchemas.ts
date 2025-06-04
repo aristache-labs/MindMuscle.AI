@@ -121,6 +121,26 @@ export const ExerciseApiSchema = z.object({
   updatedAt: z.string(),
 });
 
+// Direct Supabase exercise schema (matches actual table structure)
+export const SupabaseExerciseSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  muscle_group: z.string(),
+  equipment: z.string(),
+  difficulty: z.string(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  image_url: z.string().optional().nullable(),
+  video_url: z.string().optional().nullable(),
+  primary_muscles: z.array(z.string()).optional().nullable(),
+  secondary_muscles: z.array(z.string()).optional().nullable(),
+  instructions: z.array(z.string()).optional().nullable(),
+});
+
+// Schema for direct Supabase response (array of exercises)
+export const SupabaseExerciseListSchema = z.array(SupabaseExerciseSchema);
+
 export const ExerciseListResponseSchema = z.object({
   success: z.literal(true),
   data: z.array(ExerciseApiSchema),

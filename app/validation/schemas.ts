@@ -3,7 +3,7 @@ import { z } from 'zod';
 // Base validation schemas
 export const IdSchema = z.string().min(1, 'ID cannot be empty');
 export const EmailSchema = z.string().email('Invalid email format');
-export const UrlSchema = z.string().url('Invalid URL format').optional();
+export const UrlSchema = z.string().url('Invalid URL format').optional().or(z.literal(''));
 export const DateStringSchema = z.string().datetime('Invalid date format');
 export const PositiveNumberSchema = z.number().positive('Must be a positive number');
 export const NonNegativeNumberSchema = z.number().min(0, 'Cannot be negative');

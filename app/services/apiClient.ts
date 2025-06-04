@@ -87,7 +87,10 @@ export class ApiClient {
 
   // Initialize authentication
   private async initializeAuth(): Promise<void> {
-    if (!this.config.enableAuthentication) return;
+    if (!this.config.enableAuthentication) {
+      logger.debug('API client authentication disabled');
+      return;
+    }
 
     try {
       const {
@@ -126,9 +129,15 @@ export class ApiClient {
 
   // Setup request/response interceptors
   private setupInterceptors(): void {
+    // Only setup interceptors if authentication is enabled
+    if (!this.config.enableAuthentication) {
+      return;
+    }
+
     // Request interceptor for authentication
     this.httpClient.addRequestInterceptor({
       onRequest: async (config) => {
+        // Always add auth token if available for Supabase requests
         if (this.config.enableAuthentication && this.authToken) {
           config.headers = {
             ...config.headers,
@@ -243,20 +252,18 @@ export class ApiClient {
       }
     }
 
-    // Check authentication if required
-    if (options.auth?.required && !this.authToken && !options.auth?.token) {
-      throw new HttpError({
-        message: 'Authentication required',
-        status: 401,
-        statusText: 'Unauthorized',
-        url: config.url,
-        method: config.method || 'GET',
-      });
-    }
+    // Note: Authentication is optional for most Supabase endpoints
+    // The anon key is always sent, and auth token is added when available
 
     try {
+      // Attach request options to config for interceptor access
+      const configWithOptions = {
+        ...config,
+        requestOptions: options,
+      };
+
       // Make HTTP request
-      const response = await this.httpClient.request<unknown>(config);
+      const response = await this.httpClient.request<unknown>(configWithOptions);
 
       // Process response if enabled
       let processedResponse: ProcessedApiResponse<T>;
@@ -520,13 +527,19 @@ export class ApiClient {
   }
 }
 
-// Default API client instance
+// Default API client instance configured for Supabase
 export const apiClient = new ApiClient({
   baseURL: process.env.EXPO_PUBLIC_SUPABASE_URL || '',
+  headers: {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '',
+    'X-Client-Info': 'mindmuscle-ai-react-native',
+  },
   enableCaching: true,
-  enableResponseProcessing: true,
-  enableAuthentication: true,
-  enableRateLimiting: true,
+  enableResponseProcessing: false, // Disable for now to avoid transformation issues
+  enableAuthentication: false, // Disable to avoid conflicts with existing Supabase auth
+  enableRateLimiting: false,
 });
 
 // Types are already exported above with their interface declarations

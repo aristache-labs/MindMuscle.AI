@@ -22,8 +22,7 @@
   "editor.codeActionsOnSave": {
     "source.fixAll.eslint": "never",
     "source.organizeImports": "never"
-  ,
-    "source.removeUnusedImports": "explicit"},
+  },
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "editor.tabSize": 2,
   "editor.insertSpaces": true,

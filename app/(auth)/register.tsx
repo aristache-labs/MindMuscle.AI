@@ -13,7 +13,7 @@ import {
 import { Checkbox, HelperText, Text, TextInput } from 'react-native-paper';
 import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import { useNavigationDebounce } from '../hooks/useDebounce';
-import { captureAuthError, captureValidationError } from '../services/sentry';
+import { captureAuthError } from '../services/sentry';
 import * as Sentry from '@sentry/react-native';
 import { validationService } from '../services/validationService';
 import { useAuth } from '../store/AuthContext';
@@ -26,8 +26,8 @@ function useInputHandlers(clearError: () => void, clearFieldError: (field: strin
       clearFieldError(field);
       clearError();
 
-      // Track form interactions for analytics
-      if (text.length > 0) {
+      // Track form interactions for analytics (only on meaningful milestones)
+      if (text.length === 1 || (text.length > 0 && text.length % 5 === 0)) {
         Sentry.addBreadcrumb({
           message: `User entered text in ${field}`,
           category: 'user.input',
@@ -172,7 +172,7 @@ export default function RegisterScreen() {
       },
     });
 
-    Sentry.captureMessage('User navigated to registration screen');
+    // Navigation already tracked in breadcrumb above
 
     return () => {
       const sessionDuration = Date.now() - componentMountTimeRef.current;
@@ -245,12 +245,17 @@ export default function RegisterScreen() {
       validationResult.errors.forEach((error) => {
         errors[error.field] = error.message;
 
-        // Track validation errors with Sentry
-        captureValidationError(
-          new Error(`Validation failed for ${error.field}: ${error.message}`),
-          error.field,
-          formData[error.field as keyof typeof formData],
-        );
+        // Track validation errors as breadcrumbs (not actual errors)
+        Sentry.addBreadcrumb({
+          message: `Validation failed for ${error.field}: ${error.message}`,
+          category: 'validation',
+          data: {
+            field: error.field,
+            message: error.message,
+            value: String(formData[error.field as keyof typeof formData]).substring(0, 10) + '***', // Truncated for privacy
+          },
+          level: 'warning',
+        });
       });
       setValidationErrors(errors);
 

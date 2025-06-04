@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import { ActivityIndicator, HelperText, Text, TextInput } from 'react-native-paper';
 import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
+import { captureAuthError } from '../services/sentry';
+import * as Sentry from '@sentry/react-native';
 import supabase from '../services/supabase';
 
 // Custom hook for password validation
@@ -20,17 +22,68 @@ function usePasswordValidation() {
 
   const validateInputs = (password: string, confirmPassword: string) => {
     if (!password.trim()) {
-      setError('Password is required');
+      const errorMsg = 'Password is required';
+      setError(errorMsg);
+
+      // Track validation error as breadcrumb (not actual error)
+      Sentry.addBreadcrumb({
+        message: 'Password reset validation failed - empty password',
+        category: 'validation',
+        data: {
+          field: 'password',
+          error: 'required',
+        },
+        level: 'warning',
+      });
+
       return false;
     }
     if (password.trim().length < 6) {
-      setError('Password must be at least 6 characters');
+      const errorMsg = 'Password must be at least 6 characters';
+      setError(errorMsg);
+
+      // Track validation error as breadcrumb (not actual error)
+      Sentry.addBreadcrumb({
+        message: 'Password reset validation failed - too short',
+        category: 'validation',
+        data: {
+          field: 'password',
+          error: 'min_length',
+          currentLength: password.trim().length,
+          requiredLength: 6,
+        },
+        level: 'warning',
+      });
+
       return false;
     }
     if (password.trim() !== confirmPassword.trim()) {
-      setError('Passwords do not match');
+      const errorMsg = 'Passwords do not match';
+      setError(errorMsg);
+
+      // Track validation error as breadcrumb (not actual error)
+      Sentry.addBreadcrumb({
+        message: 'Password reset validation failed - mismatch',
+        category: 'validation',
+        data: {
+          field: 'confirmPassword',
+          error: 'mismatch',
+        },
+        level: 'warning',
+      });
+
       return false;
     }
+
+    // Track successful validation
+    Sentry.addBreadcrumb({
+      message: 'Password reset validation successful',
+      category: 'validation',
+      data: {
+        passwordLength: password.trim().length,
+      },
+    });
+
     return true;
   };
 
@@ -45,18 +98,68 @@ function usePasswordReset() {
 
   const resetPassword = async (password: string) => {
     setIsLoading(true);
+
+    // Track password reset attempt initiation
+    Sentry.addBreadcrumb({
+      message: 'User initiated password reset',
+      category: 'user.action',
+      data: {
+        passwordLength: password.length,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
     try {
       const { error: updateError } = await supabase.auth.updateUser({
         password: password,
       });
 
       if (updateError) throw updateError;
+
+      // Track successful password reset
+      Sentry.addBreadcrumb({
+        message: 'Password reset completed successfully',
+        category: 'auth.success',
+        data: {
+          passwordLength: password.length,
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      // Track conversion - user completed password reset flow
+      Sentry.addBreadcrumb({
+        message: 'User completed password reset flow',
+        category: 'conversion',
+        data: {
+          funnel_step: 'password_reset_complete',
+          redirectTo: 'login',
+        },
+      });
+
       router.replace('/(auth)/login');
       return { success: true };
     } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      const errorMessage = error.message || 'Failed to reset password';
+
+      // Capture authentication error with Sentry
+      captureAuthError(error, 'password_reset_update');
+
+      // Add breadcrumb for failed password reset
+      Sentry.addBreadcrumb({
+        message: 'Password reset failed',
+        category: 'auth.error',
+        data: {
+          errorMessage: error.message,
+          passwordLength: password.length,
+          timestamp: new Date().toISOString(),
+        },
+        level: 'error',
+      });
+
       return {
         success: false,
-        error: err instanceof Error ? err.message : 'Failed to reset password',
+        error: errorMessage,
       };
     } finally {
       setIsLoading(false);
@@ -169,33 +272,103 @@ export default function ResetPasswordScreen() {
   const [focusedInput, setFocusedInput] = useState('');
 
   const isMountedRef = useRef(true);
+  const componentMountTimeRef = useRef(Date.now());
   const { error, setError, validateInputs, clearError } = usePasswordValidation();
   const { isLoading, resetPassword } = usePasswordReset();
 
-  // Cleanup on unmount
+  // Initialize Sentry tracking for password reset screen
   useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: 'Password reset screen mounted',
+      category: 'navigation',
+      data: {
+        screen: 'reset-password',
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    // Navigation already tracked in breadcrumb above
+
     return () => {
       isMountedRef.current = false;
+      const sessionDuration = Date.now() - componentMountTimeRef.current;
+      Sentry.addBreadcrumb({
+        message: 'Password reset screen unmounted',
+        category: 'navigation',
+        data: {
+          screen: 'reset-password',
+          sessionDuration: `${sessionDuration}ms`,
+          hadError: !!error,
+        },
+      });
     };
-  }, []);
+  }, [error]);
 
   const handlePasswordChange = (text: string) => {
     setPassword(text);
     clearError();
+
+    // Track form interaction (only on meaningful milestones)
+    if (text.length === 1 || (text.length > 0 && text.length % 5 === 0)) {
+      Sentry.addBreadcrumb({
+        message: 'User entered text in password field',
+        category: 'user.input',
+        data: {
+          field: 'password',
+          hasValue: text.length > 0,
+          length: text.length,
+        },
+      });
+    }
   };
 
   const handleConfirmPasswordChange = (text: string) => {
     setConfirmPassword(text);
     clearError();
+
+    // Track form interaction (only on meaningful milestones)
+    if (text.length === 1 || (text.length > 0 && text.length % 5 === 0)) {
+      Sentry.addBreadcrumb({
+        message: 'User entered text in confirm password field',
+        category: 'user.input',
+        data: {
+          field: 'confirmPassword',
+          hasValue: text.length > 0,
+          length: text.length,
+        },
+      });
+    }
   };
 
   const handleResetPassword = async () => {
+    // Track reset password button click
+    Sentry.addBreadcrumb({
+      message: 'User clicked reset password button',
+      category: 'user.interaction',
+      data: {
+        button: 'reset_password',
+        hasPassword: !!password.trim(),
+        hasConfirmPassword: !!confirmPassword.trim(),
+        passwordLength: password.length,
+      },
+    });
+
     if (!validateInputs(password, confirmPassword)) return;
 
     clearError();
     const result = await resetPassword(password);
     if (!result.success && result.error && isMountedRef.current) {
       setError(result.error);
+
+      // Track that error was displayed to user
+      Sentry.addBreadcrumb({
+        message: 'Password reset error displayed to user',
+        category: 'ui.error',
+        data: {
+          errorMessage: result.error,
+        },
+        level: 'warning',
+      });
     }
   };
 
@@ -223,10 +396,27 @@ export default function ResetPasswordScreen() {
               icon="lock"
               focusedInput={focusedInput}
               inputName="password"
-              onFocus={setFocusedInput}
+              onFocus={(field) => {
+                setFocusedInput(field);
+                Sentry.addBreadcrumb({
+                  message: `User focused on ${field} input in password reset`,
+                  category: 'user.focus',
+                  data: { field },
+                });
+              }}
               onBlur={() => setFocusedInput('')}
               showPassword={showPassword}
-              onTogglePassword={() => setShowPassword(!showPassword)}
+              onTogglePassword={() => {
+                setShowPassword(!showPassword);
+                Sentry.addBreadcrumb({
+                  message: `User ${!showPassword ? 'showed' : 'hid'} new password`,
+                  category: 'user.interaction',
+                  data: {
+                    field: 'password',
+                    visible: !showPassword,
+                  },
+                });
+              }}
               isLoading={isLoading}
               hasError={!!error}
             />
@@ -238,10 +428,27 @@ export default function ResetPasswordScreen() {
               icon="lock-check"
               focusedInput={focusedInput}
               inputName="confirmPassword"
-              onFocus={setFocusedInput}
+              onFocus={(field) => {
+                setFocusedInput(field);
+                Sentry.addBreadcrumb({
+                  message: `User focused on ${field} input in password reset`,
+                  category: 'user.focus',
+                  data: { field },
+                });
+              }}
               onBlur={() => setFocusedInput('')}
               showPassword={showConfirmPassword}
-              onTogglePassword={() => setShowConfirmPassword(!showConfirmPassword)}
+              onTogglePassword={() => {
+                setShowConfirmPassword(!showConfirmPassword);
+                Sentry.addBreadcrumb({
+                  message: `User ${!showConfirmPassword ? 'showed' : 'hid'} confirm password`,
+                  category: 'user.interaction',
+                  data: {
+                    field: 'confirmPassword',
+                    visible: !showConfirmPassword,
+                  },
+                });
+              }}
               isLoading={isLoading}
               hasError={!!error}
             />

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -13,6 +13,8 @@ import {
 } from 'react-native';
 import { ActivityIndicator, HelperText, Text, TextInput } from 'react-native-paper';
 import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
+import { captureAuthError } from '../services/sentry';
+import * as Sentry from '@sentry/react-native';
 import supabase from '../services/supabase';
 
 export default function ForgotPasswordScreen() {
@@ -22,19 +24,94 @@ export default function ForgotPasswordScreen() {
   const [success, setSuccess] = useState(false);
   const [focusedInput, setFocusedInput] = useState('');
 
+  const componentMountTimeRef = useRef(Date.now());
+
+  // Initialize Sentry tracking for forgot password screen
+  useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: 'Forgot password screen mounted',
+      category: 'navigation',
+      data: {
+        screen: 'forgot-password',
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    // Navigation already tracked in breadcrumb above
+
+    return () => {
+      const sessionDuration = Date.now() - componentMountTimeRef.current;
+      Sentry.addBreadcrumb({
+        message: 'Forgot password screen unmounted',
+        category: 'navigation',
+        data: {
+          screen: 'forgot-password',
+          sessionDuration: `${sessionDuration}ms`,
+          wasSuccessful: success,
+        },
+      });
+    };
+  }, [success]);
+
   const validateEmail = () => {
     if (!email.trim()) {
-      setError('Email is required');
+      const error = 'Email is required';
+      setError(error);
+
+      // Track validation error as breadcrumb (not actual error)
+      Sentry.addBreadcrumb({
+        message: 'Email validation failed - empty email',
+        category: 'validation',
+        data: {
+          field: 'email',
+          error: 'required',
+        },
+      });
+
       return false;
     }
     if (!/\S+@\S+\.\S+/.test(email)) {
-      setError('Please enter a valid email address');
+      const error = 'Please enter a valid email address';
+      setError(error);
+
+      // Track validation error as breadcrumb (not actual error)
+      Sentry.addBreadcrumb({
+        message: 'Email validation failed - invalid format',
+        category: 'validation',
+        data: {
+          field: 'email',
+          error: 'invalid_format',
+          email: email.split('@')[0] + '@***', // Masked for privacy
+        },
+      });
+
       return false;
     }
+
+    // Track successful validation
+    Sentry.addBreadcrumb({
+      message: 'Email validation successful',
+      category: 'validation',
+      data: {
+        field: 'email',
+        email: email.split('@')[0] + '@***', // Masked for privacy
+      },
+    });
+
     return true;
   };
 
   const handleResetPassword = async () => {
+    // Track password reset attempt initiation
+    Sentry.addBreadcrumb({
+      message: 'User initiated password reset',
+      category: 'user.action',
+      data: {
+        email: email.split('@')[0] + '@***', // Masked email for privacy
+        timestamp: new Date().toISOString(),
+      },
+    });
+
     if (!validateEmail()) return;
 
     setIsLoading(true);
@@ -48,8 +125,48 @@ export default function ForgotPasswordScreen() {
       if (resetError) throw resetError;
 
       setSuccess(true);
+
+      // Track successful password reset request
+      Sentry.addBreadcrumb({
+        message: 'Password reset email sent successfully',
+        category: 'auth.success',
+        data: {
+          email: email.split('@')[0] + '@***',
+          redirectTo: 'mindmuscle://reset-password',
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      // Success already tracked in breadcrumb above
+
+      // Track conversion - user reached success state
+      Sentry.addBreadcrumb({
+        message: 'User reached password reset success state',
+        category: 'conversion',
+        data: {
+          funnel_step: 'password_reset_success',
+          email: email.split('@')[0] + '@***',
+        },
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send reset email');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to send reset email';
+      setError(errorMessage);
+
+      // Capture authentication error with Sentry
+      const error = err instanceof Error ? err : new Error(String(err));
+      captureAuthError(error, 'password_reset');
+
+      // Add breadcrumb for failed password reset
+      Sentry.addBreadcrumb({
+        message: 'Password reset request failed',
+        category: 'auth.error',
+        data: {
+          email: email.split('@')[0] + '@***',
+          errorMessage: error.message,
+          timestamp: new Date().toISOString(),
+        },
+        level: 'error',
+      });
     } finally {
       setIsLoading(false);
     }
@@ -63,7 +180,20 @@ export default function ForgotPasswordScreen() {
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
         <View style={styles.content}>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
+          <Pressable
+            onPress={() => {
+              Sentry.addBreadcrumb({
+                message: 'User navigated back from forgot password',
+                category: 'navigation',
+                data: {
+                  from: 'forgot-password',
+                  action: 'back_button',
+                },
+              });
+              router.back();
+            }}
+            style={styles.backButton}
+          >
             <Ionicons name="arrow-back" size={30} color="white" />
           </Pressable>
 
@@ -91,6 +221,19 @@ export default function ForgotPasswordScreen() {
                     onChangeText={(text) => {
                       setEmail(text);
                       setError('');
+
+                      // Track form interaction (only on meaningful milestones)
+                      if (text.length === 1 || (text.length > 0 && text.length % 5 === 0)) {
+                        Sentry.addBreadcrumb({
+                          message: 'User entered email in forgot password form',
+                          category: 'user.input',
+                          data: {
+                            field: 'email',
+                            hasValue: text.length > 0,
+                            length: text.length,
+                          },
+                        });
+                      }
                     }}
                     keyboardType="email-address"
                     autoCapitalize="none"
@@ -116,7 +259,14 @@ export default function ForgotPasswordScreen() {
                         primary: COLORS.primary,
                       },
                     }}
-                    onFocus={() => setFocusedInput('email')}
+                    onFocus={() => {
+                      setFocusedInput('email');
+                      Sentry.addBreadcrumb({
+                        message: 'User focused on email input in forgot password',
+                        category: 'user.focus',
+                        data: { field: 'email' },
+                      });
+                    }}
                     onBlur={() => setFocusedInput('')}
                     error={!!error}
                     disabled={isLoading}
@@ -135,7 +285,18 @@ export default function ForgotPasswordScreen() {
                     styles.resetButton,
                     isLoading && styles.resetButtonDisabled,
                   ]}
-                  onPress={handleResetPassword}
+                  onPress={() => {
+                    Sentry.addBreadcrumb({
+                      message: 'User clicked send reset link button',
+                      category: 'user.interaction',
+                      data: {
+                        button: 'send_reset_link',
+                        email: email.split('@')[0] + '@***',
+                        hasEmail: !!email.trim(),
+                      },
+                    });
+                    handleResetPassword();
+                  }}
                   disabled={isLoading}
                 >
                   {isLoading ? (
@@ -153,7 +314,18 @@ export default function ForgotPasswordScreen() {
               <Text style={styles.successText}>We've sent a password reset link to {email}</Text>
               <Pressable
                 style={styles.resetButtonContainer}
-                onPress={() => router.replace('/(auth)/login')}
+                onPress={() => {
+                  Sentry.addBreadcrumb({
+                    message: 'User returned to login from password reset success',
+                    category: 'navigation',
+                    data: {
+                      from: 'forgot-password-success',
+                      to: 'login',
+                      action: 'return_to_login',
+                    },
+                  });
+                  router.replace('/(auth)/login');
+                }}
               >
                 <LinearGradient
                   colors={['#6c47ff', '#8469ff']}

@@ -13,6 +13,8 @@ import {
 import { Checkbox, HelperText, Text, TextInput } from 'react-native-paper';
 import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import { useNavigationDebounce } from '../hooks/useDebounce';
+import { captureAuthError, captureValidationError } from '../services/sentry';
+import * as Sentry from '@sentry/react-native';
 import { validationService } from '../services/validationService';
 import { useAuth } from '../store/AuthContext';
 
@@ -23,6 +25,19 @@ function useInputHandlers(clearError: () => void, clearFieldError: (field: strin
       setter(text);
       clearFieldError(field);
       clearError();
+
+      // Track form interactions for analytics
+      if (text.length > 0) {
+        Sentry.addBreadcrumb({
+          message: `User entered text in ${field}`,
+          category: 'user.input',
+          data: {
+            field,
+            hasValue: text.length > 0,
+            length: text.length,
+          },
+        });
+      }
     };
   };
 
@@ -142,8 +157,35 @@ export default function RegisterScreen() {
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   const isMountedRef = useRef(true);
+  const componentMountTimeRef = useRef(Date.now());
   const { signUp, isLoading, error, clearError } = useAuth();
   const debouncedNavigate = useNavigationDebounce();
+
+  // Initialize Sentry tracking for registration screen
+  useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: 'Registration screen mounted',
+      category: 'navigation',
+      data: {
+        screen: 'register',
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    Sentry.captureMessage('User navigated to registration screen');
+
+    return () => {
+      const sessionDuration = Date.now() - componentMountTimeRef.current;
+      Sentry.addBreadcrumb({
+        message: 'Registration screen unmounted',
+        category: 'navigation',
+        data: {
+          screen: 'register',
+          sessionDuration: `${sessionDuration}ms`,
+        },
+      });
+    };
+  }, []);
 
   // Clear field error helper
   const clearFieldError = (field: string) => {
@@ -178,6 +220,18 @@ export default function RegisterScreen() {
     clearError();
     setValidationErrors({});
 
+    // Track registration attempt
+    Sentry.addBreadcrumb({
+      message: 'User initiated registration',
+      category: 'user.action',
+      data: {
+        email: email.split('@')[0] + '@***', // Masked email for privacy
+        hasFullName: !!fullName,
+        rememberMe,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
     const formData = {
       fullName,
       email,
@@ -190,24 +244,89 @@ export default function RegisterScreen() {
       const errors: Record<string, string> = {};
       validationResult.errors.forEach((error) => {
         errors[error.field] = error.message;
+
+        // Track validation errors with Sentry
+        captureValidationError(
+          new Error(`Validation failed for ${error.field}: ${error.message}`),
+          error.field,
+          formData[error.field as keyof typeof formData],
+        );
       });
       setValidationErrors(errors);
+
+      // Track overall validation failure
+      Sentry.addBreadcrumb({
+        message: 'Registration form validation failed',
+        category: 'validation',
+        data: {
+          errorCount: validationResult.errors.length,
+          failedFields: validationResult.errors.map((e) => e.field),
+        },
+      });
+
       return;
     }
 
     try {
       await signUp(email, password, fullName, rememberMe);
+
+      // Track successful registration attempt
+      Sentry.addBreadcrumb({
+        message: 'Registration successful',
+        category: 'auth.success',
+        data: {
+          email: email.split('@')[0] + '@***',
+          hasFullName: !!fullName,
+          rememberMe,
+        },
+      });
+
+      // Set user context for future tracking
+      Sentry.setUser({ email: email, username: fullName });
     } catch (err) {
       console.error('Registration error:', err);
+
+      // Capture authentication error with Sentry
+      const error = err instanceof Error ? err : new Error(String(err));
+      captureAuthError(error, 'registration');
+
+      // Add breadcrumb for failed registration
+      Sentry.addBreadcrumb({
+        message: 'Registration failed',
+        category: 'auth.error',
+        data: {
+          email: email.split('@')[0] + '@***',
+          errorMessage: error.message,
+          timestamp: new Date().toISOString(),
+        },
+        level: 'error',
+      });
     }
   };
 
   const handleBackNavigation = () => {
+    Sentry.addBreadcrumb({
+      message: 'User navigated back from registration',
+      category: 'navigation',
+      data: {
+        from: 'register',
+        action: 'back_button',
+      },
+    });
     debouncedNavigate(() => router.back());
   };
 
   const handleSignInNavigation = () => {
     if (!isLoading) {
+      Sentry.addBreadcrumb({
+        message: 'User navigated to login from registration',
+        category: 'navigation',
+        data: {
+          from: 'register',
+          to: 'login',
+          action: 'sign_in_link',
+        },
+      });
       debouncedNavigate(() => router.push('/(auth)/login'));
     }
   };
@@ -241,7 +360,14 @@ export default function RegisterScreen() {
               icon="account"
               focusedInput={focusedInput}
               inputName="fullName"
-              onFocus={setFocusedInput}
+              onFocus={(field) => {
+                setFocusedInput(field);
+                Sentry.addBreadcrumb({
+                  message: `User focused on ${field} input`,
+                  category: 'user.focus',
+                  data: { field },
+                });
+              }}
               onBlur={() => setFocusedInput('')}
               isLoading={isLoading}
               autoCapitalize="words"
@@ -261,7 +387,14 @@ export default function RegisterScreen() {
               icon="email"
               focusedInput={focusedInput}
               inputName="email"
-              onFocus={setFocusedInput}
+              onFocus={(field) => {
+                setFocusedInput(field);
+                Sentry.addBreadcrumb({
+                  message: `User focused on ${field} input`,
+                  category: 'user.focus',
+                  data: { field },
+                });
+              }}
               onBlur={() => setFocusedInput('')}
               isLoading={isLoading}
               keyboardType="email-address"
@@ -281,12 +414,29 @@ export default function RegisterScreen() {
               icon="lock"
               focusedInput={focusedInput}
               inputName="password"
-              onFocus={setFocusedInput}
+              onFocus={(field) => {
+                setFocusedInput(field);
+                Sentry.addBreadcrumb({
+                  message: `User focused on ${field} input`,
+                  category: 'user.focus',
+                  data: { field },
+                });
+              }}
               onBlur={() => setFocusedInput('')}
               isLoading={isLoading}
               secureTextEntry={!showPassword}
               rightIcon={showPassword ? 'eye-off' : 'eye'}
-              onTogglePassword={() => setShowPassword(!showPassword)}
+              onTogglePassword={() => {
+                setShowPassword(!showPassword);
+                Sentry.addBreadcrumb({
+                  message: `User ${!showPassword ? 'showed' : 'hid'} password`,
+                  category: 'user.interaction',
+                  data: {
+                    field: 'password',
+                    visible: !showPassword,
+                  },
+                });
+              }}
               autoComplete="new-password"
               textContentType="newPassword"
             />
@@ -303,12 +453,29 @@ export default function RegisterScreen() {
               icon="lock-check"
               focusedInput={focusedInput}
               inputName="confirmPassword"
-              onFocus={setFocusedInput}
+              onFocus={(field) => {
+                setFocusedInput(field);
+                Sentry.addBreadcrumb({
+                  message: `User focused on ${field} input`,
+                  category: 'user.focus',
+                  data: { field },
+                });
+              }}
               onBlur={() => setFocusedInput('')}
               isLoading={isLoading}
               secureTextEntry={!showConfirmPassword}
               rightIcon={showConfirmPassword ? 'eye-off' : 'eye'}
-              onTogglePassword={() => setShowConfirmPassword(!showConfirmPassword)}
+              onTogglePassword={() => {
+                setShowConfirmPassword(!showConfirmPassword);
+                Sentry.addBreadcrumb({
+                  message: `User ${!showConfirmPassword ? 'showed' : 'hid'} confirm password`,
+                  category: 'user.interaction',
+                  data: {
+                    field: 'confirmPassword',
+                    visible: !showConfirmPassword,
+                  },
+                });
+              }}
               autoComplete="new-password"
               textContentType="newPassword"
             />
@@ -328,7 +495,16 @@ export default function RegisterScreen() {
               <View style={styles.checkboxContainer}>
                 <Checkbox.Android
                   status={rememberMe ? 'checked' : 'unchecked'}
-                  onPress={() => setRememberMe(!rememberMe)}
+                  onPress={() => {
+                    setRememberMe(!rememberMe);
+                    Sentry.addBreadcrumb({
+                      message: `User ${!rememberMe ? 'enabled' : 'disabled'} remember me`,
+                      category: 'user.preference',
+                      data: {
+                        rememberMe: !rememberMe,
+                      },
+                    });
+                  }}
                   color={COLORS.primary}
                   uncheckedColor={COLORS.primary}
                 />

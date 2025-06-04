@@ -1,44 +1,44 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  ScrollView,
-  Pressable,
-  Dimensions,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Keyboard,
-  BackHandler,
-  Modal,
-  TouchableWithoutFeedback,
-} from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import { IconButton, Divider, Surface } from 'react-native-paper';
 import { MaterialIcons } from '@expo/vector-icons';
+import { Asset } from 'expo-asset';
+import * as FileSystem from 'expo-file-system';
+import { StatusBar } from 'expo-status-bar';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  PanGestureHandler,
+  ActivityIndicator,
+  BackHandler,
+  Dimensions,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableWithoutFeedback,
+  View,
+} from 'react-native';
+import {
   GestureHandlerRootView,
   ScrollView as GHScrollView,
+  PanGestureHandler,
 } from 'react-native-gesture-handler';
+import { Divider, IconButton, Surface } from 'react-native-paper';
 import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  useAnimatedGestureHandler,
-  withTiming,
-  runOnJS,
   Easing,
+  runOnJS,
+  useAnimatedGestureHandler,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
 } from 'react-native-reanimated';
-import * as FileSystem from 'expo-file-system';
-import { Asset } from 'expo-asset';
+import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import { useDebounce } from '../hooks/useDebounce';
 import supabase from '../services/supabase';
-import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
+import ExerciseInstructions from './ExerciseInstructions';
 import MuscleDiagram from './MuscleDiagram';
 import MuscleTags from './MuscleTags';
-import ExerciseInstructions from './ExerciseInstructions';
 import OptimizedImage from './OptimizedImage';
 
 const { width, height } = Dimensions.get('window');
@@ -273,8 +273,6 @@ const useExerciseNotes = (exerciseId: string, visible: boolean) => {
   };
 
   const saveExerciseNotes = async (exerciseId: string, noteContent: string) => {
-    if (!noteContent.trim()) return;
-
     setIsSaving(true);
     setSaveError(null);
 
@@ -289,20 +287,34 @@ const useExerciseNotes = (exerciseId: string, visible: boolean) => {
         return;
       }
 
-      const { error } = await supabase.from('exercise_notes').upsert(
-        {
-          exercise_id: exerciseId,
-          note_content: noteContent,
-          user_id: user.id,
-          updated_at: new Date().toISOString(),
-        },
-        {
-          onConflict: 'user_id,exercise_id',
-        },
-      );
+      // If note content is empty, delete the record instead of upserting
+      if (!noteContent.trim()) {
+        const { error } = await supabase
+          .from('exercise_notes')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('exercise_id', exerciseId);
 
-      if (error) {
-        setSaveError('Failed to save notes');
+        if (error) {
+          setSaveError('Failed to delete notes');
+        }
+      } else {
+        // Upsert the note content
+        const { error } = await supabase.from('exercise_notes').upsert(
+          {
+            exercise_id: exerciseId,
+            note_content: noteContent,
+            user_id: user.id,
+            updated_at: new Date().toISOString(),
+          },
+          {
+            onConflict: 'user_id,exercise_id',
+          },
+        );
+
+        if (error) {
+          setSaveError('Failed to save notes');
+        }
       }
     } catch (error) {
       console.warn('Failed to save exercise notes:', error);

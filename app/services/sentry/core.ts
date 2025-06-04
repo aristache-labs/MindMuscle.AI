@@ -213,8 +213,8 @@ function createSentryConfig(
   isIOS: boolean,
   navigationIntegration?: unknown,
 ) {
-  // Check for explicit debug flag
-  const enableDebugLogging = process.env.SENTRY_DEBUG === 'true' || false;
+  // Check for explicit debug flag - temporarily enabled for debugging
+  const enableDebugLogging = process.env.SENTRY_DEBUG === 'true' || true;
 
   const baseConfig = createBaseSentryConfig(sentryDsn, isDevelopment, isExpoGo, enableDebugLogging);
   const samplingConfig = createSamplingSentryConfig(isDevelopment);

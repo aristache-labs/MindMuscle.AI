@@ -13,17 +13,27 @@ import {
   View,
 } from 'react-native';
 import { HelperText, Text, TextInput } from 'react-native-paper';
-import secureStorage from '../utils/secureStorage';
 import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import { useNavigationDebounce } from '../hooks/useDebounce';
 import { useAuth } from '../store/AuthContext';
+import secureStorage from '../utils/secureStorage';
+
+// Sentry integration imports
+import {
+  captureAuthError,
+  captureStorageError,
+  captureValidationError,
+  addBreadcrumb,
+  setUser,
+  setContext,
+} from '../services/sentry';
 
 // Keys for secure storage
 const SAVED_EMAIL_KEY = 'mindmuscle_saved_email';
 const SAVED_PASSWORD_KEY = 'mindmuscle_saved_password';
 const REMEMBER_ME_KEY = 'mindmuscle_remember_me';
 
-// Custom hook for credential management
+// Custom hook for credential management with Sentry integration
 function useCredentialManagement() {
   const [isLoadingCredentials, setIsLoadingCredentials] = useState(false);
 
@@ -34,8 +44,19 @@ function useCredentialManagement() {
   ) => {
     // Prevent multiple simultaneous loads
     if (isLoadingCredentials) return;
+
     try {
       setIsLoadingCredentials(true);
+
+      addBreadcrumb({
+        message: 'Loading saved credentials',
+        category: 'auth.credentials',
+        level: 'info',
+        data: {
+          action: 'load_credentials',
+          storage_type: 'secure_storage',
+        },
+      });
 
       const credentialsPromise = (async () => {
         const savedRememberMe = await secureStorage.getItemAsync(REMEMBER_ME_KEY);
@@ -50,6 +71,17 @@ function useCredentialManagement() {
 
           if (savedEmail) setEmail(savedEmail);
           if (savedPassword) setPassword(savedPassword);
+
+          addBreadcrumb({
+            message: 'Saved credentials loaded successfully',
+            category: 'auth.credentials',
+            level: 'info',
+            data: {
+              has_email: !!savedEmail,
+              has_password: !!savedPassword,
+              remember_me: shouldRemember,
+            },
+          });
         }
       })();
 
@@ -61,6 +93,11 @@ function useCredentialManagement() {
       ]);
     } catch (error) {
       console.error('Error loading saved credentials:', error);
+      captureStorageError(
+        error instanceof Error ? error : new Error('Credential loading failed'),
+        'secure_storage',
+        'load_credentials',
+      );
     } finally {
       setIsLoadingCredentials(false);
     }
@@ -68,6 +105,17 @@ function useCredentialManagement() {
 
   const saveCredentials = async (email: string, password: string, remember: boolean) => {
     try {
+      addBreadcrumb({
+        message: 'Saving user credentials',
+        category: 'auth.credentials',
+        level: 'info',
+        data: {
+          action: 'save_credentials',
+          remember_me: remember,
+          has_email: !!email,
+        },
+      });
+
       await secureStorage.setItemAsync(REMEMBER_ME_KEY, remember.toString());
 
       if (remember) {
@@ -83,11 +131,25 @@ function useCredentialManagement() {
       }
     } catch (error) {
       console.error('Error saving credentials:', error);
+      captureStorageError(
+        error instanceof Error ? error : new Error('Credential saving failed'),
+        'secure_storage',
+        'save_credentials',
+      );
     }
   };
 
   const clearSavedCredentials = async () => {
     try {
+      addBreadcrumb({
+        message: 'Clearing saved credentials',
+        category: 'auth.credentials',
+        level: 'info',
+        data: {
+          action: 'clear_credentials',
+        },
+      });
+
       await Promise.all([
         secureStorage.deleteItemAsync(SAVED_EMAIL_KEY).catch(() => {}),
         secureStorage.deleteItemAsync(SAVED_PASSWORD_KEY).catch(() => {}),
@@ -95,6 +157,11 @@ function useCredentialManagement() {
       ]);
     } catch (error) {
       console.error('Error clearing saved credentials:', error);
+      captureStorageError(
+        error instanceof Error ? error : new Error('Credential clearing failed'),
+        'secure_storage',
+        'clear_credentials',
+      );
     }
   };
 
@@ -109,28 +176,82 @@ function useCredentialManagement() {
 // Import validation service
 import { validationService } from '../services/validationService';
 
-// Custom hook for form validation
+// Custom hook for form validation with Sentry integration
 function useFormValidation() {
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   const validateInputs = (email: string, password: string) => {
-    const formData = { email, password };
-    const validationResult = validationService.validateLoginForm(formData);
-
-    if (!validationResult.success) {
-      const errors: Record<string, string> = {};
-      validationResult.errors.forEach((error) => {
-        errors[error.field] = error.message;
+    try {
+      addBreadcrumb({
+        message: 'Validating login form',
+        category: 'auth.validation',
+        level: 'info',
+        data: {
+          has_email: !!email,
+          has_password: !!password,
+          email_length: email.length,
+          password_length: password.length,
+        },
       });
-      setValidationErrors(errors);
+
+      const formData = { email, password };
+      const validationResult = validationService.validateLoginForm(formData);
+
+      if (!validationResult.success) {
+        const errors: Record<string, string> = {};
+        validationResult.errors.forEach((error) => {
+          errors[error.field] = error.message;
+
+          // Log validation errors to Sentry
+          captureValidationError(
+            new Error(`Validation failed for field: ${error.field}`),
+            error.field,
+            error.field === 'email' ? email : '[REDACTED]', // Don't log password
+          );
+        });
+
+        setValidationErrors(errors);
+
+        addBreadcrumb({
+          message: 'Form validation failed',
+          category: 'auth.validation',
+          level: 'warning',
+          data: {
+            error_count: validationResult.errors.length,
+            fields: validationResult.errors.map((e) => e.field),
+          },
+        });
+
+        return false;
+      }
+
+      setValidationErrors({});
+
+      addBreadcrumb({
+        message: 'Form validation successful',
+        category: 'auth.validation',
+        level: 'info',
+      });
+
+      return true;
+    } catch (error) {
+      captureValidationError(
+        error instanceof Error ? error : new Error('Form validation error'),
+        'unknown',
+        { email, password: '[REDACTED]' },
+      );
       return false;
     }
-
-    setValidationErrors({});
-    return true;
   };
 
-  const clearValidationError = () => setValidationErrors({});
+  const clearValidationError = () => {
+    setValidationErrors({});
+    addBreadcrumb({
+      message: 'Validation errors cleared',
+      category: 'auth.validation',
+      level: 'info',
+    });
+  };
 
   const getValidationError = () => {
     const errorValues = Object.values(validationErrors);
@@ -146,20 +267,44 @@ function useFormValidation() {
   };
 }
 
-// Custom hook for UI state
+// Custom hook for UI state with Sentry integration
 function useUIState() {
   const [showPassword, setShowPassword] = useState(false);
   const [focusedInput, setFocusedInput] = useState('');
 
+  const handleShowPasswordToggle = (show: boolean) => {
+    setShowPassword(show);
+    addBreadcrumb({
+      message: 'Password visibility toggled',
+      category: 'auth.ui',
+      level: 'info',
+      data: {
+        show_password: show,
+      },
+    });
+  };
+
+  const handleInputFocus = (inputName: string) => {
+    setFocusedInput(inputName);
+    addBreadcrumb({
+      message: 'Input field focused',
+      category: 'auth.ui',
+      level: 'info',
+      data: {
+        input_field: inputName,
+      },
+    });
+  };
+
   return {
     showPassword,
-    setShowPassword,
+    setShowPassword: handleShowPasswordToggle,
     focusedInput,
-    setFocusedInput,
+    setFocusedInput: handleInputFocus,
   };
 }
 
-// Email Input Component
+// Email Input Component with Sentry integration
 function EmailInput({
   email,
   setEmail,
@@ -177,13 +322,30 @@ function EmailInput({
   isLoading: boolean;
   onSubmitEditing: () => void;
 }) {
+  const handleEmailChange = (text: string) => {
+    setEmail(text);
+    // Log email input patterns (without actual email for privacy)
+    if (text.length > 0 && text.length % 5 === 0) {
+      addBreadcrumb({
+        message: 'Email input progress',
+        category: 'auth.input',
+        level: 'info',
+        data: {
+          length: text.length,
+          has_at_symbol: text.includes('@'),
+          has_dot: text.includes('.'),
+        },
+      });
+    }
+  };
+
   return (
     <View style={[styles.inputContainer, focusedInput === 'email' && styles.inputContainerFocused]}>
       <TextInput
         mode="flat"
         placeholder="Email"
         value={email}
-        onChangeText={setEmail}
+        onChangeText={handleEmailChange}
         keyboardType="email-address"
         autoCapitalize="none"
         autoComplete="username"
@@ -211,9 +373,9 @@ function EmailInput({
         }}
         onFocus={() => setFocusedInput('email')}
         onBlur={() => setFocusedInput('')}
-        error={hasError}
-        disabled={isLoading}
         onSubmitEditing={onSubmitEditing}
+        editable={!isLoading}
+        error={hasError}
       />
     </View>
   );
@@ -348,6 +510,34 @@ export default function LoginScreen() {
   const { showPassword, setShowPassword, focusedInput, setFocusedInput } = useUIState();
   const debouncedNavigate = useNavigationDebounce();
 
+  // Set Sentry context for this screen
+  useEffect(() => {
+    addBreadcrumb({
+      message: 'Login screen loaded',
+      category: 'navigation',
+      level: 'info',
+      data: {
+        screen: 'login',
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    setContext('screen_context', {
+      screen_name: 'login',
+      feature: 'authentication',
+      has_remember_me: true,
+      has_social_login: true,
+    });
+
+    return () => {
+      addBreadcrumb({
+        message: 'Login screen unmounted',
+        category: 'navigation',
+        level: 'info',
+      });
+    };
+  }, []);
+
   // Load saved credentials on component mount (only once)
   useEffect(() => {
     if (!hasLoadedCredentials && isMountedRef.current) {
@@ -382,25 +572,99 @@ export default function LoginScreen() {
   const handleLogin = async () => {
     if (!validateInputs(email, password)) return;
 
+    addBreadcrumb({
+      message: 'Login attempt started',
+      category: 'auth.login',
+      level: 'info',
+      data: {
+        has_email: !!email,
+        remember_me: rememberMe,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
     try {
       await saveCredentials(email, password, rememberMe);
       const result = await signIn(email, password, rememberMe);
 
       if (result.error) {
+        captureAuthError(new Error(`Login failed: ${result.error.message}`), 'sign_in');
+
+        addBreadcrumb({
+          message: 'Login failed',
+          category: 'auth.login',
+          level: 'error',
+          data: {
+            error_message: result.error.message,
+            error_code: result.error.code || 'unknown',
+          },
+        });
+
         await clearSavedCredentials();
+      } else {
+        // Login successful
+        addBreadcrumb({
+          message: 'Login successful',
+          category: 'auth.login',
+          level: 'info',
+          data: {
+            user_email: email,
+            remember_me: rememberMe,
+          },
+        });
+
+        // Set user context for Sentry
+        setUser({
+          email: email,
+          id: result.data?.user?.id || 'unknown',
+          username: email.split('@')[0],
+        });
       }
     } catch (err) {
       console.error('Login error:', err);
+
+      captureAuthError(err instanceof Error ? err : new Error('Unknown login error'), 'sign_in');
+
+      addBreadcrumb({
+        message: 'Login exception occurred',
+        category: 'auth.login',
+        level: 'error',
+        data: {
+          error_message: err instanceof Error ? err.message : 'Unknown error',
+          timestamp: new Date().toISOString(),
+        },
+      });
+
       await clearSavedCredentials();
     }
   };
 
   const handleForgotPassword = () => {
+    addBreadcrumb({
+      message: 'Navigation to forgot password',
+      category: 'navigation',
+      level: 'info',
+      data: {
+        from_screen: 'login',
+        to_screen: 'forgot-password',
+      },
+    });
+
     debouncedNavigate(() => router.push('/(auth)/forgot-password'));
   };
 
   const handleSignUpNavigation = () => {
     if (!isLoading && !isLoadingCredentials) {
+      addBreadcrumb({
+        message: 'Navigation to sign up',
+        category: 'navigation',
+        level: 'info',
+        data: {
+          from_screen: 'login',
+          to_screen: 'register',
+        },
+      });
+
       debouncedNavigate(() => router.push('/(auth)/register'));
     }
   };

@@ -1,18 +1,18 @@
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  StyleSheet,
-  View,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  StyleSheet,
   TouchableWithoutFeedback,
-  Keyboard,
+  View,
 } from 'react-native';
-import { Text, TextInput, HelperText, ActivityIndicator } from 'react-native-paper';
-import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
+import { ActivityIndicator, HelperText, Text, TextInput } from 'react-native-paper';
+import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import supabase from '../services/supabase';
 
 export default function ForgotPasswordScreen() {

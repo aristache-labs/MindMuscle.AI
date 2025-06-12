@@ -865,6 +865,7 @@ export default function ExerciseDetailsModal({
   );
   const { notes, setNotes, isSaving, saveError } = useExerciseNotes(exerciseId, visible);
   const { frontBodySvg, backBodySvg } = useSvgAssets(visible);
+
   const { activeSection, changeSection, gestureHandler, animatedSectionsStyle } = useSectionSwipe();
 
   const scrollViewRef = useRef<ScrollView>(null);

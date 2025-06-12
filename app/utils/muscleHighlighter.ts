@@ -42,6 +42,7 @@ export const MUSCLE_CONFIG: Record<string, MuscleConfig> = {
   chest: {
     ids: [
       'Chest',
+      'CHEST',
       'Chest_2',
       'Chest_3',
       'Chest_4',
@@ -62,9 +63,11 @@ export const MUSCLE_CONFIG: Record<string, MuscleConfig> = {
   shoulders: {
     ids: [
       'Shoulders',
+      'SHOULDERS',
       'Shoulders_2',
       'Shoulders_3',
       'Delts',
+      'DELTS',
       'delts',
       'deltoids',
       'Deltoids',
@@ -89,6 +92,7 @@ export const MUSCLE_CONFIG: Record<string, MuscleConfig> = {
   triceps: {
     ids: [
       'Triceps',
+      'TRICEPS',
       'tricep',
       'Tricep',
       'Triceps-left',
@@ -106,6 +110,7 @@ export const MUSCLE_CONFIG: Record<string, MuscleConfig> = {
   biceps: {
     ids: [
       'Biceps',
+      'BICEPS',
       'Biceps_2',
       'bicep',
       'Biceps-left',
@@ -142,6 +147,7 @@ export const MUSCLE_CONFIG: Record<string, MuscleConfig> = {
   abs: {
     ids: [
       'Abs',
+      'ABS',
       'Abs_2',
       'Abs_3',
       'abdomen',
@@ -182,8 +188,10 @@ export const MUSCLE_CONFIG: Record<string, MuscleConfig> = {
   quads: {
     ids: [
       'Quads',
+      'QUADS',
       'Quads_2',
       'quadriceps',
+      'QUADRICEPS',
       'QuadricepsFemoris',
       'Quadriceps-Femoris',
       'quad',
@@ -236,6 +244,7 @@ export const MUSCLE_CONFIG: Record<string, MuscleConfig> = {
   lats: {
     ids: [
       'Lats',
+      'LATS',
       'Lats_2',
       'latissimus',
       'latissimus-dorsi',
@@ -253,10 +262,12 @@ export const MUSCLE_CONFIG: Record<string, MuscleConfig> = {
   traps: {
     ids: [
       'Traps',
+      'TRAPS',
       'Traps_2',
       'Traps_3',
       'Traps_4',
       'trapezius',
+      'TRAPEZIUS',
       'Trapezius',
       'TrapMuscle',
       'trap',
@@ -316,7 +327,9 @@ export const MUSCLE_CONFIG: Record<string, MuscleConfig> = {
   glutes: {
     ids: [
       'Glutes',
+      'GLUTES',
       'gluteus',
+      'GLUTEUS',
       'GluteusMaximus',
       'gluteus-maximus',
       'butt',
@@ -336,10 +349,12 @@ export const MUSCLE_CONFIG: Record<string, MuscleConfig> = {
   hamstrings: {
     ids: [
       'Hamstrings',
+      'HAMSTRINGS',
       'Hamstrings_2',
       'Hamstrings_3',
       'Hamstrings_4',
       'hamstring',
+      'HAMSTRING',
       'Hamstring',
       'BackThigh',
       'back-thigh',
@@ -353,8 +368,11 @@ export const MUSCLE_CONFIG: Record<string, MuscleConfig> = {
   calves: {
     ids: [
       'Calves',
+      'CALVES',
       'calf',
+      'CALF',
       'gastrocnemius',
+      'GASTROCNEMIUS',
       'Gastrocnemius',
       'SoleusMuscle',
       'soleus',
@@ -425,6 +443,20 @@ function findMuscleKey(muscleName: string): string | null {
     return NORMALIZED_INPUT_TO_KEY.get(normalized) || null;
   }
 
+  // Try partial matches for common variations
+  for (const [key, value] of NORMALIZED_MUSCLE_MAP.entries()) {
+    if (key.includes(normalized) || normalized.includes(key)) {
+      return value;
+    }
+  }
+
+  // Try partial matches in the input mapping
+  for (const [key, value] of NORMALIZED_INPUT_TO_KEY.entries()) {
+    if (key.includes(normalized) || normalized.includes(key)) {
+      return value;
+    }
+  }
+
   return null;
 }
 
@@ -432,11 +464,6 @@ function findMuscleKey(muscleName: string): string | null {
  * Extracts all IDs from an SVG string for diagnostic purposes
  */
 export function extractSvgIds(svg: string): string[] {
-  const transaction = Sentry.startTransaction({
-    name: 'extractSvgIds',
-    op: 'muscle_highlighting',
-  });
-
   try {
     Sentry.addBreadcrumb({
       message: 'Extracting SVG IDs',
@@ -481,8 +508,6 @@ export function extractSvgIds(svg: string): string[] {
       },
     });
     return [];
-  } finally {
-    transaction.finish();
   }
 }
 
@@ -491,6 +516,136 @@ export function extractSvgIds(svg: string): string[] {
  */
 function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Check if pattern view matches current back/front selection
+ */
+function shouldProcessView(view: MuscleView, isBackView: boolean): boolean {
+  if (view === 'both') return true;
+  if (isBackView && view === 'back') return true;
+  if (!isBackView && view === 'front') return true;
+  return false;
+}
+
+/**
+ * Log debug information for muscle pattern processing
+ */
+function logPatternDebug(
+  muscleKey: string,
+  id: string,
+  normalizedKey: string,
+  primarySet: Set<string>,
+  secondarySet: Set<string>,
+  isBackView: boolean,
+): void {
+  console.log(
+    `[SVG:${isBackView ? 'BACK' : 'FRONT'}] Processing muscle: ${muscleKey} (id: ${id}, normalized: ${normalizedKey})`,
+  );
+  console.log(
+    `[SVG:${isBackView ? 'BACK' : 'FRONT'}] Primary set has: ${primarySet.has(normalizedKey)}, Secondary set has: ${secondarySet.has(normalizedKey)}`,
+  );
+  if (normalizedKey === 'lats') {
+    console.log(
+      `[SVG:${isBackView ? 'BACK' : 'FRONT'}] LATS DEBUG - Primary set contents:`,
+      Array.from(primarySet),
+    );
+    console.log(
+      `[SVG:${isBackView ? 'BACK' : 'FRONT'}] LATS DEBUG - Looking for: "${normalizedKey}"`,
+    );
+    console.log(
+      `[SVG:${isBackView ? 'BACK' : 'FRONT'}] LATS DEBUG - Set has it: ${primarySet.has(normalizedKey)}`,
+    );
+  }
+}
+
+/**
+ * Get muscle style based on primary/secondary sets
+ */
+function getMuscleStyle(
+  normalizedKey: string,
+  muscleConfig: MuscleConfig,
+  primarySet: Set<string>,
+  secondarySet: Set<string>,
+): string | null {
+  if (primarySet.has(normalizedKey)) {
+    return `fill:${muscleConfig.color};stroke:white;stroke-width:0.5;`;
+  } else if (secondarySet.has(normalizedKey)) {
+    return `fill:${muscleConfig.color}CC;stroke:white;stroke-width:0.5;`;
+  }
+  return null;
+}
+
+/**
+ * Apply style to SVG element
+ */
+function applySvgStyle(output: string, id: string, style: string): string {
+  const exactPattern = `(<[^>]*\\bid=["']${escapeRegExp(id)}["'][^>]*?)(>|\\/>)`;
+  const exactRegex = new RegExp(exactPattern, 'gi');
+
+  return output.replace(exactRegex, (match, prefix, closeTag) => {
+    // Skip if already styled
+    if (match.includes('style="')) {
+      return match;
+    }
+
+    // Strip old fills/styles
+    let cleaned = prefix.replace(/\s(style|fill)=["'][^"']*["']/gi, '');
+    cleaned = cleaned.replace(/\/$/, '');
+
+    if (/^<path\b/i.test(cleaned)) {
+      return `${cleaned} style="${style}" />`;
+    }
+    return `${cleaned} style="${style}"${closeTag === '/>' ? ' />' : '>'}`;
+  });
+}
+
+/**
+ * Process a single pattern for muscle matching
+ */
+function processPattern(
+  pattern: PrecompiledPattern,
+  output: string,
+  primarySet: Set<string>,
+  secondarySet: Set<string>,
+  isBackView: boolean,
+  debugMode: boolean,
+): { output: string } {
+  const { id, view, muscleKey } = pattern;
+
+  // Skip if view doesn't match current front/back selection
+  if (!shouldProcessView(view, isBackView)) {
+    return { output };
+  }
+
+  // Determine style for this muscle using consistent normalization
+  const normalizedKey = normalizeMuscleKey(muscleKey);
+
+  if (debugMode) {
+    logPatternDebug(muscleKey, id, normalizedKey, primarySet, secondarySet, isBackView);
+  }
+
+  // Get original key from normalized key
+  const originalKey = NORMALIZED_MUSCLE_MAP.get(normalizedKey) || muscleKey;
+
+  // Check if the muscle config exists
+  const muscleConfig = MUSCLE_CONFIG[originalKey];
+  if (!muscleConfig) {
+    if (debugMode) {
+      console.warn(
+        `[SVG] No muscle config found for: ${originalKey} (normalized: ${normalizedKey})`,
+      );
+    }
+    return { output };
+  }
+
+  const style = getMuscleStyle(normalizedKey, muscleConfig, primarySet, secondarySet);
+  if (!style) {
+    return { output };
+  }
+
+  const updatedOutput = applySvgStyle(output, id, style);
+  return { output: updatedOutput };
 }
 
 /**
@@ -504,11 +659,6 @@ function processDirectMuscleMatching(
   debugMode: boolean,
   matchedIds: string[],
 ): { output: string; matchCount: number } {
-  const transaction = Sentry.startTransaction({
-    name: 'processDirectMuscleMatching',
-    op: 'muscle_highlighting',
-  });
-
   try {
     Sentry.addBreadcrumb({
       message: 'Processing direct muscle matching',
@@ -525,60 +675,45 @@ function processDirectMuscleMatching(
     let currentOutput = output;
     let matchCount = 0;
 
+    if (debugMode) {
+      console.log(
+        `[SVG:${isBackView ? 'BACK' : 'FRONT'}] Starting direct muscle matching with ${PRECOMPILED.length} patterns`,
+      );
+    }
+
     // First try direct muscle name matching
-    PRECOMPILED.forEach(({ id, view, muscleKey }) => {
-      // Skip if view doesn't match current front/back selection
-      if (view !== 'both') {
-        if (isBackView && view !== 'back') return;
-        if (!isBackView && view !== 'front') return;
-      }
+    PRECOMPILED.forEach((pattern) => {
+      const result = processPattern(
+        pattern,
+        currentOutput,
+        primarySet,
+        secondarySet,
+        isBackView,
+        debugMode,
+      );
 
-      // Determine style for this muscle using consistent normalization
-      const normalizedKey = normalizeMuscleKey(muscleKey);
-      let style = '';
-
-      // Get original key from normalized key
-      const originalKey = NORMALIZED_MUSCLE_MAP.get(normalizedKey) || muscleKey;
-
-      if (primarySet.has(normalizedKey)) {
-        style = `fill:${MUSCLE_CONFIG[originalKey].color};stroke:white;stroke-width:0.5;`;
-      } else if (secondarySet.has(normalizedKey)) {
-        style = `fill:${MUSCLE_CONFIG[originalKey].color}CC;stroke:white;stroke-width:0.5;`;
-      } else {
-        return;
-      }
-
-      // Try exact ID match first
-      const exactPattern = `(<[^>]*\\bid=["']${escapeRegExp(id)}["'][^>]*?)(>|\\/>)`;
-      const exactRegex = new RegExp(exactPattern, 'gi');
-
-      const tempOutput = currentOutput;
-      currentOutput = currentOutput.replace(exactRegex, (match, prefix, closeTag) => {
-        // Skip if already styled
-        if (match.includes('style="')) {
-          return match;
-        }
-
-        // Strip old fills/styles
-        let cleaned = prefix.replace(/\s(style|fill)=["'][^"']*["']/gi, '');
-        cleaned = cleaned.replace(/\/$/, '');
-
-        if (/^<path\b/i.test(cleaned)) {
-          return `${cleaned} style="${style}" />`;
-        }
-        return `${cleaned} style="${style}"${closeTag === '/>' ? ' />' : '>'}`;
-      });
-
-      if (tempOutput !== currentOutput) {
-        matchedIds.push(id);
+      if (result.output !== currentOutput) {
+        currentOutput = result.output;
+        matchedIds.push(pattern.id);
         matchCount++;
         if (debugMode) {
           console.log(
-            `[SVG:${isBackView ? 'BACK' : 'FRONT'}] Matched muscle: ${muscleKey} (${id})`,
+            `[SVG:${isBackView ? 'BACK' : 'FRONT'}] Matched muscle: ${pattern.muscleKey} (${pattern.id})`,
           );
         }
       }
     });
+
+    if (debugMode) {
+      console.log(
+        `[SVG:${isBackView ? 'BACK' : 'FRONT'}] Direct muscle matching completed with ${matchCount} matches`,
+      );
+      if (matchedIds.length > 0) {
+        console.log(`[SVG:${isBackView ? 'BACK' : 'FRONT'}] Matched IDs:`, matchedIds);
+      } else {
+        console.warn(`[SVG:${isBackView ? 'BACK' : 'FRONT'}] No IDs were matched!`);
+      }
+    }
 
     Sentry.addBreadcrumb({
       message: 'Direct muscle matching completed',
@@ -607,8 +742,6 @@ function processDirectMuscleMatching(
       },
     });
     return { output, matchCount: 0 };
-  } finally {
-    transaction.finish();
   }
 }
 
@@ -689,6 +822,77 @@ function logMatchingResults(
 /**
  * Highlight muscles in an SVG string based on primary and secondary muscles
  */
+/**
+ * Initialize muscle sets from input arrays
+ */
+function initializeMuscleSets(
+  primaryMuscles: string[],
+  secondaryMuscles: string[],
+  debugMode: boolean,
+): { primarySet: Set<string>; secondarySet: Set<string> } {
+  // Convert input muscle names to actual muscle keys
+  const primaryMuscleKeys = primaryMuscles
+    .map(findMuscleKey)
+    .filter((key): key is string => key !== null);
+
+  const secondaryMuscleKeys = secondaryMuscles
+    .map(findMuscleKey)
+    .filter((key): key is string => key !== null);
+
+  if (debugMode) {
+    console.log('[SVG] Mapped muscle keys:', {
+      primary: primaryMuscleKeys,
+      secondary: secondaryMuscleKeys,
+    });
+  }
+
+  // Create sets of normalized muscle keys for quick lookup
+  const primarySet = new Set(primaryMuscles.map((m) => normalizeMuscleKey(m)));
+  const secondarySet = new Set(secondaryMuscles.map((m) => normalizeMuscleKey(m)));
+
+  // Also add normalized keys of the mapped muscles
+  primaryMuscleKeys.forEach((key) => primarySet.add(normalizeMuscleKey(key)));
+  secondaryMuscleKeys.forEach((key) => secondarySet.add(normalizeMuscleKey(key)));
+
+  return { primarySet, secondarySet };
+}
+
+/**
+ * Log debug information about SVG analysis
+ */
+function logSvgAnalysis(
+  svg: string,
+  primarySet: Set<string>,
+  secondarySet: Set<string>,
+  isBackView: boolean,
+): void {
+  // Extract all IDs from the SVG for analysis
+  const allIds = extractSvgIds(svg);
+
+  console.log(`[SVG:${isBackView ? 'BACK' : 'FRONT'}] Found IDs:`, allIds.slice(0, 20));
+  console.log(`[SVG:${isBackView ? 'BACK' : 'FRONT'}] Total IDs found: ${allIds.length}`);
+
+  // Check for specific muscle-related IDs
+  const latsIds = allIds.filter((id) => id.toLowerCase().includes('lat'));
+  const bicepsIds = allIds.filter((id) => id.toLowerCase().includes('bicep'));
+  const chestIds = allIds.filter((id) => id.toLowerCase().includes('chest'));
+
+  console.log(`[SVG:${isBackView ? 'BACK' : 'FRONT'}] Lats-related IDs:`, latsIds);
+  console.log(`[SVG:${isBackView ? 'BACK' : 'FRONT'}] Biceps-related IDs:`, bicepsIds);
+  console.log(`[SVG:${isBackView ? 'BACK' : 'FRONT'}] Chest-related IDs:`, chestIds);
+
+  console.log('[SVG] Final muscle sets:', {
+    primarySet: Array.from(primarySet),
+    secondarySet: Array.from(secondarySet),
+  });
+
+  // Show what PRECOMPILED patterns we have for specific muscles
+  const latsPatterns = PRECOMPILED.filter((p) => p.muscleKey === 'lats');
+  const bicepsPatterns = PRECOMPILED.filter((p) => p.muscleKey === 'biceps');
+  console.log('[SVG] Lats patterns in PRECOMPILED:', latsPatterns);
+  console.log('[SVG] Biceps patterns in PRECOMPILED:', bicepsPatterns);
+}
+
 export function highlightMusclesInSvg(
   svg: string,
   primaryMuscles: string[],
@@ -696,11 +900,6 @@ export function highlightMusclesInSvg(
   isBackView: boolean,
   debugMode: boolean = false,
 ): string {
-  const transaction = Sentry.startTransaction({
-    name: 'highlightMusclesInSvg',
-    op: 'muscle_highlighting',
-  });
-
   try {
     Sentry.addBreadcrumb({
       message: 'Starting muscle highlighting',
@@ -729,42 +928,23 @@ export function highlightMusclesInSvg(
         primary: primaryMuscles,
         secondary: secondaryMuscles,
       });
+      console.log(`[SVG] PRECOMPILED patterns count: ${PRECOMPILED.length}`);
+      console.log(`[SVG] Sample PRECOMPILED patterns:`, PRECOMPILED.slice(0, 10));
     }
 
-    // Convert input muscle names to actual muscle keys
-    const primaryMuscleKeys = primaryMuscles
-      .map(findMuscleKey)
-      .filter((key): key is string => key !== null);
-
-    const secondaryMuscleKeys = secondaryMuscles
-      .map(findMuscleKey)
-      .filter((key): key is string => key !== null);
+    const { primarySet, secondarySet } = initializeMuscleSets(
+      primaryMuscles,
+      secondaryMuscles,
+      debugMode,
+    );
 
     if (debugMode) {
-      console.log('[SVG] Mapped muscle keys:', {
-        primary: primaryMuscleKeys,
-        secondary: secondaryMuscleKeys,
-      });
+      logSvgAnalysis(svg, primarySet, secondarySet, isBackView);
     }
-
-    // Create sets of normalized muscle keys for quick lookup
-    const primarySet = new Set(primaryMuscles.map((m) => normalizeMuscleKey(m)));
-    const secondarySet = new Set(secondaryMuscles.map((m) => normalizeMuscleKey(m)));
-
-    // Also add normalized keys of the mapped muscles
-    primaryMuscleKeys.forEach((key) => primarySet.add(normalizeMuscleKey(key)));
-    secondaryMuscleKeys.forEach((key) => secondarySet.add(normalizeMuscleKey(key)));
 
     let output = svg;
     let totalMatchCount = 0;
     const matchedIds: string[] = [];
-
-    // Extract all IDs from the SVG for analysis
-    const allIds = extractSvgIds(svg);
-
-    if (debugMode) {
-      console.log(`[SVG:${isBackView ? 'BACK' : 'FRONT'}] Found IDs:`, allIds.slice(0, 20));
-    }
 
     // Process direct muscle matching
     const directMatchResult = processDirectMuscleMatching(
@@ -824,8 +1004,6 @@ export function highlightMusclesInSvg(
       },
     });
     return svg; // Return original SVG on error
-  } finally {
-    transaction.finish();
   }
 }
 
@@ -841,7 +1019,29 @@ export function getMuscleColor(muscleKey: string, isPrimary: boolean): string {
       level: 'debug',
     });
 
+    // Handle empty or invalid muscle keys
+    if (!muscleKey || typeof muscleKey !== 'string' || muscleKey.trim().length === 0) {
+      Sentry.addBreadcrumb({
+        message: 'Empty or invalid muscle key provided',
+        category: 'muscle_highlighting',
+        data: { muscleKey, isPrimary },
+        level: 'warning',
+      });
+      return isPrimary ? '#FF3B30' : '#FF3B30CC'; // Return fallback red color
+    }
+
     const normalizedKey = normalizeMuscleKey(muscleKey);
+
+    // Handle cases where normalization results in empty string
+    if (!normalizedKey || normalizedKey.length === 0) {
+      Sentry.addBreadcrumb({
+        message: 'Muscle key normalization resulted in empty string',
+        category: 'muscle_highlighting',
+        data: { originalMuscleKey: muscleKey, normalizedKey, isPrimary },
+        level: 'warning',
+      });
+      return isPrimary ? '#FF3B30' : '#FF3B30CC'; // Return fallback red color
+    }
 
     // First try to get the original key from our maps
     let originalKey =
@@ -872,9 +1072,51 @@ export function getMuscleColor(muscleKey: string, isPrimary: boolean): string {
       baseColor = MUSCLE_COLORS[originalNormalized];
     }
 
+    // If still not found, try some common fallback mappings
+    if (!baseColor) {
+      const fallbackMappings: Record<string, string> = {
+        unknown: 'chest',
+        other: 'chest',
+        general: 'chest',
+        fullbody: 'chest',
+        compound: 'chest',
+      };
+
+      const fallbackKey = fallbackMappings[normalizedKey];
+      if (fallbackKey) {
+        baseColor = MUSCLE_COLORS[fallbackKey];
+
+        Sentry.addBreadcrumb({
+          message: 'Used fallback mapping for muscle color',
+          category: 'muscle_highlighting',
+          data: {
+            originalMuscleKey: muscleKey,
+            normalizedKey,
+            fallbackKey,
+            foundColor: !!baseColor,
+            isPrimary,
+          },
+          level: 'info',
+        });
+      }
+    }
+
     // If still not found, use a fallback color
     if (!baseColor) {
       baseColor = '#FF3B30'; // fallback to a default red
+
+      Sentry.addBreadcrumb({
+        message: 'No muscle color found, using default fallback',
+        category: 'muscle_highlighting',
+        data: {
+          originalMuscleKey: muscleKey,
+          normalizedKey,
+          originalKey,
+          isPrimary,
+          availableKeys: Object.keys(MUSCLE_COLORS).slice(0, 10), // Show first 10 available keys for debugging
+        },
+        level: 'warning',
+      });
     }
 
     return isPrimary ? baseColor : `${baseColor}CC`; // CC = 80% opacity for secondary
@@ -925,11 +1167,6 @@ interface SvgAnalysisResult {
  * Only used in debug mode
  */
 export function analyzeSvgStructure(svg: string, isBackView: boolean): SvgAnalysisResult {
-  const transaction = Sentry.startTransaction({
-    name: 'analyzeSvgStructure',
-    op: 'muscle_highlighting',
-  });
-
   try {
     Sentry.addBreadcrumb({
       message: 'Analyzing SVG structure',
@@ -1024,8 +1261,6 @@ export function analyzeSvgStructure(svg: string, isBackView: boolean): SvgAnalys
       },
     });
     return { error: String(error) };
-  } finally {
-    transaction.finish();
   }
 }
 

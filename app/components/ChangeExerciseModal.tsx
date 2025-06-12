@@ -67,6 +67,33 @@ interface ChangeExerciseModalProps {
   onExerciseSelect: (exercise: ExerciseAlternative) => void;
 }
 
+// Helper function to get a valid muscle group from primary muscles array
+function getValidMuscleGroupFromArray(primaryMuscles: string[]): string {
+  try {
+    // Check if we have valid primary muscles
+    if (primaryMuscles && primaryMuscles.length > 0) {
+      const primaryMuscle = primaryMuscles[0];
+
+      // Validate that it's not empty or undefined
+      if (primaryMuscle && primaryMuscle.trim().length > 0) {
+        return primaryMuscle.trim();
+      }
+    }
+
+    // Default fallback to a valid muscle group that works with SVG highlighting
+    return 'Chest'; // Using 'Chest' as a safe fallback since it's always visible and well-defined in SVG
+  } catch (error) {
+    simpleErrorHandler.captureException(error as Error, {
+      component: 'ChangeExerciseModal',
+      action: 'get_valid_muscle_group',
+      primaryMuscles,
+    });
+
+    // Return safe fallback on error
+    return 'Chest';
+  }
+}
+
 export default function ChangeExerciseModal({
   visible,
   onClose,
@@ -183,9 +210,9 @@ export default function ChangeExerciseModal({
             primary_muscles: ex.primary_muscles || [],
             secondary_muscles: [],
             difficulty: ex.difficulty || 'Intermediate',
-            equipment: ex.equipment || 'Unknown',
+            equipment: ex.equipment || 'Standard',
             requires_weight: ex.requires_weight !== false,
-            muscle_group: ex.primary_muscles?.[0] || 'Unknown',
+            muscle_group: getValidMuscleGroupFromArray(ex.primary_muscles || []),
             rest_time: ex.rest_time || 60,
             recommendation_type: 'other' as 'recommended' | 'other',
             similarity_score: 25, // Lower score for fallback exercises
@@ -259,9 +286,9 @@ export default function ChangeExerciseModal({
             primary_muscles: ex.primary_muscles || [],
             secondary_muscles: [],
             difficulty: ex.difficulty || 'Intermediate',
-            equipment: ex.equipment || 'Unknown',
+            equipment: ex.equipment || 'Standard',
             requires_weight: ex.requires_weight !== false,
-            muscle_group: ex.primary_muscles?.[0] || 'Unknown',
+            muscle_group: getValidMuscleGroupFromArray(ex.primary_muscles || []),
             rest_time: ex.rest_time || 60,
             recommendation_type: 'other' as 'recommended' | 'other',
             similarity_score: 20,

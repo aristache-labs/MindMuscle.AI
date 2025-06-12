@@ -12,7 +12,7 @@ import { configureReanimatedLogger, ReanimatedLogLevel } from 'react-native-rean
 
 // Disable strict mode warnings for better development experience
 configureReanimatedLogger({
-  level: ReanimatedLogLevel.warn,
+  level: ReanimatedLogLevel.error, // Only show errors, hide warnings
   strict: false, // Disable strict mode warnings
 });
 

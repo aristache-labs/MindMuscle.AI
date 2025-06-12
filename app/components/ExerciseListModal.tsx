@@ -52,29 +52,50 @@ function useDragAnimations() {
   const scale = useSharedValue(1);
   const opacity = useSharedValue(1);
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }, { scale: scale.value }],
-    opacity: opacity.value,
-  }));
+  const animatedStyle = useAnimatedStyle(
+    () => ({
+      transform: [{ translateY: translateY.value }, { scale: scale.value }],
+      opacity: opacity.value,
+    }),
+    [translateY, scale, opacity],
+  );
 
   const startDragAnimation = useCallback(() => {
+    'worklet';
     scale.value = withSpring(1.05, { damping: 20, stiffness: 400 });
     opacity.value = withTiming(0.9, { duration: 100 });
-  }, []);
+  }, [scale, opacity]);
 
   const endDragAnimation = useCallback(() => {
+    'worklet';
     translateY.value = withTiming(0, { duration: 200 });
     scale.value = withTiming(1, { duration: 200 });
     opacity.value = withTiming(1, { duration: 200 });
-  }, []);
+  }, [translateY, scale, opacity]);
 
-  const updateDragPosition = useCallback((y: number) => {
-    translateY.value = y;
-  }, []);
+  const updateDragPosition = useCallback(
+    (y: number) => {
+      'worklet';
+      translateY.value = y;
+    },
+    [translateY],
+  );
 
-  const updateDisplacement = useCallback((displacement: number) => {
-    translateY.value = withTiming(displacement, { duration: 200 });
-  }, []);
+  const updateDisplacement = useCallback(
+    (displacement: number) => {
+      'worklet';
+      translateY.value = withTiming(displacement, { duration: 200 });
+    },
+    [translateY],
+  );
+
+  // Cleanup function to reset values
+  const cleanup = useCallback(() => {
+    'worklet';
+    translateY.value = 0;
+    scale.value = 1;
+    opacity.value = 1;
+  }, [translateY, scale, opacity]);
 
   return {
     animatedStyle,
@@ -82,6 +103,7 @@ function useDragAnimations() {
     endDragAnimation,
     updateDragPosition,
     updateDisplacement,
+    cleanup,
   };
 }
 
@@ -132,9 +154,16 @@ function useCustomizeModeAnimations(isCustomizeMode: boolean) {
       customizeProgress.value = withSpring(0, { damping: 25, stiffness: 400 });
       cardAnimations.value = withTiming(0, { duration: 200 });
     }
-  }, [isCustomizeMode]);
+  }, [isCustomizeMode, customizeProgress, cardAnimations]);
 
-  return { customizeProgress, cardAnimations };
+  // Cleanup function
+  const cleanup = useCallback(() => {
+    'worklet';
+    customizeProgress.value = 0;
+    cardAnimations.value = 0;
+  }, [customizeProgress, cardAnimations]);
+
+  return { customizeProgress, cardAnimations, cleanup };
 }
 
 // Exercise image component with animations
@@ -160,7 +189,7 @@ function ExerciseImage({
         },
       ],
     };
-  });
+  }, [customizeAnimation]);
 
   const iconStyle = useAnimatedStyle(() => {
     if (!customizeAnimation) return {};
@@ -180,7 +209,7 @@ function ExerciseImage({
         },
       ],
     };
-  });
+  }, [customizeAnimation]);
 
   return (
     <View style={styles.exerciseImageContainer}>
@@ -621,7 +650,11 @@ export default function ExerciseListModal({
   const modalAnimation = useSharedValue(0);
 
   // Customize mode animations
-  const { customizeProgress, cardAnimations } = useCustomizeModeAnimations(isCustomizeMode);
+  const {
+    customizeProgress,
+    cardAnimations,
+    cleanup: cleanupCustomizeAnimations,
+  } = useCustomizeModeAnimations(isCustomizeMode);
 
   // Bottom actions sliding animation
   const bottomActionsStyle = useAnimatedStyle(() => {
@@ -633,7 +666,7 @@ export default function ExerciseListModal({
       ],
       opacity: customizeProgress.value,
     };
-  });
+  }, [customizeProgress]);
 
   // Header button animation
   const headerButtonStyle = useAnimatedStyle(() => {
@@ -644,7 +677,7 @@ export default function ExerciseListModal({
         },
       ],
     };
-  });
+  }, [customizeProgress]);
 
   // Update local exercises when prop changes and reset change tracking
   React.useEffect(() => {
@@ -668,16 +701,27 @@ export default function ExerciseListModal({
     } else {
       modalAnimation.value = withTiming(0, { duration: 300 });
     }
-  }, [visible]);
+  }, [visible, modalAnimation]);
 
-  // Reset drag state when modal closes
+  // Cleanup animations on unmount
+  React.useEffect(() => {
+    return () => {
+      // Cleanup all animations when component unmounts
+      modalAnimation.value = 0;
+      cleanupCustomizeAnimations();
+    };
+  }, [modalAnimation, cleanupCustomizeAnimations]);
+
+  // Reset drag state when modal closes and cleanup animations
   React.useEffect(() => {
     if (!visible) {
       setIsDragging(false);
       setDraggedIndex(-1);
       setDragTargetIndex(-1);
+      // Cleanup animations when modal closes
+      cleanupCustomizeAnimations();
     }
-  }, [visible]);
+  }, [visible, cleanupCustomizeAnimations]);
 
   // Reset to original state when customize mode is turned off without applying changes
   React.useEffect(() => {
@@ -971,14 +1015,14 @@ export default function ExerciseListModal({
       ],
       opacity: modalAnimation.value,
     };
-  });
+  }, [modalAnimation]);
 
   const backdropStyle = useAnimatedStyle(() => {
     'worklet';
     return {
       opacity: modalAnimation.value * 0.6,
     };
-  });
+  }, [modalAnimation]);
 
   // Separate active and upcoming exercises
   const currentExercise = localExercises[currentExerciseIndex];

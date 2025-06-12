@@ -311,29 +311,9 @@ export default function MuscleDiagram({
             );
 
             if (matchingMuscle) {
-              const [muscleName, config] = matchingMuscle;
-              const isPrimary = primaryMuscles.some(
-                (m) =>
-                  m.toLowerCase().includes(muscleName.toLowerCase()) ||
-                  muscleName.toLowerCase().includes(m.toLowerCase()),
-              );
-              const isSecondary = secondaryMuscles.some(
-                (m) =>
-                  m.toLowerCase().includes(muscleName.toLowerCase()) ||
-                  muscleName.toLowerCase().includes(m.toLowerCase()),
-              );
-
-              console.log(`ID: ${id}`);
-              console.log(`  → Matches muscle: ${muscleName}`);
-              console.log(`  → Expected color: ${config.color}${isSecondary ? '80' : ''}`);
-              console.log(
-                `  → Role: ${isPrimary ? 'PRIMARY' : isSecondary ? 'SECONDARY' : 'NOT TARGETED'}`,
-              );
-              console.log('----------------');
+              // Muscle match found but not logging details to reduce console noise
             } else if (id.toLowerCase().includes('vector')) {
-              console.log(`ID: ${id}`);
-              console.log('  → Vector element (no muscle match)');
-              console.log('----------------');
+              // Skip logging vector elements to reduce clutter
             }
           });
         } else {
@@ -357,29 +337,9 @@ export default function MuscleDiagram({
             );
 
             if (matchingMuscle) {
-              const [muscleName, config] = matchingMuscle;
-              const isPrimary = primaryMuscles.some(
-                (m) =>
-                  m.toLowerCase().includes(muscleName.toLowerCase()) ||
-                  muscleName.toLowerCase().includes(m.toLowerCase()),
-              );
-              const isSecondary = secondaryMuscles.some(
-                (m) =>
-                  m.toLowerCase().includes(muscleName.toLowerCase()) ||
-                  muscleName.toLowerCase().includes(m.toLowerCase()),
-              );
-
-              console.log(`ID: ${id}`);
-              console.log(`  → Matches muscle: ${muscleName}`);
-              console.log(`  → Expected color: ${config.color}${isSecondary ? '80' : ''}`);
-              console.log(
-                `  → Role: ${isPrimary ? 'PRIMARY' : isSecondary ? 'SECONDARY' : 'NOT TARGETED'}`,
-              );
-              console.log('----------------');
+              // Muscle match found but not logging details to reduce console noise
             } else if (id.toLowerCase().includes('vector')) {
-              console.log(`ID: ${id}`);
-              console.log('  → Vector element (no muscle match)');
-              console.log('----------------');
+              // Skip logging vector elements to reduce clutter
             }
           });
         } else {

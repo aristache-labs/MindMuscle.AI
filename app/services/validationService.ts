@@ -32,126 +32,512 @@ import {
   ValidationException,
   ValidationResult,
 } from '../validation/utils';
+import { captureValidationError, capturePerformanceError, setContext, setTag } from './sentry';
+import { addBreadcrumb, captureMessage } from './sentry/simpleErrorHandler';
 
 class ValidationService {
+  constructor() {
+    this.initializeSentryContext();
+  }
+
+  private initializeSentryContext(): void {
+    // Set up Sentry context for validation service
+    setContext('validation_service', {
+      service: 'ValidationService',
+      version: '1.0.0',
+      capabilities: [
+        'schema_validation',
+        'batch_validation',
+        'conditional_validation',
+        'transformation_validation',
+        'ui_validation',
+        'api_validation',
+        'database_validation',
+        'env_validation',
+      ],
+      monitoring: {
+        performance_tracking: true,
+        error_categorization: true,
+        validation_metrics: true,
+        breadcrumb_tracking: true,
+      },
+    });
+    setTag('service.type', 'validation');
+    setTag('validation.framework', 'zod');
+
+    addBreadcrumb('ValidationService initialized', 'system', {
+      timestamp: new Date().toISOString(),
+      capabilities_count: 8,
+    });
+
+    captureMessage('ValidationService with Sentry monitoring initialized', 'info', {
+      category: 'validation_error',
+      capabilities: [
+        'schema_validation',
+        'batch_validation',
+        'conditional_validation',
+        'transformation_validation',
+        'ui_validation',
+        'api_validation',
+        'database_validation',
+        'env_validation',
+      ],
+      monitoring_features: [
+        'performance_tracking',
+        'error_categorization',
+        'validation_metrics',
+        'breadcrumb_tracking',
+      ],
+    });
+  }
+
+  private trackValidationPerformance<T>(
+    operation: string,
+    validationFn: () => ValidationResult<T>,
+    context?: string,
+  ): ValidationResult<T> {
+    const startTime = Date.now();
+    const operationId = `${operation}_${Date.now()}`;
+
+    this.logValidationStart(operation, context || 'unknown', operationId);
+
+    try {
+      const result = validationFn();
+      const duration = Date.now() - startTime;
+
+      this.handleValidationResult(result, operation, context || 'unknown', duration, operationId);
+      return result;
+    } catch (error) {
+      this.handleValidationError(
+        error,
+        operation,
+        context || 'unknown',
+        Date.now() - startTime,
+        operationId,
+      );
+      throw error;
+    }
+  }
+
+  private logValidationStart(operation: string, context: string, operationId: string): void {
+    addBreadcrumb(`Starting validation: ${operation}`, 'validation', {
+      operation,
+      context,
+      operation_id: operationId,
+    });
+  }
+
+  private handleValidationResult<T>(
+    result: ValidationResult<T>,
+    operation: string,
+    context: string,
+    duration: number,
+    operationId: string,
+  ): void {
+    this.trackPerformanceMetrics(operation, duration, result.success, context, operationId);
+    this.logValidationCompletion(operation, context, result, duration, operationId);
+    this.handleValidationErrors(result, operation, context, duration, operationId);
+    this.trackSuccessMetrics(result, operation);
+  }
+
+  private trackPerformanceMetrics(
+    operation: string,
+    duration: number,
+    success: boolean,
+    context: string,
+    operationId: string,
+  ): void {
+    if (duration > 100) {
+      capturePerformanceError(
+        `Slow validation operation: ${operation}`,
+        'validation_duration',
+        duration,
+      );
+      captureMessage(`Slow validation detected: ${operation} took ${duration}ms`, 'warning', {
+        category: 'performance_error',
+        operation,
+        context,
+        success,
+        operation_id: operationId,
+        duration,
+      });
+    }
+  }
+
+  private logValidationCompletion<T>(
+    operation: string,
+    context: string,
+    result: ValidationResult<T>,
+    duration: number,
+    operationId: string,
+  ): void {
+    addBreadcrumb(`Validation completed: ${operation}`, 'validation', {
+      operation,
+      context,
+      success: result.success,
+      duration,
+      error_count: result.errors?.length || 0,
+      operation_id: operationId,
+    });
+  }
+
+  private handleValidationErrors<T>(
+    result: ValidationResult<T>,
+    operation: string,
+    context: string,
+    duration: number,
+    operationId: string,
+  ): void {
+    if (!result.success && result.errors) {
+      captureValidationError(
+        new Error(`Validation failed for ${operation}`),
+        'validation_service',
+        {
+          operation,
+          context,
+          error_count: result.errors.length,
+          errors: result.errors.map((e) => ({ field: e.field, message: e.message })),
+          duration,
+          operation_id: operationId,
+        },
+      );
+
+      captureMessage(`Validation failed: ${operation}`, 'warning', {
+        category: 'validation_error',
+        operation,
+        context,
+        error_count: result.errors.length,
+        duration,
+      });
+    }
+  }
+
+  private trackSuccessMetrics<T>(result: ValidationResult<T>, operation: string): void {
+    if (result.success) {
+      setTag('validation.last_success', operation);
+    }
+  }
+
+  private handleValidationError(
+    error: unknown,
+    operation: string,
+    context: string,
+    duration: number,
+    operationId: string,
+  ): void {
+    addBreadcrumb(`Validation error: ${operation}`, 'error', {
+      operation,
+      context,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      duration,
+      operation_id: operationId,
+    });
+
+    captureValidationError(
+      error instanceof Error ? error : new Error('Unknown validation error'),
+      'validation_service_critical',
+      {
+        operation,
+        context,
+        duration,
+        operation_id: operationId,
+      },
+    );
+  }
+
+  private async trackAsyncValidationPerformance<T>(
+    operation: string,
+    validationFn: () => Promise<ValidationResult<T>>,
+    context?: string,
+  ): Promise<ValidationResult<T>> {
+    const startTime = Date.now();
+    const operationId = `async_${operation}_${Date.now()}`;
+
+    addBreadcrumb(`Starting async validation: ${operation}`, 'validation', {
+      operation,
+      context: context || 'unknown',
+      type: 'async',
+      operation_id: operationId,
+    });
+
+    try {
+      const result = await validationFn();
+      const duration = Date.now() - startTime;
+
+      // Track async validation performance
+      if (duration > 200) {
+        // Log slow async validations (>200ms)
+        capturePerformanceError(
+          `Slow async validation operation: ${operation}`,
+          'async_validation_duration',
+          duration,
+        );
+
+        // Add additional context via message
+        captureMessage(
+          `Slow async validation detected: ${operation} took ${duration}ms`,
+          'warning',
+          {
+            category: 'performance_error',
+            operation,
+            context: context || 'unknown',
+            success: result.success,
+            operation_id: operationId,
+            duration,
+          },
+        );
+      }
+
+      addBreadcrumb(`Async validation completed: ${operation}`, 'validation', {
+        operation,
+        context: context || 'unknown',
+        success: result.success,
+        duration,
+        error_count: result.errors?.length || 0,
+        type: 'async',
+        operation_id: operationId,
+      });
+
+      if (!result.success && result.errors) {
+        captureValidationError(
+          new Error(`Async validation failed for ${operation}`),
+          'async_validation_service',
+          {
+            operation,
+            context: context || 'unknown',
+            error_count: result.errors.length,
+            errors: result.errors.map((e) => ({ field: e.field, message: e.message })),
+            duration,
+            operation_id: operationId,
+          },
+        );
+      }
+
+      return result;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+
+      captureValidationError(
+        error instanceof Error ? error : new Error('Unknown async validation error'),
+        'async_validation_service_critical',
+        {
+          operation,
+          context: context || 'unknown',
+          duration,
+          operation_id: operationId,
+        },
+      );
+
+      throw error;
+    }
+  }
+
   // Exercise validation methods
   validateExercise(data: unknown): ValidationResult<z.infer<typeof ExerciseSchema>> {
-    return safeValidate(ExerciseSchema, data, 'exercise');
+    return this.trackValidationPerformance(
+      'validateExercise',
+      () => safeValidate(ExerciseSchema, data, 'exercise'),
+      'exercise',
+    );
   }
 
   validateGeneralExercise(data: unknown): ValidationResult<z.infer<typeof GeneralExerciseSchema>> {
-    return safeValidate(GeneralExerciseSchema, data, 'general exercise');
+    return this.trackValidationPerformance(
+      'validateGeneralExercise',
+      () => safeValidate(GeneralExerciseSchema, data, 'general exercise'),
+      'exercise',
+    );
   }
 
   validateExerciseConfiguration(
     data: unknown,
   ): ValidationResult<z.infer<typeof ExerciseConfigurationSchema>> {
-    return safeValidate(ExerciseConfigurationSchema, data, 'exercise configuration');
+    return this.trackValidationPerformance(
+      'validateExerciseConfiguration',
+      () => safeValidate(ExerciseConfigurationSchema, data, 'exercise configuration'),
+      'exercise',
+    );
   }
 
   validateExerciseConfigurations(
     data: unknown[],
   ): ValidationResult<z.infer<typeof ExerciseConfigurationSchema>[]> {
-    return validateArray(ExerciseConfigurationSchema, data, 'exercise configurations');
+    return this.trackValidationPerformance(
+      'validateExerciseConfigurations',
+      () => validateArray(ExerciseConfigurationSchema, data, 'exercise configurations'),
+      'exercise_array',
+    );
   }
 
   // Workout validation methods
   validateWorkoutDay(data: unknown): ValidationResult<z.infer<typeof WorkoutDaySchema>> {
-    return safeValidate(WorkoutDaySchema, data, 'workout day');
+    return this.trackValidationPerformance(
+      'validateWorkoutDay',
+      () => safeValidate(WorkoutDaySchema, data, 'workout day'),
+      'workout',
+    );
   }
 
   validatePlan(data: unknown): ValidationResult<z.infer<typeof PlanSchema>> {
-    return safeValidate(PlanSchema, data, 'workout plan');
+    return this.trackValidationPerformance(
+      'validatePlan',
+      () => safeValidate(PlanSchema, data, 'workout plan'),
+      'workout',
+    );
   }
 
   validatePausedWorkout(data: unknown): ValidationResult<z.infer<typeof PausedWorkoutSchema>> {
-    return safeValidate(PausedWorkoutSchema, data, 'paused workout');
+    return this.trackValidationPerformance(
+      'validatePausedWorkout',
+      () => safeValidate(PausedWorkoutSchema, data, 'paused workout'),
+      'workout',
+    );
   }
 
   // User validation methods
   validateUserProfile(data: unknown): ValidationResult<z.infer<typeof UserProfileSchema>> {
-    return safeValidate(UserProfileSchema, data, 'user profile');
+    return this.trackValidationPerformance(
+      'validateUserProfile',
+      () => safeValidate(UserProfileSchema, data, 'user profile'),
+      'user',
+    );
   }
 
   validateLoginForm(data: unknown): ValidationResult<z.infer<typeof LoginFormSchema>> {
-    return safeValidate(LoginFormSchema, data, 'login form');
+    return this.trackValidationPerformance(
+      'validateLoginForm',
+      () => safeValidate(LoginFormSchema, data, 'login form'),
+      'auth',
+    );
   }
 
   validateRegisterForm(data: unknown): ValidationResult<z.infer<typeof RegisterFormSchema>> {
-    return safeValidate(RegisterFormSchema, data, 'register form');
+    return this.trackValidationPerformance(
+      'validateRegisterForm',
+      () => safeValidate(RegisterFormSchema, data, 'register form'),
+      'auth',
+    );
   }
 
   // Measurement validation methods
   validateMeasurement(data: unknown): ValidationResult<z.infer<typeof MeasurementSchema>> {
-    return safeValidate(MeasurementSchema, data, 'measurement');
+    return this.trackValidationPerformance(
+      'validateMeasurement',
+      () => safeValidate(MeasurementSchema, data, 'measurement'),
+      'measurement',
+    );
   }
 
   validateProgressPhoto(data: unknown): ValidationResult<z.infer<typeof ProgressPhotoSchema>> {
-    return safeValidate(ProgressPhotoSchema, data, 'progress photo');
+    return this.trackValidationPerformance(
+      'validateProgressPhoto',
+      () => safeValidate(ProgressPhotoSchema, data, 'progress photo'),
+      'measurement',
+    );
   }
 
   // Workout data service validation methods
-  async validateWorkoutHistoryRecord(
-    data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof WorkoutHistoryRecordSchema>>> {
-    const { WorkoutHistoryRecordSchema } = await import('../validation/schemas');
-    return safeValidate(WorkoutHistoryRecordSchema, data, 'workout history record');
+  async validateWorkoutHistoryRecord(data: unknown): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validateWorkoutHistoryRecord',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(schemas.WorkoutHistoryRecordSchema, data, 'workout history record');
+      },
+      'workout_data',
+    );
   }
 
-  async validateExerciseRecord(
-    data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof ExerciseRecordSchema>>> {
-    const { ExerciseRecordSchema } = await import('../validation/schemas');
-    return safeValidate(ExerciseRecordSchema, data, 'exercise record');
+  async validateExerciseRecord(data: unknown): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validateExerciseRecord',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(schemas.ExerciseRecordSchema, data, 'exercise record');
+      },
+      'workout_data',
+    );
   }
 
-  async validateCompleteWorkoutOptions(
-    data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof CompleteWorkoutOptionsSchema>>> {
-    const { CompleteWorkoutOptionsSchema } = await import('../validation/schemas');
-    return safeValidate(CompleteWorkoutOptionsSchema, data, 'complete workout options');
+  async validateCompleteWorkoutOptions(data: unknown): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validateCompleteWorkoutOptions',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(schemas.CompleteWorkoutOptionsSchema, data, 'complete workout options');
+      },
+      'workout_data',
+    );
   }
 
-  async validateSavedExerciseStructure(
-    data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof SavedExerciseStructureSchema>>> {
-    const { SavedExerciseStructureSchema } = await import('../validation/schemas');
-    return safeValidate(SavedExerciseStructureSchema, data, 'saved exercise structure');
+  async validateSavedExerciseStructure(data: unknown): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validateSavedExerciseStructure',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(schemas.SavedExerciseStructureSchema, data, 'saved exercise structure');
+      },
+      'workout_data',
+    );
   }
 
-  async validateExerciseRecords(
-    data: unknown[],
-  ): Promise<ValidationResult<z.infer<typeof ExerciseRecordSchema>[]>> {
-    const { ExerciseRecordSchema } = await import('../validation/schemas');
-    return validateArray(ExerciseRecordSchema, data, 'exercise records');
+  async validateExerciseRecords(data: unknown[]): Promise<ValidationResult<unknown[]>> {
+    return this.trackAsyncValidationPerformance(
+      'validateExerciseRecords',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return validateArray(schemas.ExerciseRecordSchema, data, 'exercise records');
+      },
+      'workout_data',
+    );
   }
 
   // Achievement validation methods
   validateAchievement(data: unknown): ValidationResult<z.infer<typeof AchievementSchema>> {
-    return safeValidate(AchievementSchema, data, 'achievement');
+    return this.trackValidationPerformance(
+      'validateAchievement',
+      () => safeValidate(AchievementSchema, data, 'achievement'),
+      'achievement',
+    );
   }
 
   validateUserAchievement(data: unknown): ValidationResult<z.infer<typeof UserAchievementSchema>> {
-    return safeValidate(UserAchievementSchema, data, 'user achievement');
+    return this.trackValidationPerformance(
+      'validateUserAchievement',
+      () => safeValidate(UserAchievementSchema, data, 'user achievement'),
+      'achievement',
+    );
   }
 
   validateUpdateAchievementProgress(
     data: unknown,
   ): ValidationResult<z.infer<typeof UpdateAchievementProgressSchema>> {
-    return safeValidate(UpdateAchievementProgressSchema, data, 'achievement progress update');
+    return this.trackValidationPerformance(
+      'validateUpdateAchievementProgress',
+      () => safeValidate(UpdateAchievementProgressSchema, data, 'achievement progress update'),
+      'achievement',
+    );
   }
 
   // Progress photo validation methods
   validateProgressPhotoUpload(
     data: unknown,
   ): ValidationResult<z.infer<typeof ProgressPhotoUploadSchema>> {
-    return safeValidate(ProgressPhotoUploadSchema, data, 'progress photo upload');
+    return this.trackValidationPerformance(
+      'validateProgressPhotoUpload',
+      () => safeValidate(ProgressPhotoUploadSchema, data, 'progress photo upload'),
+      'progress_photo',
+    );
   }
 
   validateProgressPhotoRecord(
     data: unknown,
   ): ValidationResult<z.infer<typeof ProgressPhotoRecordSchema>> {
-    return safeValidate(ProgressPhotoRecordSchema, data, 'progress photo record');
+    return this.trackValidationPerformance(
+      'validateProgressPhotoRecord',
+      () => safeValidate(ProgressPhotoRecordSchema, data, 'progress photo record'),
+      'progress_photo',
+    );
   }
 
   // Settings and preferences validation methods
@@ -198,55 +584,87 @@ class ValidationService {
   }
 
   // Workout data service validation methods
-  async validateFetchWorkoutData(
-    data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof FetchWorkoutDataSchema>>> {
-    const { FetchWorkoutDataSchema } = await import('../validation/schemas');
-    return safeValidate(FetchWorkoutDataSchema, data, 'fetch workout data');
+  async validateFetchWorkoutData(data: unknown): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validateFetchWorkoutData',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(schemas.FetchWorkoutDataSchema, data, 'fetch workout data');
+      },
+      'workout_data',
+    );
   }
 
-  async validateFetchLastExerciseRecords(
-    data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof FetchLastExerciseRecordsSchema>>> {
-    const { FetchLastExerciseRecordsSchema } = await import('../validation/schemas');
-    return safeValidate(FetchLastExerciseRecordsSchema, data, 'fetch last exercise records');
+  async validateFetchLastExerciseRecords(data: unknown): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validateFetchLastExerciseRecords',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(
+          schemas.FetchLastExerciseRecordsSchema,
+          data,
+          'fetch last exercise records',
+        );
+      },
+      'workout_data',
+    );
   }
 
-  async validateCheckWorkoutCompletion(
-    data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof CheckWorkoutCompletionSchema>>> {
-    const { CheckWorkoutCompletionSchema } = await import('../validation/schemas');
-    return safeValidate(CheckWorkoutCompletionSchema, data, 'check workout completion');
+  async validateCheckWorkoutCompletion(data: unknown): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validateCheckWorkoutCompletion',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(schemas.CheckWorkoutCompletionSchema, data, 'check workout completion');
+      },
+      'workout_data',
+    );
   }
 
   async validateGetLastCompletedWorkoutStructure(
     data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof GetLastCompletedWorkoutStructureSchema>>> {
-    const { GetLastCompletedWorkoutStructureSchema } = await import('../validation/schemas');
-    return safeValidate(
-      GetLastCompletedWorkoutStructureSchema,
-      data,
-      'get last completed workout structure',
+  ): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validateGetLastCompletedWorkoutStructure',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(
+          schemas.GetLastCompletedWorkoutStructureSchema,
+          data,
+          'get last completed workout structure',
+        );
+      },
+      'workout_data',
     );
   }
 
   async validateCheckWorkoutCompletionForCycleWeek(
     data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof CheckWorkoutCompletionForCycleWeekSchema>>> {
-    const { CheckWorkoutCompletionForCycleWeekSchema } = await import('../validation/schemas');
-    return safeValidate(
-      CheckWorkoutCompletionForCycleWeekSchema,
-      data,
-      'check workout completion for cycle week',
+  ): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validateCheckWorkoutCompletionForCycleWeek',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(
+          schemas.CheckWorkoutCompletionForCycleWeekSchema,
+          data,
+          'check workout completion for cycle week',
+        );
+      },
+      'workout_data',
     );
   }
 
   // Add exercise form validation
-  async validateAddExerciseForm(
-    data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof AddExerciseFormSchema>>> {
-    const { AddExerciseFormSchema } = await import('../validation/schemas');
-    return safeValidate(AddExerciseFormSchema, data, 'add exercise form');
+  async validateAddExerciseForm(data: unknown): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validateAddExerciseForm',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(schemas.AddExerciseFormSchema, data, 'add exercise form');
+      },
+      'form_data',
+    );
   }
 
   // AI Coaching validation methods
@@ -384,14 +802,62 @@ class ValidationService {
 
   // Validation for API responses
   validateApiResponse<T>(schema: z.ZodSchema<T>, response: unknown, endpoint?: string): T {
+    const startTime = Date.now();
+    const operationId = `api_validation_${Date.now()}`;
+
+    addBreadcrumb('Starting API response validation', 'validation', {
+      endpoint: endpoint || 'unknown',
+      operation_id: operationId,
+    });
+
     try {
-      return schema.parse(response);
+      const result = schema.parse(response);
+      const duration = Date.now() - startTime;
+
+      addBreadcrumb('API response validation successful', 'validation', {
+        endpoint: endpoint || 'unknown',
+        duration,
+        operation_id: operationId,
+      });
+
+      if (duration > 50) {
+        capturePerformanceError(
+          `Slow API response validation: ${endpoint || 'unknown endpoint'}`,
+          'api_validation_duration',
+          duration,
+        );
+      }
+
+      return result;
     } catch (error) {
+      const duration = Date.now() - startTime;
+
       if (error instanceof z.ZodError) {
         const errorMessage = `API response validation failed${endpoint ? ` for ${endpoint}` : ''}`;
+
+        captureValidationError(new Error(errorMessage), 'api_response_validation', {
+          endpoint: endpoint || 'unknown',
+          error_count: error.errors.length,
+          errors: error.errors.map((err) => ({
+            field: err.path.join('.'),
+            message: err.message,
+            code: err.code,
+          })),
+          duration,
+          operation_id: operationId,
+        });
+
+        captureMessage(`API validation failed: ${endpoint || 'unknown endpoint'}`, 'error', {
+          category: 'validation_error',
+          endpoint: endpoint || 'unknown',
+          error_count: error.errors.length,
+          duration,
+        });
+
         logger.error(errorMessage, error, {
           context: { endpoint, response, errors: error.errors },
         });
+
         throw new ValidationException(
           errorMessage,
           error.errors.map((err) => ({
@@ -401,6 +867,17 @@ class ValidationService {
           })),
         );
       }
+
+      captureValidationError(
+        error instanceof Error ? error : new Error('Unknown API validation error'),
+        'api_validation_critical',
+        {
+          endpoint: endpoint || 'unknown',
+          duration,
+          operation_id: operationId,
+        },
+      );
+
       throw error;
     }
   }
@@ -411,14 +888,62 @@ class ValidationService {
     data: unknown,
     operation: 'insert' | 'update' | 'select',
   ): T {
+    const startTime = Date.now();
+    const operationId = `db_validation_${operation}_${Date.now()}`;
+
+    addBreadcrumb(`Starting database validation: ${operation}`, 'validation', {
+      operation,
+      operation_id: operationId,
+    });
+
     try {
-      return schema.parse(data);
+      const result = schema.parse(data);
+      const duration = Date.now() - startTime;
+
+      addBreadcrumb(`Database validation successful: ${operation}`, 'validation', {
+        operation,
+        duration,
+        operation_id: operationId,
+      });
+
+      if (duration > 75) {
+        capturePerformanceError(
+          `Slow database validation: ${operation}`,
+          'db_validation_duration',
+          duration,
+        );
+      }
+
+      return result;
     } catch (error) {
+      const duration = Date.now() - startTime;
+
       if (error instanceof z.ZodError) {
         const errorMessage = `Database ${operation} validation failed`;
+
+        captureValidationError(new Error(errorMessage), 'database_validation', {
+          operation,
+          error_count: error.errors.length,
+          errors: error.errors.map((err) => ({
+            field: err.path.join('.'),
+            message: err.message,
+            code: err.code,
+          })),
+          duration,
+          operation_id: operationId,
+        });
+
+        captureMessage(`Database validation failed: ${operation}`, 'error', {
+          category: 'validation_error',
+          operation,
+          error_count: error.errors.length,
+          duration,
+        });
+
         logger.error(errorMessage, error, {
           context: { operation, data, errors: error.errors },
         });
+
         throw new ValidationException(
           errorMessage,
           error.errors.map((err) => ({
@@ -428,24 +953,81 @@ class ValidationService {
           })),
         );
       }
+
+      captureValidationError(
+        error instanceof Error ? error : new Error('Unknown database validation error'),
+        'database_validation_critical',
+        {
+          operation,
+          duration,
+          operation_id: operationId,
+        },
+      );
+
       throw error;
     }
   }
 
   // Environment variable validation
   validateEnvVar<T>(schema: z.ZodSchema<T>, envVar: string | undefined, varName: string): T {
+    const operationId = `env_validation_${varName}_${Date.now()}`;
+
+    addBreadcrumb(`Validating environment variable: ${varName}`, 'validation', {
+      var_name: varName,
+      has_value: envVar !== undefined,
+      operation_id: operationId,
+    });
+
     if (envVar === undefined) {
-      throw new Error(`Environment variable ${varName} is not defined`);
+      const error = new Error(`Environment variable ${varName} is not defined`);
+
+      captureValidationError(error, 'env_validation_missing', {
+        var_name: varName,
+        operation_id: operationId,
+      });
+
+      captureMessage(`Missing environment variable: ${varName}`, 'error', {
+        category: 'validation_error',
+        var_name: varName,
+      });
+
+      throw error;
     }
 
     try {
-      return schema.parse(envVar);
+      const result = schema.parse(envVar);
+
+      addBreadcrumb(`Environment variable validation successful: ${varName}`, 'validation', {
+        var_name: varName,
+        operation_id: operationId,
+      });
+
+      return result;
     } catch (error) {
       if (error instanceof z.ZodError) {
         const errorMessage = `Environment variable ${varName} validation failed`;
+
+        captureValidationError(new Error(errorMessage), 'env_validation_schema', {
+          var_name: varName,
+          error_count: error.errors.length,
+          errors: error.errors.map((err) => ({
+            field: err.path.join('.'),
+            message: err.message,
+            code: err.code,
+          })),
+          operation_id: operationId,
+        });
+
+        captureMessage(`Environment variable validation failed: ${varName}`, 'error', {
+          category: 'validation_error',
+          var_name: varName,
+          error_count: error.errors.length,
+        });
+
         logger.error(errorMessage, error, {
           context: { varName, value: envVar, errors: error.errors },
         });
+
         throw new ValidationException(
           errorMessage,
           error.errors.map((err) => ({
@@ -455,6 +1037,16 @@ class ValidationService {
           })),
         );
       }
+
+      captureValidationError(
+        error instanceof Error ? error : new Error('Unknown environment validation error'),
+        'env_validation_critical',
+        {
+          var_name: varName,
+          operation_id: operationId,
+        },
+      );
+
       throw error;
     }
   }
@@ -572,74 +1164,114 @@ class ValidationService {
   }
 
   // Storage and Context validation methods
-  async validateProfileContext(
-    data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof ProfileContextSchema>>> {
-    const { ProfileContextSchema } = await import('../validation/schemas');
-    return safeValidate(ProfileContextSchema, data, 'profile context');
+  async validateProfileContext(data: unknown): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validateProfileContext',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(schemas.ProfileContextSchema, data, 'profile context');
+      },
+      'storage_context',
+    );
   }
 
-  async validateUserStats(
-    data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof UserStatsSchema>>> {
-    const { UserStatsSchema } = await import('../validation/schemas');
-    return safeValidate(UserStatsSchema, data, 'user stats');
+  async validateUserStats(data: unknown): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validateUserStats',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(schemas.UserStatsSchema, data, 'user stats');
+      },
+      'storage_context',
+    );
   }
 
-  async validateAuthState(
-    data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof AuthStateSchema>>> {
-    const { AuthStateSchema } = await import('../validation/schemas');
-    return safeValidate(AuthStateSchema, data, 'auth state');
+  async validateAuthState(data: unknown): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validateAuthState',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(schemas.AuthStateSchema, data, 'auth state');
+      },
+      'storage_context',
+    );
   }
 
-  async validatePausedWorkoutData(
-    data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof PausedWorkoutDataSchema>>> {
-    const { PausedWorkoutDataSchema } = await import('../validation/schemas');
-    return safeValidate(PausedWorkoutDataSchema, data, 'paused workout data');
+  async validatePausedWorkoutData(data: unknown): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validatePausedWorkoutData',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(schemas.PausedWorkoutDataSchema, data, 'paused workout data');
+      },
+      'storage_context',
+    );
   }
 
-  async validateSavedPlan(
-    data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof SavedPlanSchema>>> {
-    const { SavedPlanSchema } = await import('../validation/schemas');
-    return safeValidate(SavedPlanSchema, data, 'saved plan');
+  async validateSavedPlan(data: unknown): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validateSavedPlan',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(schemas.SavedPlanSchema, data, 'saved plan');
+      },
+      'storage_context',
+    );
   }
 
-  async validateCacheEntry(
-    data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof CacheEntrySchema>>> {
-    const { CacheEntrySchema } = await import('../validation/schemas');
-    return safeValidate(CacheEntrySchema, data, 'cache entry');
+  async validateCacheEntry(data: unknown): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validateCacheEntry',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(schemas.CacheEntrySchema, data, 'cache entry');
+      },
+      'storage_context',
+    );
   }
 
-  async validatePersistedClient(
-    data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof PersistedClientSchema>>> {
-    const { PersistedClientSchema } = await import('../validation/schemas');
-    return safeValidate(PersistedClientSchema, data, 'persisted client');
+  async validatePersistedClient(data: unknown): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validatePersistedClient',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(schemas.PersistedClientSchema, data, 'persisted client');
+      },
+      'storage_context',
+    );
   }
 
-  async validateCoachingHistory(
-    data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof CoachingHistorySchema>>> {
-    const { CoachingHistorySchema } = await import('../validation/schemas');
-    return safeValidate(CoachingHistorySchema, data, 'coaching history');
+  async validateCoachingHistory(data: unknown): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validateCoachingHistory',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(schemas.CoachingHistorySchema, data, 'coaching history');
+      },
+      'storage_context',
+    );
   }
 
-  async validateWorkoutDaysData(
-    data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof WorkoutDaysDataSchema>>> {
-    const { WorkoutDaysDataSchema } = await import('../validation/schemas');
-    return safeValidate(WorkoutDaysDataSchema, data, 'workout days data');
+  async validateWorkoutDaysData(data: unknown): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validateWorkoutDaysData',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(schemas.WorkoutDaysDataSchema, data, 'workout days data');
+      },
+      'storage_context',
+    );
   }
 
-  async validateCoachingUserProfile(
-    data: unknown,
-  ): Promise<ValidationResult<z.infer<typeof CoachingUserProfileSchema>>> {
-    const { CoachingUserProfileSchema } = await import('../validation/schemas');
-    return safeValidate(CoachingUserProfileSchema, data, 'coaching user profile');
+  async validateCoachingUserProfile(data: unknown): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validateCoachingUserProfile',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(schemas.CoachingUserProfileSchema, data, 'coaching user profile');
+      },
+      'storage_context',
+    );
   }
 
   // Helper method for safe JSON parsing with validation

@@ -1,6 +1,14 @@
 import { logger } from '../utils/logger';
 import supabase from './supabase';
 import { validationService } from './validationService';
+// Add Sentry imports
+import {
+  captureError,
+  captureMessage,
+  captureDatabaseError,
+  captureValidationError,
+} from './sentry';
+import { addBreadcrumb } from './sentry/simpleErrorHandler';
 
 export interface Achievement {
   id: string;
@@ -31,12 +39,17 @@ export const achievementService = {
   // Get all achievements
   async getAllAchievements(): Promise<Achievement[]> {
     try {
+      addBreadcrumb('Starting to fetch all achievements', 'achievements', {
+        operation: 'getAllAchievements',
+      });
+
       const { data, error } = await supabase.from('achievements').select('*').order('created_at');
 
       if (error) {
         logger.error('Error fetching achievements', error, {
           context: { operation: 'getAllAchievements' },
         });
+        captureDatabaseError(new Error(error.message), 'achievements');
         throw error;
       }
 
@@ -54,6 +67,10 @@ export const achievementService = {
               errors: validationResult.errors,
             },
           });
+          captureValidationError(
+            new Error('Invalid achievement data from database'),
+            'achievement',
+          );
         }
       }
 
@@ -61,10 +78,18 @@ export const achievementService = {
         context: { count: validatedAchievements.length },
       });
 
+      addBreadcrumb('Successfully fetched achievements', 'achievements', {
+        count: validatedAchievements.length,
+      });
+
       return validatedAchievements;
     } catch (error) {
       logger.error('Failed to fetch achievements', error as Error, {
         context: { operation: 'getAllAchievements' },
+      });
+      captureError(error as Error, {
+        category: 'database_error',
+        component: 'achievementService',
       });
       throw error;
     }
@@ -75,8 +100,15 @@ export const achievementService = {
     try {
       // Validate user ID
       if (!userId || typeof userId !== 'string') {
-        throw new Error('Valid user ID is required');
+        const error = new Error('Valid user ID is required');
+        captureValidationError(error, 'userId');
+        throw error;
       }
+
+      addBreadcrumb('Starting to fetch user achievements', 'achievements', {
+        userId,
+        operation: 'getUserAchievements',
+      });
 
       const { data, error } = await supabase
         .from('user_achievements')
@@ -93,6 +125,7 @@ export const achievementService = {
         logger.error('Error fetching user achievements', error, {
           context: { userId, operation: 'getUserAchievements' },
         });
+        captureDatabaseError(new Error(error.message), 'user_achievements', 'select');
         throw error;
       }
 
@@ -111,6 +144,10 @@ export const achievementService = {
               errors: validationResult.errors,
             },
           });
+          captureValidationError(
+            new Error('Invalid user achievement data from database'),
+            'userAchievement',
+          );
         }
       }
 
@@ -118,10 +155,20 @@ export const achievementService = {
         context: { userId, count: validatedUserAchievements.length },
       });
 
+      addBreadcrumb('Successfully fetched user achievements', 'achievements', {
+        userId,
+        count: validatedUserAchievements.length,
+      });
+
       return validatedUserAchievements;
     } catch (error) {
       logger.error('Failed to fetch user achievements', error as Error, {
         context: { userId, operation: 'getUserAchievements' },
+      });
+      captureError(error as Error, {
+        category: 'database_error',
+        component: 'achievementService',
+        userId,
       });
       throw error;
     }
@@ -132,8 +179,15 @@ export const achievementService = {
     try {
       // Validate user ID
       if (!userId || typeof userId !== 'string') {
-        throw new Error('Valid user ID is required');
+        const error = new Error('Valid user ID is required');
+        captureValidationError(error, 'userId');
+        throw error;
       }
+
+      addBreadcrumb('Starting to fetch user completed achievements', 'achievements', {
+        userId,
+        operation: 'getUserCompletedAchievements',
+      });
 
       const { data, error } = await supabase
         .from('user_achievements')
@@ -151,6 +205,7 @@ export const achievementService = {
         logger.error('Error fetching user completed achievements', error, {
           context: { userId, operation: 'getUserCompletedAchievements' },
         });
+        captureDatabaseError(new Error(error.message), 'user_achievements', 'select');
         throw error;
       }
 
@@ -169,6 +224,10 @@ export const achievementService = {
               errors: validationResult.errors,
             },
           });
+          captureValidationError(
+            new Error('Invalid completed achievement data from database'),
+            'completedAchievement',
+          );
         }
       }
 
@@ -176,10 +235,20 @@ export const achievementService = {
         context: { userId, count: validatedCompletedAchievements.length },
       });
 
+      addBreadcrumb('Successfully fetched user completed achievements', 'achievements', {
+        userId,
+        count: validatedCompletedAchievements.length,
+      });
+
       return validatedCompletedAchievements;
     } catch (error) {
       logger.error('Failed to fetch user completed achievements', error as Error, {
         context: { userId, operation: 'getUserCompletedAchievements' },
+      });
+      captureError(error as Error, {
+        category: 'database_error',
+        component: 'achievementService',
+        userId,
       });
       throw error;
     }
@@ -190,8 +259,15 @@ export const achievementService = {
     try {
       // Validate user ID
       if (!userId || typeof userId !== 'string') {
-        throw new Error('Valid user ID is required');
+        const error = new Error('Valid user ID is required');
+        captureValidationError(error, 'userId');
+        throw error;
       }
+
+      addBreadcrumb('Starting to initialize user achievements', 'achievements', {
+        userId,
+        operation: 'initializeUserAchievements',
+      });
 
       const achievements = await this.getAllAchievements();
 
@@ -210,6 +286,7 @@ export const achievementService = {
           logger.error('User achievement validation failed', new Error(errorMessage), {
             context: { userId, userAchievement, errors: validationResult.errors },
           });
+          captureValidationError(new Error(errorMessage), 'userAchievement');
           throw new Error(errorMessage);
         }
       }
@@ -220,15 +297,26 @@ export const achievementService = {
         logger.error('Error initializing user achievements', error, {
           context: { userId, achievementCount: userAchievements.length },
         });
+        captureDatabaseError(new Error(error.message), 'user_achievements', 'insert');
         throw error;
       }
 
       logger.info('User achievements initialized successfully', {
         context: { userId, achievementCount: userAchievements.length },
       });
+
+      addBreadcrumb('Successfully initialized user achievements', 'achievements', {
+        userId,
+        achievementCount: userAchievements.length,
+      });
     } catch (error) {
       logger.error('Failed to initialize user achievements', error as Error, {
         context: { userId, operation: 'initializeUserAchievements' },
+      });
+      captureError(error as Error, {
+        category: 'database_error',
+        component: 'achievementService',
+        userId,
       });
       throw error;
     }
@@ -246,8 +334,16 @@ export const achievementService = {
         logger.error('Achievement progress update validation failed', new Error(errorMessage), {
           context: { updateData, errors: validationResult.errors },
         });
+        captureValidationError(new Error(errorMessage), 'progressUpdate');
         throw new Error(errorMessage);
       }
+
+      addBreadcrumb('Starting to update achievement progress', 'achievements', {
+        userId,
+        achievementId,
+        progress,
+        operation: 'updateProgress',
+      });
 
       const { data: achievement } = await supabase
         .from('achievements')
@@ -273,15 +369,32 @@ export const achievementService = {
         logger.error('Error updating achievement progress', error, {
           context: { userId, achievementId, progress, isCompleted },
         });
+        captureDatabaseError(new Error(error.message), 'user_achievements', 'update');
         throw error;
       }
 
       logger.info('Achievement progress updated successfully', {
         context: { userId, achievementId, progress, isCompleted },
       });
+
+      addBreadcrumb('Successfully updated achievement progress', 'achievements', {
+        userId,
+        achievementId,
+        progress,
+        isCompleted,
+      });
+
+      if (isCompleted) {
+        captureMessage('Achievement completed!', 'info');
+      }
     } catch (error) {
       logger.error('Failed to update achievement progress', error as Error, {
         context: { userId, achievementId, progress, operation: 'updateProgress' },
+      });
+      captureError(error as Error, {
+        category: 'database_error',
+        component: 'achievementService',
+        userId,
       });
       throw error;
     }
@@ -292,11 +405,21 @@ export const achievementService = {
     try {
       // Validate input data
       if (!userId || typeof userId !== 'string') {
-        throw new Error('Valid user ID is required');
+        const error = new Error('Valid user ID is required');
+        captureValidationError(error, 'userId');
+        throw error;
       }
       if (!achievementId || typeof achievementId !== 'string') {
-        throw new Error('Valid achievement ID is required');
+        const error = new Error('Valid achievement ID is required');
+        captureValidationError(error, 'achievementId');
+        throw error;
       }
+
+      addBreadcrumb('Starting to complete achievement', 'achievements', {
+        userId,
+        achievementId,
+        operation: 'completeAchievement',
+      });
 
       const { error } = await supabase
         .from('user_achievements')
@@ -311,15 +434,28 @@ export const achievementService = {
         logger.error('Error completing achievement', error, {
           context: { userId, achievementId },
         });
+        captureDatabaseError(new Error(error.message), 'user_achievements', 'update');
         throw error;
       }
 
       logger.info('Achievement completed successfully', {
         context: { userId, achievementId },
       });
+
+      addBreadcrumb('Successfully completed achievement', 'achievements', {
+        userId,
+        achievementId,
+      });
+
+      captureMessage('Achievement completed!', 'info');
     } catch (error) {
       logger.error('Failed to complete achievement', error as Error, {
         context: { userId, achievementId, operation: 'completeAchievement' },
+      });
+      captureError(error as Error, {
+        category: 'database_error',
+        component: 'achievementService',
+        userId,
       });
       throw error;
     }
@@ -330,11 +466,21 @@ export const achievementService = {
     try {
       // Validate input data
       if (!userId || typeof userId !== 'string') {
-        throw new Error('Valid user ID is required');
+        const error = new Error('Valid user ID is required');
+        captureValidationError(error, 'userId');
+        throw error;
       }
       if (!count || count <= 0 || count > 50) {
-        throw new Error('Count must be between 1 and 50');
+        const error = new Error('Count must be between 1 and 50');
+        captureValidationError(error, 'count');
+        throw error;
       }
+
+      addBreadcrumb('Starting to fetch random achievements', 'achievements', {
+        userId,
+        count,
+        operation: 'getRandomAchievements',
+      });
 
       // First get all achievements
       const allAchievements = await this.getAllAchievements();
@@ -357,10 +503,21 @@ export const achievementService = {
         context: { userId, requestedCount: count, returnedCount: randomAchievements.length },
       });
 
+      addBreadcrumb('Successfully fetched random achievements', 'achievements', {
+        userId,
+        requestedCount: count,
+        returnedCount: randomAchievements.length,
+      });
+
       return randomAchievements;
     } catch (error) {
       logger.error('Failed to get random achievements', error as Error, {
         context: { userId, count, operation: 'getRandomAchievements' },
+      });
+      captureError(error as Error, {
+        category: 'database_error',
+        component: 'achievementService',
+        userId,
       });
       throw error;
     }

@@ -21,3 +21,4 @@ web-build/
 /node_modules
 .env.local
 sentry.properties
+cloudflared.exe

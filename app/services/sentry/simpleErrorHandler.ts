@@ -2,6 +2,9 @@ import * as Sentry from '@sentry/react-native';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
+// Global type declarations
+declare const window: Window | undefined;
+
 /**
  * Simple Global Error Handler for MindMuscle.AI
  *
@@ -224,7 +227,7 @@ class SimpleErrorHandler {
       // Set tags
       scope.setTag('error_category', fullContext.category);
       scope.setTag('platform', fullContext.platform);
-      scope.setTag('session_id', fullContext.sessionId);
+      scope.setTag('session_id', fullContext.sessionId || 'unknown');
 
       if (fullContext.component) scope.setTag('component', fullContext.component);
       if (fullContext.screen) scope.setTag('screen', fullContext.screen);
@@ -235,7 +238,7 @@ class SimpleErrorHandler {
 
       // Set level based on category
       const level = this.getErrorLevel(fullContext.category);
-      scope.setLevel(level);
+      scope.setLevel(level as 'debug' | 'info' | 'warning' | 'error' | 'fatal');
 
       Sentry.captureException(error);
     });
@@ -257,7 +260,7 @@ class SimpleErrorHandler {
       // Set tags
       scope.setTag('message_category', fullContext.category);
       scope.setTag('platform', fullContext.platform);
-      scope.setTag('session_id', fullContext.sessionId);
+      scope.setTag('session_id', fullContext.sessionId || 'unknown');
 
       if (fullContext.component) scope.setTag('component', fullContext.component);
       if (fullContext.screen) scope.setTag('screen', fullContext.screen);
@@ -267,7 +270,7 @@ class SimpleErrorHandler {
       scope.setContext('message_details', fullContext);
 
       // Set level
-      scope.setLevel(level);
+      scope.setLevel(level as 'debug' | 'info' | 'warning' | 'error' | 'fatal');
 
       Sentry.captureMessage(message, level);
     });

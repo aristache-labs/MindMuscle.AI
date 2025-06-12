@@ -8,12 +8,20 @@
  * warnings about multiple promise package versions.
  */
 
+// Global type declarations
+declare const globalThis: typeof global;
+
+// Note: Sentry import is delayed until after polyfills to prevent conflicts
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let Sentry: any = null;
+
 // ===== IMMEDIATE PROMISE POLYFILLS =====
 // These polyfills run immediately when this file is imported
 // This ensures they are available before any other code runs
 
 // Immediately check and polyfill Promise methods
 (function immediatePromisePolyfill() {
+  const startTime = Date.now();
   console.log('🚀 Early Promise polyfills initializing...');
 
   // Force Promise.allSettled availability
@@ -91,13 +99,34 @@
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (Promise as any).__earlyPolyfilled = true;
 
-    console.log('✅ Early Promise polyfills complete');
+    const loadTime = Date.now() - startTime;
+    console.log(`✅ Early Promise polyfills complete in ${loadTime}ms`);
+
+    // Store polyfill metrics for later Sentry reporting
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).__polyfillMetrics = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...((globalThis as any).__polyfillMetrics || {}),
+      promisePolyfillTime: loadTime,
+      promiseAllSettledPolyfilled: !Promise.allSettled,
+      promiseAnyPolyfilled: !Promise.any,
+      timestamp: Date.now(),
+    };
   }
 })();
 
 // Ensure AggregateError is available globally
 if (typeof AggregateError === 'undefined') {
   console.log('⚡ Emergency polyfill: AggregateError');
+
+  // Store polyfill usage for Sentry reporting
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).__polyfillMetrics = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...((globalThis as any).__polyfillMetrics || {}),
+    aggregateErrorPolyfilled: true,
+  };
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (globalThis as any).AggregateError = class AggregateError extends Error {
     errors: unknown[];
@@ -108,9 +137,79 @@ if (typeof AggregateError === 'undefined') {
       this.errors = Array.from(errors);
     }
   };
+} else {
+  // Store that AggregateError was already available
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).__polyfillMetrics = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...((globalThis as any).__polyfillMetrics || {}),
+    aggregateErrorNative: true,
+  };
 }
 
 console.log('🎉 MindMuscle.AI polyfills loaded successfully!');
+
+// Helper function to safely report to Sentry
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function reportToSentry(action: (sentry: any) => void) {
+  if (Sentry && typeof Sentry.addBreadcrumb === 'function') {
+    try {
+      action(Sentry);
+    } catch (error) {
+      console.warn('Failed to report to Sentry:', error);
+    }
+  }
+}
+
+// Initialize Sentry after polyfills are complete
+async function initializeSentryAfterPolyfills() {
+  try {
+    // Dynamically import Sentry after polyfills
+    Sentry = await import('@sentry/react-native');
+
+    // Report polyfill metrics to Sentry
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const metrics = (globalThis as any).__polyfillMetrics;
+    if (metrics) {
+      reportToSentry((sentry) => {
+        sentry.addBreadcrumb({
+          message: 'Polyfills initialization completed',
+          category: 'polyfills',
+          data: metrics,
+          level: 'info',
+        });
+
+        // Set tags for polyfill usage
+        sentry.setTag('polyfills.promise_all_settled', metrics.promiseAllSettledPolyfilled);
+        sentry.setTag('polyfills.promise_any', metrics.promiseAnyPolyfilled);
+        sentry.setTag('polyfills.load_time', `${metrics.promisePolyfillTime}ms`);
+
+        // Report fetch availability
+        if (metrics.fetchMissing) {
+          sentry.setTag('polyfills.fetch_missing', true);
+        }
+        if (metrics.fetchAvailable) {
+          sentry.setTag('polyfills.fetch_available', true);
+        }
+
+        // Report AggregateError status
+        if (metrics.aggregateErrorPolyfilled) {
+          sentry.setTag('polyfills.aggregate_error_polyfilled', true);
+        }
+        if (metrics.aggregateErrorNative) {
+          sentry.setTag('polyfills.aggregate_error_native', true);
+        }
+      });
+    }
+  } catch (error) {
+    console.warn('Failed to initialize Sentry after polyfills:', error);
+  }
+}
+
+// Initialize Sentry asynchronously without blocking polyfill loading
+initializeSentryAfterPolyfills().catch((error) => {
+  console.warn('Sentry initialization failed:', error);
+});
 
 import { Buffer } from 'buffer';
 
@@ -130,6 +229,40 @@ import 'web-streams-polyfill';
 if (!global.fetch) {
   console.warn('Fetch API not available, using polyfill');
   // Note: node-fetch is not available in React Native, this is just a fallback check
+
+  // Store for later Sentry reporting
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).__polyfillMetrics = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...((globalThis as any).__polyfillMetrics || {}),
+    fetchMissing: true,
+  };
+
+  reportToSentry((sentry) => {
+    sentry.addBreadcrumb({
+      message: 'Fetch API not available',
+      category: 'polyfills',
+      level: 'warning',
+    });
+    sentry.setTag('polyfills.fetch_missing', true);
+  });
+} else {
+  // Store for later Sentry reporting
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).__polyfillMetrics = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...((globalThis as any).__polyfillMetrics || {}),
+    fetchAvailable: true,
+  };
+
+  reportToSentry((sentry) => {
+    sentry.addBreadcrumb({
+      message: 'Fetch API available',
+      category: 'polyfills',
+      level: 'info',
+    });
+    sentry.setTag('polyfills.fetch_available', true);
+  });
 }
 
 // Empty polyfills for Node.js modules that aren't available in React Native
@@ -166,6 +299,33 @@ export const resolve = () => null;
 
 // DGRAM stubs
 export const createSocket = () => null;
+
+// Export comprehensive polyfill status for monitoring
+export function getPolyfillStatus() {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const metrics = (globalThis as any).__polyfillMetrics || {};
+  return {
+    loaded: true,
+    earlyPolyfillsLoaded: true,
+    metrics,
+    sentryInitialized: Sentry !== null,
+  };
+}
+
+// Function to report any polyfill errors that occur after initialization
+export function reportPolyfillError(error: Error, context: string) {
+  reportToSentry((sentry) => {
+    sentry.captureException(error, {
+      tags: {
+        component: 'polyfills',
+        context,
+      },
+      contexts: {
+        polyfills: getPolyfillStatus(),
+      },
+    });
+  });
+}
 
 // Export to ensure the file is not tree-shaken
 export const polyfillsLoaded = true;

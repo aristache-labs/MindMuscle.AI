@@ -9,6 +9,37 @@ import {
 } from '../validation/apiSchemas';
 import { apiClient } from './apiClient';
 import { validationService } from './validationService';
+import {
+  captureError,
+  captureAPIError,
+  captureValidationError,
+  captureNetworkError,
+} from './sentry';
+import { addBreadcrumb } from './sentry/simpleErrorHandler';
+
+// Type definitions for API data
+interface ValidationError {
+  message: string;
+  path?: string[];
+  code?: string;
+}
+
+interface WorkoutData {
+  id: string;
+  created_at: string;
+  user_id: string;
+  duration?: number;
+  exercises?: unknown[];
+}
+
+interface MeasurementData {
+  id: string;
+  user_id: string;
+  category: 'WEIGHT' | 'MUSCLE' | 'BODY_FAT' | string;
+  value: number;
+  measured_at: string;
+  unit?: string;
+}
 
 export interface CoachingSession {
   id: string;
@@ -90,9 +121,16 @@ class AICoachingService {
     type: CoachingSession['type'],
   ): Promise<string> {
     try {
+      addBreadcrumb('Starting AI coaching request', 'ai_coaching', {
+        type,
+        promptLength: prompt.length,
+      });
+
       const auth = await getAuth();
       if (!auth?.user) {
-        throw new Error('User not authenticated');
+        const error = new Error('User not authenticated');
+        captureError(error as Error);
+        throw error;
       }
 
       // Prepare coaching request data
@@ -114,6 +152,11 @@ class AICoachingService {
 
       // Try API client with schema validation first
       try {
+        addBreadcrumb('Attempting API client request', 'ai_coaching', {
+          userId: auth.user.id,
+          type,
+        });
+
         const response = await apiClient.requestWithValidation(
           {
             url: '/api/v1/coaching/chat',
@@ -155,6 +198,13 @@ class AICoachingService {
           },
         });
 
+        addBreadcrumb('AI coaching response generated via API', 'ai_coaching', {
+          userId: auth.user.id,
+          type,
+          responseLength: coachingMessage.length,
+          fromCache: response.fromCache,
+        });
+
         return coachingMessage;
       } catch (apiError) {
         logger.warn('API client failed for coaching request, falling back to direct OpenAI call', {
@@ -165,6 +215,14 @@ class AICoachingService {
           },
         });
 
+        captureAPIError(apiError as Error, '/api/v1/coaching/chat');
+
+        addBreadcrumb('API client failed, using fallback', 'ai_coaching', {
+          userId: auth.user.id,
+          type,
+          error: (apiError as Error).message,
+        });
+
         // Fallback to direct OpenAI call
         return this.getCoachingResponseFallback(prompt, context, type, auth.user.id);
       }
@@ -172,6 +230,7 @@ class AICoachingService {
       logger.error('Error getting coaching response', error as Error, {
         context: { type, promptLength: prompt.length },
       });
+      captureError(error as Error);
       throw error;
     }
   }
@@ -184,15 +243,22 @@ class AICoachingService {
     userId: string,
   ): Promise<string> {
     try {
+      addBreadcrumb('Starting OpenAI fallback request', 'ai_coaching', {
+        userId,
+        type,
+        promptLength: prompt.length,
+      });
+
       // Validate input data using existing validation
       const validationData = { prompt, context, type };
       const validationResult = validationService.validateCoachingRequest(validationData);
 
       if (!validationResult.success) {
-        const errorMessage = `Coaching request validation failed: ${validationResult.errors?.map((e: any) => e.message).join(', ')}`;
+        const errorMessage = `Coaching request validation failed: ${validationResult.errors?.map((e: ValidationError) => e.message).join(', ')}`;
         logger.error('Coaching request validation failed', new Error(errorMessage), {
           context: { validationData, errors: validationResult.errors },
         });
+        captureValidationError(new Error(errorMessage));
         throw new Error(errorMessage);
       }
 
@@ -209,6 +275,12 @@ class AICoachingService {
           '{medicalConditions}',
           context.userProfile.medicalConditions?.join(', ') || 'none',
         );
+
+      addBreadcrumb('Making OpenAI API call', 'ai_coaching', {
+        userId,
+        type,
+        model: 'gpt-4-turbo-preview',
+      });
 
       const completion = await this.openai.chat.completions.create({
         model: 'gpt-4-turbo-preview',
@@ -243,17 +315,34 @@ class AICoachingService {
         },
       });
 
+      addBreadcrumb('OpenAI fallback response generated', 'ai_coaching', {
+        userId,
+        type,
+        responseLength: response.length,
+      });
+
       return response;
     } catch (error) {
       logger.error('Error getting coaching response', error as Error, {
         context: { type, promptLength: prompt.length },
       });
+
+      if (error instanceof Error && error.message.includes('network')) {
+        captureNetworkError(error as Error);
+      } else {
+        captureAPIError(error as Error);
+      }
+
       throw error;
     }
   }
 
   public async generatePersonalizedInsights(userId: string): Promise<CoachingInsight[]> {
     try {
+      addBreadcrumb('Starting personalized insights generation', 'ai_coaching', {
+        userId,
+      });
+
       // Get user's recent workout data and progress
       const workoutData = await apiClient.get(
         `/rest/v1/workout_sessions?user_id=eq.${userId}&order=created_at.desc&limit=10`,
@@ -316,26 +405,38 @@ class AICoachingService {
         context: { userId, insightCount: insights.length },
       });
 
+      addBreadcrumb('Personalized insights generated', 'ai_coaching', {
+        userId,
+        insightCount: insights.length,
+      });
+
       return insights;
     } catch (error) {
       logger.error('Error generating personalized insights', error as Error, {
         context: { userId },
       });
+      captureError(error as Error);
       return [];
     }
   }
 
   public async saveFeedback(sessionId: string, feedback: string, rating: number): Promise<void> {
     try {
+      addBreadcrumb('Saving coaching feedback', 'ai_coaching', {
+        sessionId,
+        rating,
+      });
+
       // Validate feedback data
       const feedbackData = { sessionId, feedback, rating };
       const validationResult = validationService.validateCoachingFeedback(feedbackData);
 
       if (!validationResult.success) {
-        const errorMessage = `Coaching feedback validation failed: ${validationResult.errors?.map((e: any) => e.message).join(', ')}`;
+        const errorMessage = `Coaching feedback validation failed: ${validationResult.errors?.map((e: ValidationError) => e.message).join(', ')}`;
         logger.error('Coaching feedback validation failed', new Error(errorMessage), {
           context: { feedbackData, errors: validationResult.errors },
         });
+        captureValidationError(new Error(errorMessage));
         throw new Error(errorMessage);
       }
 
@@ -351,17 +452,28 @@ class AICoachingService {
         logger.info('Coaching feedback saved successfully', {
           context: { sessionId, rating },
         });
+
+        addBreadcrumb('Coaching feedback saved', 'ai_coaching', {
+          sessionId,
+          rating,
+        });
       }
     } catch (error) {
       logger.error('Error saving feedback', error as Error, {
         context: { sessionId, rating },
       });
+      captureError(error as Error);
       throw error;
     }
   }
 
   private async saveSession(session: CoachingSession): Promise<void> {
     try {
+      addBreadcrumb('Saving coaching session', 'ai_coaching', {
+        sessionId: session.id,
+        type: session.type,
+      });
+
       this.coachingHistory.push(session);
       await AsyncStorage.setItem('coachingHistory', JSON.stringify(this.coachingHistory));
 
@@ -372,15 +484,20 @@ class AICoachingService {
       logger.error('Error saving coaching session', error as Error, {
         context: { sessionId: session.id },
       });
+      captureError(error as Error);
       throw error;
     }
   }
 
   public async getCoachingHistory(): Promise<CoachingSession[]> {
     try {
+      addBreadcrumb('Retrieving coaching history', 'ai_coaching');
+
       const auth = await getAuth();
       if (!auth?.user) {
-        throw new Error('User not authenticated');
+        const error = new Error('User not authenticated');
+        captureError(error as Error);
+        throw error;
       }
 
       const history = await AsyncStorage.getItem('coachingHistory');
@@ -396,18 +513,34 @@ class AICoachingService {
         context: { userId: auth.user.id, sessionCount: this.coachingHistory.length },
       });
 
+      addBreadcrumb('Coaching history retrieved', 'ai_coaching', {
+        userId: auth.user.id,
+        sessionCount: this.coachingHistory.length,
+      });
+
       return this.coachingHistory;
     } catch (error) {
       logger.error('Error getting coaching history', error as Error);
+      captureError(error as Error, {
+        category: 'storage_error',
+        component: 'AICoachingService',
+      });
       return [];
     }
   }
 
   public async syncCoachingData(): Promise<void> {
     try {
+      addBreadcrumb('Starting coaching data sync', 'ai_coaching');
+
       const auth = await getAuth();
       if (!auth?.user) {
-        throw new Error('User not authenticated');
+        const error = new Error('User not authenticated');
+        captureError(error, {
+          category: 'auth_error',
+          component: 'AICoachingService',
+        });
+        throw error;
       }
 
       // Sync coaching sessions to backend
@@ -429,14 +562,23 @@ class AICoachingService {
         logger.info('Coaching data synced successfully', {
           context: { userId: auth.user.id, syncedCount: unsyncedSessions.length },
         });
+
+        addBreadcrumb('Coaching data synced', 'ai_coaching', {
+          userId: auth.user.id,
+          syncedCount: unsyncedSessions.length,
+        });
       }
     } catch (error) {
       logger.error('Error syncing coaching data', error as Error);
+      captureError(error as Error, {
+        category: 'api_error',
+        component: 'AICoachingService',
+      });
       // Don't throw - sync failures shouldn't break the app
     }
   }
 
-  private calculateWorkoutFrequency(workouts: any[]): number {
+  private calculateWorkoutFrequency(workouts: WorkoutData[]): number {
     if (!workouts || workouts.length === 0) return 0;
 
     const now = new Date();
@@ -447,7 +589,10 @@ class AICoachingService {
     return recentWorkouts.length;
   }
 
-  private analyzeMeasurementTrend(measurements: any[]): { isPositive: boolean; trend: string } {
+  private analyzeMeasurementTrend(measurements: MeasurementData[]): {
+    isPositive: boolean;
+    trend: string;
+  } {
     if (!measurements || measurements.length < 2) {
       return { isPositive: false, trend: 'insufficient_data' };
     }

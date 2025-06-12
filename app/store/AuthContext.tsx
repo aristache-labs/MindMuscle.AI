@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Sentry from '@sentry/react-native';
 import {
   AuthError,
   AuthResponse,
@@ -48,32 +49,66 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }): JSX.Element {
   const createSupabaseClient = (persistSession: boolean): SupabaseClient => {
-    return createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        storage: AsyncStorage,
-        autoRefreshToken: persistSession,
-        persistSession: persistSession,
-        detectSessionInUrl: false,
-      },
-    });
+    try {
+      Sentry.addBreadcrumb({
+        message: 'Creating Supabase client',
+        category: 'auth.client',
+        data: { persistSession },
+        level: 'debug',
+      });
+
+      return createClient(supabaseUrl, supabaseAnonKey, {
+        auth: {
+          storage: AsyncStorage,
+          autoRefreshToken: persistSession,
+          persistSession: persistSession,
+          detectSessionInUrl: false,
+        },
+      });
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: { operation: 'createSupabaseClient' },
+        extra: { persistSession },
+      });
+      throw error;
+    }
   };
 
   const [session, setSession] = useState<AuthSession | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<AuthError | null>(null);
-  const [_supabase, _setSupabase] = useState(createSupabaseClient(true));
+  const [_supabase] = useState(createSupabaseClient(true));
 
   const clearError = () => {
+    Sentry.addBreadcrumb({
+      message: 'Clearing auth error',
+      category: 'auth.error',
+      level: 'debug',
+    });
     setError(null);
   };
 
   useEffect(() => {
     let isMounted = true;
+    const startTime = Date.now();
+
+    Sentry.addBreadcrumb({
+      message: 'Initializing auth context',
+      category: 'auth.init',
+      level: 'info',
+    });
 
     // Add timeout to prevent infinite loading
     const initTimeout = setTimeout(() => {
       if (isMounted) {
+        const duration = Date.now() - startTime;
+        Sentry.addBreadcrumb({
+          message: 'Auth initialization timeout',
+          category: 'auth.init',
+          data: { duration, timeout: 5000 },
+          level: 'warning',
+        });
         console.warn('Auth initialization timeout, setting loading to false');
         setLoading(false);
       }
@@ -82,6 +117,12 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     // Get initial session with error handling
     const initializeAuth = async () => {
       try {
+        Sentry.addBreadcrumb({
+          message: 'Getting initial session',
+          category: 'auth.init',
+          level: 'debug',
+        });
+
         const {
           data: { session },
           error,
@@ -89,15 +130,34 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
 
         if (isMounted) {
           if (error) {
+            Sentry.captureException(error, {
+              tags: { operation: 'initializeAuth', step: 'getSession' },
+            });
             console.warn('Error getting initial session:', error);
             setSession(null);
           } else {
+            const duration = Date.now() - startTime;
+            Sentry.addBreadcrumb({
+              message: 'Successfully initialized auth',
+              category: 'auth.init',
+              data: {
+                hasSession: !!session,
+                userId: session?.user?.id,
+                duration,
+              },
+              level: 'info',
+            });
             setSession(session);
           }
           setLoading(false);
           clearTimeout(initTimeout);
         }
       } catch (err) {
+        const duration = Date.now() - startTime;
+        Sentry.captureException(err, {
+          tags: { operation: 'initializeAuth' },
+          extra: { duration },
+        });
         console.error('Failed to initialize auth:', err);
         if (isMounted) {
           setSession(null);
@@ -114,6 +174,16 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       data: { subscription },
     } = _supabase.auth.onAuthStateChange((_event, session) => {
       if (isMounted) {
+        Sentry.addBreadcrumb({
+          message: 'Auth state changed',
+          category: 'auth.state',
+          data: {
+            event: _event,
+            hasSession: !!session,
+            userId: session?.user?.id,
+          },
+          level: 'info',
+        });
         logger.info('Auth state changed', { context: { event: _event } });
         setSession(session);
         setLoading(false);
@@ -132,7 +202,16 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     password: string,
     rememberMe = false,
   ): Promise<AuthResponse> => {
+    const startTime = Date.now();
+
     try {
+      Sentry.addBreadcrumb({
+        message: 'Starting sign in process',
+        category: 'auth.signin',
+        data: { email, rememberMe },
+        level: 'info',
+      });
+
       setError(null);
       setIsLoading(true);
 
@@ -143,12 +222,34 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
         password,
       });
 
+      const duration = Date.now() - startTime;
+
       if (response.error) {
+        Sentry.captureException(response.error, {
+          tags: { operation: 'signIn', step: 'signInWithPassword' },
+          extra: {
+            email,
+            rememberMe,
+            duration,
+            errorCode: response.error.status,
+          },
+        });
         logger.error('Sign in failed', response.error, {
           context: { email },
         });
         setError(response.error);
       } else {
+        Sentry.addBreadcrumb({
+          message: 'User signed in successfully',
+          category: 'auth.signin',
+          data: {
+            email,
+            rememberMe,
+            userId: response.data.user?.id,
+            duration,
+          },
+          level: 'info',
+        });
         logger.info('User signed in successfully', {
           context: { email, rememberMe },
         });
@@ -157,7 +258,14 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
 
       return response;
     } catch (err) {
+      const duration = Date.now() - startTime;
       const authError = err as AuthError;
+
+      Sentry.captureException(authError, {
+        tags: { operation: 'signIn' },
+        extra: { email, rememberMe, duration },
+      });
+
       logger.error('Unexpected error during sign in', authError, {
         context: { email },
       });
@@ -174,7 +282,16 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     fullName: string,
     rememberMe = false,
   ): Promise<AuthResponse> => {
+    const startTime = Date.now();
+
     try {
+      Sentry.addBreadcrumb({
+        message: 'Starting sign up process',
+        category: 'auth.signup',
+        data: { email, fullName, rememberMe },
+        level: 'info',
+      });
+
       setError(null);
       setIsLoading(true);
 
@@ -190,12 +307,37 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
         },
       });
 
+      const duration = Date.now() - startTime;
+
       if (response.error) {
+        Sentry.captureException(response.error, {
+          tags: { operation: 'signUp', step: 'signUpWithPassword' },
+          extra: {
+            email,
+            fullName,
+            rememberMe,
+            duration,
+            errorCode: response.error.status,
+          },
+        });
         logger.error('Sign up failed', response.error, {
           context: { email },
         });
         setError(response.error);
       } else {
+        Sentry.addBreadcrumb({
+          message: 'User signed up successfully',
+          category: 'auth.signup',
+          data: {
+            email,
+            fullName,
+            rememberMe,
+            userId: response.data.user?.id,
+            needsConfirmation: !response.data.session,
+            duration,
+          },
+          level: 'info',
+        });
         logger.info('User signed up successfully', {
           context: { email, rememberMe },
         });
@@ -204,7 +346,14 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
 
       return response;
     } catch (err) {
+      const duration = Date.now() - startTime;
       const authError = err as AuthError;
+
+      Sentry.captureException(authError, {
+        tags: { operation: 'signUp' },
+        extra: { email, fullName, rememberMe, duration },
+      });
+
       logger.error('Unexpected error during sign up', authError, {
         context: { email },
       });
@@ -216,26 +365,67 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
   };
 
   const signOut = async (): Promise<{ error: AuthError | null }> => {
+    const startTime = Date.now();
+
     try {
+      Sentry.addBreadcrumb({
+        message: 'Starting sign out process',
+        category: 'auth.signout',
+        data: { userId: session?.user?.id },
+        level: 'info',
+      });
+
       setError(null);
       setIsLoading(true);
       const response = await _supabase.auth.signOut();
 
+      const duration = Date.now() - startTime;
+
       if (response.error) {
+        Sentry.captureException(response.error, {
+          tags: { operation: 'signOut', step: 'supabaseSignOut' },
+          extra: {
+            userId: session?.user?.id,
+            duration,
+            errorCode: response.error.status,
+          },
+        });
         logger.error('Sign out failed', response.error);
         setError(response.error);
       } else {
+        Sentry.addBreadcrumb({
+          message: 'User signed out successfully',
+          category: 'auth.signout',
+          data: {
+            userId: session?.user?.id,
+            duration,
+          },
+          level: 'info',
+        });
         logger.info('User signed out successfully');
         setError(null);
 
         // Clear saved credentials when user explicitly signs out
         safeAsyncFireAndForget(
           async () => {
+            Sentry.addBreadcrumb({
+              message: 'Clearing saved credentials on sign out',
+              category: 'auth.signout',
+              level: 'debug',
+            });
+
             await Promise.all([
               secureStorage.deleteItemAsync(SAVED_EMAIL_KEY),
               secureStorage.deleteItemAsync(SAVED_PASSWORD_KEY),
               secureStorage.deleteItemAsync(REMEMBER_ME_KEY),
             ]);
+
+            Sentry.addBreadcrumb({
+              message: 'Successfully cleared saved credentials',
+              category: 'auth.signout',
+              level: 'debug',
+            });
+
             logger.info('Saved credentials cleared on sign out');
           },
           {
@@ -248,7 +438,17 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
 
       return response;
     } catch (err) {
+      const duration = Date.now() - startTime;
       const authError = err as AuthError;
+
+      Sentry.captureException(authError, {
+        tags: { operation: 'signOut' },
+        extra: {
+          userId: session?.user?.id,
+          duration,
+        },
+      });
+
       logger.error('Unexpected error during sign out', authError);
       setError(authError);
       throw err;
@@ -258,7 +458,16 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
   };
 
   const refreshUser = async () => {
+    const startTime = Date.now();
+
     try {
+      Sentry.addBreadcrumb({
+        message: 'Starting user refresh',
+        category: 'auth.refresh',
+        data: { userId: session?.user?.id },
+        level: 'info',
+      });
+
       setIsLoading(true);
       const {
         data: { user },
@@ -268,6 +477,19 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       if (error) {
         if (error.name === 'AuthSessionMissingError') {
           // Session is missing, we should reset the state and let auth guards handle the redirect
+          const duration = Date.now() - startTime;
+
+          Sentry.addBreadcrumb({
+            message: 'Auth session missing during refresh, clearing session state',
+            category: 'auth.refresh',
+            data: {
+              errorName: error.name,
+              errorMessage: error.message,
+              duration,
+            },
+            level: 'warning',
+          });
+
           logger.warn('Auth session missing during refresh, clearing session state', {
             context: { error: error.message },
           });
@@ -275,26 +497,78 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
           return;
         }
 
+        Sentry.captureException(error, {
+          tags: { operation: 'refreshUser', step: 'getUser' },
+          extra: {
+            userId: session?.user?.id,
+            errorName: error.name,
+            duration: Date.now() - startTime,
+          },
+        });
+
         logger.error('Error refreshing user:', error);
         throw error;
       }
 
       if (user) {
+        Sentry.addBreadcrumb({
+          message: 'User data retrieved, getting session',
+          category: 'auth.refresh',
+          data: { userId: user.id },
+          level: 'debug',
+        });
+
         try {
           const {
             data: { session: newSession },
             error: sessionError,
           } = await _supabase.auth.getSession();
+
           if (sessionError) {
+            Sentry.captureException(sessionError, {
+              tags: { operation: 'refreshUser', step: 'getSession' },
+              extra: {
+                userId: user.id,
+                errorName: sessionError.name,
+                duration: Date.now() - startTime,
+              },
+            });
             logger.error('Error getting session:', sessionError);
             throw sessionError;
           }
+
+          const duration = Date.now() - startTime;
+          Sentry.addBreadcrumb({
+            message: 'Successfully refreshed user and session',
+            category: 'auth.refresh',
+            data: {
+              userId: user.id,
+              hasSession: !!newSession,
+              duration,
+            },
+            level: 'info',
+          });
+
           setSession(newSession);
         } catch (sessionErr: unknown) {
           // If we can't get a session but we have a user, something is wrong with the session
           // We should reset the auth state
           const error = sessionErr as Error;
           if (error.name === 'AuthSessionMissingError') {
+            const duration = Date.now() - startTime;
+
+            Sentry.addBreadcrumb({
+              message: 'Auth session missing while having user data, clearing session state',
+              category: 'auth.refresh',
+              data: {
+                userId: user.id,
+                errorName: error.name,
+                errorMessage: error.message,
+                duration,
+              },
+              level: 'warning',
+            });
+
             logger.warn('Auth session missing while having user data, clearing session state', {
               context: { error: error.message },
             });
@@ -305,8 +579,18 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
         }
       }
     } catch (err: unknown) {
+      const duration = Date.now() - startTime;
       const error =
         err instanceof Error ? err : new Error((err as Error)?.message || 'Unknown error');
+
+      Sentry.captureException(error, {
+        tags: { operation: 'refreshUser' },
+        extra: {
+          userId: session?.user?.id,
+          duration,
+        },
+      });
+
       logger.error('Error refreshing user data:', error);
       throw error;
     } finally {
@@ -315,7 +599,19 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
   };
 
   const updateUserMetadata = async (metadata: Record<string, unknown>) => {
+    const startTime = Date.now();
+
     try {
+      Sentry.addBreadcrumb({
+        message: 'Starting user metadata update',
+        category: 'auth.metadata',
+        data: {
+          userId: session?.user?.id,
+          metadataKeys: Object.keys(metadata),
+        },
+        level: 'info',
+      });
+
       setIsLoading(true);
       const {
         data: { user },
@@ -325,24 +621,80 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       });
 
       if (error) {
+        const duration = Date.now() - startTime;
+
+        Sentry.captureException(error, {
+          tags: { operation: 'updateUserMetadata', step: 'updateUser' },
+          extra: {
+            userId: session?.user?.id,
+            metadataKeys: Object.keys(metadata),
+            errorCode: error.status,
+            duration,
+          },
+        });
+
         logger.error('Error updating user metadata:', error);
         throw error;
       }
 
       if (user) {
+        Sentry.addBreadcrumb({
+          message: 'User metadata updated, refreshing session',
+          category: 'auth.metadata',
+          data: { userId: user.id },
+          level: 'debug',
+        });
+
         const {
           data: { session: newSession },
           error: sessionError,
         } = await _supabase.auth.getSession();
+
         if (sessionError) {
+          const duration = Date.now() - startTime;
+
+          Sentry.captureException(sessionError, {
+            tags: { operation: 'updateUserMetadata', step: 'getSession' },
+            extra: {
+              userId: user.id,
+              errorName: sessionError.name,
+              duration,
+            },
+          });
+
           logger.error('Error getting session:', sessionError);
           throw sessionError;
         }
+
+        const duration = Date.now() - startTime;
+        Sentry.addBreadcrumb({
+          message: 'Successfully updated user metadata and refreshed session',
+          category: 'auth.metadata',
+          data: {
+            userId: user.id,
+            metadataKeys: Object.keys(metadata),
+            hasSession: !!newSession,
+            duration,
+          },
+          level: 'info',
+        });
+
         setSession(newSession);
       }
     } catch (err: unknown) {
+      const duration = Date.now() - startTime;
       const error =
         err instanceof Error ? err : new Error((err as Error)?.message || 'Unknown error');
+
+      Sentry.captureException(error, {
+        tags: { operation: 'updateUserMetadata' },
+        extra: {
+          userId: session?.user?.id,
+          metadataKeys: Object.keys(metadata),
+          duration,
+        },
+      });
+
       logger.error('Error updating user metadata:', error);
       throw error;
     } finally {

@@ -3,6 +3,9 @@ import { logger } from '../utils/logger';
 import { apiClient, ApiRequestOptions } from './apiClient';
 import { commonTransformers } from './apiResponseHandler';
 import { CachePriority } from './enhancedCacheManager';
+// Add Sentry imports
+import { captureAPIError, captureValidationError } from './sentry';
+import { addBreadcrumb } from './sentry/simpleErrorHandler';
 
 // Pre-configured API clients for different services
 export class ApiIntegration {
@@ -11,20 +14,35 @@ export class ApiIntegration {
     // Exercise-related endpoints
     exercises: {
       async getAll(options: ApiRequestOptions = {}) {
-        return apiClient.get('/rest/v1/exercises', {
-          cache: {
-            enabled: true,
-            ttl: 600000, // 10 minutes
-            tags: ['exercises'],
-            priority: CachePriority.HIGH,
-            ...options.cache,
-          },
-          processing: {
-            transformers: [commonTransformers.snakeToCamel, commonTransformers.parseDates],
-            ...options.processing,
-          },
-          ...options,
-        });
+        try {
+          addBreadcrumb('Fetching all exercises', 'api_integration');
+
+          const result = await apiClient.get('/rest/v1/exercises', {
+            cache: {
+              enabled: true,
+              ttl: 600000, // 10 minutes
+              tags: ['exercises'],
+              priority: CachePriority.HIGH,
+              ...options.cache,
+            },
+            processing: {
+              transformers: [commonTransformers.snakeToCamel, commonTransformers.parseDates],
+              ...options.processing,
+            },
+            ...options,
+          });
+
+          addBreadcrumb('Successfully fetched all exercises', 'api_integration', {
+            count: Array.isArray(result.data) ? result.data.length : 0,
+            fromCache: result.fromCache,
+          });
+
+          return result;
+        } catch (error) {
+          logger.error('Error fetching all exercises', error as Error);
+          captureAPIError(error as Error, '/rest/v1/exercises');
+          throw error;
+        }
       },
 
       async getById(id: string, options: ApiRequestOptions = {}) {
@@ -101,20 +119,32 @@ export class ApiIntegration {
       },
 
       async createPlan(planData: unknown, options: ApiRequestOptions = {}) {
-        const response = await apiClient.post('/rest/v1/workout_plans', planData, {
-          cache: { enabled: false },
-          processing: {
-            transformers: [commonTransformers.snakeToCamel, commonTransformers.parseDates],
-            ...options.processing,
-          },
-          auth: { required: true },
-          ...options,
-        });
+        try {
+          addBreadcrumb('Creating workout plan', 'api_integration');
 
-        // Invalidate related cache
-        await apiClient.invalidateCache(['workout-plans']);
+          const response = await apiClient.post('/rest/v1/workout_plans', planData, {
+            cache: { enabled: false },
+            processing: {
+              transformers: [commonTransformers.snakeToCamel, commonTransformers.parseDates],
+              ...options.processing,
+            },
+            auth: { required: true },
+            ...options,
+          });
 
-        return response;
+          // Invalidate related cache
+          await apiClient.invalidateCache(['workout-plans']);
+
+          addBreadcrumb('Successfully created workout plan', 'api_integration', {
+            planId: (response.data as { id?: string })?.id,
+          });
+
+          return response;
+        } catch (error) {
+          logger.error('Error creating workout plan', error as Error);
+          captureAPIError(error as Error, '/rest/v1/workout_plans');
+          throw error;
+        }
       },
     },
 
@@ -209,25 +239,50 @@ export class ApiIntegration {
       context: unknown,
       options: ApiRequestOptions = {},
     ) {
-      return apiClient.post(
-        '/ai/coaching',
-        { prompt, context },
-        {
-          cache: {
-            enabled: true,
-            ttl: 1800000, // 30 minutes
-            tags: ['ai-coaching'],
-            priority: CachePriority.LOW,
-            ...options.cache,
+      try {
+        addBreadcrumb('Generating AI coaching response', 'api_integration', {
+          promptLength: prompt.length,
+        });
+
+        if (!prompt || typeof prompt !== 'string') {
+          const error = new Error('Valid prompt is required for AI coaching');
+          captureValidationError(error, 'prompt');
+          throw error;
+        }
+
+        const result = await apiClient.post(
+          '/ai/coaching',
+          { prompt, context },
+          {
+            cache: {
+              enabled: true,
+              ttl: 1800000, // 30 minutes
+              tags: ['ai-coaching'],
+              priority: CachePriority.LOW,
+              ...options.cache,
+            },
+            processing: {
+              transformers: [commonTransformers.removeNulls],
+              ...options.processing,
+            },
+            auth: { required: true },
+            ...options,
           },
-          processing: {
-            transformers: [commonTransformers.removeNulls],
-            ...options.processing,
-          },
-          auth: { required: true },
-          ...options,
-        },
-      );
+        );
+
+        addBreadcrumb('Successfully generated AI coaching response', 'api_integration', {
+          promptLength: prompt.length,
+          fromCache: result.fromCache,
+        });
+
+        return result;
+      } catch (error) {
+        logger.error('Error generating AI coaching response', error as Error, {
+          context: { promptLength: prompt.length },
+        });
+        captureAPIError(error as Error, '/ai/coaching');
+        throw error;
+      }
     },
 
     async generateWorkoutPlan(preferences: unknown, options: ApiRequestOptions = {}) {
@@ -382,7 +437,7 @@ export class ApiPatterns {
   ) {
     // This would implement WebSocket or Server-Sent Events
     logger.info('Real-time subscription requested', {
-      context: { endpoint },
+      context: { endpoint, hasCallback: typeof callback === 'function', hasOptions: !!options },
     });
 
     // For now, return a mock subscription

@@ -15,6 +15,16 @@ import {
   RequestConfig,
 } from './httpClient';
 import supabase from './supabase';
+// Add Sentry imports
+import {
+  captureError,
+  captureMessage,
+  captureAPIError,
+  captureAuthError,
+  captureNetworkError,
+  captureValidationError,
+} from './sentry';
+import { addBreadcrumb } from './sentry/simpleErrorHandler';
 
 // API client configuration
 export interface ApiClientConfig extends HttpClientConfig {
@@ -93,6 +103,8 @@ export class ApiClient {
     }
 
     try {
+      addBreadcrumb('Initializing API client authentication', 'api_client');
+
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -108,10 +120,13 @@ export class ApiClient {
           this.clearAuthToken();
         }
       });
+
+      addBreadcrumb('API client authentication initialized', 'api_client');
     } catch (error) {
       logger.warn('Failed to initialize authentication', {
         context: { error: (error as Error).message },
       });
+      captureAuthError(error as Error, 'initialization');
     }
   }
 
@@ -163,6 +178,8 @@ export class ApiClient {
   // Handle authentication errors
   private async handleAuthError(): Promise<void> {
     try {
+      addBreadcrumb('Attempting to refresh auth token', 'api_client');
+
       const {
         data: { session },
         error,
@@ -172,12 +189,15 @@ export class ApiClient {
       if (session?.access_token) {
         this.setAuthToken(session.access_token);
         logger.info('Auth token refreshed successfully');
+        addBreadcrumb('Auth token refreshed successfully', 'api_client');
       } else {
         this.clearAuthToken();
         logger.warn('Failed to refresh auth token');
+        captureAuthError(new Error('Failed to refresh auth token'), 'token_refresh');
       }
     } catch (error) {
       logger.error('Auth token refresh failed', error as Error);
+      captureAuthError(error as Error, 'token_refresh');
       this.clearAuthToken();
     }
   }
@@ -238,6 +258,11 @@ export class ApiClient {
   ): Promise<ApiClientResponse<T>> {
     const startTime = Date.now();
 
+    addBreadcrumb('Starting API request', 'api_client', {
+      url: config.url,
+      method: config.method || 'GET',
+    });
+
     // Generate cache key
     const cacheKey = this.generateCacheKey(config, options);
 
@@ -247,6 +272,10 @@ export class ApiClient {
       if (cached) {
         logger.debug('API response served from cache', {
           context: { url: config.url, cacheKey },
+        });
+        addBreadcrumb('API response served from cache', 'api_client', {
+          url: config.url,
+          cacheKey,
         });
         return cached;
       }
@@ -294,6 +323,13 @@ export class ApiClient {
       // Cache response
       await this.cacheResponse(cacheKey, processedResponse, options);
 
+      addBreadcrumb('API request completed successfully', 'api_client', {
+        url: config.url,
+        method: config.method,
+        duration: Date.now() - startTime,
+        status: processedResponse.status,
+      });
+
       logger.info('API request completed successfully', {
         context: {
           url: config.url,
@@ -313,6 +349,7 @@ export class ApiClient {
             retryAfter: error.retryAfter,
           },
         });
+        captureAPIError(error, config.url);
 
         // Return rate limited response
         return {
@@ -333,6 +370,27 @@ export class ApiClient {
           errorCategory: ApiErrorCategory.RATE_LIMIT,
           retryable: true,
         };
+      }
+
+      // Handle other errors
+      logger.error('API request failed', error as Error, {
+        context: {
+          url: config.url,
+          method: config.method,
+          duration: Date.now() - startTime,
+        },
+      });
+
+      if (error instanceof HttpError) {
+        if (error.status >= 500) {
+          captureAPIError(error, config.url);
+        } else if (error.status === 401 || error.status === 403) {
+          captureAuthError(error, 'api_request');
+        } else {
+          captureAPIError(error, config.url);
+        }
+      } else {
+        captureNetworkError(error as Error, config.url);
       }
 
       // Re-throw other errors

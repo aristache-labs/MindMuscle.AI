@@ -15,51 +15,186 @@
  */
 
 import { Platform } from 'react-native';
+import * as Sentry from '@sentry/react-native';
 import logger from './logger';
 
 // Only apply patch on native platforms
 if (Platform.OS !== 'web') {
-  try {
-    // Get the expo module
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { requireOptionalNativeModule } = require('expo');
-    const SplashModule = requireOptionalNativeModule('ExpoSplashScreen');
+  Sentry.startSpan(
+    {
+      name: 'splashScreenPatch',
+      op: 'app_initialization',
+    },
+    () => {
+      try {
+        Sentry.addBreadcrumb({
+          message: 'Applying splash screen compatibility patch',
+          category: 'splash_screen',
+          data: { platform: Platform.OS },
+          level: 'info',
+        });
 
-    if (SplashModule) {
-      // Add missing internal functions if they don't exist
-      if (!SplashModule.internalPreventAutoHideAsync) {
-        SplashModule.internalPreventAutoHideAsync = async () => {
-          logger.debugComponent('SPLASH_PATCH', 'Using fallback internalPreventAutoHideAsync');
-          // Fallback to regular preventAutoHideAsync if available
-          if (typeof SplashModule.preventAutoHideAsync === 'function') {
-            return await SplashModule.preventAutoHideAsync();
+        // Get the expo module
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { requireOptionalNativeModule } = require('expo');
+        const SplashModule = requireOptionalNativeModule('ExpoSplashScreen');
+
+        if (SplashModule) {
+          Sentry.addBreadcrumb({
+            message: 'SplashModule found, checking for missing functions',
+            category: 'splash_screen',
+            level: 'info',
+          });
+
+          // Add missing internal functions if they don't exist
+          if (!SplashModule.internalPreventAutoHideAsync) {
+            Sentry.addBreadcrumb({
+              message: 'Adding fallback internalPreventAutoHideAsync function',
+              category: 'splash_screen',
+              level: 'info',
+            });
+
+            SplashModule.internalPreventAutoHideAsync = async () => {
+              logger.debugComponent('SPLASH_PATCH', 'Using fallback internalPreventAutoHideAsync');
+
+              Sentry.addBreadcrumb({
+                message: 'Executing fallback internalPreventAutoHideAsync',
+                category: 'splash_screen',
+                level: 'debug',
+              });
+
+              // Fallback to regular preventAutoHideAsync if available
+              if (typeof SplashModule.preventAutoHideAsync === 'function') {
+                try {
+                  const result = await SplashModule.preventAutoHideAsync();
+                  Sentry.addBreadcrumb({
+                    message: 'Fallback preventAutoHideAsync executed successfully',
+                    category: 'splash_screen',
+                    data: { result },
+                    level: 'info',
+                  });
+                  return result;
+                } catch (error) {
+                  Sentry.captureException(error, {
+                    tags: {
+                      component: 'splashScreenPatch',
+                      function: 'internalPreventAutoHideAsync',
+                    },
+                  });
+                  return false;
+                }
+              }
+
+              Sentry.addBreadcrumb({
+                message: 'No preventAutoHideAsync function available',
+                category: 'splash_screen',
+                level: 'warning',
+              });
+              return false;
+            };
+          } else {
+            Sentry.addBreadcrumb({
+              message: 'internalPreventAutoHideAsync already exists',
+              category: 'splash_screen',
+              level: 'info',
+            });
           }
-          return false;
-        };
-      }
 
-      if (!SplashModule.internalMaybeHideAsync) {
-        SplashModule.internalMaybeHideAsync = async () => {
-          logger.debugComponent('SPLASH_PATCH', 'Using fallback internalMaybeHideAsync');
-          // Fallback to regular hide if available
-          if (typeof SplashModule.hide === 'function') {
-            SplashModule.hide();
-            return true;
+          if (!SplashModule.internalMaybeHideAsync) {
+            Sentry.addBreadcrumb({
+              message: 'Adding fallback internalMaybeHideAsync function',
+              category: 'splash_screen',
+              level: 'info',
+            });
+
+            SplashModule.internalMaybeHideAsync = async () => {
+              logger.debugComponent('SPLASH_PATCH', 'Using fallback internalMaybeHideAsync');
+
+              Sentry.addBreadcrumb({
+                message: 'Executing fallback internalMaybeHideAsync',
+                category: 'splash_screen',
+                level: 'debug',
+              });
+
+              // Fallback to regular hide if available
+              if (typeof SplashModule.hide === 'function') {
+                try {
+                  SplashModule.hide();
+                  Sentry.addBreadcrumb({
+                    message: 'Fallback hide executed successfully',
+                    category: 'splash_screen',
+                    level: 'info',
+                  });
+                  return true;
+                } catch (error) {
+                  Sentry.captureException(error, {
+                    tags: {
+                      component: 'splashScreenPatch',
+                      function: 'internalMaybeHideAsync',
+                    },
+                  });
+                  return false;
+                }
+              }
+
+              Sentry.addBreadcrumb({
+                message: 'No hide function available',
+                category: 'splash_screen',
+                level: 'warning',
+              });
+              return false;
+            };
+          } else {
+            Sentry.addBreadcrumb({
+              message: 'internalMaybeHideAsync already exists',
+              category: 'splash_screen',
+              level: 'info',
+            });
           }
-          return false;
-        };
-      }
 
-      logger.debugComponent(
-        'SPLASH_PATCH',
-        'Splash screen compatibility patch applied successfully',
-      );
-    } else {
-      logger.debugComponent('SPLASH_PATCH', 'SplashModule not available - patch not needed');
-    }
-  } catch (error) {
-    logger.warn('Failed to apply splash screen patch:', { context: { error: String(error) } });
-  }
+          logger.debugComponent(
+            'SPLASH_PATCH',
+            'Splash screen compatibility patch applied successfully',
+          );
+
+          Sentry.addBreadcrumb({
+            message: 'Splash screen compatibility patch applied successfully',
+            category: 'splash_screen',
+            level: 'info',
+          });
+
+          Sentry.setTag('splash_screen.patch_applied', true);
+        } else {
+          logger.debugComponent('SPLASH_PATCH', 'SplashModule not available - patch not needed');
+
+          Sentry.addBreadcrumb({
+            message: 'SplashModule not available - patch not needed',
+            category: 'splash_screen',
+            level: 'info',
+          });
+
+          Sentry.setTag('splash_screen.module_available', false);
+        }
+      } catch (error) {
+        logger.warn('Failed to apply splash screen patch:', { context: { error: String(error) } });
+
+        Sentry.captureException(error, {
+          tags: {
+            component: 'splashScreenPatch',
+            function: 'patchApplication',
+          },
+          contexts: {
+            splash_screen: {
+              platform: Platform.OS,
+              patch_attempt: true,
+            },
+          },
+        });
+
+        Sentry.setTag('splash_screen.patch_failed', true);
+      }
+    },
+  );
 }
 
 export default {};

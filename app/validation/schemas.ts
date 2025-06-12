@@ -1,4 +1,284 @@
 import { z } from 'zod';
+import { logger } from '../utils/logger';
+import {
+  SentryDataCollection,
+  SentryLogger,
+  addBreadcrumb,
+  setContext,
+  setTag,
+} from '../services/sentry';
+
+// Initialize Sentry context for validation schemas
+const initializeSentryContext = () => {
+  setContext('validation_schemas', {
+    service: 'ValidationSchemas',
+    version: '1.0.0',
+    capabilities: [
+      'schema_definition',
+      'type_validation',
+      'data_transformation',
+      'error_standardization',
+      'form_validation',
+      'api_validation',
+      'database_validation',
+      'business_logic_validation',
+      'runtime_type_checking',
+    ],
+    monitoring: {
+      performance_tracking: true,
+      schema_usage_metrics: true,
+      validation_error_tracking: true,
+      breadcrumb_tracking: true,
+      schema_evolution_tracking: true,
+    },
+    schema_categories: [
+      'base_schemas',
+      'exercise_schemas',
+      'user_schemas',
+      'workout_schemas',
+      'measurement_schemas',
+      'achievement_schemas',
+      'form_schemas',
+      'api_schemas',
+      'storage_schemas',
+    ],
+  });
+  setTag('service.type', 'validation_schemas');
+  setTag('validation.framework', 'zod');
+
+  addBreadcrumb({
+    message: 'Validation Schemas service initialized with Sentry monitoring',
+    category: 'validation_schemas.init',
+    level: 'info',
+    data: {
+      timestamp: new Date().toISOString(),
+      schema_categories_count: 9,
+      capabilities_count: 9,
+    },
+  });
+
+  SentryLogger.info('Validation Schemas service with Sentry monitoring initialized', {
+    service: 'ValidationSchemas',
+    capabilities: [
+      'schema_definition',
+      'type_validation',
+      'data_transformation',
+      'error_standardization',
+      'form_validation',
+      'api_validation',
+      'database_validation',
+      'business_logic_validation',
+      'runtime_type_checking',
+    ],
+    monitoring_features: [
+      'performance_tracking',
+      'schema_usage_metrics',
+      'validation_error_tracking',
+      'breadcrumb_tracking',
+      'schema_evolution_tracking',
+    ],
+    schema_categories: [
+      'base_schemas',
+      'exercise_schemas',
+      'user_schemas',
+      'workout_schemas',
+      'measurement_schemas',
+      'achievement_schemas',
+      'form_schemas',
+      'api_schemas',
+      'storage_schemas',
+    ],
+  });
+};
+
+// Initialize Sentry context
+initializeSentryContext();
+
+// Schema validation utilities with monitoring
+export const validateWithSchema = <T>(
+  schema: z.ZodSchema<T>,
+  data: unknown,
+  schemaName?: string,
+  context?: string,
+): { success: true; data: T } | { success: false; errors: string[] } => {
+  const startTime = Date.now();
+  const operation = `validate_${schemaName || 'unknown_schema'}`;
+
+  addBreadcrumb({
+    message: `Starting schema validation: ${schemaName || 'unknown'}`,
+    category: 'validation_schemas.validate',
+    level: 'debug',
+    data: {
+      schema_name: schemaName,
+      context,
+      has_data: !!data,
+      data_type: typeof data,
+      operation,
+    },
+  });
+
+  try {
+    const result = schema.safeParse(data);
+    const duration = Date.now() - startTime;
+
+    if (!result.success) {
+      const errors = result.error.errors.map((err) => `${err.path.join('.')}: ${err.message}`);
+
+      SentryDataCollection.captureException(
+        new Error(`Schema validation failed for ${schemaName || 'unknown schema'}`),
+        {
+          operation: 'schema_validation_failed',
+          schema_name: schemaName,
+          context,
+          validation_errors: errors,
+          duration,
+          error_count: errors.length,
+        },
+      );
+
+      addBreadcrumb({
+        message: `Schema validation failed: ${schemaName || 'unknown'}`,
+        category: 'validation_schemas.validation_error',
+        level: 'warning',
+        data: {
+          schema_name: schemaName,
+          context,
+          duration,
+          error_count: errors.length,
+          errors: errors.slice(0, 3), // Limit for brevity
+        },
+      });
+
+      SentryLogger.warn(`Schema validation failed for ${schemaName || 'unknown schema'}`, {
+        schema_name: schemaName,
+        context,
+        validation_errors: errors,
+        duration,
+        error_count: errors.length,
+      });
+
+      logger.warn(`Schema validation failed for ${schemaName || 'unknown schema'}`, {
+        context: { schemaName, context, errors, duration },
+      });
+
+      return { success: false, errors };
+    }
+
+    addBreadcrumb({
+      message: `Schema validation successful: ${schemaName || 'unknown'}`,
+      category: 'validation_schemas.validation_success',
+      level: 'debug',
+      data: {
+        schema_name: schemaName,
+        context,
+        duration,
+      },
+    });
+
+    // Track performance for slow validations
+    if (duration > 10) {
+      SentryLogger.warn(`Slow schema validation: ${schemaName || 'unknown schema'}`, {
+        schema_name: schemaName,
+        context,
+        duration,
+        threshold: 10,
+      });
+    }
+
+    // Track successful validation metrics
+    SentryDataCollection.setContext('schema_validation_metrics', {
+      last_successful_schema: schemaName,
+      last_validation_duration: duration,
+      timestamp: new Date().toISOString(),
+    });
+
+    return { success: true, data: result.data };
+  } catch (error) {
+    const duration = Date.now() - startTime;
+
+    SentryDataCollection.captureException(error as Error, {
+      operation: 'schema_validation_exception',
+      schema_name: schemaName,
+      context,
+      duration,
+    });
+
+    SentryLogger.error(
+      `Unexpected error during schema validation for ${schemaName || 'unknown schema'}`,
+      {
+        error: error as Error,
+        schema_name: schemaName,
+        context,
+        duration,
+      },
+    );
+
+    logger.error(
+      `Unexpected error during schema validation for ${schemaName || 'unknown schema'}`,
+      error as Error,
+      {
+        context: { schemaName, context, duration },
+      },
+    );
+
+    return { success: false, errors: ['Schema validation failed due to unexpected error'] };
+  }
+};
+
+// Schema usage tracking utility
+export const trackSchemaUsage = (
+  schemaName: string,
+  operation: string,
+  metadata?: Record<string, unknown>,
+) => {
+  addBreadcrumb({
+    message: `Schema usage tracked: ${schemaName}`,
+    category: 'validation_schemas.usage',
+    level: 'info',
+    data: {
+      schema_name: schemaName,
+      operation,
+      timestamp: new Date().toISOString(),
+      ...metadata,
+    },
+  });
+
+  SentryDataCollection.setContext('schema_usage', {
+    last_used_schema: schemaName,
+    last_operation: operation,
+    timestamp: new Date().toISOString(),
+    metadata,
+  });
+};
+
+// Enhanced schema creation utility with monitoring
+export const createMonitoredSchema = <T>(
+  schema: z.ZodSchema<T>,
+  schemaName: string,
+  category?: string,
+): z.ZodSchema<T> => {
+  addBreadcrumb({
+    message: `Monitored schema created: ${schemaName}`,
+    category: 'validation_schemas.creation',
+    level: 'info',
+    data: {
+      schema_name: schemaName,
+      category,
+      timestamp: new Date().toISOString(),
+    },
+  });
+
+  SentryLogger.info(`Monitored schema created: ${schemaName}`, {
+    schema_name: schemaName,
+    category,
+    timestamp: new Date().toISOString(),
+  });
+
+  return schema.transform((data) => {
+    trackSchemaUsage(schemaName, 'transform', { category });
+    return data;
+  });
+};
 
 // Base validation schemas
 export const IdSchema = z.string().min(1, 'ID cannot be empty');
@@ -578,6 +858,191 @@ export const CoachingUserProfileSchema = z.object({
   height: z.number().positive(),
   medicalConditions: z.array(z.string()).optional(),
 });
+
+// Enhanced validation utilities
+export interface SchemaValidationMetrics {
+  totalValidations: number;
+  successfulValidations: number;
+  failedValidations: number;
+  averageValidationTime: number;
+  schemaUsageCount: Record<string, number>;
+  errorPatterns: Record<string, number>;
+  slowValidations: number;
+}
+
+// Global schema metrics tracking
+let schemaMetrics: SchemaValidationMetrics = {
+  totalValidations: 0,
+  successfulValidations: 0,
+  failedValidations: 0,
+  averageValidationTime: 0,
+  schemaUsageCount: {},
+  errorPatterns: {},
+  slowValidations: 0,
+};
+
+// Performance times tracking
+const performanceTimes: number[] = [];
+
+// Update metrics utility
+const updateSchemaMetrics = (
+  schemaName: string,
+  success: boolean,
+  duration: number,
+  errors?: string[],
+) => {
+  schemaMetrics.totalValidations++;
+  performanceTimes.push(duration);
+
+  if (success) {
+    schemaMetrics.successfulValidations++;
+  } else {
+    schemaMetrics.failedValidations++;
+
+    // Track error patterns
+    errors?.forEach((error) => {
+      schemaMetrics.errorPatterns[error] = (schemaMetrics.errorPatterns[error] || 0) + 1;
+    });
+  }
+
+  // Track schema usage
+  schemaMetrics.schemaUsageCount[schemaName] =
+    (schemaMetrics.schemaUsageCount[schemaName] || 0) + 1;
+
+  // Track slow validations
+  if (duration > 10) {
+    schemaMetrics.slowValidations++;
+  }
+
+  // Calculate average validation time
+  if (performanceTimes.length > 0) {
+    schemaMetrics.averageValidationTime =
+      performanceTimes.reduce((a, b) => a + b, 0) / performanceTimes.length;
+  }
+};
+
+// Enhanced schema validation with metrics
+export const validateSchemaWithMetrics = <T>(
+  schema: z.ZodSchema<T>,
+  data: unknown,
+  schemaName: string,
+  context?: string,
+): { success: true; data: T } | { success: false; errors: string[] } => {
+  const startTime = Date.now();
+
+  try {
+    const result = validateWithSchema(schema, data, schemaName, context);
+    const duration = Date.now() - startTime;
+
+    updateSchemaMetrics(
+      schemaName,
+      result.success,
+      duration,
+      result.success ? undefined : result.errors,
+    );
+
+    return result;
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    updateSchemaMetrics(schemaName, false, duration, ['Unexpected validation error']);
+    throw error;
+  }
+};
+
+// Global schema metrics getter
+export const getSchemaMetrics = (): SchemaValidationMetrics => {
+  addBreadcrumb({
+    message: 'Schema validation metrics retrieved',
+    category: 'validation_schemas.metrics',
+    level: 'info',
+    data: schemaMetrics,
+  });
+
+  SentryLogger.info('Schema validation metrics retrieved', {
+    metrics: schemaMetrics,
+    timestamp: new Date().toISOString(),
+  });
+
+  return { ...schemaMetrics };
+};
+
+// Reset schema metrics
+export const resetSchemaMetrics = (): void => {
+  const previousMetrics = { ...schemaMetrics };
+
+  schemaMetrics = {
+    totalValidations: 0,
+    successfulValidations: 0,
+    failedValidations: 0,
+    averageValidationTime: 0,
+    schemaUsageCount: {},
+    errorPatterns: {},
+    slowValidations: 0,
+  };
+
+  performanceTimes.length = 0;
+
+  addBreadcrumb({
+    message: 'Schema validation metrics reset',
+    category: 'validation_schemas.metrics',
+    level: 'info',
+    data: {
+      previous_metrics: previousMetrics,
+      reset_timestamp: new Date().toISOString(),
+    },
+  });
+
+  SentryLogger.info('Schema validation metrics reset', {
+    previous_metrics: previousMetrics,
+    reset_timestamp: new Date().toISOString(),
+  });
+};
+
+// Schema validation registry for tracking
+export const SCHEMA_REGISTRY = {
+  // Base schemas
+  IdSchema: 'id_schema',
+  EmailSchema: 'email_schema',
+  UrlSchema: 'url_schema',
+  DateStringSchema: 'date_string_schema',
+  PositiveNumberSchema: 'positive_number_schema',
+  NonNegativeNumberSchema: 'non_negative_number_schema',
+
+  // Exercise schemas
+  ExerciseSetSchema: 'exercise_set_schema',
+  GeneralExerciseSchema: 'general_exercise_schema',
+  ExerciseSchema: 'exercise_schema',
+  WorkoutDaySchema: 'workout_day_schema',
+  PlanSchema: 'plan_schema',
+
+  // User schemas
+  UserProfileSchema: 'user_profile_schema',
+  ProfileUpdateSchema: 'profile_update_schema',
+  UserPreferencesSchema: 'user_preferences_schema',
+
+  // Form schemas
+  LoginFormSchema: 'login_form_schema',
+  RegisterFormSchema: 'register_form_schema',
+  MeasurementFormSchema: 'measurement_form_schema',
+  CustomizeExerciseFormSchema: 'customize_exercise_form_schema',
+
+  // Workout schemas
+  PausedWorkoutSchema: 'paused_workout_schema',
+  CompletedWorkoutDataSchema: 'completed_workout_data_schema',
+  WorkoutHistoryRecordSchema: 'workout_history_record_schema',
+
+  // Achievement schemas
+  AchievementSchema: 'achievement_schema',
+  UserAchievementSchema: 'user_achievement_schema',
+
+  // Measurement schemas
+  MeasurementSchema: 'measurement_schema',
+  ProgressPhotoSchema: 'progress_photo_schema',
+
+  // API schemas
+  ApiResponseSchema: 'api_response_schema',
+  PaginatedResponseSchema: 'paginated_response_schema',
+} as const;
 
 // Type exports for new schemas
 export type ProfileContext = z.infer<typeof ProfileContextSchema>;

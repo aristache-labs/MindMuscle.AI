@@ -1,5 +1,15 @@
 import { logger } from '../utils/logger';
 import { apiClient } from './apiClient';
+// Add Sentry imports
+import {
+  captureError,
+  captureMessage,
+  captureDatabaseError,
+  captureValidationError,
+  captureAPIError,
+  capturePerformanceError,
+} from './sentry';
+import { addBreadcrumb } from './sentry/simpleErrorHandler';
 
 // Define proper types for analytics data
 export interface WorkoutSessionData {
@@ -118,12 +128,24 @@ class AnalyticsService {
    * Initialize a new analytics session
    */
   private initializeSession(): void {
-    this.sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    this.sessionStartTime = new Date();
+    try {
+      this.sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      this.sessionStartTime = new Date();
 
-    logger.info('Analytics session initialized', {
-      context: { sessionId: this.sessionId },
-    });
+      addBreadcrumb('Analytics session initialized', 'analytics', {
+        sessionId: this.sessionId,
+      });
+
+      logger.info('Analytics session initialized', {
+        context: { sessionId: this.sessionId },
+      });
+    } catch (error) {
+      logger.error('Error initializing analytics session', error as Error);
+      captureError(error as Error, {
+        category: 'javascript_error',
+        component: 'AnalyticsService',
+      });
+    }
   }
 
   /**
@@ -136,6 +158,12 @@ class AnalyticsService {
     deviceInfo?: AnalyticsEvent['deviceInfo'],
   ): Promise<void> {
     try {
+      addBreadcrumb('Starting analytics event tracking', 'analytics', {
+        userId,
+        eventType,
+        sessionId: this.sessionId,
+      });
+
       const event: Omit<AnalyticsEvent, 'id'> = {
         userId,
         eventType,
@@ -147,9 +175,11 @@ class AnalyticsService {
 
       // Basic validation
       if (!userId || !eventType) {
+        const error = new Error('Invalid analytics event data: missing userId or eventType');
         logger.warn('Invalid analytics event data', {
           context: { userId, eventType },
         });
+        captureValidationError(error, 'eventData');
         return;
       }
 
@@ -166,6 +196,12 @@ class AnalyticsService {
         },
       );
 
+      addBreadcrumb('Analytics event tracked successfully', 'analytics', {
+        userId,
+        eventType,
+        sessionId: this.sessionId,
+      });
+
       logger.debug('Analytics event tracked', {
         context: { userId, eventType, sessionId: this.sessionId },
       });
@@ -173,6 +209,7 @@ class AnalyticsService {
       logger.error('Error tracking analytics event', error as Error, {
         context: { userId, eventType },
       });
+      captureAPIError(error as Error, '/rest/v1/analytics_events');
       // Don't throw - analytics failures shouldn't break the app
     }
   }
@@ -278,6 +315,10 @@ class AnalyticsService {
     timeframe: 'week' | 'month' | 'year' = 'month',
   ): Promise<WorkoutAnalytics> {
     try {
+      addBreadcrumb('Starting workout analytics calculation', 'analytics', {
+        userId,
+        timeframe,
+      });
       const endDate = new Date();
       const startDate = new Date();
 
@@ -381,6 +422,13 @@ class AnalyticsService {
         },
       };
 
+      addBreadcrumb('Workout analytics calculated successfully', 'analytics', {
+        userId,
+        timeframe,
+        totalWorkouts,
+        totalDuration,
+      });
+
       logger.info('Workout analytics calculated', {
         context: { userId, timeframe, totalWorkouts, totalDuration },
       });
@@ -389,6 +437,11 @@ class AnalyticsService {
     } catch (error) {
       logger.error('Error calculating workout analytics', error as Error, {
         context: { userId, timeframe },
+      });
+      captureError(error as Error, {
+        category: 'api_error',
+        component: 'AnalyticsService',
+        userId,
       });
       throw error;
     }

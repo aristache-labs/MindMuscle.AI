@@ -1,7 +1,15 @@
-import { createContext, useContext } from 'react';
+import React, { createContext, useContext } from 'react';
 import { logger } from '../utils/logger';
 import supabase from './supabase';
 import { validationService } from './validationService';
+// Add Sentry imports
+import {
+  captureError,
+  captureDatabaseError,
+  captureValidationError,
+  captureAuthError,
+} from './sentry';
+import { addBreadcrumb } from './sentry/simpleErrorHandler';
 
 export const db = {
   // User operations
@@ -15,6 +23,11 @@ export const db = {
     };
   }) => {
     try {
+      addBreadcrumb('Starting user creation process', 'database', {
+        email: data.email,
+        hasPreferences: !!data.preferences,
+      });
+
       // Validate user data before database operation
       const userValidationData = {
         email: data.email,
@@ -28,6 +41,7 @@ export const db = {
         logger.error('User validation failed', new Error(errorMessage), {
           context: { userData: userValidationData, errors: validationResult.errors },
         });
+        captureValidationError(new Error(errorMessage), 'userProfile');
         throw new Error(errorMessage);
       }
 
@@ -39,6 +53,7 @@ export const db = {
 
       if (authError) {
         logger.error('Auth signup failed', authError, { context: { email: data.email } });
+        captureAuthError(authError, 'signup');
         throw authError;
       }
 
@@ -57,6 +72,7 @@ export const db = {
         logger.error('User profile creation failed', userError, {
           context: { userId: authData.user?.id },
         });
+        captureDatabaseError(new Error(userError.message), 'users', 'insert');
         throw userError;
       }
 
@@ -88,12 +104,22 @@ export const db = {
         throw statsError;
       }
 
+      addBreadcrumb('User created successfully', 'database', {
+        userId: createdUser.id,
+        email: data.email,
+      });
+
       logger.info('User created successfully', {
         context: { userId: createdUser.id, email: data.email },
       });
       return createdUser;
     } catch (error) {
       logger.error('Failed to create user', error as Error, { context: { email: data.email } });
+      captureError(error as Error, {
+        category: 'database_error',
+        component: 'database',
+        email: data.email,
+      });
       throw error;
     }
   },

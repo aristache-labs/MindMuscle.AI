@@ -269,3 +269,8 @@ export const createExerciseSections = (
 
   return sections;
 };
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function ExerciseListHelpersRouterPlaceholder() {
+  return null;
+}

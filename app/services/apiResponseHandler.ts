@@ -2,6 +2,9 @@ import { z } from 'zod';
 import { logger } from '../utils/logger';
 import { ApiResponse, HttpError, RateLimitError } from './httpClient';
 import { validationService } from './validationService';
+// Add Sentry imports
+import { captureError } from './sentry';
+import { addBreadcrumb } from './sentry/simpleErrorHandler';
 
 // Response transformation types
 export interface ResponseTransformer<TInput = unknown, TOutput = unknown> {
@@ -184,35 +187,63 @@ export class ApiResponseHandler {
 
   // Categorize API errors
   categorizeError(error: Error): CategorizedApiError {
-    let category: ApiErrorCategory;
-    let retryable = false;
-    let retryAfter: number | undefined;
-    let context: Record<string, unknown> | undefined;
+    try {
+      addBreadcrumb('Categorizing API error', 'api_response_handler', {
+        errorType: error.constructor.name,
+        errorMessage: error.message,
+      });
 
-    if (error instanceof RateLimitError) {
-      const result = this.categorizeRateLimitError(error);
-      category = result.category;
-      retryable = result.retryable;
-      retryAfter = result.retryAfter;
-    } else if (error instanceof HttpError) {
-      const result = this.categorizeHttpError(error);
-      category = result.category;
-      retryable = result.retryable;
-      context = result.context;
-    } else {
-      const result = this.categorizeGenericError(error);
-      category = result.category;
-      retryable = result.retryable;
+      let category: ApiErrorCategory;
+      let retryable = false;
+      let retryAfter: number | undefined;
+      let context: Record<string, unknown> | undefined;
+
+      if (error instanceof RateLimitError) {
+        const result = this.categorizeRateLimitError(error);
+        category = result.category;
+        retryable = result.retryable;
+        retryAfter = result.retryAfter;
+      } else if (error instanceof HttpError) {
+        const result = this.categorizeHttpError(error);
+        category = result.category;
+        retryable = result.retryable;
+        context = result.context;
+      } else {
+        const result = this.categorizeGenericError(error);
+        category = result.category;
+        retryable = result.retryable;
+      }
+
+      addBreadcrumb('Successfully categorized API error', 'api_response_handler', {
+        category,
+        retryable,
+      });
+
+      return {
+        category,
+        originalError: error,
+        message: error.message,
+        retryable,
+        retryAfter,
+        context,
+      };
+    } catch (categorizationError) {
+      logger.error('Error categorizing API error', categorizationError as Error, {
+        context: { originalError: error.message },
+      });
+      captureError(categorizationError as Error, {
+        category: 'api_error',
+        component: 'apiResponseHandler',
+      });
+
+      // Return a fallback categorization
+      return {
+        category: ApiErrorCategory.UNKNOWN,
+        originalError: error,
+        message: error.message,
+        retryable: false,
+      };
     }
-
-    return {
-      category,
-      originalError: error,
-      message: error.message,
-      retryable,
-      retryAfter,
-      context,
-    };
   }
 
   // Apply response transformations

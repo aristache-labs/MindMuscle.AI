@@ -1,4 +1,5 @@
 import { format } from 'date-fns';
+import * as Sentry from '@sentry/react-native';
 import supabase from './supabase';
 import { getUserWorkoutDays } from './workoutPlanCore';
 
@@ -104,15 +105,30 @@ export const fetchActivePlan = async (
   userId: string,
   userWorkoutDays: number[],
 ): Promise<{ plan: FormattedPlan | null; markedDates: MarkedDates }> => {
-  if (!userId) {
-    throw new Error('User ID is required');
-  }
+  const startTime = Date.now();
 
-  // Fetch the active plan data
-  const { data: activePlanData, error: activePlanError } = await supabase
-    .from('user_active_plans')
-    .select(
-      `
+  try {
+    Sentry.addBreadcrumb({
+      message: 'Fetching active plan for user',
+      category: 'workout.plan',
+      data: { userId, userWorkoutDaysCount: userWorkoutDays?.length },
+      level: 'info',
+    });
+
+    if (!userId) {
+      const error = new Error('User ID is required');
+      Sentry.captureException(error, {
+        tags: { operation: 'fetchActivePlan', step: 'validation' },
+        extra: { userId },
+      });
+      throw error;
+    }
+
+    // Fetch the active plan data
+    const { data: activePlanData, error: activePlanError } = await supabase
+      .from('user_active_plans')
+      .select(
+        `
         id,
         plan_id,
         user_id,
@@ -132,29 +148,45 @@ export const fetchActivePlan = async (
           )
         )
       `,
-    )
-    .eq('user_id', userId)
-    .eq('is_active', true)
-    .single();
+      )
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .single();
 
-  if (activePlanError) {
-    if (activePlanError.code === 'PGRST116') {
-      // No active plan found
+    if (activePlanError) {
+      if (activePlanError.code === 'PGRST116') {
+        // No active plan found
+        Sentry.addBreadcrumb({
+          message: 'No active plan found for user',
+          category: 'workout.plan',
+          data: { userId },
+          level: 'info',
+        });
+        return { plan: null, markedDates: {} };
+      }
+
+      Sentry.captureException(activePlanError, {
+        tags: { operation: 'fetchActivePlan', step: 'fetch_active_plan' },
+        extra: { userId, errorCode: activePlanError.code },
+      });
+      throw activePlanError;
+    }
+
+    if (!activePlanData || !activePlanData.workout_plans) {
+      Sentry.addBreadcrumb({
+        message: 'No active plan or plan data found',
+        category: 'workout.plan',
+        data: { userId, hasActivePlanData: !!activePlanData },
+        level: 'warning',
+      });
       return { plan: null, markedDates: {} };
     }
-    throw activePlanError;
-  }
 
-  if (!activePlanData || !activePlanData.workout_plans) {
-    // No active plan or plan data found
-    return { plan: null, markedDates: {} };
-  }
-
-  // Fetch the exercises for this plan
-  const { data: exercisesData, error: exercisesError } = await supabase
-    .from('workout_plan_exercises')
-    .select(
-      `
+    // Fetch the exercises for this plan
+    const { data: exercisesData, error: exercisesError } = await supabase
+      .from('workout_plan_exercises')
+      .select(
+        `
         id,
         sets,
         reps_range,
@@ -168,122 +200,149 @@ export const fetchActivePlan = async (
           primary_muscles
         )
       `,
-    )
-    .eq('plan_id', activePlanData.plan_id)
-    .order('workout_day', { ascending: true })
-    .order('order', { ascending: true });
+      )
+      .eq('plan_id', activePlanData.plan_id)
+      .order('workout_day', { ascending: true })
+      .order('order', { ascending: true });
 
-  if (exercisesError) throw exercisesError;
-
-  // Group exercises by workout day
-  const exercisesByDay: { [key: number]: ExerciseData[] } = {};
-  exercisesData.forEach((item: unknown) => {
-    const exercise = item as Record<string, unknown>;
-    const day = (exercise.workout_day as number) || 0;
-    if (!exercisesByDay[day]) {
-      exercisesByDay[day] = [];
+    if (exercisesError) {
+      Sentry.captureException(exercisesError, {
+        tags: { operation: 'fetchActivePlan', step: 'fetch_exercises' },
+        extra: { userId, planId: activePlanData.plan_id },
+      });
+      throw exercisesError;
     }
 
-    exercisesByDay[day].push({
-      id: exercise.id,
-      name: exercise.exercise_name || (exercise.exercises as Record<string, unknown>)?.name,
-      sets: exercise.sets,
-      reps_range: exercise.reps_range,
-      image_url: (exercise.exercises as Record<string, unknown>)?.image_url,
-      primary_muscles: (exercise.exercises as Record<string, unknown>)?.primary_muscles,
-      workout_day: day,
-      exercise_id: (exercise.exercises as Record<string, unknown>)?.id,
-    } as ExerciseData);
-  });
+    // Group exercises by workout day
+    const exercisesByDay: { [key: number]: ExerciseData[] } = {};
+    exercisesData.forEach((item: unknown) => {
+      const exercise = item as Record<string, unknown>;
+      const day = (exercise.workout_day as number) || 0;
+      if (!exercisesByDay[day]) {
+        exercisesByDay[day] = [];
+      }
 
-  // Convert to array of workout days with per-day statistics
-  const workoutDays = Object.keys(exercisesByDay)
-    .map((dayKey) => {
-      const dayNum = parseInt(dayKey);
-      const dayExercises = exercisesByDay[dayNum];
+      exercisesByDay[day].push({
+        id: exercise.id,
+        name: exercise.exercise_name || (exercise.exercises as Record<string, unknown>)?.name,
+        sets: exercise.sets,
+        reps_range: exercise.reps_range,
+        image_url: (exercise.exercises as Record<string, unknown>)?.image_url,
+        primary_muscles: (exercise.exercises as Record<string, unknown>)?.primary_muscles,
+        workout_day: day,
+        exercise_id: (exercise.exercises as Record<string, unknown>)?.id,
+      } as ExerciseData);
+    });
 
-      // Calculate per-day statistics based on actual exercise data
-      const exerciseCount = dayExercises.length;
+    // Convert to array of workout days with per-day statistics
+    const workoutDays = Object.keys(exercisesByDay)
+      .map((dayKey) => {
+        const dayNum = parseInt(dayKey);
+        const dayExercises = exercisesByDay[dayNum];
 
-      // Calculate estimated duration based on sets, reps, and rest time
-      let totalDuration = 0;
-      dayExercises.forEach((exercise) => {
-        const sets = exercise.sets || 3;
-        const repRange = exercise.reps_range || '-';
+        // Calculate per-day statistics based on actual exercise data
+        const exerciseCount = dayExercises.length;
 
-        // Parse rep range to get average reps (e.g., "8-12" -> 10)
-        let avgReps = 10; // Default
-        if (repRange.includes('-')) {
-          const [min, max] = repRange.split('-').map((num: string) => parseInt(num));
-          if (!Number.isNaN(min) && !Number.isNaN(max)) {
-            avgReps = Math.floor((min + max) / 2);
+        // Calculate estimated duration based on sets, reps, and rest time
+        let totalDuration = 0;
+        dayExercises.forEach((exercise) => {
+          const sets = exercise.sets || 3;
+          const repRange = exercise.reps_range || '-';
+
+          // Parse rep range to get average reps (e.g., "8-12" -> 10)
+          let avgReps = 10; // Default
+          if (repRange.includes('-')) {
+            const [min, max] = repRange.split('-').map((num: string) => parseInt(num));
+            if (!Number.isNaN(min) && !Number.isNaN(max)) {
+              avgReps = Math.floor((min + max) / 2);
+            }
+          } else if (!Number.isNaN(parseInt(repRange))) {
+            avgReps = parseInt(repRange);
           }
-        } else if (!Number.isNaN(parseInt(repRange))) {
-          avgReps = parseInt(repRange);
-        }
 
-        // Estimate time per rep at ~2-3 seconds
-        const timePerSet = avgReps * 2.5; // seconds
+          // Estimate time per rep at ~2-3 seconds
+          const timePerSet = avgReps * 2.5; // seconds
 
-        // Rest time between sets (typically 60-90 seconds)
-        const restTime = 75; // seconds
+          // Rest time between sets (typically 60-90 seconds)
+          const restTime = 75; // seconds
 
-        // Total time for this exercise (all sets + rest between sets)
-        const exerciseTime = sets * timePerSet + restTime * (sets - 1);
+          // Total time for this exercise (all sets + rest between sets)
+          const exerciseTime = sets * timePerSet + restTime * (sets - 1);
 
-        // Add to total duration (convert to minutes)
-        totalDuration += exerciseTime / 60;
-      });
+          // Add to total duration (convert to minutes)
+          totalDuration += exerciseTime / 60;
+        });
 
-      // Round up to nearest minute
-      const estimatedDuration = Math.ceil(totalDuration);
+        // Round up to nearest minute
+        const estimatedDuration = Math.ceil(totalDuration);
 
-      // Calculate calories based on duration with a more realistic formula
-      // Moderate exercise burns approximately 7-10 calories per minute depending on intensity
-      const calorieRate = 8.5; // calories per minute for moderate-high intensity workout
-      const estimatedCalories = Math.round(estimatedDuration * calorieRate);
+        // Calculate calories based on duration with a more realistic formula
+        // Moderate exercise burns approximately 7-10 calories per minute depending on intensity
+        const calorieRate = 8.5; // calories per minute for moderate-high intensity workout
+        const estimatedCalories = Math.round(estimatedDuration * calorieRate);
 
-      return {
-        day: dayNum,
-        exercises: dayExercises,
-        total_exercises: exerciseCount,
-        estimated_duration: estimatedDuration,
-        total_calories: estimatedCalories,
-      };
-    })
-    .sort((a, b) => a.day - b.day);
+        return {
+          day: dayNum,
+          exercises: dayExercises,
+          total_exercises: exerciseCount,
+          estimated_duration: estimatedDuration,
+          total_calories: estimatedCalories,
+        };
+      })
+      .sort((a, b) => a.day - b.day);
 
-  // Type-safe access to nested Supabase data
-  const workoutPlans = activePlanData.workout_plans as unknown;
-  const planData = workoutPlans as Record<string, unknown>;
-  const subcategories = planData?.workout_subcategories as Record<string, unknown>;
+    // Type-safe access to nested Supabase data
+    const workoutPlans = activePlanData.workout_plans as unknown;
+    const planData = workoutPlans as Record<string, unknown>;
+    const subcategories = planData?.workout_subcategories as Record<string, unknown>;
 
-  // Format the data
-  const formattedPlan: FormattedPlan = {
-    id: activePlanData.plan_id,
-    title: (planData?.title as string) || 'Unknown',
-    difficulty_level: (planData?.difficulty_level as string) || 'Unknown',
-    subtitle: (subcategories?.subtitle as string) || 'Unknown',
-    category_name: (subcategories?.title as string) || 'Unknown',
-    workoutDays: workoutDays,
-    current_day: activePlanData.current_day,
-    start_date: activePlanData.start_date,
-  };
+    // Format the data
+    const formattedPlan: FormattedPlan = {
+      id: activePlanData.plan_id,
+      title: (planData?.title as string) || 'Unknown',
+      difficulty_level: (planData?.difficulty_level as string) || 'Unknown',
+      subtitle: (subcategories?.subtitle as string) || 'Unknown',
+      category_name: (subcategories?.title as string) || 'Unknown',
+      workoutDays: workoutDays,
+      current_day: activePlanData.current_day,
+      start_date: activePlanData.start_date,
+    };
 
-  // Setup calendar dates if user workout days are provided
-  let markedDates = {};
-  if (userWorkoutDays && userWorkoutDays.length > 0) {
-    markedDates = setupCalendarDates(
-      activePlanData.start_date,
-      workoutDays.length,
-      userWorkoutDays,
-    );
+    // Setup calendar dates if user workout days are provided
+    let markedDates = {};
+    if (userWorkoutDays && userWorkoutDays.length > 0) {
+      markedDates = setupCalendarDates(
+        activePlanData.start_date,
+        workoutDays.length,
+        userWorkoutDays,
+      );
+    }
+
+    const duration = Date.now() - startTime;
+    Sentry.addBreadcrumb({
+      message: 'Successfully fetched active plan',
+      category: 'workout.plan',
+      data: {
+        userId,
+        planId: formattedPlan.id,
+        workoutDaysCount: workoutDays.length,
+        duration,
+      },
+      level: 'info',
+    });
+
+    return {
+      plan: formattedPlan,
+      markedDates,
+    };
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    Sentry.captureException(error, {
+      tags: { operation: 'fetchActivePlan' },
+      extra: { userId, userWorkoutDaysCount: userWorkoutDays?.length, duration },
+    });
+    throw error;
   }
-
-  return {
-    plan: formattedPlan,
-    markedDates,
-  };
 };
 
 // Setup calendar marked dates based on workout frequency and user preferences
@@ -293,8 +352,22 @@ export const setupCalendarDates = (
   userWorkoutDays: number[],
   colors: CalendarColors = { primary: '#007BFF' },
 ): MarkedDates => {
+  const startTime = Date.now();
+
   try {
+    Sentry.addBreadcrumb({
+      message: 'Setting up calendar dates',
+      category: 'workout.calendar',
+      data: { startDate, totalDays, userWorkoutDaysCount: userWorkoutDays?.length },
+      level: 'info',
+    });
+
     if (!userWorkoutDays || userWorkoutDays.length === 0) {
+      const error = new Error('No valid workout days provided');
+      Sentry.captureException(error, {
+        tags: { operation: 'setupCalendarDates', step: 'validation' },
+        extra: { startDate, totalDays, userWorkoutDays },
+      });
       console.error('No valid workout days provided');
       return {};
     }
@@ -349,7 +422,6 @@ export const setupCalendarDates = (
           // For subsequent workout days in the same week, ensure proper spacing
           if (workoutDay > 1) {
             const prevWorkoutDay = workoutDay - 1;
-            const _prevUserDayIndex = (prevWorkoutDay - 1) % sortedUserDays.length;
 
             // Find the previous workout date
             const prevDateKey = Object.keys(markedDates).find((dateStr) => {
@@ -427,8 +499,26 @@ export const setupCalendarDates = (
       }
     }
 
+    const duration = Date.now() - startTime;
+    Sentry.addBreadcrumb({
+      message: 'Successfully set up calendar dates',
+      category: 'workout.calendar',
+      data: {
+        startDate,
+        totalDays,
+        markedDatesCount: Object.keys(markedDates).length,
+        duration,
+      },
+      level: 'info',
+    });
+
     return markedDates;
   } catch (error) {
+    const duration = Date.now() - startTime;
+    Sentry.captureException(error, {
+      tags: { operation: 'setupCalendarDates' },
+      extra: { startDate, totalDays, userWorkoutDays, duration },
+    });
     console.error('Error setting up calendar dates:', error);
     return {};
   }
@@ -440,18 +530,51 @@ const findTodayCompletedWorkout = (
   workoutDayIndex: number,
   today: Date,
 ): WorkoutHistoryRecord | null => {
-  let todayCompletedWorkout: WorkoutHistoryRecord | null = null;
+  try {
+    Sentry.addBreadcrumb({
+      message: "Finding today's completed workout",
+      category: 'workout.completion',
+      data: {
+        workoutDayIndex,
+        todayDate: today.toISOString().split('T')[0],
+        totalWorkouts: allCompletedWorkouts.length,
+      },
+      level: 'debug',
+    });
 
-  allCompletedWorkouts.forEach((workout) => {
-    if (workout.workout_day === workoutDayIndex) {
-      const completedDate = new Date(workout.completed_at);
-      if (completedDate.toDateString() === today.toDateString()) {
-        todayCompletedWorkout = workout as WorkoutHistoryRecord;
+    let todayCompletedWorkout: WorkoutHistoryRecord | null = null;
+
+    allCompletedWorkouts.forEach((workout) => {
+      if (workout.workout_day === workoutDayIndex) {
+        const completedDate = new Date(workout.completed_at);
+        if (completedDate.toDateString() === today.toDateString()) {
+          todayCompletedWorkout = workout as WorkoutHistoryRecord;
+        }
       }
-    }
-  });
+    });
 
-  return todayCompletedWorkout;
+    Sentry.addBreadcrumb({
+      message: "Completed search for today's workout",
+      category: 'workout.completion',
+      data: {
+        workoutDayIndex,
+        found: !!todayCompletedWorkout,
+      },
+      level: 'debug',
+    });
+
+    return todayCompletedWorkout;
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: { operation: 'findTodayCompletedWorkout' },
+      extra: {
+        workoutDayIndex,
+        today: today.toISOString(),
+        workoutsCount: allCompletedWorkouts.length,
+      },
+    });
+    return null;
+  }
 };
 
 // Helper function to build completed workout data
@@ -459,20 +582,52 @@ const buildCompletedWorkoutData = (
   completedWorkout: WorkoutHistoryRecord,
   completedDates: string[],
 ): WorkoutCompletionResult => {
-  return {
-    isCompleted: true,
-    completedWorkoutData: {
-      completedExercises: completedWorkout.completed_exercises || 0,
-      duration: completedWorkout.workout_duration || '00:00:00',
-      caloriesBurned: completedWorkout.calories_burned || 0,
-      totalVolume: completedWorkout.total_volume || 0,
-      totalReps: completedWorkout.total_reps || 0,
-      completedAt: completedWorkout.completed_at,
-      weekName: completedWorkout.week_name || '',
-      cycleWeek: completedWorkout.cycle_week || 1,
-    },
-    completedDates,
-  };
+  try {
+    Sentry.addBreadcrumb({
+      message: 'Building completed workout data',
+      category: 'workout.completion',
+      data: {
+        workoutDay: completedWorkout.workout_day,
+        completedAt: completedWorkout.completed_at,
+        completedDatesCount: completedDates.length,
+      },
+      level: 'debug',
+    });
+
+    const result = {
+      isCompleted: true,
+      completedWorkoutData: {
+        completedExercises: completedWorkout.completed_exercises || 0,
+        duration: completedWorkout.workout_duration || '00:00:00',
+        caloriesBurned: completedWorkout.calories_burned || 0,
+        totalVolume: completedWorkout.total_volume || 0,
+        totalReps: completedWorkout.total_reps || 0,
+        completedAt: completedWorkout.completed_at,
+        weekName: completedWorkout.week_name || '',
+        cycleWeek: completedWorkout.cycle_week || 1,
+      },
+      completedDates,
+    };
+
+    Sentry.addBreadcrumb({
+      message: 'Successfully built completed workout data',
+      category: 'workout.completion',
+      data: {
+        completedExercises: result.completedWorkoutData.completedExercises,
+        duration: result.completedWorkoutData.duration,
+        cycleWeek: result.completedWorkoutData.cycleWeek,
+      },
+      level: 'debug',
+    });
+
+    return result;
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: { operation: 'buildCompletedWorkoutData' },
+      extra: { completedWorkout, completedDatesCount: completedDates.length },
+    });
+    return { isCompleted: false };
+  }
 };
 
 // Helper function to build completed dates from marked dates
@@ -480,34 +635,66 @@ const buildCompletedDatesFromMarkedDates = (
   markedDates: MarkedDates,
   allCompletedWorkouts: WorkoutHistoryRecord[],
 ): string[] => {
-  const completedDates: string[] = [];
-
-  if (markedDates && Object.keys(markedDates).length > 0) {
-    Object.entries(markedDates).forEach(([dateStr, dateInfo]: [string, MarkedDate]) => {
-      if (dateInfo && dateInfo.workoutDayIndex !== undefined && dateInfo.cycleWeek !== undefined) {
-        const workoutDayIndex = dateInfo.workoutDayIndex;
-        const cycleWeek = dateInfo.cycleWeek;
-
-        const hasCompletedWorkout = allCompletedWorkouts.some((w: WorkoutHistoryRecord) => {
-          if (w.workout_day !== workoutDayIndex) return false;
-
-          const completionDate = new Date(w.completed_at);
-          const completionDateStr = format(completionDate, 'yyyy-MM-dd');
-
-          return (
-            completionDateStr === dateStr ||
-            (w.workout_day === workoutDayIndex && w.cycle_week === cycleWeek)
-          );
-        });
-
-        if (hasCompletedWorkout) {
-          completedDates.push(dateStr);
-        }
-      }
+  try {
+    Sentry.addBreadcrumb({
+      message: 'Building completed dates from marked dates',
+      category: 'workout.completion',
+      data: {
+        markedDatesCount: Object.keys(markedDates).length,
+        completedWorkoutsCount: allCompletedWorkouts.length,
+      },
+      level: 'debug',
     });
-  }
 
-  return completedDates;
+    const completedDates: string[] = [];
+
+    if (markedDates && Object.keys(markedDates).length > 0) {
+      Object.entries(markedDates).forEach(([dateStr, dateInfo]: [string, MarkedDate]) => {
+        if (
+          dateInfo &&
+          dateInfo.workoutDayIndex !== undefined &&
+          dateInfo.cycleWeek !== undefined
+        ) {
+          const workoutDayIndex = dateInfo.workoutDayIndex;
+          const cycleWeek = dateInfo.cycleWeek;
+
+          const hasCompletedWorkout = allCompletedWorkouts.some((w: WorkoutHistoryRecord) => {
+            if (w.workout_day !== workoutDayIndex) return false;
+
+            const completionDate = new Date(w.completed_at);
+            const completionDateStr = format(completionDate, 'yyyy-MM-dd');
+
+            return (
+              completionDateStr === dateStr ||
+              (w.workout_day === workoutDayIndex && w.cycle_week === cycleWeek)
+            );
+          });
+
+          if (hasCompletedWorkout) {
+            completedDates.push(dateStr);
+          }
+        }
+      });
+    }
+
+    Sentry.addBreadcrumb({
+      message: 'Successfully built completed dates',
+      category: 'workout.completion',
+      data: { completedDatesCount: completedDates.length },
+      level: 'debug',
+    });
+
+    return completedDates;
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: { operation: 'buildCompletedDatesFromMarkedDates' },
+      extra: {
+        markedDatesCount: Object.keys(markedDates).length,
+        completedWorkoutsCount: allCompletedWorkouts.length,
+      },
+    });
+    return [];
+  }
 };
 
 // Check if workout is already completed for the selected day in my-plan.tsx
@@ -517,11 +704,25 @@ export const checkWorkoutCompletionForPlan = async (
   workoutDayIndex: number,
   markedDates: MarkedDates,
 ): Promise<WorkoutCompletionResult> => {
-  if (!userId || !planId || workoutDayIndex === null) {
-    return { isCompleted: false };
-  }
+  const startTime = Date.now();
 
   try {
+    Sentry.addBreadcrumb({
+      message: 'Checking workout completion for plan',
+      category: 'workout.completion',
+      data: { userId, planId, workoutDayIndex },
+      level: 'info',
+    });
+
+    if (!userId || !planId || workoutDayIndex === null) {
+      const error = new Error('Missing required parameters for workout completion check');
+      Sentry.captureException(error, {
+        tags: { operation: 'checkWorkoutCompletionForPlan', step: 'validation' },
+        extra: { userId, planId, workoutDayIndex },
+      });
+      return { isCompleted: false };
+    }
+
     // Fetch all completed workouts for this plan with completion dates and cycle info
     const { data: allCompletedWorkouts, error: allCompletedError } = await supabase
       .from('user_workout_history')
@@ -530,6 +731,19 @@ export const checkWorkoutCompletionForPlan = async (
       .eq('plan_id', planId);
 
     if (allCompletedError || !allCompletedWorkouts || allCompletedWorkouts.length === 0) {
+      if (allCompletedError) {
+        Sentry.captureException(allCompletedError, {
+          tags: { operation: 'checkWorkoutCompletionForPlan', step: 'fetch_history' },
+          extra: { userId, planId, workoutDayIndex },
+        });
+      } else {
+        Sentry.addBreadcrumb({
+          message: 'No completed workouts found for plan',
+          category: 'workout.completion',
+          data: { userId, planId, workoutDayIndex },
+          level: 'info',
+        });
+      }
       return { isCompleted: false };
     }
 
@@ -548,15 +762,44 @@ export const checkWorkoutCompletionForPlan = async (
 
     // If we found a workout completed today, return it
     if (todayCompletedWorkout) {
-      return buildCompletedWorkoutData(todayCompletedWorkout, completedDates);
+      const result = buildCompletedWorkoutData(todayCompletedWorkout, completedDates);
+
+      const duration = Date.now() - startTime;
+      Sentry.addBreadcrumb({
+        message: 'Found completed workout for today',
+        category: 'workout.completion',
+        data: { userId, planId, workoutDayIndex, duration },
+        level: 'info',
+      });
+
+      return result;
     }
 
     // Return the completion status and completed dates
+    const duration = Date.now() - startTime;
+    Sentry.addBreadcrumb({
+      message: 'No workout completed today, returning completion status',
+      category: 'workout.completion',
+      data: {
+        userId,
+        planId,
+        workoutDayIndex,
+        completedDatesCount: completedDates.length,
+        duration,
+      },
+      level: 'info',
+    });
+
     return {
       isCompleted: false,
       completedDates,
     };
   } catch (error) {
+    const duration = Date.now() - startTime;
+    Sentry.captureException(error, {
+      tags: { operation: 'checkWorkoutCompletionForPlan' },
+      extra: { userId, planId, workoutDayIndex, duration },
+    });
     console.error('Error in checkWorkoutCompletionForPlan:', error);
     return { isCompleted: false };
   }
@@ -564,40 +807,68 @@ export const checkWorkoutCompletionForPlan = async (
 
 // Fetch plan details for the plan details screen
 export const fetchPlanDetails = async (planId: string): Promise<PlanDetails> => {
-  if (!planId) {
-    throw new Error('Plan ID is required');
-  }
+  const startTime = Date.now();
 
-  // Fetch the plan data
-  const { data: planData, error: planError } = await supabase
-    .from('workout_plans')
-    .select(
-      '*, workout_subcategories!workout_plans_subcategory_id_fkey(title, category_identifier, subtitle)',
-    )
-    .eq('id', planId)
-    .single();
+  try {
+    Sentry.addBreadcrumb({
+      message: 'Fetching plan details',
+      category: 'workout.plan',
+      data: { planId },
+      level: 'info',
+    });
 
-  if (planError) throw planError;
+    if (!planId) {
+      const error = new Error('Plan ID is required');
+      Sentry.captureException(error, {
+        tags: { operation: 'fetchPlanDetails', step: 'validation' },
+        extra: { planId },
+      });
+      throw error;
+    }
 
-  // Fetch the category name
-  let categoryName = '';
-  if (planData?.workout_subcategories?.category_identifier) {
-    const { data: categoryData, error: categoryError } = await supabase
-      .from('workout_categories')
-      .select('name')
-      .eq('identifier', planData.workout_subcategories.category_identifier)
+    // Fetch the plan data
+    const { data: planData, error: planError } = await supabase
+      .from('workout_plans')
+      .select(
+        '*, workout_subcategories!workout_plans_subcategory_id_fkey(title, category_identifier, subtitle)',
+      )
+      .eq('id', planId)
       .single();
 
-    if (!categoryError && categoryData) {
-      categoryName = categoryData.name;
+    if (planError) {
+      Sentry.captureException(planError, {
+        tags: { operation: 'fetchPlanDetails', step: 'fetch_plan' },
+        extra: { planId },
+      });
+      throw planError;
     }
-  }
 
-  // Fetch the exercises for this plan
-  const { data: exercisesData, error: exercisesError } = await supabase
-    .from('workout_plan_exercises')
-    .select(
-      `
+    // Fetch the category name
+    let categoryName = '';
+    if (planData?.workout_subcategories?.category_identifier) {
+      const { data: categoryData, error: categoryError } = await supabase
+        .from('workout_categories')
+        .select('name')
+        .eq('identifier', planData.workout_subcategories.category_identifier)
+        .single();
+
+      if (categoryError) {
+        Sentry.addBreadcrumb({
+          message: 'Failed to fetch category name',
+          category: 'workout.plan',
+          data: { planId, categoryIdentifier: planData.workout_subcategories.category_identifier },
+          level: 'warning',
+        });
+      } else if (categoryData) {
+        categoryName = categoryData.name;
+      }
+    }
+
+    // Fetch the exercises for this plan
+    const { data: exercisesData, error: exercisesError } = await supabase
+      .from('workout_plan_exercises')
+      .select(
+        `
         id,
         sets,
         reps_range,
@@ -611,154 +882,245 @@ export const fetchPlanDetails = async (planId: string): Promise<PlanDetails> => 
           primary_muscles
         )
       `,
-    )
-    .eq('plan_id', planId)
-    .order('workout_day', { ascending: true })
-    .order('order', { ascending: true });
+      )
+      .eq('plan_id', planId)
+      .order('workout_day', { ascending: true })
+      .order('order', { ascending: true });
 
-  if (exercisesError) throw exercisesError;
-
-  // Group exercises by workout day
-  const exercisesByDay: ExercisesByDay = {};
-  (exercisesData as unknown[]).forEach((item) => {
-    const exercise = item as Record<string, unknown>;
-    const day = (exercise.workout_day as number) || 0;
-    if (!exercisesByDay[day]) {
-      exercisesByDay[day] = [];
+    if (exercisesError) {
+      Sentry.captureException(exercisesError, {
+        tags: { operation: 'fetchPlanDetails', step: 'fetch_exercises' },
+        extra: { planId },
+      });
+      throw exercisesError;
     }
 
-    const exerciseInfo = exercise.exercises as Record<string, unknown>;
-    exercisesByDay[day].push({
-      id: exercise.id as string,
-      name: (exercise.exercise_name as string) || (exerciseInfo?.name as string),
-      sets: exercise.sets as number,
-      reps_range: exercise.reps_range as string,
-      image_url: exerciseInfo?.image_url as string,
-      primary_muscles: exerciseInfo?.primary_muscles as string[],
-      workout_day: day,
-      exercise_id: exerciseInfo?.id as string,
-    } as ExerciseData);
-  });
+    // Group exercises by workout day
+    const exercisesByDay: ExercisesByDay = {};
+    (exercisesData as unknown[]).forEach((item) => {
+      const exercise = item as Record<string, unknown>;
+      const day = (exercise.workout_day as number) || 0;
+      if (!exercisesByDay[day]) {
+        exercisesByDay[day] = [];
+      }
 
-  // Convert to array of workout days with per-day statistics
-  const workoutDays = Object.keys(exercisesByDay)
-    .map((dayKey) => {
-      const dayNum = parseInt(dayKey);
-      const dayExercises = exercisesByDay[dayNum];
+      const exerciseInfo = exercise.exercises as Record<string, unknown>;
+      exercisesByDay[day].push({
+        id: exercise.id as string,
+        name: (exercise.exercise_name as string) || (exerciseInfo?.name as string),
+        sets: exercise.sets as number,
+        reps_range: exercise.reps_range as string,
+        image_url: exerciseInfo?.image_url as string,
+        primary_muscles: exerciseInfo?.primary_muscles as string[],
+        workout_day: day,
+        exercise_id: exerciseInfo?.id as string,
+      } as ExerciseData);
+    });
 
-      // Calculate per-day statistics based on actual exercise data
-      const exerciseCount = dayExercises.length;
+    // Convert to array of workout days with per-day statistics
+    const workoutDays = Object.keys(exercisesByDay)
+      .map((dayKey) => {
+        const dayNum = parseInt(dayKey);
+        const dayExercises = exercisesByDay[dayNum];
 
-      // Calculate estimated duration based on sets, reps, and rest time
-      let totalDuration = 0;
-      dayExercises.forEach((exercise) => {
-        const sets = exercise.sets || 3;
-        const repRange = exercise.reps_range || '-';
+        // Calculate per-day statistics based on actual exercise data
+        const exerciseCount = dayExercises.length;
 
-        // Parse rep range to get average reps (e.g., "8-12" -> 10)
-        let avgReps = 10; // Default
-        if (repRange.includes('-')) {
-          const [min, max] = repRange.split('-').map((num: string) => parseInt(num));
-          if (!Number.isNaN(min) && !Number.isNaN(max)) {
-            avgReps = Math.floor((min + max) / 2);
+        // Calculate estimated duration based on sets, reps, and rest time
+        let totalDuration = 0;
+        dayExercises.forEach((exercise) => {
+          const sets = exercise.sets || 3;
+          const repRange = exercise.reps_range || '-';
+
+          // Parse rep range to get average reps (e.g., "8-12" -> 10)
+          let avgReps = 10; // Default
+          if (repRange.includes('-')) {
+            const [min, max] = repRange.split('-').map((num: string) => parseInt(num));
+            if (!Number.isNaN(min) && !Number.isNaN(max)) {
+              avgReps = Math.floor((min + max) / 2);
+            }
+          } else if (!Number.isNaN(parseInt(repRange))) {
+            avgReps = parseInt(repRange);
           }
-        } else if (!Number.isNaN(parseInt(repRange))) {
-          avgReps = parseInt(repRange);
-        }
 
-        // Estimate time per rep at ~2-3 seconds
-        const timePerSet = avgReps * 2.5; // seconds
+          // Estimate time per rep at ~2-3 seconds
+          const timePerSet = avgReps * 2.5; // seconds
 
-        // Rest time between sets (typically 60-90 seconds)
-        const restTime = 75; // seconds
+          // Rest time between sets (typically 60-90 seconds)
+          const restTime = 75; // seconds
 
-        // Total time for this exercise (all sets + rest between sets)
-        const exerciseTime = sets * timePerSet + restTime * (sets - 1);
+          // Total time for this exercise (all sets + rest between sets)
+          const exerciseTime = sets * timePerSet + restTime * (sets - 1);
 
-        // Add to total duration (convert to minutes)
-        totalDuration += exerciseTime / 60;
-      });
+          // Add to total duration (convert to minutes)
+          totalDuration += exerciseTime / 60;
+        });
 
-      // Round up to nearest minute
-      const estimatedDuration = Math.ceil(totalDuration);
+        // Round up to nearest minute
+        const estimatedDuration = Math.ceil(totalDuration);
 
-      // Calculate calories based on duration with a more realistic formula
-      // Moderate exercise burns approximately 7-10 calories per minute depending on intensity
-      const calorieRate = 8.5; // calories per minute for moderate-high intensity workout
-      const estimatedCalories = Math.round(estimatedDuration * calorieRate);
+        // Calculate calories based on duration with a more realistic formula
+        // Moderate exercise burns approximately 7-10 calories per minute depending on intensity
+        const calorieRate = 8.5; // calories per minute for moderate-high intensity workout
+        const estimatedCalories = Math.round(estimatedDuration * calorieRate);
 
-      return {
-        day: dayNum,
-        exercises: dayExercises,
-        total_exercises: exerciseCount,
-        estimated_duration: estimatedDuration,
-        total_calories: estimatedCalories,
-      };
-    })
-    .sort((a, b) => a.day - b.day);
+        return {
+          day: dayNum,
+          exercises: dayExercises,
+          total_exercises: exerciseCount,
+          estimated_duration: estimatedDuration,
+          total_calories: estimatedCalories,
+        };
+      })
+      .sort((a, b) => a.day - b.day);
 
-  // Format the data
-  const formattedPlan = {
-    id: planData.id,
-    title: planData.title,
-    difficulty_level: planData.difficulty_level,
-    estimated_duration: planData.estimated_duration,
-    workoutDays: workoutDays,
-    category_name: categoryName || 'Unknown',
-    subtitle: planData.workout_subcategories?.subtitle,
-    workout_frequency: planData.workout_frequency || workoutDays.length,
-  };
+    // Format the data
+    const formattedPlan = {
+      id: planData.id,
+      title: planData.title,
+      difficulty_level: planData.difficulty_level,
+      estimated_duration: planData.estimated_duration,
+      workoutDays: workoutDays,
+      category_name: categoryName || 'Unknown',
+      subtitle: planData.workout_subcategories?.subtitle,
+      workout_frequency: planData.workout_frequency || workoutDays.length,
+    };
 
-  return formattedPlan;
+    const duration = Date.now() - startTime;
+    Sentry.addBreadcrumb({
+      message: 'Successfully fetched plan details',
+      category: 'workout.plan',
+      data: {
+        planId,
+        title: formattedPlan.title,
+        workoutDaysCount: workoutDays.length,
+        duration,
+      },
+      level: 'info',
+    });
+
+    return formattedPlan;
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    Sentry.captureException(error, {
+      tags: { operation: 'fetchPlanDetails' },
+      extra: { planId, duration },
+    });
+    throw error;
+  }
 };
 
 // Start a new workout plan for the user
 export const startPlan = async (userId: string, planId: string): Promise<boolean> => {
-  if (!userId || !planId) {
-    throw new Error('User ID and Plan ID are required');
-  }
+  const startTime = Date.now();
 
-  // Fetch user's preferred workout days first
-  const userWorkoutDays = await getUserWorkoutDays(userId);
+  try {
+    Sentry.addBreadcrumb({
+      message: 'Starting new workout plan for user',
+      category: 'workout.plan',
+      data: { userId, planId },
+      level: 'info',
+    });
 
-  // Check if user already has an active plan
-  const { data: existingPlans, error: fetchError } = await supabase
-    .from('user_active_plans')
-    .select('id, plan_id')
-    .eq('user_id', userId)
-    .eq('is_active', true);
+    if (!userId || !planId) {
+      const error = new Error('User ID and Plan ID are required');
+      Sentry.captureException(error, {
+        tags: { operation: 'startPlan', step: 'validation' },
+        extra: { userId, planId },
+      });
+      throw error;
+    }
 
-  if (fetchError) throw fetchError;
+    // Fetch user's preferred workout days first
+    const userWorkoutDays = await getUserWorkoutDays(userId);
 
-  if (existingPlans && existingPlans.length > 0) {
-    // Set all existing plans to inactive
-    const { error: updateError } = await supabase
+    Sentry.addBreadcrumb({
+      message: 'Retrieved user workout days',
+      category: 'workout.plan',
+      data: { userId, userWorkoutDaysCount: userWorkoutDays?.length },
+      level: 'debug',
+    });
+
+    // Check if user already has an active plan
+    const { data: existingPlans, error: fetchError } = await supabase
       .from('user_active_plans')
-      .update({ is_active: false })
+      .select('id, plan_id')
       .eq('user_id', userId)
       .eq('is_active', true);
 
-    if (updateError) throw updateError;
+    if (fetchError) {
+      Sentry.captureException(fetchError, {
+        tags: { operation: 'startPlan', step: 'check_existing_plans' },
+        extra: { userId, planId },
+      });
+      throw fetchError;
+    }
+
+    if (existingPlans && existingPlans.length > 0) {
+      Sentry.addBreadcrumb({
+        message: 'Found existing active plans, deactivating them',
+        category: 'workout.plan',
+        data: { userId, existingPlansCount: existingPlans.length },
+        level: 'info',
+      });
+
+      // Set all existing plans to inactive
+      const { error: updateError } = await supabase
+        .from('user_active_plans')
+        .update({ is_active: false })
+        .eq('user_id', userId)
+        .eq('is_active', true);
+
+      if (updateError) {
+        Sentry.captureException(updateError, {
+          tags: { operation: 'startPlan', step: 'deactivate_existing_plans' },
+          extra: { userId, planId, existingPlansCount: existingPlans.length },
+        });
+        throw updateError;
+      }
+    }
+
+    // Get today's date for the start date
+    const startDate = new Date().toISOString().split('T')[0];
+
+    // Insert the new plan as the active plan
+    const { error: insertError } = await supabase.from('user_active_plans').insert({
+      user_id: userId,
+      plan_id: planId,
+      is_active: true,
+      current_day: 1, // Always start with day 1 (using 1-indexed workout days)
+      start_date: startDate,
+      // Store user's workout days preference to ensure consistency
+      workout_days_preference: userWorkoutDays,
+    });
+
+    if (insertError) {
+      Sentry.captureException(insertError, {
+        tags: { operation: 'startPlan', step: 'insert_active_plan' },
+        extra: { userId, planId, startDate },
+      });
+      throw insertError;
+    }
+
+    const duration = Date.now() - startTime;
+    Sentry.addBreadcrumb({
+      message: 'Successfully started new workout plan',
+      category: 'workout.plan',
+      data: { userId, planId, startDate, duration },
+      level: 'info',
+    });
+
+    return true;
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    Sentry.captureException(error, {
+      tags: { operation: 'startPlan' },
+      extra: { userId, planId, duration },
+    });
+    throw error;
   }
-
-  // Get today's date for the start date
-  const startDate = new Date().toISOString().split('T')[0];
-
-  // Insert the new plan as the active plan
-  const { error: insertError } = await supabase.from('user_active_plans').insert({
-    user_id: userId,
-    plan_id: planId,
-    is_active: true,
-    current_day: 1, // Always start with day 1 (using 1-indexed workout days)
-    start_date: startDate,
-    // Store user's workout days preference to ensure consistency
-    workout_days_preference: userWorkoutDays,
-  });
-
-  if (insertError) throw insertError;
-
-  return true;
 };
+
 export default function disablewarn() {
   return null;
 }

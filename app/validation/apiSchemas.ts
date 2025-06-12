@@ -1,4 +1,213 @@
 import { z } from 'zod';
+import { logger } from '../utils/logger';
+import {
+  SentryDataCollection,
+  SentryLogger,
+  addBreadcrumb,
+  setContext,
+  setTag,
+} from '../services/sentry';
+
+// Initialize Sentry context for API schemas
+const initializeSentryContext = () => {
+  setContext('api_schemas', {
+    service: 'ApiSchemas',
+    version: '1.0.0',
+    capabilities: [
+      'api_validation',
+      'response_validation',
+      'error_standardization',
+      'pagination_handling',
+      'rate_limit_tracking',
+      'authentication_validation',
+      'batch_operation_support',
+      'search_validation',
+      'health_check_monitoring',
+    ],
+    monitoring: {
+      performance_tracking: true,
+      validation_metrics: true,
+      error_categorization: true,
+      breadcrumb_tracking: true,
+    },
+  });
+  setTag('service.type', 'api_validation');
+  setTag('validation.framework', 'zod');
+
+  addBreadcrumb({
+    message: 'API Schemas service initialized with Sentry monitoring',
+    category: 'api_schemas.init',
+    level: 'info',
+    data: {
+      timestamp: new Date().toISOString(),
+      capabilities_count: 9,
+    },
+  });
+
+  SentryLogger.info('API Schemas service with Sentry monitoring initialized', {
+    service: 'ApiSchemas',
+    capabilities: [
+      'api_validation',
+      'response_validation',
+      'error_standardization',
+      'pagination_handling',
+      'rate_limit_tracking',
+      'authentication_validation',
+      'batch_operation_support',
+      'search_validation',
+      'health_check_monitoring',
+    ],
+    monitoring_features: [
+      'performance_tracking',
+      'validation_metrics',
+      'error_categorization',
+      'breadcrumb_tracking',
+    ],
+  });
+};
+
+// Initialize Sentry context
+initializeSentryContext();
+
+// Enhanced validation utilities with Sentry integration
+export const validateApiResponse = <T>(
+  schema: z.ZodSchema<T>,
+  data: unknown,
+  operation: string,
+): { success: true; data: T } | { success: false; errors: string[] } => {
+  const startTime = Date.now();
+
+  addBreadcrumb({
+    message: `Starting API response validation: ${operation}`,
+    category: 'api_schemas.validation',
+    level: 'debug',
+    data: {
+      operation,
+      has_data: !!data,
+      data_type: typeof data,
+    },
+  });
+
+  try {
+    const result = schema.safeParse(data);
+    const duration = Date.now() - startTime;
+
+    if (!result.success) {
+      const errors = result.error.errors.map((err) => `${err.path.join('.')}: ${err.message}`);
+
+      SentryDataCollection.captureException(
+        new Error(`API response validation failed for ${operation}`),
+        {
+          operation: 'api_response_validation',
+          validation_operation: operation,
+          validation_errors: errors,
+          duration,
+          error_count: errors.length,
+        },
+      );
+
+      addBreadcrumb({
+        message: `API response validation failed: ${operation}`,
+        category: 'api_schemas.validation.error',
+        level: 'warning',
+        data: {
+          operation,
+          error_count: errors.length,
+          duration,
+          errors: errors.slice(0, 3), // Limit to first 3 errors for brevity
+        },
+      });
+
+      SentryLogger.warn(`API response validation failed for ${operation}`, {
+        operation,
+        validation_errors: errors,
+        duration,
+        error_count: errors.length,
+      });
+
+      logger.warn(`API response validation failed for ${operation}`, {
+        context: { operation, errors, duration },
+      });
+
+      return { success: false, errors };
+    }
+
+    addBreadcrumb({
+      message: `API response validation successful: ${operation}`,
+      category: 'api_schemas.validation.success',
+      level: 'info',
+      data: {
+        operation,
+        duration,
+      },
+    });
+
+    // Track successful validation metrics
+    SentryDataCollection.setContext('validation_metrics', {
+      last_successful_operation: operation,
+      last_validation_duration: duration,
+      timestamp: new Date().toISOString(),
+    });
+
+    return { success: true, data: result.data };
+  } catch (error) {
+    const duration = Date.now() - startTime;
+
+    SentryDataCollection.captureException(error as Error, {
+      operation: 'api_response_validation_exception',
+      validation_operation: operation,
+      duration,
+    });
+
+    SentryLogger.error(`Unexpected error during API response validation for ${operation}`, {
+      error: error as Error,
+      operation,
+      duration,
+    });
+
+    logger.error(
+      `Unexpected error during API response validation for ${operation}`,
+      error as Error,
+      {
+        context: { operation, duration },
+      },
+    );
+
+    return { success: false, errors: ['Validation failed due to unexpected error'] };
+  }
+};
+
+// Performance monitoring utility for API schema operations
+export const trackApiSchemaPerformance = (
+  operation: string,
+  startTime: number,
+  metadata?: Record<string, unknown>,
+) => {
+  const duration = Date.now() - startTime;
+
+  SentryDataCollection.addBreadcrumb({
+    message: `API schema operation completed: ${operation}`,
+    category: 'api_schemas.performance',
+    level: 'info',
+    data: {
+      operation,
+      duration,
+      ...metadata,
+    },
+  });
+
+  // Track performance metrics
+  if (duration > 100) {
+    SentryLogger.warn(`Slow API schema operation: ${operation}`, {
+      operation,
+      duration,
+      threshold: 100,
+      ...metadata,
+    });
+  }
+
+  return duration;
+};
 
 // Base API response schemas
 export const BaseApiResponseSchema = z.object({
@@ -381,6 +590,142 @@ export const BatchResponseSchema = z.object({
   requestId: z.string().optional(),
 });
 
+// Enhanced error handling utilities
+export const createApiError = (
+  message: string,
+  code?: string,
+  details?: Record<string, unknown>,
+  requestId?: string,
+): z.infer<typeof ErrorApiResponseSchema> => {
+  const errorResponse = {
+    success: false as const,
+    error: message,
+    code,
+    details,
+    timestamp: new Date().toISOString(),
+    requestId,
+  };
+
+  addBreadcrumb({
+    message: `API error created: ${message}`,
+    category: 'api_schemas.error',
+    level: 'warning',
+    data: {
+      error_message: message,
+      error_code: code,
+      has_details: !!details,
+      request_id: requestId,
+    },
+  });
+
+  SentryLogger.warn('API error response created', {
+    error_message: message,
+    error_code: code,
+    details,
+    request_id: requestId,
+  });
+
+  return errorResponse;
+};
+
+export const createApiSuccess = <T>(
+  data: T,
+  message?: string,
+  requestId?: string,
+): { success: true; data: T; message?: string; timestamp: string; requestId?: string } => {
+  const successResponse = {
+    success: true as const,
+    data,
+    message,
+    timestamp: new Date().toISOString(),
+    requestId,
+  };
+
+  addBreadcrumb({
+    message: 'API success response created',
+    category: 'api_schemas.success',
+    level: 'info',
+    data: {
+      has_message: !!message,
+      request_id: requestId,
+      data_type: typeof data,
+    },
+  });
+
+  return successResponse;
+};
+
+// Pagination utilities with monitoring
+export const createPaginatedResponse = <T>(
+  data: T[],
+  pagination: z.infer<typeof PaginationMetaSchema>,
+  requestId?: string,
+): z.infer<typeof PaginatedApiResponseSchema> => {
+  const response = {
+    success: true as const,
+    data,
+    pagination,
+    timestamp: new Date().toISOString(),
+    requestId,
+  };
+
+  addBreadcrumb({
+    message: 'Paginated API response created',
+    category: 'api_schemas.pagination',
+    level: 'info',
+    data: {
+      items_count: data.length,
+      current_page: pagination.page,
+      total_pages: pagination.totalPages,
+      total_items: pagination.total,
+      request_id: requestId,
+    },
+  });
+
+  SentryLogger.info('Paginated response created', {
+    items_count: data.length,
+    pagination: {
+      page: pagination.page,
+      limit: pagination.limit,
+      total: pagination.total,
+      totalPages: pagination.totalPages,
+    },
+    request_id: requestId,
+  });
+
+  return response;
+};
+
+// Rate limiting utilities
+export const trackRateLimit = (rateLimitInfo: z.infer<typeof RateLimitInfoSchema>) => {
+  addBreadcrumb({
+    message: 'Rate limit information tracked',
+    category: 'api_schemas.rate_limit',
+    level: 'info',
+    data: {
+      limit: rateLimitInfo.limit,
+      remaining: rateLimitInfo.remaining,
+      reset: rateLimitInfo.reset,
+      retry_after: rateLimitInfo.retryAfter,
+    },
+  });
+
+  // Alert if rate limit is getting close
+  const usagePercentage =
+    ((rateLimitInfo.limit - rateLimitInfo.remaining) / rateLimitInfo.limit) * 100;
+
+  if (usagePercentage > 80) {
+    SentryLogger.warn('High rate limit usage detected', {
+      usage_percentage: usagePercentage,
+      remaining: rateLimitInfo.remaining,
+      limit: rateLimitInfo.limit,
+      reset: rateLimitInfo.reset,
+    });
+  }
+
+  return rateLimitInfo;
+};
+
 // Export all schemas as a collection
 export const ApiSchemas = {
   // Base schemas
@@ -475,6 +820,74 @@ export type SearchRequest = z.infer<typeof SearchRequestSchema>;
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
 export type BatchRequest = z.infer<typeof BatchRequestSchema>;
 export type BatchResponse = z.infer<typeof BatchResponseSchema>;
+
+// Enhanced validation results type
+export interface ApiValidationResult<T> {
+  success: boolean;
+  data?: T;
+  errors?: string[];
+  duration?: number;
+  operation?: string;
+}
+
+// Performance metrics type
+export interface ApiSchemaMetrics {
+  totalValidations: number;
+  successfulValidations: number;
+  failedValidations: number;
+  averageValidationTime: number;
+  slowValidations: number;
+  errorsByOperation: Record<string, number>;
+}
+
+// Metrics tracking
+let metrics: ApiSchemaMetrics = {
+  totalValidations: 0,
+  successfulValidations: 0,
+  failedValidations: 0,
+  averageValidationTime: 0,
+  slowValidations: 0,
+  errorsByOperation: {},
+};
+
+export const getApiSchemaMetrics = (): ApiSchemaMetrics => {
+  addBreadcrumb({
+    message: 'API schema metrics retrieved',
+    category: 'api_schemas.metrics',
+    level: 'info',
+    data: metrics,
+  });
+
+  return { ...metrics };
+};
+
+export const resetApiSchemaMetrics = (): void => {
+  const previousMetrics = { ...metrics };
+
+  metrics = {
+    totalValidations: 0,
+    successfulValidations: 0,
+    failedValidations: 0,
+    averageValidationTime: 0,
+    slowValidations: 0,
+    errorsByOperation: {},
+  };
+
+  addBreadcrumb({
+    message: 'API schema metrics reset',
+    category: 'api_schemas.metrics',
+    level: 'info',
+    data: {
+      previous_metrics: previousMetrics,
+      reset_timestamp: new Date().toISOString(),
+    },
+  });
+
+  SentryLogger.info('API schema metrics reset', {
+    previous_metrics: previousMetrics,
+    reset_timestamp: new Date().toISOString(),
+  });
+};
 
 // Default export to satisfy Expo Router (this file should not be a route)
 export default function ApiSchemasRouterPlaceholder() {

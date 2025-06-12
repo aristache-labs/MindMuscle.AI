@@ -1,4 +1,10 @@
 import supabase from './supabase';
+import { SentryLogger } from './sentry';
+import {
+  addBreadcrumb,
+  captureDatabaseError,
+  capturePerformanceError,
+} from './sentry/simpleErrorHandler';
 
 // Interface for cycle week information
 export interface CycleWeekInfo {
@@ -42,18 +48,40 @@ interface ColorsConfig {
 
 // Get cycle week information from database
 export const getCycleWeekInfo = async (weekNumber: number): Promise<CycleWeekInfo | null> => {
+  const startTime = Date.now();
+
   try {
+    addBreadcrumb('Getting cycle week info', 'workout_cycle', { week_number: weekNumber });
+
+    SentryLogger.database.query('workout_cycle_weeks', 'select', {
+      week_number: weekNumber,
+      operation: 'get_cycle_week_info',
+    });
+
     const { data, error } = await supabase
       .from('workout_cycle_weeks')
       .select('*')
       .eq('week_number', weekNumber)
       .single();
 
-    if (error) throw error;
+    if (error) {
+      SentryLogger.database.error('workout_cycle_weeks', 'select', error.message);
+      throw error;
+    }
 
-    if (!data) return null;
+    if (!data) {
+      SentryLogger.info(
+        'No cycle week data found',
+        {
+          week_number: weekNumber,
+          operation: 'get_cycle_week_info',
+        },
+        { feature: 'workout_cycle', action: 'not_found' },
+      );
+      return null;
+    }
 
-    return {
+    const result = {
       weekNumber: data.week_number,
       weekName: data.name,
       description: data.description,
@@ -61,23 +89,77 @@ export const getCycleWeekInfo = async (weekNumber: number): Promise<CycleWeekInf
       weightAdjustmentPercentage: data.weight_adjustment_percentage,
       repsAdjustmentPercentage: data.reps_adjustment_percentage,
     };
+
+    const duration = Date.now() - startTime;
+
+    // Monitor for slow database queries
+    if (duration > 1000) {
+      capturePerformanceError(
+        'Slow cycle week info query detected',
+        'database_query_duration',
+        duration,
+      );
+    }
+
+    SentryLogger.info(
+      'Cycle week info retrieved successfully',
+      {
+        week_number: weekNumber,
+        week_name: result.weekName,
+        duration_ms: duration,
+        operation: 'get_cycle_week_info',
+      },
+      { feature: 'workout_cycle', action: 'success' },
+    );
+
+    return result;
   } catch (error) {
-    console.error('Error fetching cycle week info:', error);
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    captureDatabaseError(
+      error instanceof Error ? error : new Error(errorMessage),
+      'workout_cycle_weeks',
+      'select',
+    );
+
+    SentryLogger.error(
+      'Failed to get cycle week info',
+      {
+        week_number: weekNumber,
+        error_message: errorMessage,
+        duration_ms: duration,
+        operation: 'get_cycle_week_info',
+      },
+      { feature: 'workout_cycle', action: 'error' },
+    );
+
     return null;
   }
 };
 
 // Get all cycle weeks information
 export const getAllCycleWeeks = async (): Promise<CycleWeekInfo[]> => {
+  const startTime = Date.now();
+
   try {
+    addBreadcrumb('Getting all cycle weeks', 'workout_cycle', {});
+
+    SentryLogger.database.query('workout_cycle_weeks', 'select', {
+      operation: 'get_all_cycle_weeks',
+    });
+
     const { data, error } = await supabase
       .from('workout_cycle_weeks')
       .select('*')
       .order('week_number', { ascending: true });
 
-    if (error) throw error;
+    if (error) {
+      SentryLogger.database.error('workout_cycle_weeks', 'select', error.message);
+      throw error;
+    }
 
-    return data.map((week) => ({
+    const result = data.map((week) => ({
       weekNumber: week.week_number,
       weekName: week.name,
       description: week.description,
@@ -85,8 +167,49 @@ export const getAllCycleWeeks = async (): Promise<CycleWeekInfo[]> => {
       weightAdjustmentPercentage: week.weight_adjustment_percentage,
       repsAdjustmentPercentage: week.reps_adjustment_percentage,
     }));
+
+    const duration = Date.now() - startTime;
+
+    // Monitor for slow database queries
+    if (duration > 1500) {
+      capturePerformanceError(
+        'Slow all cycle weeks query detected',
+        'database_query_duration',
+        duration,
+      );
+    }
+
+    SentryLogger.info(
+      'All cycle weeks retrieved successfully',
+      {
+        weeks_count: result.length,
+        duration_ms: duration,
+        operation: 'get_all_cycle_weeks',
+      },
+      { feature: 'workout_cycle', action: 'success' },
+    );
+
+    return result;
   } catch (error) {
-    console.error('Error fetching all cycle weeks:', error);
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    captureDatabaseError(
+      error instanceof Error ? error : new Error(errorMessage),
+      'workout_cycle_weeks',
+      'select',
+    );
+
+    SentryLogger.error(
+      'Failed to get all cycle weeks',
+      {
+        error_message: errorMessage,
+        duration_ms: duration,
+        operation: 'get_all_cycle_weeks',
+      },
+      { feature: 'workout_cycle', action: 'error' },
+    );
+
     return [];
   }
 };
@@ -97,23 +220,53 @@ export const getExerciseRecommendations = async (
   exerciseId: string,
   cycleWeek: number,
 ): Promise<ExerciseRecommendation | null> => {
+  const startTime = Date.now();
+
   try {
+    addBreadcrumb('Getting exercise recommendations', 'workout_cycle', {
+      user_id: userId,
+      exercise_id: exerciseId,
+      cycle_week: cycleWeek,
+    });
+
+    SentryLogger.database.query('get_smart_exercise_recommendations', 'rpc', {
+      user_id: userId,
+      exercise_id: exerciseId,
+      cycle_week: cycleWeek,
+      operation: 'get_exercise_recommendations',
+    });
+
     const { data, error } = await supabase.rpc('get_smart_exercise_recommendations', {
       p_cycle_week: cycleWeek,
       p_exercise_id: exerciseId,
       p_user_id: userId,
     });
 
-    if (error) throw error;
+    if (error) {
+      SentryLogger.database.error('get_smart_exercise_recommendations', 'rpc', error.message);
+      throw error;
+    }
 
-    if (!data || data.length === 0) return null;
+    if (!data || data.length === 0) {
+      SentryLogger.info(
+        'No exercise recommendations found',
+        {
+          user_id: userId,
+          exercise_id: exerciseId,
+          cycle_week: cycleWeek,
+          operation: 'get_exercise_recommendations',
+        },
+        { feature: 'workout_cycle', action: 'not_found' },
+      );
+      return null;
+    }
 
     const recommendation = data[0];
 
     // Get cycle week info for additional context
     const cycleInfo = await getCycleWeekInfo(cycleWeek);
 
-    return {
+    const result = {
       previousWeight: recommendation.previous_weight,
       previousReps: recommendation.previous_reps,
       recommendedWeight: recommendation.recommended_weight,
@@ -123,8 +276,57 @@ export const getExerciseRecommendations = async (
       repsAdjustmentPercentage: cycleInfo?.repsAdjustmentPercentage || 0,
       weekName: cycleInfo?.weekName || 'Unknown',
     };
+
+    const duration = Date.now() - startTime;
+
+    // Monitor for slow RPC calls
+    if (duration > 2000) {
+      capturePerformanceError(
+        'Slow exercise recommendations RPC detected',
+        'rpc_call_duration',
+        duration,
+      );
+    }
+
+    SentryLogger.info(
+      'Exercise recommendations retrieved successfully',
+      {
+        user_id: userId,
+        exercise_id: exerciseId,
+        cycle_week: cycleWeek,
+        week_name: result.weekName,
+        recommended_weight: result.recommendedWeight,
+        recommended_reps: result.recommendedReps,
+        duration_ms: duration,
+        operation: 'get_exercise_recommendations',
+      },
+      { feature: 'workout_cycle', action: 'success' },
+    );
+
+    return result;
   } catch (error) {
-    console.error('Error getting smart exercise recommendations:', error);
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    captureDatabaseError(
+      error instanceof Error ? error : new Error(errorMessage),
+      'get_smart_exercise_recommendations',
+      'rpc',
+    );
+
+    SentryLogger.error(
+      'Failed to get exercise recommendations',
+      {
+        user_id: userId,
+        exercise_id: exerciseId,
+        cycle_week: cycleWeek,
+        error_message: errorMessage,
+        duration_ms: duration,
+        operation: 'get_exercise_recommendations',
+      },
+      { feature: 'workout_cycle', action: 'error' },
+    );
+
     return null;
   }
 };
@@ -145,94 +347,172 @@ export const calculateProgressiveWorkoutSchedule = (
   }>;
   markedDates: Record<string, CalendarMarkedDate>;
 } => {
-  const schedule: Array<{
-    date: string;
-    workoutDayIndex: number;
-    cycleWeek: number;
-    weekName: string;
-    dayOfWeek: number;
-  }> = [];
+  const startTime = Date.now();
 
-  const markedDates: Record<string, CalendarMarkedDate> = {};
+  try {
+    addBreadcrumb('Calculating progressive workout schedule', 'workout_cycle', {
+      start_date: startDate,
+      workout_days_count: userWorkoutDays.length,
+      plan_frequency: planWorkoutFrequency,
+      total_weeks: totalWeeks,
+    });
 
-  // Week names for the 5-week cycle
-  const weekNames = ['Adaptation', 'Accumulation', 'Intensification', 'Realization', 'Recovery'];
+    const schedule: Array<{
+      date: string;
+      workoutDayIndex: number;
+      cycleWeek: number;
+      weekName: string;
+      dayOfWeek: number;
+    }> = [];
 
-  // Sort user workout days to ensure consistent ordering
-  const sortedUserDays = [...userWorkoutDays].sort((a, b) => a - b);
+    const markedDates: Record<string, CalendarMarkedDate> = {};
 
-  if (sortedUserDays.length === 0) {
-    console.error('No user workout days provided');
-    return { schedule, markedDates };
-  }
+    // Week names for the 5-week cycle
+    const weekNames = ['Adaptation', 'Accumulation', 'Intensification', 'Realization', 'Recovery'];
 
-  const start = new Date(startDate);
-  const currentDate = new Date(start);
-  let workoutCount = 0;
-  let currentWeek = 1;
+    // Sort user workout days to ensure consistent ordering
+    const sortedUserDays = [...userWorkoutDays].sort((a, b) => a - b);
 
-  // Calculate total workouts needed (planWorkoutFrequency per week * totalWeeks)
-  const totalWorkouts = planWorkoutFrequency * totalWeeks;
+    if (sortedUserDays.length === 0) {
+      const errorMessage = 'No user workout days provided';
+      SentryLogger.error(
+        errorMessage,
+        {
+          start_date: startDate,
+          user_workout_days: userWorkoutDays,
+          plan_frequency: planWorkoutFrequency,
+          total_weeks: totalWeeks,
+          operation: 'calculate_progressive_workout_schedule',
+        },
+        { feature: 'workout_cycle', action: 'validation_error' },
+      );
+      return { schedule, markedDates };
+    }
 
-  while (workoutCount < totalWorkouts && currentWeek <= totalWeeks) {
-    const currentDayOfWeek = currentDate.getDay(); // Keep in 0-6 format (0=Sunday, 6=Saturday)
+    const start = new Date(startDate);
+    const currentDate = new Date(start);
+    let workoutCount = 0;
+    let currentWeek = 1;
 
-    // Check if current day is a user's preferred workout day
-    if (sortedUserDays.includes(currentDayOfWeek)) {
-      // Calculate which workout day this is (1, 2, 3, etc.)
-      const workoutDayIndex = (workoutCount % planWorkoutFrequency) + 1;
+    // Calculate total workouts needed (planWorkoutFrequency per week * totalWeeks)
+    const totalWorkouts = planWorkoutFrequency * totalWeeks;
 
-      // Calculate which cycle week we're in
-      const cycleWeek = Math.floor(workoutCount / planWorkoutFrequency) + 1;
+    while (workoutCount < totalWorkouts && currentWeek <= totalWeeks) {
+      const currentDayOfWeek = currentDate.getDay(); // Keep in 0-6 format (0=Sunday, 6=Saturday)
 
-      if (cycleWeek <= totalWeeks) {
-        const dateStr = currentDate.toISOString().split('T')[0];
-        const weekName = weekNames[cycleWeek - 1] || 'Unknown';
+      // Check if current day is a user's preferred workout day
+      if (sortedUserDays.includes(currentDayOfWeek)) {
+        // Calculate which workout day this is (1, 2, 3, etc.)
+        const workoutDayIndex = (workoutCount % planWorkoutFrequency) + 1;
 
-        // Add to schedule
-        schedule.push({
-          date: dateStr,
-          workoutDayIndex,
-          cycleWeek,
-          weekName,
-          dayOfWeek: currentDayOfWeek,
-        });
+        // Calculate which cycle week we're in
+        const cycleWeek = Math.floor(workoutCount / planWorkoutFrequency) + 1;
 
-        // Add to marked dates for calendar
-        markedDates[dateStr] = {
-          selected: true,
-          selectedColor: '#7B69EE',
-          marked: true,
-          dotColor: '#7B69EE',
-          workoutDayIndex,
-          cycleWeek,
-          weekName,
-          dayName: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][
-            currentDayOfWeek
-          ],
-          userDayNumber: currentDayOfWeek,
-        };
+        if (cycleWeek <= totalWeeks) {
+          const dateStr = currentDate.toISOString().split('T')[0];
+          const weekName = weekNames[cycleWeek - 1] || 'Unknown';
 
-        workoutCount++;
+          // Add to schedule
+          schedule.push({
+            date: dateStr,
+            workoutDayIndex,
+            cycleWeek,
+            weekName,
+            dayOfWeek: currentDayOfWeek,
+          });
 
-        // Update current week when we complete a week's worth of workouts
-        if (workoutCount % planWorkoutFrequency === 0) {
-          currentWeek++;
+          // Add to marked dates for calendar
+          markedDates[dateStr] = {
+            selected: true,
+            selectedColor: '#7B69EE',
+            marked: true,
+            dotColor: '#7B69EE',
+            workoutDayIndex,
+            cycleWeek,
+            weekName,
+            dayName: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][
+              currentDayOfWeek
+            ],
+            userDayNumber: currentDayOfWeek,
+          };
+
+          workoutCount++;
+
+          // Update current week when we complete a week's worth of workouts
+          if (workoutCount % planWorkoutFrequency === 0) {
+            currentWeek++;
+          }
         }
+      }
+
+      // Move to next day
+      currentDate.setDate(currentDate.getDate() + 1);
+
+      // Safety check to prevent infinite loop
+      if (currentDate.getTime() - start.getTime() > 365 * 24 * 60 * 60 * 1000) {
+        SentryLogger.warn(
+          'Workout schedule calculation exceeded 1 year, breaking loop',
+          {
+            start_date: startDate,
+            current_date: currentDate.toISOString(),
+            workout_count: workoutCount,
+            total_workouts: totalWorkouts,
+            operation: 'calculate_progressive_workout_schedule',
+          },
+          { feature: 'workout_cycle', action: 'safety_break' },
+        );
+        break;
       }
     }
 
-    // Move to next day
-    currentDate.setDate(currentDate.getDate() + 1);
+    const duration = Date.now() - startTime;
 
-    // Safety check to prevent infinite loop
-    if (currentDate.getTime() - start.getTime() > 365 * 24 * 60 * 60 * 1000) {
-      console.warn('Workout schedule calculation exceeded 1 year, breaking loop');
-      break;
+    // Monitor for slow schedule calculations
+    if (duration > 3000) {
+      capturePerformanceError(
+        'Slow progressive workout schedule calculation detected',
+        'calculation_duration',
+        duration,
+      );
     }
-  }
 
-  return { schedule, markedDates };
+    SentryLogger.info(
+      'Progressive workout schedule calculated successfully',
+      {
+        start_date: startDate,
+        schedule_length: schedule.length,
+        marked_dates_count: Object.keys(markedDates).length,
+        workout_days_count: sortedUserDays.length,
+        plan_frequency: planWorkoutFrequency,
+        total_weeks: totalWeeks,
+        duration_ms: duration,
+        operation: 'calculate_progressive_workout_schedule',
+      },
+      { feature: 'workout_cycle', action: 'success' },
+    );
+
+    return { schedule, markedDates };
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    SentryLogger.error(
+      'Failed to calculate progressive workout schedule',
+      {
+        start_date: startDate,
+        user_workout_days: userWorkoutDays,
+        plan_frequency: planWorkoutFrequency,
+        total_weeks: totalWeeks,
+        error_message: errorMessage,
+        duration_ms: duration,
+        operation: 'calculate_progressive_workout_schedule',
+      },
+      { feature: 'workout_cycle', action: 'error' },
+    );
+
+    // Return empty schedule on error
+    return { schedule: [], markedDates: {} };
+  }
 };
 
 // Enhanced setup calendar dates function with progressive cycle support
@@ -242,9 +522,28 @@ export const setupCalendarDatesProgressive = (
   userWorkoutDays: number[],
   colors: ColorsConfig = { primary: '#7B69EE' },
 ) => {
+  const startTime = Date.now();
+
   try {
+    addBreadcrumb('Setting up progressive calendar dates', 'workout_cycle', {
+      start_date: startDate,
+      total_days: totalDays,
+      workout_days_count: userWorkoutDays.length,
+      primary_color: colors.primary,
+    });
+
     if (!userWorkoutDays || userWorkoutDays.length === 0) {
-      console.error('No valid workout days provided');
+      const errorMessage = 'No valid workout days provided';
+      SentryLogger.error(
+        errorMessage,
+        {
+          start_date: startDate,
+          total_days: totalDays,
+          user_workout_days: userWorkoutDays,
+          operation: 'setup_calendar_dates_progressive',
+        },
+        { feature: 'workout_cycle', action: 'validation_error' },
+      );
       return {};
     }
 
@@ -262,9 +561,39 @@ export const setupCalendarDatesProgressive = (
       markedDates[dateStr].dotColor = colors.primary;
     });
 
+    const duration = Date.now() - startTime;
+    SentryLogger.info(
+      'Progressive calendar dates setup successfully',
+      {
+        start_date: startDate,
+        total_days: totalDays,
+        marked_dates_count: Object.keys(markedDates).length,
+        workout_days_count: userWorkoutDays.length,
+        primary_color: colors.primary,
+        duration_ms: duration,
+        operation: 'setup_calendar_dates_progressive',
+      },
+      { feature: 'workout_cycle', action: 'success' },
+    );
+
     return markedDates;
   } catch (error) {
-    console.error('Error setting up calendar dates:', error);
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    SentryLogger.error(
+      'Failed to setup progressive calendar dates',
+      {
+        start_date: startDate,
+        total_days: totalDays,
+        user_workout_days: userWorkoutDays,
+        error_message: errorMessage,
+        duration_ms: duration,
+        operation: 'setup_calendar_dates_progressive',
+      },
+      { feature: 'workout_cycle', action: 'error' },
+    );
+
     return {};
   }
 };
@@ -282,7 +611,20 @@ export const getCurrentCycleProgress = async (
   weekDescription: string;
   recommendationTemplate: string;
 } | null> => {
+  const startTime = Date.now();
+
   try {
+    addBreadcrumb('Getting current cycle progress', 'workout_cycle', {
+      user_id: userId,
+      plan_id: planId,
+    });
+
+    SentryLogger.database.query('user_active_plans', 'select', {
+      user_id: userId,
+      plan_id: planId,
+      operation: 'get_current_cycle_progress',
+    });
+
     // Get the active plan information
     const { data: planData, error: planError } = await supabase
       .from('user_active_plans')
@@ -292,9 +634,23 @@ export const getCurrentCycleProgress = async (
       .eq('is_active', true)
       .single();
 
-    if (planError) throw planError;
+    if (planError) {
+      SentryLogger.database.error('user_active_plans', 'select', planError.message);
+      throw planError;
+    }
 
-    if (!planData) return null;
+    if (!planData) {
+      SentryLogger.info(
+        'No active plan data found',
+        {
+          user_id: userId,
+          plan_id: planId,
+          operation: 'get_current_cycle_progress',
+        },
+        { feature: 'workout_cycle', action: 'not_found' },
+      );
+      return null;
+    }
 
     const currentWeek = planData.current_week || 1;
     const completedWorkouts = planData.completed_workouts || 0;
@@ -316,7 +672,7 @@ export const getCurrentCycleProgress = async (
       };
     }
 
-    return {
+    const result = {
       currentWeek,
       weekName: cycleInfo.weekName,
       completedWorkouts,
@@ -325,8 +681,47 @@ export const getCurrentCycleProgress = async (
       weekDescription: cycleInfo.description,
       recommendationTemplate: cycleInfo.recommendationTemplate,
     };
+
+    const duration = Date.now() - startTime;
+    SentryLogger.info(
+      'Current cycle progress retrieved successfully',
+      {
+        user_id: userId,
+        plan_id: planId,
+        current_week: result.currentWeek,
+        week_name: result.weekName,
+        completed_workouts: result.completedWorkouts,
+        total_workouts: result.totalWorkoutsInCycle,
+        progress_percentage: result.progressPercentage,
+        duration_ms: duration,
+        operation: 'get_current_cycle_progress',
+      },
+      { feature: 'workout_cycle', action: 'success' },
+    );
+
+    return result;
   } catch (error) {
-    console.error('Error getting current cycle progress:', error);
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    captureDatabaseError(
+      error instanceof Error ? error : new Error(errorMessage),
+      'user_active_plans',
+      'select',
+    );
+
+    SentryLogger.error(
+      'Failed to get current cycle progress',
+      {
+        user_id: userId,
+        plan_id: planId,
+        error_message: errorMessage,
+        duration_ms: duration,
+        operation: 'get_current_cycle_progress',
+      },
+      { feature: 'workout_cycle', action: 'error' },
+    );
+
     return null;
   }
 };
@@ -341,7 +736,20 @@ export const checkWeekProgression = async (
   completedWorkoutsInCurrentWeek: number;
   requiredWorkoutsPerWeek: number;
 } | null> => {
+  const startTime = Date.now();
+
   try {
+    addBreadcrumb('Checking week progression', 'workout_cycle', {
+      user_id: userId,
+      plan_id: planId,
+    });
+
+    SentryLogger.database.query('user_active_plans', 'select', {
+      user_id: userId,
+      plan_id: planId,
+      operation: 'check_week_progression',
+    });
+
     // Get the active plan information
     const { data: planData, error: planError } = await supabase
       .from('user_active_plans')
@@ -351,9 +759,23 @@ export const checkWeekProgression = async (
       .eq('is_active', true)
       .single();
 
-    if (planError) throw planError;
+    if (planError) {
+      SentryLogger.database.error('user_active_plans', 'select', planError.message);
+      throw planError;
+    }
 
-    if (!planData) return null;
+    if (!planData) {
+      SentryLogger.info(
+        'No active plan data found for week progression check',
+        {
+          user_id: userId,
+          plan_id: planId,
+          operation: 'check_week_progression',
+        },
+        { feature: 'workout_cycle', action: 'not_found' },
+      );
+      return null;
+    }
 
     const currentWeek = planData.current_week || 1;
     const totalCompletedWorkouts = planData.completed_workouts || 0;
@@ -371,14 +793,54 @@ export const checkWeekProgression = async (
     const workoutsInPreviousWeeks = (currentWeek - 1) * workoutFrequency;
     const completedWorkoutsInCurrentWeek = totalCompletedWorkouts - workoutsInPreviousWeeks;
 
-    return {
+    const result = {
       shouldAdvance,
       newWeek: shouldAdvance ? currentWeek + 1 : currentWeek,
       completedWorkoutsInCurrentWeek,
       requiredWorkoutsPerWeek: workoutFrequency,
     };
+
+    const duration = Date.now() - startTime;
+    SentryLogger.info(
+      'Week progression check completed successfully',
+      {
+        user_id: userId,
+        plan_id: planId,
+        current_week: currentWeek,
+        should_advance: result.shouldAdvance,
+        new_week: result.newWeek,
+        completed_workouts_current_week: result.completedWorkoutsInCurrentWeek,
+        required_workouts_per_week: result.requiredWorkoutsPerWeek,
+        total_completed_workouts: totalCompletedWorkouts,
+        duration_ms: duration,
+        operation: 'check_week_progression',
+      },
+      { feature: 'workout_cycle', action: 'success' },
+    );
+
+    return result;
   } catch (error) {
-    console.error('Error checking week progression:', error);
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    captureDatabaseError(
+      error instanceof Error ? error : new Error(errorMessage),
+      'user_active_plans',
+      'select',
+    );
+
+    SentryLogger.error(
+      'Failed to check week progression',
+      {
+        user_id: userId,
+        plan_id: planId,
+        error_message: errorMessage,
+        duration_ms: duration,
+        operation: 'check_week_progression',
+      },
+      { feature: 'workout_cycle', action: 'error' },
+    );
+
     return null;
   }
 };

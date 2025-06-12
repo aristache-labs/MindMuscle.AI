@@ -2,6 +2,10 @@ import * as Sentry from '@sentry/react-native';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
+// Global type declarations
+declare const __DEV__: boolean;
+declare const window: Window | undefined;
+
 /**
  * Global Error Handler for MindMuscle.AI
  *
@@ -219,7 +223,7 @@ class GlobalErrorHandler {
     Sentry.addBreadcrumb({
       message: `Console ${level}: ${message}`,
       category: `console.${level}`,
-      level: sentryLevel,
+      level: sentryLevel as Sentry.Breadcrumb['level'],
       data: {
         args: args.slice(0, 5), // Limit args to prevent large payloads
         sessionId: this.sessionId,
@@ -232,7 +236,7 @@ class GlobalErrorHandler {
     }
   }
 
-  private convertToSentryLevel(level: LogLevel): Sentry.SeverityLevel {
+  private convertToSentryLevel(level: LogLevel): 'debug' | 'info' | 'warning' | 'error' | 'fatal' {
     switch (level) {
       case 'log':
       case 'debug':
@@ -484,7 +488,7 @@ class GlobalErrorHandler {
       // Set tags
       scope.setTag('error_category', fullContext.category);
       scope.setTag('platform', fullContext.platform);
-      scope.setTag('session_id', fullContext.sessionId);
+      scope.setTag('session_id', fullContext.sessionId || 'unknown');
 
       if (fullContext.component) scope.setTag('component', fullContext.component);
       if (fullContext.screen) scope.setTag('screen', fullContext.screen);
@@ -495,7 +499,7 @@ class GlobalErrorHandler {
 
       // Set level based on category
       const level = this.getErrorLevel(fullContext.category);
-      scope.setLevel(level);
+      scope.setLevel(level as 'debug' | 'info' | 'warning' | 'error' | 'fatal');
 
       Sentry.captureException(error);
     });
@@ -513,7 +517,7 @@ class GlobalErrorHandler {
       // Set tags
       scope.setTag('message_category', fullContext.category);
       scope.setTag('platform', fullContext.platform);
-      scope.setTag('session_id', fullContext.sessionId);
+      scope.setTag('session_id', fullContext.sessionId || 'unknown');
 
       if (fullContext.component) scope.setTag('component', fullContext.component);
       if (fullContext.screen) scope.setTag('screen', fullContext.screen);
@@ -523,7 +527,7 @@ class GlobalErrorHandler {
       scope.setContext('message_details', fullContext);
 
       // Set level
-      scope.setLevel(sentryLevel);
+      scope.setLevel(sentryLevel as 'debug' | 'info' | 'warning' | 'error' | 'fatal');
 
       Sentry.captureMessage(message, sentryLevel);
     });

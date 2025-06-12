@@ -2,6 +2,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { validationService } from '../services/validationService';
 import { logger } from '../utils/logger';
 import { ApiResponse } from './httpClient';
+import type { CacheEntry as ValidatedCacheEntry } from '../validation/schemas';
+
+// Type definitions for React Native environment
+type TimerHandle = ReturnType<typeof setTimeout>;
 
 // Cache configuration
 export interface CacheConfig {
@@ -73,8 +77,8 @@ export class EnhancedCacheManager {
   private cache = new Map<string, CacheEntry>();
   private config: CacheConfig;
   private stats: CacheStats;
-  private cleanupTimer?: NodeJS.Timeout;
-  private warmingTimer?: NodeJS.Timeout;
+  private cleanupTimer?: TimerHandle;
+  private warmingTimer?: TimerHandle;
   private warmingConfig: CacheWarmingConfig;
 
   constructor(config: Partial<CacheConfig> = {}) {
@@ -558,7 +562,7 @@ export class EnhancedCacheManager {
       }
 
       // Convert validated data to internal cache entry format
-      const validatedEntry = validationResult.data;
+      const validatedEntry = validationResult.data as ValidatedCacheEntry;
       const entry: CacheEntry<T> = {
         data: validatedEntry.data as T,
         metadata: {

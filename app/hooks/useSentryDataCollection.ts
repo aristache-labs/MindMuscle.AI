@@ -417,6 +417,58 @@ export function useSentryDataCollection(options: UseSentryDataCollectionOptions 
     };
   }, []);
 
+  // Track performance metrics
+  const trackPerformance = useCallback(
+    (
+      metricName: string,
+      value: number,
+      unit: string = 'ms',
+      additionalData?: Record<string, SentryValue>,
+    ) => {
+      try {
+        // Add performance data as breadcrumb
+        addBreadcrumb({
+          message: `Performance metric: ${metricName}`,
+          category: 'performance',
+          level: 'debug',
+          data: {
+            metric_name: metricName,
+            value,
+            unit,
+            timestamp: new Date().toISOString(),
+            ...additionalData,
+          },
+        });
+
+        // Set performance context
+        setContext('performance_metrics', {
+          [metricName]: {
+            value,
+            unit,
+            timestamp: new Date().toISOString(),
+            component: componentName,
+          },
+        });
+
+        // Track in hook metrics if it's a hook-related performance metric
+        if (metricName.includes('hook') || metricName.includes('sentry')) {
+          // Update internal performance tracking
+          if (metricName.includes('breadcrumb')) {
+            performanceTimes.current.breadcrumbs.push(value);
+          } else if (metricName.includes('context')) {
+            performanceTimes.current.contexts.push(value);
+          } else if (metricName.includes('exception')) {
+            performanceTimes.current.exceptions.push(value);
+          }
+          updatePerformanceMetrics();
+        }
+      } catch (error) {
+        console.warn('Failed to track performance metric:', error);
+      }
+    },
+    [addBreadcrumb, setContext, componentName, updatePerformanceMetrics],
+  );
+
   // Cleanup and report metrics on unmount
   useEffect(() => {
     return () => {
@@ -464,6 +516,7 @@ export function useSentryDataCollection(options: UseSentryDataCollectionOptions 
     trackUserAction,
     trackScreenView,
     trackWorkoutEvent,
+    trackPerformance,
 
     // Self-monitoring
     getHookMetrics,
@@ -484,6 +537,7 @@ export function useSentryWorkoutTracking(componentName?: string) {
   const trackWorkoutStart = useCallback(
     (workoutData: { type?: string; exerciseCount?: number; estimatedDuration?: number }) => {
       sentry.trackWorkoutEvent('workout_started', workoutData);
+      sentry.trackPerformance('workout_start_time', Date.now(), 'timestamp');
     },
     [sentry],
   );
@@ -491,6 +545,9 @@ export function useSentryWorkoutTracking(componentName?: string) {
   const trackWorkoutComplete = useCallback(
     (workoutData: { duration?: number; exercisesCompleted?: number; totalWeight?: number }) => {
       sentry.trackWorkoutEvent('workout_completed', workoutData);
+      if (workoutData.duration) {
+        sentry.trackPerformance('workout_duration', workoutData.duration, 'ms');
+      }
     },
     [sentry],
   );
@@ -564,6 +621,8 @@ export function useSentryNavigationTracking() {
 
   const trackNavigation = useCallback(
     (from: string, to: string, params?: Record<string, SentryValue>) => {
+      const navigationStartTime = Date.now();
+
       const navigationData: BreadcrumbData = {
         from,
         to,
@@ -584,6 +643,12 @@ export function useSentryNavigationTracking() {
       };
 
       sentry.trackScreenView(to, screenViewData);
+
+      // Track navigation performance
+      sentry.trackPerformance('navigation_time', Date.now() - navigationStartTime, 'ms', {
+        from,
+        to,
+      });
     },
     [sentry],
   );

@@ -29,6 +29,8 @@ interface CompletedWorkoutRecord {
 
 interface PausedWorkoutRecord {
   workout_day: number;
+  cycle_week: number;
+  week_name: string;
 }
 
 export const useCalendarData = ({
@@ -47,7 +49,7 @@ export const useCalendarData = ({
       // Get all paused workouts for this plan
       const { data, error } = await supabase
         .from('user_paused_workouts')
-        .select('workout_day')
+        .select('workout_day, cycle_week, week_name')
         .eq('user_id', user.id)
         .eq('plan_id', plan.id);
 
@@ -94,7 +96,7 @@ export const useCalendarData = ({
       // Get all paused workouts for this plan
       const { data: pausedWorkouts, error: pausedError } = await supabase
         .from('user_paused_workouts')
-        .select('workout_day')
+        .select('workout_day, cycle_week, week_name')
         .eq('user_id', user.id)
         .eq('plan_id', plan.id);
 
@@ -143,11 +145,14 @@ export const useCalendarData = ({
             completedDates.push(dateStr);
           }
 
-          // Check if this workout day is paused
+          // Check if this workout day is paused - match both workout day AND cycle week
           if (
             pausedWorkouts &&
             pausedWorkouts.length > 0 &&
-            pausedWorkouts.some((w: PausedWorkoutRecord) => w.workout_day === workoutDayIndex)
+            pausedWorkouts.some(
+              (w: PausedWorkoutRecord) =>
+                w.workout_day === workoutDayIndex && w.cycle_week === cycleWeek,
+            )
           ) {
             pausedDates.push(dateStr);
           }

@@ -53,9 +53,7 @@ const LockedWeekComponent: React.FC<LockedWeekComponentProps> = ({
 
         <TouchableOpacity style={styles.backToCurrentWeekButton} onPress={onBackToCurrentWeek}>
           <Icon source="arrow-left" size={20} color={COLORS.text} />
-          <Text style={styles.backToCurrentWeekText}>
-            Back to Week {lockedWeekInfo.currentWeek}
-          </Text>
+          <Text style={styles.backToCurrentWeekText}>Back to Current Workout</Text>
         </TouchableOpacity>
       </View>
     </View>

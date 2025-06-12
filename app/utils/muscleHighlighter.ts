@@ -1010,6 +1010,119 @@ export function highlightMusclesInSvg(
 /**
  * Gets the color for a muscle, with optional transparency for secondary muscles
  */
+// Helper function to validate muscle key input
+function validateMuscleKey(muscleKey: string, isPrimary: boolean): string | null {
+  if (!muscleKey || typeof muscleKey !== 'string' || muscleKey.trim().length === 0) {
+    Sentry.addBreadcrumb({
+      message: 'Empty or invalid muscle key provided',
+      category: 'muscle_highlighting',
+      data: { muscleKey, isPrimary },
+      level: 'warning',
+    });
+    return isPrimary ? '#FF3B30' : '#FF3B30CC';
+  }
+  return null;
+}
+
+// Helper function to find original muscle key through various mapping strategies
+function findOriginalMuscleKey(normalizedKey: string, muscleKey: string): string {
+  // Try to get from our maps first
+  let originalKey =
+    NORMALIZED_MUSCLE_MAP.get(normalizedKey) || NORMALIZED_INPUT_TO_KEY.get(normalizedKey);
+
+  if (!originalKey) {
+    // Try partial match
+    for (const [key, value] of NORMALIZED_MUSCLE_MAP.entries()) {
+      if (key.includes(normalizedKey) || normalizedKey.includes(key)) {
+        originalKey = value;
+        break;
+      }
+    }
+  }
+
+  return originalKey || muscleKey;
+}
+
+// Helper function to find base color through various lookup strategies
+function findBaseColor(normalizedKey: string, originalKey: string): string | null {
+  // Try direct lookup first
+  let baseColor = MUSCLE_COLORS[normalizedKey];
+
+  if (!baseColor && originalKey) {
+    const originalNormalized = normalizeMuscleKey(originalKey);
+    baseColor = MUSCLE_COLORS[originalNormalized];
+  }
+
+  return baseColor;
+}
+
+// Helper function to apply fallback mappings
+function applyFallbackMappings(
+  normalizedKey: string,
+  muscleKey: string,
+  isPrimary: boolean,
+): string | null {
+  const fallbackMappings: Record<string, string> = {
+    unknown: 'chest',
+    other: 'chest',
+    general: 'chest',
+    fullbody: 'chest',
+    compound: 'chest',
+  };
+
+  const fallbackKey = fallbackMappings[normalizedKey];
+  if (!fallbackKey) {
+    return null;
+  }
+
+  const baseColor = MUSCLE_COLORS[fallbackKey];
+  if (baseColor) {
+    Sentry.addBreadcrumb({
+      message: 'Used fallback mapping for muscle color',
+      category: 'muscle_highlighting',
+      data: {
+        originalMuscleKey: muscleKey,
+        normalizedKey,
+        fallbackKey,
+        foundColor: true,
+        isPrimary,
+      },
+      level: 'info',
+    });
+  }
+
+  return baseColor;
+}
+
+// Helper function to handle final fallback and logging
+function handleFinalFallback(
+  baseColor: string | null,
+  muscleKey: string,
+  normalizedKey: string,
+  originalKey: string,
+  isPrimary: boolean,
+): string {
+  if (baseColor) {
+    return baseColor;
+  }
+
+  // Log when using final fallback
+  Sentry.addBreadcrumb({
+    message: 'No muscle color found, using default fallback',
+    category: 'muscle_highlighting',
+    data: {
+      originalMuscleKey: muscleKey,
+      normalizedKey,
+      originalKey,
+      isPrimary,
+      availableKeys: Object.keys(MUSCLE_COLORS).slice(0, 10),
+    },
+    level: 'warning',
+  });
+
+  return '#FF3B30'; // Default fallback color
+}
+
 export function getMuscleColor(muscleKey: string, isPrimary: boolean): string {
   try {
     Sentry.addBreadcrumb({
@@ -1019,20 +1132,15 @@ export function getMuscleColor(muscleKey: string, isPrimary: boolean): string {
       level: 'debug',
     });
 
-    // Handle empty or invalid muscle keys
-    if (!muscleKey || typeof muscleKey !== 'string' || muscleKey.trim().length === 0) {
-      Sentry.addBreadcrumb({
-        message: 'Empty or invalid muscle key provided',
-        category: 'muscle_highlighting',
-        data: { muscleKey, isPrimary },
-        level: 'warning',
-      });
-      return isPrimary ? '#FF3B30' : '#FF3B30CC'; // Return fallback red color
+    // Validate input
+    const validationResult = validateMuscleKey(muscleKey, isPrimary);
+    if (validationResult) {
+      return validationResult;
     }
 
     const normalizedKey = normalizeMuscleKey(muscleKey);
 
-    // Handle cases where normalization results in empty string
+    // Handle normalized key validation
     if (!normalizedKey || normalizedKey.length === 0) {
       Sentry.addBreadcrumb({
         message: 'Muscle key normalization resulted in empty string',
@@ -1040,86 +1148,30 @@ export function getMuscleColor(muscleKey: string, isPrimary: boolean): string {
         data: { originalMuscleKey: muscleKey, normalizedKey, isPrimary },
         level: 'warning',
       });
-      return isPrimary ? '#FF3B30' : '#FF3B30CC'; // Return fallback red color
+      return isPrimary ? '#FF3B30' : '#FF3B30CC';
     }
 
-    // First try to get the original key from our maps
-    let originalKey =
-      NORMALIZED_MUSCLE_MAP.get(normalizedKey) || NORMALIZED_INPUT_TO_KEY.get(normalizedKey);
+    // Find original key
+    const originalKey = findOriginalMuscleKey(normalizedKey, muscleKey);
 
-    // If not found, fallback to direct access attempt
-    if (!originalKey) {
-      // Try to find by partial match
-      for (const [key, value] of NORMALIZED_MUSCLE_MAP.entries()) {
-        if (key.includes(normalizedKey) || normalizedKey.includes(key)) {
-          originalKey = value;
-          break;
-        }
-      }
+    // Find base color
+    let baseColor = findBaseColor(normalizedKey, originalKey);
 
-      // If still not found, use the input key
-      if (!originalKey) {
-        originalKey = muscleKey;
-      }
-    }
-
-    // Get the color from the MUSCLE_COLORS object
-    let baseColor = MUSCLE_COLORS[normalizedKey];
-
-    // If not found directly, try with the original key
-    if (!baseColor && originalKey) {
-      const originalNormalized = normalizeMuscleKey(originalKey);
-      baseColor = MUSCLE_COLORS[originalNormalized];
-    }
-
-    // If still not found, try some common fallback mappings
+    // Apply fallback mappings if needed
     if (!baseColor) {
-      const fallbackMappings: Record<string, string> = {
-        unknown: 'chest',
-        other: 'chest',
-        general: 'chest',
-        fullbody: 'chest',
-        compound: 'chest',
-      };
-
-      const fallbackKey = fallbackMappings[normalizedKey];
-      if (fallbackKey) {
-        baseColor = MUSCLE_COLORS[fallbackKey];
-
-        Sentry.addBreadcrumb({
-          message: 'Used fallback mapping for muscle color',
-          category: 'muscle_highlighting',
-          data: {
-            originalMuscleKey: muscleKey,
-            normalizedKey,
-            fallbackKey,
-            foundColor: !!baseColor,
-            isPrimary,
-          },
-          level: 'info',
-        });
-      }
+      baseColor = applyFallbackMappings(normalizedKey, muscleKey, isPrimary);
     }
 
-    // If still not found, use a fallback color
-    if (!baseColor) {
-      baseColor = '#FF3B30'; // fallback to a default red
+    // Handle final fallback
+    const finalColor = handleFinalFallback(
+      baseColor,
+      muscleKey,
+      normalizedKey,
+      originalKey,
+      isPrimary,
+    );
 
-      Sentry.addBreadcrumb({
-        message: 'No muscle color found, using default fallback',
-        category: 'muscle_highlighting',
-        data: {
-          originalMuscleKey: muscleKey,
-          normalizedKey,
-          originalKey,
-          isPrimary,
-          availableKeys: Object.keys(MUSCLE_COLORS).slice(0, 10), // Show first 10 available keys for debugging
-        },
-        level: 'warning',
-      });
-    }
-
-    return isPrimary ? baseColor : `${baseColor}CC`; // CC = 80% opacity for secondary
+    return isPrimary ? finalColor : `${finalColor}CC`; // CC = 80% opacity for secondary
   } catch (error) {
     Sentry.captureException(error, {
       tags: {
@@ -1133,7 +1185,6 @@ export function getMuscleColor(muscleKey: string, isPrimary: boolean): string {
         },
       },
     });
-    // Return fallback color on error
     return isPrimary ? '#FF3B30' : '#FF3B30CC';
   }
 }

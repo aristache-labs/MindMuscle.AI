@@ -40,6 +40,7 @@ import {
   WorkoutDay,
 } from '../types';
 import { calculateWorkoutStats, updatePausedWorkoutWithCustomizations } from '../utils';
+import supabase from '../../../services/supabase';
 
 // Loading Screen Component
 const LoadingScreen: React.FC<{ embedded: boolean }> = ({ embedded }) => {
@@ -657,21 +658,107 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
     console.log('Edit plan pressed');
   }, []);
 
-  const handleBackToCurrentWeek = useCallback(() => {
-    const today = new Date();
-    setSelectedDate(today);
-    setIsViewingLockedWeek(false);
-    setLockedWeekInfo(null);
+  const handleBackToCurrentWeek = useCallback(async () => {
+    if (!plan || !cycleProgress || userWorkoutDays.length === 0 || !user?.id) {
+      return;
+    }
 
-    if (plan && userWorkoutDays.length > 0) {
+    try {
+      setIsViewingLockedWeek(false);
+      setLockedWeekInfo(null);
+
+      // Get the calendar dates with cycle week information
+      const markedDatesObj = workoutPlanService.setupCalendarDatesProgressive(
+        plan.start_date,
+        plan.workoutDays.length,
+        userWorkoutDays,
+        { primary: '#7B69EE' },
+      );
+
+      // Get completed workouts for this plan
+      const { data: completedWorkouts, error: completedError } = (await supabase
+        .from('user_workout_history')
+        .select('workout_day, completed_at, cycle_week')
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id)) as {
+        data: Array<{
+          workout_day: number;
+          completed_at: string;
+          cycle_week: number;
+        }> | null;
+        error: Error | null;
+      };
+
+      if (completedError) {
+        console.error('Error fetching completed workouts:', completedError);
+        // Fallback to today's date
+        const today = new Date();
+        setSelectedDate(today);
+        handleCalendarDateSelect(today, null, false);
+        return;
+      }
+
+      // Get all workout dates sorted by date
+      const allWorkouts = Object.entries(markedDatesObj)
+        .map(([dateStr, dateInfo]) => ({
+          date: new Date(dateStr),
+          dateStr,
+          workoutDayIndex: dateInfo.workoutDayIndex,
+          cycleWeek: dateInfo.cycleWeek,
+          weekName: dateInfo.weekName,
+        }))
+        .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+      // Find the first unfinished workout from the beginning
+      let targetWorkout: (typeof allWorkouts)[0] | null = null;
+
+      for (const workout of allWorkouts) {
+        // Check if this workout is completed
+        const isCompleted = completedWorkouts?.some(
+          (completed) =>
+            completed.workout_day === workout.workoutDayIndex &&
+            completed.cycle_week === workout.cycleWeek,
+        );
+
+        if (!isCompleted) {
+          // Found first unfinished workout
+          targetWorkout = workout;
+          break;
+        }
+      }
+
+      if (targetWorkout) {
+        // Navigate to the first unfinished workout
+        setSelectedDate(targetWorkout.date);
+        await handleCalendarDateSelect(targetWorkout.date, targetWorkout.workoutDayIndex, true);
+      } else {
+        // All workouts are completed, go to the last workout
+        if (allWorkouts.length > 0) {
+          const lastWorkout = allWorkouts[allWorkouts.length - 1];
+          setSelectedDate(lastWorkout.date);
+          await handleCalendarDateSelect(lastWorkout.date, lastWorkout.workoutDayIndex, true);
+        } else {
+          // No workouts found, fallback to today
+          const today = new Date();
+          setSelectedDate(today);
+          handleCalendarDateSelect(today, null, false);
+        }
+      }
+    } catch (error) {
+      console.error('Error navigating back to current week:', error);
+      // Fallback to today's date
+      const today = new Date();
+      setSelectedDate(today);
       handleCalendarDateSelect(today, null, false);
     }
   }, [
+    plan,
+    cycleProgress,
+    userWorkoutDays,
+    user?.id,
     setSelectedDate,
     setIsViewingLockedWeek,
     setLockedWeekInfo,
-    plan,
-    userWorkoutDays,
     handleCalendarDateSelect,
   ]);
 

@@ -1,4 +1,4 @@
-import { SetStateAction, useCallback, useState } from 'react';
+import React, { SetStateAction, useCallback, useState } from 'react';
 import { Alert } from 'react-native';
 import type { ExerciseData, ExerciseSet } from '../types';
 import {
@@ -112,8 +112,8 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
     totalReps,
     setTotalVolume,
     setTotalReps,
-    onWorkoutComplete: _onWorkoutComplete,
-    onExerciseComplete: _onExerciseComplete,
+    onWorkoutComplete: _onWorkoutComplete, // eslint-disable-line no-unused-vars
+    onExerciseComplete: _onExerciseComplete, // eslint-disable-line no-unused-vars
     onStartRestTimer,
     // External state for testing integration
     exerciseSets: externalExerciseSets,
@@ -310,10 +310,14 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
       const updateTotals = (): { updatedVolume: number; updatedReps: number } => {
         const parsedWeight = parseFloat(weightValue) || 0;
         const parsedReps = parseInt(finalCalculationReps) || 0;
-        const setVolume = parsedWeight * parsedReps;
-        const updatedVolume = totalVolume + setVolume;
+        const requiresWeight = currentExercise?.requires_weight !== false; // Default to true if not specified
+        const setVolume = requiresWeight ? parseFloat((parsedWeight * parsedReps).toFixed(1)) : 0;
+        const updatedVolume = requiresWeight ? totalVolume + setVolume : totalVolume;
         const updatedReps = totalReps + parsedReps;
-        setTotalVolume(updatedVolume);
+
+        if (requiresWeight) {
+          setTotalVolume(updatedVolume);
+        }
         setTotalReps(updatedReps);
         return { updatedVolume, updatedReps };
       };

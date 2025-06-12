@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Alert } from 'react-native';
 import workoutPlanService from '../../../services/workoutPlanService';
 import type { UserProfile } from '../../../store/AuthContext';
@@ -41,6 +41,7 @@ export interface UseWorkoutStateParams {
   setWorkoutStartTime: (date: Date) => void;
   startWorkoutTimer: () => void;
   clearAllTimers: () => void;
+  setWorkoutDuration: (duration: number) => void;
 }
 
 export interface UseWorkoutStateReturn {
@@ -127,13 +128,14 @@ export const useWorkoutState = ({
   planId,
   workoutDay,
   cycleWeek,
-  weekName: _weekName, // Rename with underscore since it's unused
+  weekName: _weekName, // eslint-disable-line @typescript-eslint/no-unused-vars, no-unused-vars
   forceStart = false,
   forceResume = false,
   onWorkoutStarted,
   setWorkoutStartTime,
   startWorkoutTimer,
   clearAllTimers,
+  setWorkoutDuration,
 }: UseWorkoutStateParams): UseWorkoutStateReturn => {
   const router = useRouter();
 
@@ -162,8 +164,9 @@ export const useWorkoutState = ({
   const [exerciseCustomized, setExerciseCustomized] = useState<Record<string, boolean>>({});
 
   // Modal states
-  const [showWarmup, setShowWarmup] = useState(true);
-  const [warmupCompleted, setWarmupCompleted] = useState(false);
+  // Initialize showWarmup based on whether we're resuming a workout
+  const [showWarmup, setShowWarmup] = useState(!forceResume);
+  const [warmupCompleted, setWarmupCompleted] = useState(forceResume);
   const [showExitModal, setShowExitModal] = useState(false);
   const [showExerciseDetailsModal, setShowExerciseDetailsModal] = useState(false);
   const [showExerciseListModal, setShowExerciseListModal] = useState(false);
@@ -356,15 +359,106 @@ export const useWorkoutState = ({
     isResumingPausedWorkout,
   ]);
 
+  // Helper function to restore workout state from paused data
+  const restoreWorkoutState = useCallback(
+    (workout: {
+      exercises?: Array<{ isChangedExercise?: boolean | string; [key: string]: unknown }>;
+      exerciseSets?: Record<string, ExerciseSet[]>;
+      originalCycleWeek?: number | null;
+      currentExerciseIndex?: number;
+      totalVolume?: number;
+      totalReps?: number;
+      workoutDuration?: number;
+    }) => {
+      // Set flag to prevent effects from overwriting paused workout data
+      setIsResumingPausedWorkout(true);
+
+      // Ensure all exercises have the correct isChangedExercise flag
+      if (workout.exercises) {
+        workout.exercises = workout.exercises.map((ex) => {
+          if (ex.isChangedExercise === 'true' || ex.isChangedExercise === true) {
+            return { ...ex, isChangedExercise: true };
+          }
+          return ex;
+        });
+      }
+
+      // Set basic workout state
+      setExercises(workout.exercises as unknown as ExerciseData[]);
+      setExerciseSets(workout.exerciseSets as Record<string, ExerciseSet[]>);
+    },
+    [],
+  );
+
+  // Helper function to restore numeric values
+  const restoreNumericValues = useCallback(
+    (workout: {
+      currentExerciseIndex?: number;
+      totalVolume?: number;
+      totalReps?: number;
+      originalCycleWeek?: number | null;
+      workoutDuration?: number;
+    }) => {
+      // Restore current exercise index
+      if (workout.currentExerciseIndex !== undefined && workout.currentExerciseIndex !== null) {
+        console.log('RESUME: Setting currentExerciseIndex to:', workout.currentExerciseIndex);
+        setCurrentExerciseIndex(workout.currentExerciseIndex);
+      } else {
+        console.warn('RESUME: No currentExerciseIndex found, defaulting to 0');
+        setCurrentExerciseIndex(0);
+      }
+
+      // Restore totals
+      if (workout.totalVolume !== undefined && workout.totalVolume !== null) {
+        setTotalVolume(workout.totalVolume);
+        console.log('RESUME: Restored totalVolume to:', workout.totalVolume);
+      }
+
+      if (workout.totalReps !== undefined && workout.totalReps !== null) {
+        setTotalReps(workout.totalReps);
+        console.log('RESUME: Restored totalReps to:', workout.totalReps);
+      }
+
+      if (workout.originalCycleWeek !== null && workout.originalCycleWeek !== undefined) {
+        setOriginalCycleWeek(workout.originalCycleWeek);
+      }
+
+      // Restore workout duration
+      if (workout.workoutDuration !== undefined && workout.workoutDuration !== null) {
+        setWorkoutDuration(workout.workoutDuration);
+        console.log('RESUME: Restored workoutDuration to:', workout.workoutDuration);
+      }
+    },
+    [setWorkoutDuration],
+  );
+
+  // Helper function to handle post-resume cleanup
+  const handlePostResumeCleanup = useCallback(() => {
+    setIsLoading(false);
+
+    // Clear the paused workout since we're resuming it now
+    workoutPlanService.clearPausedWorkout(user?.id || '', planId, workoutDay);
+
+    // Verify state restoration and clear resuming flag
+    setTimeout(() => {
+      console.log('RESUME: Verifying currentExerciseIndex after state restoration...');
+    }, 100);
+
+    setTimeout(() => {
+      setIsResumingPausedWorkout(false);
+      console.log('RESUME: Cleared isResumingPausedWorkout flag - effects can now run normally');
+    }, 3000);
+  }, [user, planId, workoutDay]);
+
   // Function to resume a paused workout
   const resumePausedWorkout = useCallback(
     async (pausedWorkout: unknown) => {
       if (!user?.id) {
         console.error('User not available for resuming paused workout.');
         Alert.alert('Error', 'User not available. Cannot resume workout.');
-        // Potentially redirect or handle error state appropriately
         return;
       }
+
       try {
         // Cast to a type we can work with internally
         const workout = pausedWorkout as {
@@ -385,89 +479,26 @@ export const useWorkoutState = ({
         console.log('Resuming paused workout - totalVolume:', workout.totalVolume);
         console.log('Resuming paused workout - totalReps:', workout.totalReps);
 
-        // Set flag to prevent effects from overwriting paused workout data
-        setIsResumingPausedWorkout(true);
+        // Restore workout state using helper functions
+        restoreWorkoutState(workout);
+        restoreNumericValues(workout);
 
-        // Ensure all exercises have the correct isChangedExercise flag
-        if (workout.exercises) {
-          workout.exercises = workout.exercises.map((ex) => {
-            if (ex.isChangedExercise === 'true' || ex.isChangedExercise === true) {
-              return {
-                ...ex,
-                isChangedExercise: true,
-              };
-            }
-            return ex;
-          });
-        }
+        // Skip warmup when resuming a paused workout
+        setShowWarmup(false);
+        setWarmupCompleted(true);
 
-        // Set all the workout state from the paused workout
-        // We need to use 'as unknown as ExerciseData[]' to avoid type errors
-        // because we know the structure matches even if TypeScript doesn't
-        setExercises(workout.exercises as unknown as ExerciseData[]);
-        setExerciseSets(workout.exerciseSets as Record<string, ExerciseSet[]>);
-
-        // Restore the current exercise index - this is critical for resuming at the correct exercise
-        if (workout.currentExerciseIndex !== undefined && workout.currentExerciseIndex !== null) {
-          console.log('RESUME: Setting currentExerciseIndex to:', workout.currentExerciseIndex);
-          setCurrentExerciseIndex(workout.currentExerciseIndex);
-          console.log(
-            'RESUME: currentExerciseIndex has been set to:',
-            workout.currentExerciseIndex,
-          );
-        } else {
-          console.warn(
-            'RESUME: No currentExerciseIndex found in paused workout data, defaulting to 0',
-          );
-          setCurrentExerciseIndex(0);
-        }
-
-        // Restore totals - these were also missing!
-        if (workout.totalVolume !== undefined && workout.totalVolume !== null) {
-          setTotalVolume(workout.totalVolume);
-          console.log('RESUME: Restored totalVolume to:', workout.totalVolume);
-        }
-
-        if (workout.totalReps !== undefined && workout.totalReps !== null) {
-          setTotalReps(workout.totalReps);
-          console.log('RESUME: Restored totalReps to:', workout.totalReps);
-        }
-
-        if (workout.originalCycleWeek !== null && workout.originalCycleWeek !== undefined) {
-          setOriginalCycleWeek(workout.originalCycleWeek);
-        }
-
-        // Start the workout timer
+        // Start the workout timer (which will continue from the restored duration)
         setWorkoutStartTime(new Date());
         startWorkoutTimer();
         if (onWorkoutStarted) onWorkoutStarted();
 
-        setIsLoading(false);
-
-        // Clear the paused workout since we're resuming it now
-        workoutPlanService.clearPausedWorkout(user.id, planId, workoutDay);
-
-        // Verify that the currentExerciseIndex was set correctly
-        setTimeout(() => {
-          console.log('RESUME: Verifying currentExerciseIndex after state restoration...');
-          // This will be logged in the next render cycle
-        }, 100);
-
-        // Clear the resuming flag after a delay to ensure all state updates are complete
-        setTimeout(() => {
-          setIsResumingPausedWorkout(false);
-          console.log(
-            'RESUME: Cleared isResumingPausedWorkout flag - effects can now run normally',
-          );
-        }, 3000); // Increased timeout to 3 seconds to ensure all state updates complete
+        // Handle cleanup
+        handlePostResumeCleanup();
       } catch (error) {
         console.error('Error resuming paused workout:', error);
         // If there's an error, proceed with normal workout
         setIsLoading(false);
-        // If resuming fails, just start a new workout
         fetchWorkoutData();
-
-        // Start workout timer
         setWorkoutStartTime(new Date());
         startWorkoutTimer();
         if (onWorkoutStarted) onWorkoutStarted();
@@ -481,6 +512,9 @@ export const useWorkoutState = ({
       startWorkoutTimer,
       fetchWorkoutData,
       onWorkoutStarted,
+      restoreWorkoutState,
+      restoreNumericValues,
+      handlePostResumeCleanup,
     ],
   );
 
@@ -507,6 +541,9 @@ export const useWorkoutState = ({
       if (pausedWorkout) {
         // No longer show the alert dialog - directly resume the paused workout
         console.log('CHECK: Found paused workout, resuming...');
+        // Skip warmup when resuming a paused workout
+        setShowWarmup(false);
+        setWarmupCompleted(true);
         resumePausedWorkout(pausedWorkout);
       } else {
         // No paused workout, continue with normal flow

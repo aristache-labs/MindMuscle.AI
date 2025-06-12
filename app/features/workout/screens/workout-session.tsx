@@ -44,7 +44,6 @@ import {
   useWorkoutRender,
   useWorkoutState,
   useWorkoutTimer,
-  useWorkoutWarmup,
 } from '../hooks';
 import { ExerciseData, ExerciseSet } from '../types';
 
@@ -135,6 +134,7 @@ export default function WorkoutSessionScreen() {
     startRestTimer,
     clearAllTimers,
     setWorkoutStartTime,
+    setWorkoutDuration,
     formatTime,
   } = useWorkoutTimer();
 
@@ -171,6 +171,11 @@ export default function WorkoutSessionScreen() {
     setExerciseCustomized,
     textInputRefreshKey,
     setTextInputRefreshKey,
+    // Warmup state
+    showWarmup,
+    setShowWarmup,
+    warmupCompleted,
+    setWarmupCompleted,
     // Function references
     fetchWorkoutData,
     checkWorkoutCompletionOnly,
@@ -190,6 +195,7 @@ export default function WorkoutSessionScreen() {
     setWorkoutStartTime,
     startWorkoutTimer,
     clearAllTimers,
+    setWorkoutDuration,
   });
 
   // Use the workout data hook
@@ -439,12 +445,16 @@ export default function WorkoutSessionScreen() {
     handleExerciseNamePress();
   }, [handleExerciseListModalClose, handleExerciseNamePress]);
 
-  // Use the workout warmup hook
-  const { showWarmup, warmupCompleted, handleWarmupComplete, skipWarmup } = useWorkoutWarmup({
-    onWarmupCompleted: () => {
-      // The first set will automatically become active due to the logic in the render method
-    },
-  });
+  // Warmup handlers
+  const handleWarmupComplete = useCallback(() => {
+    setWarmupCompleted(true);
+    setShowWarmup(false);
+    // The first set will automatically become active due to the logic in the render method
+  }, [setWarmupCompleted, setShowWarmup]);
+
+  const skipWarmup = useCallback(() => {
+    handleWarmupComplete();
+  }, [handleWarmupComplete]);
 
   // Use the workout completion hook
   const { completeWorkout: originalCompleteWorkout } = useWorkoutCompletion({

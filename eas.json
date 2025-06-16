@@ -75,6 +75,13 @@
         "appleId": "apple.adriancristache@gmail.com"
       }
     },
+    "testflight": {
+      "ios": {
+        "appleId": "apple.adriancristache@gmail.com",
+        "ascAppId": "6670648462",
+        "appleTeamId": "5T54JHP7FY"
+      }
+    },
     "production": {}
   }
 }

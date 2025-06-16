@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Sentry from '@sentry/react-native';
+import { startTransaction } from './sentryCompat';
 
 // Check if SecureStore is available at module level
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -47,7 +48,7 @@ class SecureStorageUtility {
   }
 
   private async initializeSecureStore(): Promise<void> {
-    const transaction = Sentry.startTransaction({
+    const transaction = startTransaction({
       name: 'initializeSecureStore',
       op: 'secure_storage',
     });
@@ -180,7 +181,7 @@ class SecureStorageUtility {
   }
 
   async setItemAsync(key: string, value: string): Promise<void> {
-    const transaction = Sentry.startTransaction({
+    const transaction = startTransaction({
       name: 'setItemAsync',
       op: 'secure_storage',
     });
@@ -258,7 +259,7 @@ class SecureStorageUtility {
   }
 
   async getItemAsync(key: string): Promise<string | null> {
-    const transaction = Sentry.startTransaction({
+    const transaction = startTransaction({
       name: 'getItemAsync',
       op: 'secure_storage',
     });
@@ -337,7 +338,7 @@ class SecureStorageUtility {
   }
 
   async deleteItemAsync(key: string): Promise<void> {
-    const transaction = Sentry.startTransaction({
+    const transaction = startTransaction({
       name: 'deleteItemAsync',
       op: 'secure_storage',
     });

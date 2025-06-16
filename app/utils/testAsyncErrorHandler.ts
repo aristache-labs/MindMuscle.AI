@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/react-native';
 import { safeAsync, safeAsyncFireAndForget } from './asyncErrorHandler';
+import { startTransaction } from './sentryCompat';
 
 /**
  * Test utilities to verify async error handling is working properly
@@ -8,7 +9,7 @@ import { safeAsync, safeAsyncFireAndForget } from './asyncErrorHandler';
 export const testAsyncErrorHandling = {
   // Test basic error handling
   testBasicErrorHandling: async () => {
-    const transaction = Sentry.startTransaction({
+    const transaction = startTransaction({
       name: 'testBasicErrorHandling',
       op: 'async_error_testing',
     });
@@ -107,7 +108,7 @@ export const testAsyncErrorHandling = {
 
   // Test promise rejection handling
   testPromiseRejection: async () => {
-    const transaction = Sentry.startTransaction({
+    const transaction = startTransaction({
       name: 'testPromiseRejection',
       op: 'async_error_testing',
     });
@@ -157,7 +158,7 @@ export const testAsyncErrorHandling = {
 
   // Run all tests
   runAllTests: async () => {
-    const transaction = Sentry.startTransaction({
+    const transaction = startTransaction({
       name: 'runAllAsyncErrorTests',
       op: 'async_error_testing',
     });

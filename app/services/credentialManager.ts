@@ -360,13 +360,13 @@ export const shouldEnableAutofill = (): boolean => {
 };
 
 export const getUsernameAutoComplete = (): 'username' | 'email' => {
-  // Use 'email' for both platforms to ensure email suggestions work
-  return 'email';
+  // Use 'username' for login screens to ensure saved username/email suggestions work
+  return 'username';
 };
 
 export const getUsernameTextContentType = (): 'username' | 'emailAddress' => {
-  // Use 'emailAddress' for both platforms to trigger email autofill
-  return 'emailAddress';
+  // Use 'username' for login screens to trigger saved credential autofill
+  return 'username';
 };
 
 export default credentialManager;

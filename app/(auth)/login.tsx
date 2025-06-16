@@ -368,8 +368,8 @@ function EmailInput({
         onChangeText={handleEmailChange}
         keyboardType="email-address"
         autoCapitalize="none"
-        autoComplete="email"
-        textContentType="emailAddress"
+        autoComplete="username"
+        textContentType="username"
         importantForAutofill="yes"
         autoCorrect={false}
         spellCheck={false}

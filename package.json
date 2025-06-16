@@ -1,6 +1,6 @@
 {
   "name": "mindmuscle-ai",
-  "version": "1.0.2",
+  "version": "1.0.6",
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
@@ -33,7 +33,17 @@
     "sentry:test:replay": "node scripts/test-sentry-mobile-replay.js",
     "sentry:release": "bash scripts/sentry-release.sh",
     "sentry:release:win": "powershell -ExecutionPolicy Bypass -File scripts/sentry-release.ps1",
-    "build:release": "npx expo prebuild && npm run sentry:upload"
+    "build:release": "npx expo prebuild && npm run sentry:upload",
+    "version:patch": "node scripts/version-manager.js bump patch",
+    "version:minor": "node scripts/version-manager.js bump minor",
+    "version:major": "node scripts/version-manager.js bump major",
+    "version:sync": "node scripts/version-manager.js sync",
+    "version:status": "node scripts/version-manager.js status",
+    "version:set": "node scripts/version-manager.js set",
+    "build:testflight": "npm run version:patch && eas build --platform ios --profile testflight",
+    "build:production": "npm run version:sync && eas build --platform all --profile production",
+    "build:preview": "eas build --platform all --profile preview",
+    "build:dev": "eas build --platform all --profile development"
   },
   "dependencies": {
     "@expo/config-plugins": "~10.0.0",

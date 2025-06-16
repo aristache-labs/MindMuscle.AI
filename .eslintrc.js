@@ -82,5 +82,12 @@ module.exports = {
         '@typescript-eslint/no-require-imports': 'off', // Allow require() in config files
       },
     },
+    {
+      files: ['scripts/**/*.js', 'scripts/**/*.mjs'],
+      rules: {
+        '@typescript-eslint/no-require-imports': 'off', // Allow require() in Node.js scripts
+        '@typescript-eslint/no-var-requires': 'off', // Allow var requires in Node.js scripts
+      },
+    },
   ],
 };

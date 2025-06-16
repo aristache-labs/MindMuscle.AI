@@ -1,79 +1,40 @@
 # MindMuscle.AI
 
-A React Native Expo application for AI-powered fitness coaching and progress tracking, featuring secure computation with Supabase MPC and Sentry.io MPC.
+![Logo](assets/icon.png)
 
-## Bugs to fix later
+[![Build](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/MindMuscleAI/MindMuscle.AI/actions)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-- On resume workout if the workout was customized it revert back on default exercise list and shows the warmup popup, need to be disabled because is resume is suppose to be done the warmpup.
+MindMuscle.AI delivers AI‑powered fitness coaching and progress tracking using React Native and Expo. It integrates Supabase MPC for secure computations and Sentry for monitoring.
+
+## Table of Contents
+- [Features](#features)
+- [Future-Requirements](#future-requirements)
+- [Project Structure](#project-structure)
+- [Node.js Polyfills](#nodejs-polyfills)
+- [Tech Stack](#tech-stack)
+- [Getting Started](#getting-started)
+- [Development Guidelines](#development-guidelines)
+- [Contributing](#contributing)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
+- [Sentry Setup](#sentry-setup)
+
+## Future Requirements
+- WatermelondDB offline with the Supabase database
 
 ## Later requirements implementation
-
-- WatermelondDB offline with the Supabase database
+- 
 
 ## Features
 
-- 🤖 AI Coaching
-
-  - Personalized workout advice through OpenAI integration
-  - Real-time coaching feedback
-  - Session history tracking
-  - AI-powered insights and recommendations
-  - Secure computation using Supabase MPC
-  - Error monitoring with Sentry.io MPC
-
-- 🎯 Exercise Management
-
-  - Comprehensive exercise library
-  - Advanced exercise timer with customizable intervals
-  - Exercise categorization and filtering
-  - Detailed form instructions
-  - Progress tracking per exercise
-  - Favorite exercises system
-  - Exercise graphs and statistics
-
-- 📊 Progress Tracking
-
-  - Detailed workout logging
-  - Performance metrics visualization
-  - Body measurements tracking
-  - Progress photos management
-  - Exercise-specific progress graphs
-  - Performance analytics dashboard
-
-- 🧠 Insights & Analytics
-
-  - AI-generated workout insights
-  - Performance trend analysis
-  - Personalized recommendations
-  - Progress milestones tracking
-  - Achievement system
-  - Weekly/monthly performance summaries
-
-- 🎮 Gamification System
-
-  - Dynamic achievement system
-  - Progress-based rewards
-  - Motivation features
-  - Streak tracking
-  - Level progression
-  - Badge collection system
-
-- 👤 User Profile & Authentication
-
-  - Secure authentication system
-  - Profile management
-  - Fitness goals tracking
-  - Medical conditions logging
-  - Workout preferences
-  - Exercise history
-
-- 🔒 Security & Performance
-  - Supabase MPC for secure computations
-  - Sentry.io MPC for secure monitoring
-  - Optimized image loading
-  - Secure data persistence
-  - Type-safe implementations
-  - Performance-optimized components
+- 🤖 **AI Coaching** – Personalized workout advice and real-time feedback via OpenAI with secure Supabase MPC.
+- 🎯 **Exercise Management** – Extensive library, advanced timers, filtering and progress graphs.
+- 📊 **Progress Tracking** – Log workouts, track body metrics and analyze performance.
+- 🧠 **Insights & Analytics** – AI-generated recommendations and milestone tracking.
+- 🎮 **Gamification** – Achievements, badges and streaks keep you motivated.
+- 👤 **User Profiles** – Secure authentication with profile and goal management.
+- 🔒 **Security & Performance** – Sentry monitoring, optimized assets and type-safe code.
 
 ## Project Structure
 

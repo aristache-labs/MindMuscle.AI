@@ -75,7 +75,8 @@
             ]
           }
         ]
-      }
+      },
+      "buildNumber": "3"
     },
     "android": {
       "adaptiveIcon": {

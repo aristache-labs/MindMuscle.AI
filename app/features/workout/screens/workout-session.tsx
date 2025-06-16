@@ -162,7 +162,7 @@ export default function WorkoutSessionScreen() {
     setCompletedWorkoutData,
     originalCycleWeek,
     isResumingPausedWorkout,
-    setIsResumingPausedWorkout,
+    exerciseSetsLocked,
     focusedInputs,
     setFocusedInputs,
     userEnteredValues,
@@ -176,11 +176,6 @@ export default function WorkoutSessionScreen() {
     setShowWarmup,
     warmupCompleted,
     setWarmupCompleted,
-    // Function references
-    fetchWorkoutData,
-    checkWorkoutCompletionOnly,
-    resumePausedWorkout,
-    checkWorkoutCompletion,
   } = useWorkoutState({
     user,
     planId,
@@ -589,26 +584,17 @@ export default function WorkoutSessionScreen() {
     currentExerciseIndex,
     originalCycleWeek,
     stopWorkoutTimer,
+    exerciseCustomized,
+    userEnteredValues,
+    focusedInputs,
   });
 
   // Use the workout initialization hook to handle all setup effects
   useWorkoutInitialization({
     user,
-    planId,
-    workoutDay,
     cycleWeek,
-    forceStart,
-    forceResume,
     isLoading,
     isResumingPausedWorkout,
-    setIsResumingPausedWorkout,
-    setIsWorkoutCompleted,
-    fetchWorkoutData,
-    checkWorkoutCompletionOnly,
-    checkWorkoutCompletion,
-    resumePausedWorkout,
-    setWorkoutStartTime,
-    startWorkoutTimer,
     clearAllTimers,
     fetchLastExerciseRecords,
     fetchMaxWeightDataForAllExercises,
@@ -648,7 +634,7 @@ export default function WorkoutSessionScreen() {
 
   // Effect to update max weight data when sets are completed (for immediate graph updates)
   useEffect(() => {
-    if (workoutExercises.length > 0 && user && !isLoading) {
+    if (workoutExercises.length > 0 && user && !isLoading && !isResumingPausedWorkout) {
       // Check if any sets have been completed by looking at the workoutExerciseSets state
       const hasCompletedSets = Object.values(workoutExerciseSets).some((sets) =>
         sets.some((set) => set.isCompleted),
@@ -665,32 +651,51 @@ export default function WorkoutSessionScreen() {
     }
   }, [
     workoutExerciseSets,
-    workoutExercises.length,
     user?.id,
     isLoading,
+    isResumingPausedWorkout,
     fetchMaxWeightDataForAllExercises,
   ]);
 
   // Effect to pre-fill sets with recommended values when they become available
   useEffect(() => {
-    if (Object.keys(workoutRecommendations).length > 0 && !isResumingPausedWorkout) {
+    // Only pre-fill if:
+    // 1. We have recommendations
+    // 2. We're not resuming a paused workout
+    // 3. There are no existing customizations (indicating this is a fresh workout)
+    const hasExistingCustomizations =
+      Object.keys(exerciseCustomized).length > 0 || Object.keys(userEnteredValues).length > 0;
+
+    if (
+      Object.keys(workoutRecommendations).length > 0 &&
+      !isResumingPausedWorkout &&
+      !hasExistingCustomizations
+    ) {
+      console.log('PRE-FILL: Running preFillWithSuggestedValues for fresh workout');
       preFillWithSuggestedValues(
         workoutRecommendations,
         workoutExerciseSets,
         setWorkoutExerciseSets,
         exerciseCustomized,
         isResumingPausedWorkout,
+        exerciseSetsLocked,
       );
+    } else {
+      console.log('PRE-FILL: Skipping preFillWithSuggestedValues:', {
+        hasRecommendations: Object.keys(workoutRecommendations).length > 0,
+        isResuming: isResumingPausedWorkout,
+        hasExistingCustomizations,
+      });
     }
   }, [
     workoutRecommendations,
     lastExerciseValues,
-    workoutExercises.length,
     isResumingPausedWorkout,
     preFillWithSuggestedValues,
     workoutExerciseSets,
     setWorkoutExerciseSets,
     exerciseCustomized,
+    userEnteredValues,
   ]);
 
   if (isLoading) {

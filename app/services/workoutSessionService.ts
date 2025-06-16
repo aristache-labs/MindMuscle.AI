@@ -105,55 +105,7 @@ interface AbsoluteMaxWeightRecord {
   date: string;
 }
 
-// Helper function to process switched exercises
-const processSwitchedExercises = (exercises: ExerciseData[]): ExerciseData[] => {
-  try {
-    Sentry.addBreadcrumb({
-      message: 'Processing switched exercises',
-      category: 'workout.session',
-      data: { exerciseCount: exercises.length },
-      level: 'debug',
-    });
-
-    const switchedExercises = exercises.filter((ex) => ex.isChangedExercise === true);
-
-    if (switchedExercises.length > 0) {
-      Sentry.addBreadcrumb({
-        message: 'Found switched exercises',
-        category: 'workout.session',
-        data: {
-          switchedCount: switchedExercises.length,
-          switchedExerciseIds: switchedExercises.map((ex) => ex.id),
-        },
-        level: 'info',
-      });
-
-      console.log(
-        'SAVING PAUSED WORKOUT - Found switched exercises:',
-        JSON.stringify(switchedExercises),
-      );
-
-      // Make sure the isChangedExercise flag is properly set for all switched exercises
-      return exercises.map((ex) => {
-        if (switchedExercises.some((switched) => switched.id === ex.id)) {
-          return {
-            ...ex,
-            isChangedExercise: true,
-          };
-        }
-        return ex;
-      });
-    }
-
-    return exercises;
-  } catch (error) {
-    Sentry.captureException(error, {
-      tags: { operation: 'processSwitchedExercises' },
-      extra: { exerciseCount: exercises.length },
-    });
-    return exercises;
-  }
-};
+// REMOVED: processSwitchedExercises - no longer needed with simplified approach
 
 // Save the paused workout state
 export const savePausedWorkout = async (options: SavePausedWorkoutOptions): Promise<boolean> => {
@@ -200,8 +152,8 @@ export const savePausedWorkout = async (options: SavePausedWorkoutOptions): Prom
 
     console.log('SAVING PAUSED WORKOUT - User ID:', userId, 'Plan ID:', planId, 'Day:', workoutDay);
 
-    // Process switched exercises
-    const processedExercises = processSwitchedExercises(exercises);
+    // SIMPLIFIED: Just save the exercises exactly as they are - no processing needed
+    // The exercises array already contains the current state with any customizations applied
 
     // Create a paused workout object with all necessary data
     const pausedWorkout: PausedWorkoutData = {
@@ -210,7 +162,7 @@ export const savePausedWorkout = async (options: SavePausedWorkoutOptions): Prom
       workoutDay,
       cycleWeek,
       weekName,
-      exercises: processedExercises,
+      exercises, // Save exercises exactly as they are
       exerciseSets,
       workoutDuration,
       totalVolume,
@@ -269,7 +221,7 @@ export const savePausedWorkout = async (options: SavePausedWorkoutOptions): Prom
           workout_day: workoutDay,
           cycle_week: cycleWeek,
           week_name: weekName,
-          exercises: processedExercises,
+          exercises, // Save exercises exactly as they are
           exercise_sets: exerciseSets,
           workout_duration: workoutDuration,
           total_volume: totalVolume,
@@ -464,70 +416,23 @@ const logSwitchedExercises = (
   }
 };
 
-// Helper function to convert database record to application format
+// Helper function to convert database record to app format
 const convertDatabaseToAppFormat = (dbRecord: DatabasePausedWorkout): PausedWorkoutData => {
-  try {
-    Sentry.addBreadcrumb({
-      message: 'Converting database record to application format',
-      category: 'workout.session',
-      data: {
-        userId: dbRecord.user_id,
-        planId: dbRecord.plan_id,
-        workoutDay: dbRecord.workout_day,
-      },
-      level: 'debug',
-    });
-
-    const pausedWorkout: PausedWorkoutData = {
-      userId: dbRecord.user_id,
-      planId: dbRecord.plan_id,
-      workoutDay: dbRecord.workout_day,
-      cycleWeek: dbRecord.cycle_week,
-      weekName: dbRecord.week_name,
-      exercises: dbRecord.exercises,
-      exerciseSets: dbRecord.exercise_sets,
-      workoutDuration: dbRecord.workout_duration,
-      totalVolume: dbRecord.total_volume,
-      totalReps: dbRecord.total_reps,
-      currentExerciseIndex: dbRecord.current_exercise_index,
-      originalCycleWeek: dbRecord.original_cycle_week,
-      pausedAt: dbRecord.paused_at,
-    };
-
-    // Ensure the isChangedExercise flag is properly set for all exercises
-    if (pausedWorkout.exercises && Array.isArray(pausedWorkout.exercises)) {
-      pausedWorkout.exercises = pausedWorkout.exercises.map((ex) => {
-        // Make sure the isChangedExercise property is a boolean
-        if (ex.isChangedExercise === true) {
-          return {
-            ...ex,
-            isChangedExercise: true,
-          };
-        }
-        return ex;
-      });
-    }
-
-    Sentry.addBreadcrumb({
-      message: 'Successfully converted database record to application format',
-      category: 'workout.session',
-      data: {
-        userId: pausedWorkout.userId,
-        planId: pausedWorkout.planId,
-        workoutDay: pausedWorkout.workoutDay,
-        exerciseCount: pausedWorkout.exercises?.length || 0,
-      },
-      level: 'debug',
-    });
-
-    return pausedWorkout;
-  } catch (error) {
-    Sentry.captureException(error, {
-      tags: { operation: 'convertDatabaseToAppFormat' },
-      extra: { dbRecord },
-    });
-    throw error;
-  }
+  return {
+    userId: dbRecord.user_id,
+    planId: dbRecord.plan_id,
+    workoutDay: dbRecord.workout_day,
+    cycleWeek: dbRecord.cycle_week,
+    weekName: dbRecord.week_name,
+    exercises: dbRecord.exercises,
+    exerciseSets: dbRecord.exercise_sets,
+    workoutDuration: dbRecord.workout_duration,
+    totalVolume: dbRecord.total_volume,
+    totalReps: dbRecord.total_reps,
+    currentExerciseIndex: dbRecord.current_exercise_index,
+    originalCycleWeek: dbRecord.original_cycle_week,
+    pausedAt: dbRecord.paused_at,
+  };
 };
 
 // Helper function to get paused workout from database
@@ -639,8 +544,34 @@ export const getPausedWorkout = async (
       workoutDay,
     );
 
-    // First try to get from AsyncStorage (works offline)
-    let pausedWorkout = await getPausedWorkoutFromStorage();
+    let pausedWorkout: PausedWorkoutData | null = null;
+
+    // If we have a user ID, prioritize database to get the latest customization data
+    if (userId) {
+      pausedWorkout = await getPausedWorkoutFromDatabase(userId, planId, workoutDay);
+
+      if (pausedWorkout) {
+        console.log('GETTING PAUSED WORKOUT - Found paused workout in database');
+        // Database data is authoritative, return it
+        const duration = Date.now() - startTime;
+        Sentry.addBreadcrumb({
+          message: 'Successfully retrieved paused workout from database',
+          category: 'workout.session',
+          data: {
+            userId,
+            planId,
+            workoutDay,
+            found: true,
+            duration,
+          },
+          level: 'info',
+        });
+        return pausedWorkout;
+      }
+    }
+
+    // Fallback to AsyncStorage if no database result (works offline)
+    pausedWorkout = await getPausedWorkoutFromStorage();
 
     if (pausedWorkout) {
       console.log('GETTING PAUSED WORKOUT - Found paused workout in AsyncStorage');
@@ -666,11 +597,6 @@ export const getPausedWorkout = async (
         console.log('GETTING PAUSED WORKOUT - Paused workout does not match requested plan/day');
         pausedWorkout = null;
       }
-    }
-
-    // If we have a user ID but no local paused workout, try to get from Supabase
-    if (!pausedWorkout && userId) {
-      pausedWorkout = await getPausedWorkoutFromDatabase(userId, planId, workoutDay);
     }
 
     const duration = Date.now() - startTime;

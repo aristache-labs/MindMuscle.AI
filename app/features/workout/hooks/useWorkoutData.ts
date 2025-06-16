@@ -47,6 +47,7 @@ export interface UseWorkoutDataReturn {
     setExerciseSets: React.Dispatch<React.SetStateAction<Record<string, ExerciseSet[]>>>,
     exerciseCustomized: Record<string, boolean>,
     isResumingPausedWorkout: boolean,
+    exerciseSetsLocked?: boolean,
   ) => void;
 }
 
@@ -193,8 +194,16 @@ export const useWorkoutData = (params: UseWorkoutDataParams): UseWorkoutDataRetu
       setExerciseSets: React.Dispatch<React.SetStateAction<Record<string, ExerciseSet[]>>>,
       exerciseCustomized: Record<string, boolean>,
       isResumingPausedWorkout: boolean,
+      exerciseSetsLocked?: boolean,
     ) => {
-      if (isResumingPausedWorkout) return;
+      // Don't pre-fill if resuming paused workout or if sets are locked during restoration
+      if (isResumingPausedWorkout || exerciseSetsLocked) {
+        console.log('PRE-FILL: Skipping pre-fill - resuming paused workout or sets locked:', {
+          isResumingPausedWorkout,
+          exerciseSetsLocked,
+        });
+        return;
+      }
 
       setExerciseSets((prev: Record<string, ExerciseSet[]>) => {
         const updatedSets = { ...prev };

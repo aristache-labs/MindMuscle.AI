@@ -484,20 +484,10 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
   // Function to update paused workout with current exercise customizations
   const updatePausedWorkoutWithCustomizationsCallback = useCallback(
     async (pausedWorkoutData: PausedWorkout) => {
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-      if (!plan) {
-        throw new Error('No active plan found');
-      }
-      return await updatePausedWorkoutWithCustomizations(
-        pausedWorkoutData,
-        user,
-        plan,
-        workoutPlanService,
-      );
+      // SIMPLIFIED: No longer needs user, plan, or workoutPlanService parameters
+      return await updatePausedWorkoutWithCustomizations(pausedWorkoutData);
     },
-    [user, plan],
+    [], // No dependencies needed anymore
   );
 
   // Use the workout actions hook
@@ -512,9 +502,7 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
     userWorkoutDays,
     pausedWorkout,
     hasPausedWorkout,
-    setIsLoading,
     setPausedWorkout,
-    setHasPausedWorkout,
     setShowPausedWorkoutModal,
     setPausedWorkoutInfo,
     setHasAppliedCustomizations,

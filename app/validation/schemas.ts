@@ -557,7 +557,7 @@ export const CompleteWorkoutOptionsSchema = z.object({
   totalVolume: NonNegativeNumberSchema,
   totalReps: NonNegativeNumberSchema,
   isRedoWorkout: z.boolean().optional(),
-  originalCycleWeek: PositiveNumberSchema.optional(),
+  originalCycleWeek: PositiveNumberSchema.nullable().optional(),
 });
 
 export const SavedExerciseStructureSchema = z.object({
@@ -806,6 +806,9 @@ export const PausedWorkoutDataSchema = z.object({
   currentExerciseIndex: z.number().nonnegative(),
   originalCycleWeek: z.number().positive().nullable().optional(),
   pausedAt: z.string().optional(),
+  exerciseCustomized: z.record(z.boolean()).optional(),
+  userEnteredValues: z.record(z.boolean()).optional(),
+  focusedInputs: z.record(z.boolean()).optional(),
 });
 
 export const SavedPlanSchema = z.object({

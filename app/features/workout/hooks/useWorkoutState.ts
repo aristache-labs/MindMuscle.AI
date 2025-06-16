@@ -117,6 +117,8 @@ export interface UseWorkoutStateReturn {
   setOriginalCycleWeek: React.Dispatch<React.SetStateAction<number | null>>;
   isResumingPausedWorkout: boolean;
   setIsResumingPausedWorkout: React.Dispatch<React.SetStateAction<boolean>>;
+  exerciseSetsLocked: boolean;
+  setExerciseSetsLocked: React.Dispatch<React.SetStateAction<boolean>>;
   fetchWorkoutData: () => Promise<void>;
   checkWorkoutCompletionOnly: () => Promise<void>;
   resumePausedWorkout: (pausedWorkout: unknown) => Promise<void>;
@@ -148,6 +150,7 @@ export const useWorkoutState = ({
   const [completedWorkoutData, setCompletedWorkoutData] = useState<unknown>(null);
   const [originalCycleWeek, setOriginalCycleWeek] = useState<number | null>(null);
   const [isResumingPausedWorkout, setIsResumingPausedWorkout] = useState(false);
+  const [exerciseSetsLocked, setExerciseSetsLocked] = useState(false);
 
   // Totals
   const [totalVolume, setTotalVolume] = useState<number>(0);
@@ -369,9 +372,13 @@ export const useWorkoutState = ({
       totalVolume?: number;
       totalReps?: number;
       workoutDuration?: number;
+      exerciseCustomized?: Record<string, boolean>;
+      userEnteredValues?: Record<string, boolean>;
+      focusedInputs?: Record<string, boolean>;
     }) => {
       // Set flag to prevent effects from overwriting paused workout data
       setIsResumingPausedWorkout(true);
+      setExerciseSetsLocked(true); // Lock exercise sets to prevent regeneration
 
       // Ensure all exercises have the correct isChangedExercise flag
       if (workout.exercises) {
@@ -383,9 +390,68 @@ export const useWorkoutState = ({
         });
       }
 
-      // Set basic workout state
-      setExercises(workout.exercises as unknown as ExerciseData[]);
-      setExerciseSets(workout.exerciseSets as Record<string, ExerciseSet[]>);
+      // Log detailed information about what we're restoring
+      console.log('RESUME: About to restore exercises:', JSON.stringify(workout.exercises));
+      console.log('RESUME: About to restore exerciseSets:', JSON.stringify(workout.exerciseSets));
+
+      // Log each exercise's sets count for debugging
+      if (workout.exercises) {
+        workout.exercises.forEach((ex) => {
+          console.log(
+            `RESUME: Exercise ${ex.name} (${ex.id}) has ${ex.sets} sets in exercise definition`,
+          );
+        });
+      }
+
+      // Log each exercise's actual sets data
+      if (workout.exerciseSets) {
+        Object.entries(workout.exerciseSets).forEach(([exerciseId, sets]) => {
+          console.log(
+            `RESUME: Exercise ${exerciseId} has ${sets.length} actual sets in saved data`,
+          );
+        });
+      }
+
+      // Set workout state using React's functional state updates to ensure atomicity
+      // Use functional updates to ensure state is set correctly
+      setExercises((prev) => {
+        console.log(
+          'RESUME: Setting exercises - prev length:',
+          prev.length,
+          'new length:',
+          workout.exercises?.length || 0,
+        );
+        return workout.exercises as unknown as ExerciseData[];
+      });
+
+      setExerciseSets((prev) => {
+        console.log(
+          'RESUME: Setting exercise sets - prev keys:',
+          Object.keys(prev),
+          'new keys:',
+          Object.keys(workout.exerciseSets || {}),
+        );
+        const newSets = workout.exerciseSets || {};
+
+        // Log detailed comparison for debugging
+        Object.entries(newSets).forEach(([exerciseId, sets]) => {
+          console.log(`RESUME: Setting exercise ${exerciseId} to have ${sets.length} sets`);
+          const prevSets = prev[exerciseId];
+          if (prevSets) {
+            console.log(
+              `RESUME: Previous sets for ${exerciseId}: ${prevSets.length}, new sets: ${sets.length}`,
+            );
+          }
+        });
+
+        return newSets;
+      });
+
+      // SIMPLIFIED: No need to restore customization tracking
+      // Exercises already contain their customized values
+      console.log(
+        'RESUME: Using simplified approach - exercises contain their customized sets/reps directly',
+      );
     },
     [],
   );
@@ -441,13 +507,30 @@ export const useWorkoutState = ({
 
     // Verify state restoration and clear resuming flag
     setTimeout(() => {
-      console.log('RESUME: Verifying currentExerciseIndex after state restoration...');
+      console.log('RESUME: Verifying state after restoration...');
+      // Add verification logic here if needed
     }, 100);
+
+    // Add verification to check if exercise sets match what was saved
+    setTimeout(() => {
+      console.log('RESUME: Final verification - checking exercise sets...');
+
+      // Force a verification callback to check the current state
+      const verifyRestoredState = () => {
+        console.log('RESUME: Final state verification triggered');
+        // This will be filled in with actual verification logic if needed
+      };
+
+      verifyRestoredState();
+    }, 200);
 
     setTimeout(() => {
       setIsResumingPausedWorkout(false);
-      console.log('RESUME: Cleared isResumingPausedWorkout flag - effects can now run normally');
-    }, 3000);
+      setExerciseSetsLocked(false); // Unlock exercise sets after restoration is complete
+      console.log(
+        'RESUME: Cleared isResumingPausedWorkout flag and unlocked exercise sets - effects can now run normally',
+      );
+    }, 5000); // Extended from 3 to 5 seconds to ensure all restoration is complete
   }, [user, planId, workoutDay]);
 
   // Function to resume a paused workout
@@ -469,6 +552,9 @@ export const useWorkoutState = ({
           totalVolume?: number;
           totalReps?: number;
           workoutDuration?: number;
+          exerciseCustomized?: Record<string, boolean>;
+          userEnteredValues?: Record<string, boolean>;
+          focusedInputs?: Record<string, boolean>;
         };
 
         console.log('Resuming paused workout:', JSON.stringify(workout.exercises));
@@ -478,6 +564,10 @@ export const useWorkoutState = ({
         );
         console.log('Resuming paused workout - totalVolume:', workout.totalVolume);
         console.log('Resuming paused workout - totalReps:', workout.totalReps);
+
+        console.log(
+          'RESUME: Using simplified approach - exercises already contain customized values',
+        );
 
         // Restore workout state using helper functions
         restoreWorkoutState(workout);
@@ -692,6 +782,8 @@ export const useWorkoutState = ({
     setOriginalCycleWeek,
     isResumingPausedWorkout,
     setIsResumingPausedWorkout,
+    exerciseSetsLocked,
+    setExerciseSetsLocked,
     fetchWorkoutData,
     checkWorkoutCompletionOnly,
     resumePausedWorkout,

@@ -53,27 +53,6 @@ export const getMuscleTagName = (muscle: string) => {
 // Import existing types from the types file
 import { Exercise, PausedWorkout } from '../types';
 
-// REMOVED: ExtendedExercise interface - no longer needed with simplified approach
-
-// REMOVED: User interface - no longer needed with simplified approach
-
-// REMOVED: ExerciseChange interface - no longer needed with simplified approach
-
-// REMOVED: ExerciseData interface - no longer needed with simplified approach
-
-// REMOVED: WorkoutPlanService interface - no longer needed with simplified approach
-
-// REMOVED: identifySwitchedExercises - no longer needed with simplified approach
-
-// REMOVED: updateExerciseWithCustomizations - no longer needed with simplified approach
-
-// REMOVED: identifyExerciseChanges - no longer needed with simplified approach
-
-// REMOVED: createNewExerciseSets - no longer needed with simplified approach
-
-// REMOVED: adjustExerciseSetCounts and adjustSetCount - no longer needed with simplified approach
-
-// SIMPLIFIED: Main function to update paused workout with current exercise customizations
 // Instead of complex merging, just return the paused workout exactly as it was saved
 export const updatePausedWorkoutWithCustomizations = async (
   pausedWorkoutData: PausedWorkout,

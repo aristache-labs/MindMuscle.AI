@@ -3,6 +3,7 @@ import React, { useCallback, useEffect } from 'react';
 import { ActivityIndicator, FlatList, ScrollView, View } from 'react-native';
 import { Appbar, Button, FAB, IconButton } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import ExerciseDetailsModal from '../../../components/ExerciseDetailsModal';
 import MyPlanCalendar from '../../../components/myplanCalendar';
 import PlanOverviewModal from '../../../components/PlanOverviewModal';
@@ -446,7 +447,7 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
   } = usePlanState();
 
   // Use the plan data hook
-  const { fetchUserWorkoutDays, fetchActivePlan } = usePlanData({
+  const { fetchUserWorkoutDays, fetchActivePlan, fetchCycleProgress } = usePlanData({
     userWorkoutDays,
     setPlan,
     setCycleProgress,
@@ -886,6 +887,58 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
     isManualDateSelection,
     updateCalendarWorkoutStatus,
   ]);
+
+  // Refresh cycle progress when screen comes into focus (e.g., after completing a workout)
+  useFocusEffect(
+    useCallback(() => {
+      let hasRun = false; // Prevent multiple runs within the same focus event
+
+      const refreshCycleProgress = async () => {
+        if (hasRun || !plan?.id || !user?.id || isLoading) {
+          return;
+        }
+        hasRun = true;
+
+        try {
+          // Refresh cycle progress to detect any week unlocks from completed workouts
+          const updatedProgress = await fetchCycleProgress(plan.id);
+          if (updatedProgress) {
+            setCycleProgress(updatedProgress);
+
+            console.log('🔄 Cycle progress refreshed on screen focus', {
+              currentWeek: updatedProgress.currentWeek,
+              weekName: updatedProgress.weekName,
+              completedWorkouts: updatedProgress.completedWorkouts,
+            });
+
+            // If user is viewing a locked week that might now be unlocked, refresh the date selection
+            if (isViewingLockedWeek && lockedWeekInfo) {
+              const wasLocked = lockedWeekInfo.selectedWeek > updatedProgress.currentWeek;
+              if (!wasLocked) {
+                // Week is now unlocked, refresh current selection
+                const currentActiveDay = activeDay;
+                const currentSelectedDate = selectedDate;
+                setTimeout(() => {
+                  handleCalendarDateSelect(
+                    currentSelectedDate,
+                    currentActiveDay,
+                    currentActiveDay !== null,
+                  );
+                }, 50);
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error refreshing cycle progress on focus:', error);
+        }
+      };
+
+      // Add a small delay to ensure screen is fully focused
+      const timeoutId = setTimeout(refreshCycleProgress, 200);
+
+      return () => clearTimeout(timeoutId);
+    }, [plan?.id, user?.id, isLoading, fetchCycleProgress, setCycleProgress]),
+  );
 
   // Main render
   if (isLoading) {

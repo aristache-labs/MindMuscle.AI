@@ -53,7 +53,17 @@ export const useDateSelection = ({
   // Helper function to check if week is locked
   const checkLockedWeek = useCallback(
     (selectedCycleWeek: number | undefined, selectedWeekName: string | undefined) => {
-      if (cycleProgress && selectedCycleWeek && selectedCycleWeek > cycleProgress.currentWeek) {
+      if (!cycleProgress || !selectedCycleWeek) {
+        setIsViewingLockedWeek(false);
+        setLockedWeekInfo(null);
+        return false;
+      }
+
+      // Allow access to current week and all previous weeks (for catch-up workouts)
+      // Only lock future weeks that user hasn't reached yet
+      const shouldLockWeek = selectedCycleWeek > cycleProgress.currentWeek;
+
+      if (shouldLockWeek) {
         setIsViewingLockedWeek(true);
         setLockedWeekInfo({
           selectedWeek: selectedCycleWeek,
@@ -63,6 +73,7 @@ export const useDateSelection = ({
         });
         return true;
       }
+
       setIsViewingLockedWeek(false);
       setLockedWeekInfo(null);
       return false;

@@ -625,7 +625,10 @@ export const getCurrentCycleProgress = async (
       operation: 'get_current_cycle_progress',
     });
 
-    // Get the active plan information
+    // First, recalculate and fix week progression if needed
+    const recalculationResult = await recalculateWeekProgression(userId, planId);
+
+    // Get the active plan information (potentially updated by recalculation)
     const { data: planData, error: planError } = await supabase
       .from('user_active_plans')
       .select('current_week, completed_workouts, workout_plans!inner(workout_frequency)')
@@ -656,6 +659,21 @@ export const getCurrentCycleProgress = async (
     const completedWorkouts = planData.completed_workouts || 0;
     const workoutFrequency =
       (planData.workout_plans as unknown as { workout_frequency: number })?.workout_frequency || 3;
+
+    // Log if recalculation was performed
+    if (recalculationResult?.wasUpdated) {
+      SentryLogger.info(
+        'Week progression was automatically corrected during getCurrentCycleProgress',
+        {
+          user_id: userId,
+          plan_id: planId,
+          corrected_week: recalculationResult.correctedWeek,
+          actual_completed: recalculationResult.actualCompletedWorkouts,
+          operation: 'get_current_cycle_progress',
+        },
+        { feature: 'workout_cycle', action: 'auto_correction' },
+      );
+    }
 
     // Get cycle week information
     const cycleInfo = await getCycleWeekInfo(currentWeek);
@@ -844,6 +862,148 @@ export const checkWeekProgression = async (
     return null;
   }
 };
+
+// Function to recalculate and fix week progression based on actual workout history
+export const recalculateWeekProgression = async (
+  userId: string,
+  planId: string,
+): Promise<{
+  correctedWeek: number;
+  actualCompletedWorkouts: number;
+  wasUpdated: boolean;
+} | null> => {
+  const startTime = Date.now();
+
+  try {
+    addBreadcrumb('Recalculating week progression', 'workout_cycle', {
+      user_id: userId,
+      plan_id: planId,
+    });
+
+    // Get current state from active plan
+    const { data: planData, error: planError } = await supabase
+      .from('user_active_plans')
+      .select('current_week, completed_workouts, workout_plans!inner(workout_frequency)')
+      .eq('user_id', userId)
+      .eq('plan_id', planId)
+      .eq('is_active', true)
+      .single();
+
+    if (planError || !planData) {
+      SentryLogger.error(
+        'Failed to get active plan for week progression recalculation',
+        {
+          user_id: userId,
+          plan_id: planId,
+          error: planError?.message,
+        },
+        { feature: 'workout_cycle', action: 'recalculate_error' },
+      );
+      return null;
+    }
+
+    const currentWeek = planData.current_week || 1;
+    const storedCompletedWorkouts = planData.completed_workouts || 0;
+    const workoutFrequency =
+      (planData.workout_plans as unknown as { workout_frequency: number })?.workout_frequency || 3;
+
+    // Count actual completed workouts from history
+    const { data: historyData, error: historyError } = await supabase
+      .from('user_workout_history')
+      .select('workout_day, cycle_week')
+      .eq('user_id', userId)
+      .eq('plan_id', planId);
+
+    if (historyError) {
+      SentryLogger.error(
+        'Failed to get workout history for week progression recalculation',
+        {
+          user_id: userId,
+          plan_id: planId,
+          error: historyError.message,
+        },
+        { feature: 'workout_cycle', action: 'recalculate_error' },
+      );
+      return null;
+    }
+
+    const actualCompletedWorkouts = historyData?.length || 0;
+
+    // Calculate what the current week should be based on completed workouts
+    const expectedWeek = Math.min(Math.floor(actualCompletedWorkouts / workoutFrequency) + 1, 5);
+
+    // Check if we need to update
+    const needsUpdate =
+      currentWeek !== expectedWeek || storedCompletedWorkouts !== actualCompletedWorkouts;
+
+    if (needsUpdate) {
+      // Update the active plan with correct values
+      const { error: updateError } = await supabase
+        .from('user_active_plans')
+        .update({
+          current_week: expectedWeek,
+          completed_workouts: actualCompletedWorkouts,
+        })
+        .eq('user_id', userId)
+        .eq('plan_id', planId)
+        .eq('is_active', true);
+
+      if (updateError) {
+        SentryLogger.error(
+          'Failed to update week progression',
+          {
+            user_id: userId,
+            plan_id: planId,
+            old_week: currentWeek,
+            new_week: expectedWeek,
+            old_completed: storedCompletedWorkouts,
+            new_completed: actualCompletedWorkouts,
+            error: updateError.message,
+          },
+          { feature: 'workout_cycle', action: 'update_error' },
+        );
+        return null;
+      }
+
+      SentryLogger.info(
+        'Week progression corrected successfully',
+        {
+          user_id: userId,
+          plan_id: planId,
+          old_week: currentWeek,
+          new_week: expectedWeek,
+          old_completed: storedCompletedWorkouts,
+          new_completed: actualCompletedWorkouts,
+          duration_ms: Date.now() - startTime,
+        },
+        { feature: 'workout_cycle', action: 'recalculate_success' },
+      );
+    }
+
+    return {
+      correctedWeek: expectedWeek,
+      actualCompletedWorkouts,
+      wasUpdated: needsUpdate,
+    };
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    SentryLogger.error(
+      'Failed to recalculate week progression',
+      {
+        user_id: userId,
+        plan_id: planId,
+        error_message: errorMessage,
+        duration_ms: duration,
+      },
+      { feature: 'workout_cycle', action: 'recalculate_error' },
+    );
+
+    return null;
+  }
+};
+
 export default function disablewarn() {
   return null;
 }

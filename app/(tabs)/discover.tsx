@@ -25,6 +25,12 @@ import OptimizedImage from '../components/OptimizedImage';
 import { markAsImportantImage } from '../utils/imagePreloader';
 import { strategicPreloadImages, PreloadStrategy } from '../utils/imagePreloader';
 import useIntelligentPreloader from '../hooks/useIntelligentPreloader';
+import {
+  addBreadcrumb,
+  captureError,
+  capturePerformanceError,
+} from '../services/sentry/simpleErrorHandler';
+import { setTag, SentryReactProfiler } from '../services/sentry';
 
 // Heights
 const FILTER_HEIGHT = 48;
@@ -121,6 +127,15 @@ const WorkoutCard = React.memo(
     const router = useRouter();
 
     const handlePress = () => {
+      const startTime = Date.now();
+
+      addBreadcrumb(`Workout card pressed: ${title}`, 'user_interaction', {
+        workoutId: id,
+        category,
+        title,
+        subtitle,
+      });
+
       // Preload the plans screen and mark the current image as important before navigation
       if (typeof image === 'string') {
         markAsImportantImage(image);
@@ -129,18 +144,41 @@ const WorkoutCard = React.memo(
         if (uri) markAsImportantImage(uri);
       }
 
-      router.push({
-        pathname: 'plans',
-        params: {
-          subcategoryId: id,
-          title,
-          accent,
-          subcategoryName: title,
-          subcategoryTitle: title,
-          subcategorySubtitle: subtitle,
-          categoryName: category,
-        },
-      });
+      try {
+        router.push({
+          pathname: 'plans',
+          params: {
+            subcategoryId: id,
+            title,
+            accent,
+            subcategoryName: title,
+            subcategoryTitle: title,
+            subcategorySubtitle: subtitle,
+            categoryName: category,
+          },
+        });
+
+        const navigationTime = Date.now() - startTime;
+        addBreadcrumb(`Navigation to plans completed: ${title}`, 'performance', {
+          navigationTime,
+          workoutId: id,
+        });
+
+        if (navigationTime > 300) {
+          capturePerformanceError(
+            'Slow workout card navigation',
+            'navigation_time',
+            navigationTime,
+          );
+        }
+      } catch (error) {
+        captureError(error as Error, {
+          category: 'navigation_error',
+          screen: 'discover',
+          component: 'WorkoutCard',
+          workoutId: id,
+        });
+      }
     };
 
     return (
@@ -529,9 +567,36 @@ export default function DiscoverScreen() {
     }
   }, [sections, currentSection]);
 
+  // Track screen initialization
+  useEffect(() => {
+    const startTime = Date.now();
+
+    addBreadcrumb('Discover screen initialized', 'navigation', {
+      timestamp: new Date().toISOString(),
+    });
+
+    setTag('current_screen', 'discover');
+    SentryReactProfiler.trackComponentLifecycle('DiscoverScreen', 'mount');
+
+    return () => {
+      const mountTime = Date.now() - startTime;
+      addBreadcrumb('Discover screen unmounted', 'navigation', {
+        screenMountTime: mountTime,
+      });
+
+      SentryReactProfiler.trackComponentLifecycle('DiscoverScreen', 'unmount');
+    };
+  }, []);
+
   // Fetch workout categories and subcategories from Supabase
   useEffect(() => {
     async function fetchData() {
+      const startTime = Date.now();
+
+      addBreadcrumb('Starting data fetch for discover screen', 'api', {
+        timestamp: new Date().toISOString(),
+      });
+
       try {
         setIsLoading(true);
 
@@ -655,9 +720,37 @@ export default function DiscoverScreen() {
 
         // Prefetch plans and exercise-details screens as they're likely to be visited next
         preloader.predictiveLoadForScreens(['plans', 'exercises-list']);
+
+        // Track successful data load
+        addBreadcrumb('Discover data loaded successfully', 'api', {
+          sectionsCount: formattedSections.length,
+          totalWorkouts: formattedSections.reduce((sum, section) => sum + section.data.length, 0),
+          loadTime: Date.now() - startTime,
+        });
+
+        if (Date.now() - startTime > 3000) {
+          capturePerformanceError(
+            'Slow discover data fetch',
+            'api_response_time',
+            Date.now() - startTime,
+          );
+        }
       } catch (error) {
-        console.error('Error fetching data:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+
+        captureError(error as Error, {
+          category: 'api_error',
+          screen: 'discover',
+          endpoint: 'workout_categories_subcategories',
+          fetchTime: Date.now() - startTime,
+        });
+
         setIsLoading(false);
+
+        addBreadcrumb('Discover data fetch failed', 'api', {
+          errorMessage,
+          fetchTime: Date.now() - startTime,
+        });
       }
     }
 

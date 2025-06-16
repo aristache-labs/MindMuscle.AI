@@ -22,6 +22,7 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
+import * as Sentry from '@sentry/react-native';
 import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import workoutPlanService from '../services/workoutPlanService';
 
@@ -67,8 +68,6 @@ interface MyPlanCalendarProps {
   pausedWorkoutDays: string[];
   embedded?: boolean;
   initialSelectedDate?: Date;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  _cycleProgress?: any;
 }
 
 export default function MyPlanCalendar({
@@ -79,7 +78,6 @@ export default function MyPlanCalendar({
   pausedWorkoutDays,
   embedded = false,
   initialSelectedDate,
-  _cycleProgress,
 }: MyPlanCalendarProps) {
   const [selectedDate, setSelectedDate] = useState(initialSelectedDate || new Date());
   const [markedDates, setMarkedDates] = useState<{ [key: string]: MarkedDateInfo }>({});
@@ -90,6 +88,44 @@ export default function MyPlanCalendar({
 
   // Use ref to track if we've already auto-selected today's date
   const hasAutoSelectedToday = useRef(false);
+
+  // Track component mount
+  useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: 'MyPlanCalendar component mounted',
+      category: 'ui.lifecycle',
+      data: {
+        planId: plan?.id,
+        userWorkoutDaysCount: userWorkoutDays.length,
+        completedDaysCount: completedWorkoutDays.length,
+        pausedDaysCount: pausedWorkoutDays.length,
+        embedded,
+        hasInitialDate: !!initialSelectedDate,
+      },
+    });
+
+    return () => {
+      Sentry.addBreadcrumb({
+        message: 'MyPlanCalendar component unmounted',
+        category: 'ui.lifecycle',
+      });
+    };
+  }, []);
+
+  // Track plan changes
+  useEffect(() => {
+    if (plan?.id) {
+      Sentry.addBreadcrumb({
+        message: 'MyPlanCalendar plan updated',
+        category: 'ui.update',
+        data: {
+          planId: plan.id,
+          startDate: plan.start_date,
+          workoutDaysCount: plan.workoutDays?.length || 0,
+        },
+      });
+    }
+  }, [plan?.id]);
 
   // Animated values for swipe gestures
   const translateX = useSharedValue(0);
@@ -106,10 +142,23 @@ export default function MyPlanCalendar({
 
   // Memoize weekDays to prevent unnecessary recalculations
   const weekDays = useMemo(() => {
+    const startTime = performance.now();
     const days = [];
     for (let i = 0; i < 7; i++) {
       days.push(addDays(currentWeekStart, i));
     }
+    const endTime = performance.now();
+
+    // Track week calculation performance
+    Sentry.addBreadcrumb({
+      message: 'Week days calculated',
+      category: 'performance',
+      data: {
+        duration: `${(endTime - startTime).toFixed(2)}ms`,
+        weekStart: format(currentWeekStart, 'yyyy-MM-dd'),
+      },
+    });
+
     return days;
   }, [currentWeekStart]);
 
@@ -117,6 +166,8 @@ export default function MyPlanCalendar({
   const setupCalendarDates = useCallback(
     (startDate: string, totalDays: number) => {
       if (userWorkoutDays.length === 0) return;
+
+      const startTime = performance.now();
 
       // Use the new progressive calendar system
       const markedDatesObj = workoutPlanService.setupCalendarDatesProgressive(
@@ -127,6 +178,20 @@ export default function MyPlanCalendar({
       );
 
       setMarkedDates(markedDatesObj);
+
+      const endTime = performance.now();
+
+      // Track calendar setup performance
+      Sentry.addBreadcrumb({
+        message: 'Calendar dates setup completed',
+        category: 'performance',
+        data: {
+          duration: `${(endTime - startTime).toFixed(2)}ms`,
+          totalDays,
+          userWorkoutDaysCount: userWorkoutDays.length,
+          markedDatesCount: Object.keys(markedDatesObj).length,
+        },
+      });
     },
     [userWorkoutDays.join(',')],
   );
@@ -134,6 +199,7 @@ export default function MyPlanCalendar({
   // Handle date selection on calendar
   const handleDateSelect = useCallback(
     async (day: Date) => {
+      const startTime = performance.now();
       setSelectedDate(day);
 
       // Find the workout day that corresponds to this date
@@ -145,22 +211,54 @@ export default function MyPlanCalendar({
           // This is a workout day - get the workout day index from the marked date
           const workoutDayIndex = markedDateInfo.workoutDayIndex;
 
+          Sentry.addBreadcrumb({
+            message: 'Workout day selected',
+            category: 'ui.interaction',
+            data: {
+              date: dateStr,
+              workoutDayIndex,
+              cycleWeek: markedDateInfo.cycleWeek,
+              weekName: markedDateInfo.weekName,
+            },
+          });
+
           onDateSelect(day, workoutDayIndex, true);
         } else {
           // Not a workout day
+          Sentry.addBreadcrumb({
+            message: 'Non-workout day selected',
+            category: 'ui.interaction',
+            data: {
+              date: dateStr,
+            },
+          });
+
           onDateSelect(day, null, false);
         }
       } else {
         // No plan available, just call onDateSelect with no workout day
         onDateSelect(day, null, false);
       }
+
+      const endTime = performance.now();
+
+      // Track date selection performance
+      Sentry.addBreadcrumb({
+        message: 'Date selection completed',
+        category: 'performance',
+        data: {
+          duration: `${(endTime - startTime).toFixed(2)}ms`,
+          selectedDate: format(day, 'yyyy-MM-dd'),
+          hasPlan: !!plan,
+        },
+      });
     },
     [plan, markedDates, onDateSelect],
   );
 
   // Function to get day abbreviation
   const getDayAbbreviation = (date: Date) => {
-    const dayOfWeek = getDay(date);
+    const dayOfWeek = getDay(date); // getDay() returns 0-6 (0=Sunday, 6=Saturday)
     const days = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
     return days[dayOfWeek];
   };
@@ -174,8 +272,24 @@ export default function MyPlanCalendar({
   const handleWeekDayPress = async (date: Date) => {
     // Skip processing if the user taps on the already selected date
     if (isSelected(date)) {
+      Sentry.addBreadcrumb({
+        message: 'Same date tapped - skipping',
+        category: 'ui.interaction',
+        data: {
+          date: format(date, 'yyyy-MM-dd'),
+        },
+      });
       return;
     }
+
+    Sentry.addBreadcrumb({
+      message: 'Week day pressed',
+      category: 'ui.interaction',
+      data: {
+        date: format(date, 'yyyy-MM-dd'),
+        dayOfWeek: getDayAbbreviation(date),
+      },
+    });
 
     await handleDateSelect(date);
   };
@@ -184,11 +298,27 @@ export default function MyPlanCalendar({
   const updateToPreviousWeek = useCallback(() => {
     setCurrentWeekStart((prev) => addDays(prev, -7));
     weekOpacity.value = withSpring(1, { damping: 15, stiffness: 200 });
+
+    Sentry.addBreadcrumb({
+      message: 'Week navigation - previous week',
+      category: 'ui.navigation',
+      data: {
+        direction: 'previous',
+      },
+    });
   }, [weekOpacity]);
 
   const updateToNextWeek = useCallback(() => {
     setCurrentWeekStart((prev) => addDays(prev, 7));
     weekOpacity.value = withSpring(1, { damping: 15, stiffness: 200 });
+
+    Sentry.addBreadcrumb({
+      message: 'Week navigation - next week',
+      category: 'ui.navigation',
+      data: {
+        direction: 'next',
+      },
+    });
   }, [weekOpacity]);
 
   // Navigation functions with animation
@@ -213,13 +343,16 @@ export default function MyPlanCalendar({
   // Pan gesture for swipe navigation
   const panGesture = Gesture.Pan()
     .onStart(() => {
+      'worklet';
       isGestureActive.value = true;
     })
     .onUpdate((event) => {
+      'worklet';
       // Only allow horizontal movement with reduced sensitivity
       translateX.value = event.translationX * 0.3; // Reduce movement for smoother feel
     })
     .onEnd((event) => {
+      'worklet';
       const { translationX, velocityX } = event;
 
       // Determine if swipe should trigger navigation
@@ -271,6 +404,14 @@ export default function MyPlanCalendar({
         weekOpacity.value = withSpring(1, { damping: 15, stiffness: 200 });
       }
     });
+
+    Sentry.addBreadcrumb({
+      message: 'Navigate to current week',
+      category: 'ui.navigation',
+      data: {
+        todayDate: format(today, 'yyyy-MM-dd'),
+      },
+    });
   }, [weekOpacity, handleDateSelect]);
 
   // Function to find next workout day
@@ -288,6 +429,15 @@ export default function MyPlanCalendar({
         setCurrentWeekStart(weekStart);
         setSelectedDate(checkDate);
         handleDateSelect(checkDate);
+
+        Sentry.addBreadcrumb({
+          message: 'Next workout day found and selected',
+          category: 'ui.navigation',
+          data: {
+            nextWorkoutDate: checkDateStr,
+            daysFromToday: i,
+          },
+        });
         break;
       }
     }
@@ -308,6 +458,15 @@ export default function MyPlanCalendar({
         setCurrentWeekStart(weekStart);
         setSelectedDate(checkDate);
         handleDateSelect(checkDate);
+
+        Sentry.addBreadcrumb({
+          message: 'Previous workout day found and selected',
+          category: 'ui.navigation',
+          data: {
+            previousWorkoutDate: checkDateStr,
+            daysFromToday: i,
+          },
+        });
         break;
       }
     }
@@ -344,6 +503,14 @@ export default function MyPlanCalendar({
       // Navigate to the week containing the selected date
       const weekStart = startOfWeek(initialSelectedDate, { weekStartsOn: 0 });
       setCurrentWeekStart(weekStart);
+
+      Sentry.addBreadcrumb({
+        message: 'Initial selected date updated',
+        category: 'ui.update',
+        data: {
+          initialDate: format(initialSelectedDate, 'yyyy-MM-dd'),
+        },
+      });
     }
   }, [initialSelectedDate]);
 
@@ -363,6 +530,14 @@ export default function MyPlanCalendar({
         // Trigger the date selection for today to update the parent component
         handleDateSelect(today);
         hasAutoSelectedToday.current = true;
+
+        Sentry.addBreadcrumb({
+          message: "Auto-selected today's date",
+          category: 'ui.auto_action',
+          data: {
+            todayDate: format(today, 'yyyy-MM-dd'),
+          },
+        });
       }
     }
   }, [markedDates, plan?.id]);

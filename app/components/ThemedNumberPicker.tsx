@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, Modal, Pressable, Platform } from 'react-native';
 import { Text, TextInput, IconButton } from 'react-native-paper';
 import { SPACING, BORDER_RADIUS } from '../constants/theme';
+import { SentryDataCollection, SentryLogger, SentryAutoInstrumentation } from '../services/sentry';
 
 interface ThemedNumberPickerProps {
   visible: boolean;
@@ -97,54 +98,209 @@ export function ThemedNumberPicker({
   }, [visible, baseValue, selectedUnit, type, isCustomInput]);
 
   const handleUnitChange = (newUnit: 'KG' | 'LB' | 'CM' | 'INCH') => {
-    setSelectedUnit(newUnit);
-    onUnitChange?.(newUnit);
+    try {
+      const previousUnit = selectedUnit;
+      const previousValue = displayValue;
+
+      setSelectedUnit(newUnit);
+      onUnitChange?.(newUnit);
+
+      // Track unit change interaction
+      SentryAutoInstrumentation.trackUserInteraction(
+        'unit_change',
+        'unit_selector',
+        'themed_number_picker',
+        {
+          previous_unit: previousUnit,
+          new_unit: newUnit,
+          current_value: previousValue,
+          picker_type: type,
+          platform: Platform.OS,
+        },
+      );
+
+      // Add breadcrumb for unit change
+      SentryDataCollection.addBreadcrumb({
+        message: `User changed unit from ${previousUnit} to ${newUnit}`,
+        category: 'user-interaction',
+        level: 'info',
+        data: {
+          component: 'ThemedNumberPicker',
+          action: 'unit_change',
+          previous_unit: previousUnit,
+          new_unit: newUnit,
+          current_value: previousValue,
+          picker_type: type,
+          platform: Platform.OS,
+        },
+      });
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'ThemedNumberPicker',
+        action: 'unit_change_handler',
+        new_unit: newUnit,
+        picker_type: type,
+        platform: Platform.OS,
+      });
+
+      SentryLogger.error('Error in ThemedNumberPicker unit change handler', {
+        error: error as Error,
+        component: 'ThemedNumberPicker',
+        new_unit: newUnit,
+        picker_type: type,
+      });
+
+      // Still try to execute the unit change even if tracking fails
+      try {
+        setSelectedUnit(newUnit);
+        onUnitChange?.(newUnit);
+      } catch (unitChangeError) {
+        SentryDataCollection.captureException(unitChangeError as Error, {
+          component: 'ThemedNumberPicker',
+          action: 'unit_change_execution',
+          new_unit: newUnit,
+          platform: Platform.OS,
+        });
+      }
+    }
   };
 
   const handleIncrement = () => {
-    const step = 0.1;
-    // if user is mid-typing, parse that; otherwise use displayValue
-    const current = isCustomInput ? parseFloat(customValue) || 0 : displayValue;
-    const newDisplay = Number(Math.round((current + step) * 10) / 10);
+    try {
+      const step = 0.1;
+      // if user is mid-typing, parse that; otherwise use displayValue
+      const current = isCustomInput ? parseFloat(customValue) || 0 : displayValue;
+      const newDisplay = Number(Math.round((current + step) * 10) / 10);
 
-    // Check if the new value is within limits
-    if (!isValueWithinLimits(newDisplay, type, selectedUnit)) {
-      return;
-    }
+      // Check if the new value is within limits
+      if (!isValueWithinLimits(newDisplay, type, selectedUnit)) {
+        // Track when user hits limit
+        SentryDataCollection.addBreadcrumb({
+          message: `User hit increment limit in ThemedNumberPicker`,
+          category: 'user-interaction',
+          level: 'info',
+          data: {
+            component: 'ThemedNumberPicker',
+            action: 'increment_limit_reached',
+            attempted_value: newDisplay,
+            current_value: current,
+            picker_type: type,
+            unit: selectedUnit,
+            platform: Platform.OS,
+          },
+        });
+        return;
+      }
 
-    // drop out of custom input, update everything
-    setIsCustomInput(false);
-    setCustomValue(newDisplay.toFixed(1));
-    setDisplayValue(newDisplay);
-    // mirror back to your KG/CM base
-    if (type === 'weight' && selectedUnit === 'LB') {
-      setBaseValue(lbsToKg(newDisplay));
-    } else if (type === 'height' && selectedUnit === 'INCH') {
-      setBaseValue(inchToCm(newDisplay));
-    } else {
-      setBaseValue(newDisplay);
+      // Track increment interaction
+      SentryAutoInstrumentation.trackUserInteraction(
+        'increment',
+        'increment_button',
+        'themed_number_picker',
+        {
+          previous_value: current,
+          new_value: newDisplay,
+          picker_type: type,
+          unit: selectedUnit,
+          platform: Platform.OS,
+        },
+      );
+
+      // drop out of custom input, update everything
+      setIsCustomInput(false);
+      setCustomValue(newDisplay.toFixed(1));
+      setDisplayValue(newDisplay);
+      // mirror back to your KG/CM base
+      if (type === 'weight' && selectedUnit === 'LB') {
+        setBaseValue(lbsToKg(newDisplay));
+      } else if (type === 'height' && selectedUnit === 'INCH') {
+        setBaseValue(inchToCm(newDisplay));
+      } else {
+        setBaseValue(newDisplay);
+      }
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'ThemedNumberPicker',
+        action: 'increment_handler',
+        picker_type: type,
+        unit: selectedUnit,
+        platform: Platform.OS,
+      });
+
+      SentryLogger.error('Error in ThemedNumberPicker increment handler', {
+        error: error as Error,
+        component: 'ThemedNumberPicker',
+        picker_type: type,
+        unit: selectedUnit,
+      });
     }
   };
 
   const handleDecrement = () => {
-    const step = 0.1;
-    const current = isCustomInput ? parseFloat(customValue) || 0 : displayValue;
-    const newDisplay = Number(Math.round((current - step) * 10) / 10);
+    try {
+      const step = 0.1;
+      const current = isCustomInput ? parseFloat(customValue) || 0 : displayValue;
+      const newDisplay = Number(Math.round((current - step) * 10) / 10);
 
-    // No need to check lower limit as we want to allow any positive number
-    if (newDisplay < 0) {
-      return;
-    }
+      // No need to check lower limit as we want to allow any positive number
+      if (newDisplay < 0) {
+        // Track when user hits lower limit
+        SentryDataCollection.addBreadcrumb({
+          message: `User hit decrement limit in ThemedNumberPicker`,
+          category: 'user-interaction',
+          level: 'info',
+          data: {
+            component: 'ThemedNumberPicker',
+            action: 'decrement_limit_reached',
+            attempted_value: newDisplay,
+            current_value: current,
+            picker_type: type,
+            unit: selectedUnit,
+            platform: Platform.OS,
+          },
+        });
+        return;
+      }
 
-    setIsCustomInput(false);
-    setCustomValue(newDisplay.toFixed(1));
-    setDisplayValue(newDisplay);
-    if (type === 'weight' && selectedUnit === 'LB') {
-      setBaseValue(lbsToKg(newDisplay));
-    } else if (type === 'height' && selectedUnit === 'INCH') {
-      setBaseValue(inchToCm(newDisplay));
-    } else {
-      setBaseValue(newDisplay);
+      // Track decrement interaction
+      SentryAutoInstrumentation.trackUserInteraction(
+        'decrement',
+        'decrement_button',
+        'themed_number_picker',
+        {
+          previous_value: current,
+          new_value: newDisplay,
+          picker_type: type,
+          unit: selectedUnit,
+          platform: Platform.OS,
+        },
+      );
+
+      setIsCustomInput(false);
+      setCustomValue(newDisplay.toFixed(1));
+      setDisplayValue(newDisplay);
+      if (type === 'weight' && selectedUnit === 'LB') {
+        setBaseValue(lbsToKg(newDisplay));
+      } else if (type === 'height' && selectedUnit === 'INCH') {
+        setBaseValue(inchToCm(newDisplay));
+      } else {
+        setBaseValue(newDisplay);
+      }
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'ThemedNumberPicker',
+        action: 'decrement_handler',
+        picker_type: type,
+        unit: selectedUnit,
+        platform: Platform.OS,
+      });
+
+      SentryLogger.error('Error in ThemedNumberPicker decrement handler', {
+        error: error as Error,
+        component: 'ThemedNumberPicker',
+        picker_type: type,
+        unit: selectedUnit,
+      });
     }
   };
 
@@ -153,51 +309,117 @@ export function ThemedNumberPicker({
     setCustomValue(text);
   };
 
+  // Helper function to handle limit exceeded scenario
+  const handleLimitExceeded = (roundedValue: number) => {
+    const maxValue = getMaxValue();
+
+    // Track when user input exceeds limits
+    SentryDataCollection.addBreadcrumb({
+      message: `User input exceeded limits in ThemedNumberPicker`,
+      category: 'user-interaction',
+      level: 'warning',
+      data: {
+        component: 'ThemedNumberPicker',
+        action: 'custom_input_limit_exceeded',
+        attempted_value: roundedValue,
+        max_value: maxValue,
+        picker_type: type,
+        unit: selectedUnit,
+        platform: Platform.OS,
+      },
+    });
+
+    setDisplayValue(maxValue);
+    setCustomValue(maxValue.toFixed(1));
+    setBaseValue(convertToBaseValue(maxValue));
+  };
+
+  // Helper function to handle valid input
+  const handleValidInput = (roundedValue: number) => {
+    // Track successful custom input
+    SentryAutoInstrumentation.trackUserInteraction(
+      'custom_input',
+      'text_input',
+      'themed_number_picker',
+      {
+        entered_value: roundedValue,
+        previous_value: displayValue,
+        picker_type: type,
+        unit: selectedUnit,
+        platform: Platform.OS,
+      },
+    );
+
+    setDisplayValue(roundedValue);
+    setCustomValue(roundedValue.toFixed(1));
+    setBaseValue(convertToBaseValue(roundedValue));
+  };
+
+  // Helper function to handle invalid input
+  const handleInvalidInput = () => {
+    // Track invalid input
+    SentryDataCollection.addBreadcrumb({
+      message: `User entered invalid input in ThemedNumberPicker`,
+      category: 'user-interaction',
+      level: 'warning',
+      data: {
+        component: 'ThemedNumberPicker',
+        action: 'invalid_custom_input',
+        invalid_value: customValue,
+        picker_type: type,
+        unit: selectedUnit,
+        platform: Platform.OS,
+      },
+    });
+
+    setCustomValue(displayValue.toFixed(1));
+  };
+
   const handleCustomInputBlur = () => {
-    const numValue = parseFloat(customValue);
-    if (!isNaN(numValue)) {
-      const roundedValue = Number(Math.round(numValue * 10) / 10);
+    try {
+      const numValue = parseFloat(customValue);
+      if (!isNaN(numValue)) {
+        const roundedValue = Number(Math.round(numValue * 10) / 10);
 
-      // Check if the value is within limits
-      if (!isValueWithinLimits(roundedValue, type, selectedUnit)) {
-        // If over limit, set to maximum allowed value
-        const maxValue =
-          type === 'weight'
-            ? selectedUnit === 'KG'
-              ? MAX_WEIGHT_KG
-              : MAX_WEIGHT_LB
-            : selectedUnit === 'CM'
-              ? MAX_HEIGHT_CM
-              : MAX_HEIGHT_INCH;
-        setDisplayValue(maxValue);
-        setCustomValue(maxValue.toFixed(1));
-
-        // Convert max value to base units
-        if (type === 'weight' && selectedUnit === 'LB') {
-          setBaseValue(lbsToKg(maxValue));
-        } else if (type === 'height' && selectedUnit === 'INCH') {
-          setBaseValue(inchToCm(maxValue));
+        if (!isValueWithinLimits(roundedValue, type, selectedUnit)) {
+          handleLimitExceeded(roundedValue);
         } else {
-          setBaseValue(maxValue);
+          handleValidInput(roundedValue);
         }
       } else {
-        setDisplayValue(roundedValue);
-        setCustomValue(roundedValue.toFixed(1));
-
-        // Convert display value back to base value
-        if (type === 'weight' && selectedUnit === 'LB') {
-          setBaseValue(lbsToKg(roundedValue));
-        } else if (type === 'height' && selectedUnit === 'INCH') {
-          setBaseValue(inchToCm(roundedValue));
-        } else {
-          setBaseValue(roundedValue);
-        }
+        handleInvalidInput();
       }
-    } else {
-      // If invalid number, revert to current display value
-      setCustomValue(displayValue.toFixed(1));
+      setIsCustomInput(false);
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'ThemedNumberPicker',
+        action: 'custom_input_blur_handler',
+        custom_value: customValue,
+        picker_type: type,
+        unit: selectedUnit,
+        platform: Platform.OS,
+      });
+
+      SentryLogger.error('Error in ThemedNumberPicker custom input blur handler', {
+        error: error as Error,
+        component: 'ThemedNumberPicker',
+        custom_value: customValue,
+        picker_type: type,
+        unit: selectedUnit,
+      });
+
+      // Fallback: revert to display value and exit custom input
+      try {
+        setCustomValue(displayValue.toFixed(1));
+        setIsCustomInput(false);
+      } catch (fallbackError) {
+        SentryDataCollection.captureException(fallbackError as Error, {
+          component: 'ThemedNumberPicker',
+          action: 'custom_input_fallback',
+          platform: Platform.OS,
+        });
+      }
     }
-    setIsCustomInput(false);
   };
 
   // Helper function to get maximum allowed value for current type and unit
@@ -255,21 +477,170 @@ export function ThemedNumberPicker({
     setBaseValue(finalBase);
   };
 
-  const handleConfirm = () => {
-    let finalBase = baseValue;
+  const handleCancel = () => {
+    try {
+      // Track cancel interaction
+      SentryAutoInstrumentation.trackUserInteraction(
+        'cancel',
+        'cancel_button',
+        'themed_number_picker',
+        {
+          current_value: displayValue,
+          original_value: value,
+          picker_type: type,
+          unit: selectedUnit,
+          platform: Platform.OS,
+        },
+      );
 
-    if (isCustomInput) {
-      finalBase = processCustomInput();
-      setIsCustomInput(false);
-      updateDisplayState(finalBase);
+      // Add breadcrumb for cancel action
+      SentryDataCollection.addBreadcrumb({
+        message: 'User cancelled number picker',
+        category: 'user-interaction',
+        level: 'info',
+        data: {
+          component: 'ThemedNumberPicker',
+          action: 'cancel',
+          current_value: displayValue,
+          original_value: value,
+          picker_type: type,
+          unit: selectedUnit,
+          platform: Platform.OS,
+        },
+      });
+
+      onCancel();
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'ThemedNumberPicker',
+        action: 'cancel_handler',
+        picker_type: type,
+        unit: selectedUnit,
+        platform: Platform.OS,
+      });
+
+      SentryLogger.error('Error in ThemedNumberPicker cancel handler', {
+        error: error as Error,
+        component: 'ThemedNumberPicker',
+        picker_type: type,
+        unit: selectedUnit,
+      });
+
+      // Still try to execute the cancel even if tracking fails
+      try {
+        onCancel();
+      } catch (cancelError) {
+        SentryDataCollection.captureException(cancelError as Error, {
+          component: 'ThemedNumberPicker',
+          action: 'cancel_execution',
+          platform: Platform.OS,
+        });
+      }
     }
-
-    onConfirm(finalBase);
   };
 
+  const handleConfirm = () => {
+    try {
+      let finalBase = baseValue;
+
+      if (isCustomInput) {
+        finalBase = processCustomInput();
+        setIsCustomInput(false);
+        updateDisplayState(finalBase);
+      }
+
+      // Track confirm interaction
+      SentryAutoInstrumentation.trackUserInteraction(
+        'confirm',
+        'confirm_button',
+        'themed_number_picker',
+        {
+          selected_value: finalBase,
+          original_value: value,
+          value_changed: finalBase !== value,
+          picker_type: type,
+          unit: selectedUnit,
+          platform: Platform.OS,
+        },
+      );
+
+      // Add breadcrumb for confirm action
+      SentryDataCollection.addBreadcrumb({
+        message: 'User confirmed number selection',
+        category: 'user-interaction',
+        level: 'info',
+        data: {
+          component: 'ThemedNumberPicker',
+          action: 'confirm',
+          selected_value: finalBase,
+          original_value: value,
+          value_changed: finalBase !== value,
+          picker_type: type,
+          unit: selectedUnit,
+          platform: Platform.OS,
+        },
+      });
+
+      onConfirm(finalBase);
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'ThemedNumberPicker',
+        action: 'confirm_handler',
+        picker_type: type,
+        unit: selectedUnit,
+        platform: Platform.OS,
+      });
+
+      SentryLogger.error('Error in ThemedNumberPicker confirm handler', {
+        error: error as Error,
+        component: 'ThemedNumberPicker',
+        picker_type: type,
+        unit: selectedUnit,
+      });
+
+      // Still try to execute the confirm even if tracking fails
+      try {
+        onConfirm(baseValue);
+      } catch (confirmError) {
+        SentryDataCollection.captureException(confirmError as Error, {
+          component: 'ThemedNumberPicker',
+          action: 'confirm_execution',
+          platform: Platform.OS,
+        });
+      }
+    }
+  };
+
+  // Track when modal becomes visible
+  React.useEffect(() => {
+    if (visible) {
+      try {
+        SentryDataCollection.addBreadcrumb({
+          message: 'ThemedNumberPicker modal opened',
+          category: 'ui-lifecycle',
+          level: 'info',
+          data: {
+            component: 'ThemedNumberPicker',
+            action: 'modal_open',
+            initial_value: value,
+            picker_type: type,
+            initial_unit: initialUnit,
+            platform: Platform.OS,
+          },
+        });
+      } catch (error) {
+        SentryDataCollection.captureException(error as Error, {
+          component: 'ThemedNumberPicker',
+          action: 'modal_visibility_tracking',
+          platform: Platform.OS,
+        });
+      }
+    }
+  }, [visible, value, type, initialUnit]);
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <Pressable style={styles.modalOverlay} onPress={onCancel}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleCancel}>
+      <Pressable style={styles.modalOverlay} onPress={handleCancel}>
         <Pressable
           style={[styles.modalContent, width ? { width } : null]}
           onPress={(e) => e.stopPropagation()}
@@ -278,7 +649,7 @@ export function ThemedNumberPicker({
             <IconButton
               icon="close"
               size={24}
-              onPress={onCancel}
+              onPress={handleCancel}
               style={styles.actionButton}
               iconColor="#fff"
             />

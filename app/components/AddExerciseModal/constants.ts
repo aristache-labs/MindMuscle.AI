@@ -129,3 +129,8 @@ export const FALLBACK_IMAGE_OBJECT = {
   uri: null,
   testUri: '../../assets/exercises/placeholder.jpg',
 };
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function AddExerciseModalConstants() {
+  return null;
+}

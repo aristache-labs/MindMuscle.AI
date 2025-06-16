@@ -50,3 +50,8 @@ export interface MuscleMarkerProps {
   pulseAnim: Animated.Value;
   onPress: (muscleName: string) => void;
 }
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function TypesRouterPlaceholder() {
+  return null;
+}

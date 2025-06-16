@@ -1,11 +1,11 @@
-import React from 'react';
-import { View, Text } from 'react-native';
-import { Button, Icon } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import React from 'react';
+import { Text, View } from 'react-native';
+import { Button, Icon } from 'react-native-paper';
 import { COLORS } from '../../../constants/theme';
-import { PulsingIconContainer } from './';
 import { styles } from '../styles';
+import PulsingIconContainer from './PulsingIconContainer';
 
 const NoPlanView: React.FC = () => {
   const router = useRouter();

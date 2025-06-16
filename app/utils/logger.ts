@@ -2,6 +2,9 @@ import * as Sentry from '@sentry/react-native';
 import Constants from 'expo-constants';
 import { DEBUG_CONFIG, DebugFlags } from './debugConfig';
 
+// Global type declaration for React Native __DEV__ variable
+declare const __DEV__: boolean;
+
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 interface LoggerOptions {

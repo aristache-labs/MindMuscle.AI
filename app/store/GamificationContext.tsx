@@ -1,5 +1,13 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { logger } from '../utils/logger';
+import { validationService } from '../services/validationService';
+import { setUser, setContext, setTag } from '../services/sentry';
+import {
+  captureError,
+  captureMessage as sentryMessage,
+  addBreadcrumb,
+} from '../services/sentry/simpleErrorHandler';
 
 interface Achievement {
   id: string;
@@ -136,12 +144,75 @@ export const GamificationProvider: React.FC<{ children: React.ReactNode; metrics
 
   const loadStats = async () => {
     try {
+      addBreadcrumb('Loading gamification stats from storage', 'gamification');
+
       const storedStats = await AsyncStorage.getItem('gamificationStats');
+
       if (storedStats) {
-        setStats(JSON.parse(storedStats));
+        addBreadcrumb('Found stored gamification stats', 'gamification');
+
+        // Validate the stored stats data using Zod
+        const validationResult = await validationService.validateUserStats(JSON.parse(storedStats));
+
+        if (validationResult.success) {
+          const validatedStats = validationResult.data as UserStats;
+          setStats(validatedStats);
+
+          addBreadcrumb('Successfully loaded and validated gamification stats', 'gamification');
+
+          // Set user context for Sentry
+          setUser({
+            id: `gamification_user_${validatedStats.level}`,
+            level: validatedStats.level.toString(),
+            totalXp: validatedStats.totalXp.toString(),
+          });
+
+          setTag('gamification.stats_loaded', 'success');
+          setContext('gamification_stats', {
+            user_level: validatedStats.level,
+            total_xp: validatedStats.totalXp,
+            achievements_count: validatedStats.achievements.length,
+          });
+        } else {
+          logger.warn('Invalid gamification stats found in storage, using default stats', {
+            context: { errors: validationResult.errors },
+          });
+
+          addBreadcrumb('Invalid gamification stats found, using defaults', 'gamification');
+
+          sentryMessage('Invalid gamification stats in storage', 'warning');
+
+          setStats(defaultStats);
+          // Store the default stats to fix the corrupted data
+          await AsyncStorage.setItem('gamificationStats', JSON.stringify(defaultStats));
+
+          setTag('gamification.stats_loaded', 'validation_failed');
+        }
+      } else {
+        addBreadcrumb('No stored gamification stats found, using defaults', 'gamification');
+        setTag('gamification.stats_loaded', 'no_stored_data');
       }
     } catch (error) {
-      console.error('Error loading gamification stats:', error);
+      const sentryError = error as Error;
+      logger.error('Error loading gamification stats', sentryError);
+
+      addBreadcrumb('Error loading gamification stats', 'gamification');
+
+      captureError(sentryError);
+
+      setStats(defaultStats);
+
+      // Try to store default stats
+      try {
+        await AsyncStorage.setItem('gamificationStats', JSON.stringify(defaultStats));
+
+        addBreadcrumb('Successfully stored default gamification stats after error', 'gamification');
+      } catch (storeError) {
+        const sentryStoreError = storeError as Error;
+        logger.error('Error storing default gamification stats', sentryStoreError);
+
+        captureError(sentryStoreError);
+      }
     } finally {
       setLoading(false);
     }
@@ -153,15 +224,23 @@ export const GamificationProvider: React.FC<{ children: React.ReactNode; metrics
 
   const addXp = async (amount: number) => {
     try {
+      addBreadcrumb('Adding XP to user stats', 'gamification');
+
       const newTotalXp = stats.totalXp + amount;
       let newLevel = stats.level;
       let newXp = stats.xp + amount;
       let newNextLevelXp = stats.nextLevelXp;
+      let levelsGained = 0;
 
       while (newXp >= newNextLevelXp) {
         newLevel++;
+        levelsGained++;
         newXp -= newNextLevelXp;
         newNextLevelXp = calculateNextLevelXp(newLevel);
+      }
+
+      if (levelsGained > 0) {
+        addBreadcrumb('User leveled up!', 'gamification');
       }
 
       const updatedStats = {
@@ -172,15 +251,61 @@ export const GamificationProvider: React.FC<{ children: React.ReactNode; metrics
         nextLevelXp: newNextLevelXp,
       };
 
-      await AsyncStorage.setItem('gamificationStats', JSON.stringify(updatedStats));
-      setStats(updatedStats);
+      // Validate the updated stats before storing
+      const validationResult = await validationService.validateUserStats(updatedStats);
+
+      if (!validationResult.success) {
+        const errorMessage = `Invalid stats data: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+        const validationError = new Error(errorMessage);
+
+        logger.error('Cannot update stats with invalid data', validationError, {
+          context: { updatedStats, errors: validationResult.errors },
+        });
+
+        addBreadcrumb('Stats validation failed during XP addition', 'gamification');
+
+        captureError(validationError);
+        throw validationError;
+      }
+
+      const validatedStats = validationResult.data as UserStats;
+      await AsyncStorage.setItem('gamificationStats', JSON.stringify(validatedStats));
+      setStats(validatedStats);
+
+      addBreadcrumb('Successfully added XP and updated stats', 'gamification');
+
+      // Update user context
+      setUser({
+        id: `gamification_user_${validatedStats.level}`,
+        level: validatedStats.level.toString(),
+        totalXp: validatedStats.totalXp.toString(),
+      });
+
+      setTag('gamification.xp_added', 'success');
+      setContext('gamification_xp_update', {
+        xp_amount: amount,
+        levels_gained: levelsGained,
+        new_level: validatedStats.level,
+      });
     } catch (error) {
-      console.error('Error adding XP:', error);
+      const sentryError = error as Error;
+      logger.error('Error adding XP', sentryError, {
+        context: { amount, currentStats: stats },
+      });
+
+      addBreadcrumb('Error adding XP to user stats', 'gamification');
+
+      captureError(sentryError);
     }
   };
 
   const checkAchievements = async () => {
     try {
+      addBreadcrumb('Checking achievements progress', 'gamification');
+
+      let newAchievementsUnlocked = 0;
+      let totalXpEarned = 0;
+
       const updatedAchievements = stats.achievements.map((achievement) => {
         let progress = 0;
         let completed = achievement.completed;
@@ -202,6 +327,11 @@ export const GamificationProvider: React.FC<{ children: React.ReactNode; metrics
 
         if (!completed && progress >= achievement.target) {
           completed = true;
+          newAchievementsUnlocked++;
+          totalXpEarned += achievement.xp;
+
+          addBreadcrumb('Achievement unlocked!', 'achievement');
+
           addXp(achievement.xp);
         }
 
@@ -216,15 +346,52 @@ export const GamificationProvider: React.FC<{ children: React.ReactNode; metrics
         };
       });
 
+      if (newAchievementsUnlocked > 0) {
+        addBreadcrumb('Multiple achievements unlocked', 'achievement');
+      }
+
       const updatedStats = {
         ...stats,
         achievements: updatedAchievements,
       };
 
-      await AsyncStorage.setItem('gamificationStats', JSON.stringify(updatedStats));
-      setStats(updatedStats);
+      // Validate the updated stats before storing
+      const validationResult = await validationService.validateUserStats(updatedStats);
+
+      if (!validationResult.success) {
+        logger.warn('Invalid achievement stats, skipping update', {
+          context: { errors: validationResult.errors },
+        });
+
+        addBreadcrumb('Achievement stats validation failed', 'gamification');
+
+        sentryMessage('Invalid achievement stats during update', 'warning');
+        return;
+      }
+
+      const validatedStats = validationResult.data as UserStats;
+      await AsyncStorage.setItem('gamificationStats', JSON.stringify(validatedStats));
+      setStats(validatedStats);
+
+      addBreadcrumb('Successfully updated achievement progress', 'gamification');
+
+      setTag('gamification.achievements_updated', 'success');
+      setContext('gamification_achievements', {
+        new_achievements_unlocked: newAchievementsUnlocked,
+        total_xp_earned: totalXpEarned,
+        total_achievements: validatedStats.achievements.length,
+        completed_achievements: validatedStats.achievements.filter((a: Achievement) => a.completed)
+          .length,
+      });
     } catch (error) {
-      console.error('Error checking achievements:', error);
+      const sentryError = error as Error;
+      logger.error('Error checking achievements', sentryError, {
+        context: { metrics },
+      });
+
+      addBreadcrumb('Error checking achievements', 'gamification');
+
+      captureError(sentryError);
     }
   };
 

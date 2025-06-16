@@ -22,6 +22,17 @@ import exerciseService, { Exercise, ExerciseCategory } from '../services/exercis
 import ExerciseCard from '../components/ExerciseCard';
 import useImagePreloader from '../hooks/useImagePreloader';
 import ExerciseDetailsModal from '../components/ExerciseDetailsModal';
+// Sentry imports
+import {
+  SentryLogger,
+  SentryDistributedTracing,
+  SentryAutoInstrumentation,
+  SentryDataCollection,
+  captureException,
+  addBreadcrumb,
+  setContext,
+  setTag,
+} from '../services/sentry';
 
 // Define types for global placeholders
 interface PlaceholderImages {
@@ -101,26 +112,86 @@ const useExerciseData = (muscleGroup: string) => {
 
   useEffect(() => {
     const loadExercises = async () => {
+      const startTime = Date.now();
+
       try {
         setLoading(true);
         setError(null);
 
-        const exercisesData = await exerciseService.getExercisesByCategory(
-          muscleGroup as ExerciseCategory,
+        // Log data loading start
+        addBreadcrumb({
+          message: `Loading exercises for muscle group: ${muscleGroup}`,
+          category: 'data.loading',
+          level: 'info',
+          data: { muscle_group: muscleGroup, timestamp: new Date().toISOString() },
+        });
+
+        // Trace exercise data loading
+        const exercisesData = await SentryDistributedTracing.traceDbOperation(
+          () => exerciseService.getExercisesByCategory(muscleGroup as ExerciseCategory),
+          'exercises',
+          'getByCategory',
+          { muscle_group: muscleGroup },
         );
+
         exercisesData.sort((a, b) => a.name.localeCompare(b.name));
         setExercises(exercisesData);
 
+        // Log successful data loading
+        SentryLogger.database.query('exercises', 'getByCategory', {
+          muscle_group: muscleGroup,
+          exercise_count: exercisesData.length,
+          duration_ms: Date.now() - startTime,
+        });
+
         try {
-          const favorites = await exerciseService.getFavoriteExercises();
+          // Trace favorites loading
+          const favorites = await SentryDistributedTracing.traceDbOperation(
+            () => exerciseService.getFavoriteExercises(),
+            'user_favorite_exercises',
+            'getFavorites',
+            { muscle_group: muscleGroup },
+          );
+
           const favoriteIdSet = new Set(favorites.map((fav) => fav.id));
           setFavoriteIds(favoriteIdSet);
+
+          SentryLogger.database.query('user_favorite_exercises', 'getFavorites', {
+            favorite_count: favorites.length,
+          });
         } catch (favError) {
           console.error('Error loading favorites:', favError);
+          SentryLogger.database.error(
+            'user_favorite_exercises',
+            'getFavorites',
+            favError instanceof Error ? favError.message : 'Unknown error',
+            { muscle_group: muscleGroup },
+          );
+          captureException(favError instanceof Error ? favError : new Error(String(favError)));
         }
       } catch (err) {
         console.error('Error loading exercises:', err);
-        setError('Failed to load exercises. Please try again.');
+        const errorMessage = 'Failed to load exercises. Please try again.';
+        setError(errorMessage);
+
+        // Log database error
+        SentryLogger.database.error(
+          'exercises',
+          'getByCategory',
+          err instanceof Error ? err.message : 'Unknown error',
+          {
+            muscle_group: muscleGroup,
+            duration_ms: Date.now() - startTime,
+          },
+        );
+
+        // Capture exception with context
+        SentryDataCollection.captureException(err instanceof Error ? err : new Error(String(err)), {
+          screen: 'exercises-single-group',
+          operation: 'loadExercises',
+          muscle_group: muscleGroup,
+          user_action: 'data_loading',
+        });
       } finally {
         setLoading(false);
       }
@@ -129,19 +200,56 @@ const useExerciseData = (muscleGroup: string) => {
     loadExercises();
   }, [muscleGroup]);
 
-  const toggleFavorite = useCallback((exerciseId: string) => {
-    setFavoriteIds((prev) => {
-      const newFavorites = new Set(prev);
-      if (newFavorites.has(exerciseId)) {
-        newFavorites.delete(exerciseId);
-        void exerciseService.toggleFavoriteExercise(exerciseId, false);
-      } else {
-        newFavorites.add(exerciseId);
-        void exerciseService.toggleFavoriteExercise(exerciseId, true);
-      }
-      return newFavorites;
-    });
-  }, []);
+  const toggleFavorite = useCallback(
+    (exerciseId: string) => {
+      setFavoriteIds((prev) => {
+        const newFavorites = new Set(prev);
+        const isRemoving = newFavorites.has(exerciseId);
+        const action = isRemoving ? 'remove' : 'add';
+
+        if (isRemoving) {
+          newFavorites.delete(exerciseId);
+        } else {
+          newFavorites.add(exerciseId);
+        }
+
+        // Log user interaction
+        SentryAutoInstrumentation.trackUserInteraction(
+          `${action}_favorite`,
+          'exercise_card',
+          'exercises-single-group',
+          {
+            exercise_id: exerciseId,
+            muscle_group: muscleGroup,
+            is_favorite: !isRemoving,
+          },
+        );
+
+        // Trace favorite toggle operation
+        SentryDistributedTracing.traceDbOperation(
+          () => exerciseService.toggleFavoriteExercise(exerciseId, !isRemoving),
+          'user_favorite_exercises',
+          'toggle',
+          {
+            exercise_id: exerciseId,
+            action,
+            muscle_group: muscleGroup,
+          },
+        ).catch((error) => {
+          SentryLogger.database.error(
+            'user_favorite_exercises',
+            'toggle',
+            error instanceof Error ? error.message : 'Unknown error',
+            { exercise_id: exerciseId, action },
+          );
+          captureException(error instanceof Error ? error : new Error(String(error)));
+        });
+
+        return newFavorites;
+      });
+    },
+    [muscleGroup],
+  );
 
   return {
     exercises,
@@ -153,7 +261,7 @@ const useExerciseData = (muscleGroup: string) => {
 };
 
 // Custom hook for search functionality
-const useSearchState = (openSearchParam: string | string[] | undefined) => {
+const useSearchState = (openSearchParam: string | string[] | undefined, muscleGroup: string) => {
   const [isSearchActive, setIsSearchActive] = useState(openSearchParam === 'true');
   const [searchQuery, setSearchQuery] = useState('');
   const searchWidthAnim = useRef(
@@ -164,6 +272,14 @@ const useSearchState = (openSearchParam: string | string[] | undefined) => {
   const searchResultsOpacity = useRef(new Animated.Value(0)).current;
 
   const openSearch = useCallback(() => {
+    // Track user interaction
+    SentryAutoInstrumentation.trackUserInteraction(
+      'open_search',
+      'search_button',
+      'exercises-single-group',
+      { muscle_group: muscleGroup },
+    );
+
     setIsSearchActive(true);
     Animated.timing(searchWidthAnim, {
       toValue: SCREEN_WIDTH - 32,
@@ -180,7 +296,7 @@ const useSearchState = (openSearchParam: string | string[] | undefined) => {
       duration: 300,
       useNativeDriver: false,
     }).start();
-  }, [searchWidthAnim, contentOffsetAnim]);
+  }, [searchWidthAnim, contentOffsetAnim, muscleGroup]);
 
   const collapseSearchUI = useCallback(() => {
     Animated.timing(searchWidthAnim, {
@@ -199,9 +315,21 @@ const useSearchState = (openSearchParam: string | string[] | undefined) => {
   }, [searchWidthAnim, contentOffsetAnim]);
 
   const clearSearch = useCallback(() => {
+    // Track search clear interaction
+    SentryAutoInstrumentation.trackUserInteraction(
+      'clear_search',
+      'clear_button',
+      'exercises-single-group',
+      {
+        muscle_group: muscleGroup,
+        previous_query: searchQuery,
+        query_length: searchQuery.length,
+      },
+    );
+
     setSearchQuery('');
     collapseSearchUI();
-  }, [collapseSearchUI]);
+  }, [collapseSearchUI, muscleGroup, searchQuery]);
 
   const handleSearchIconPress = useCallback(() => {
     if (isSearchActive) {
@@ -279,7 +407,7 @@ const useExerciseFiltering = (
 };
 
 // Custom hook for exercise modal
-const useExerciseModal = (exercises: Exercise[]) => {
+const useExerciseModal = (exercises: Exercise[], muscleGroup: string) => {
   const [exerciseDetailsVisible, setExerciseDetailsVisible] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
 
@@ -287,11 +415,36 @@ const useExerciseModal = (exercises: Exercise[]) => {
     (exerciseId: string) => {
       const exercise = exercises.find((ex) => ex.id === exerciseId);
       if (exercise) {
+        // Track exercise selection
+        SentryAutoInstrumentation.trackUserInteraction(
+          'view_exercise_details',
+          'exercise_card',
+          'exercises-single-group',
+          {
+            exercise_id: exerciseId,
+            exercise_name: exercise.name,
+            muscle_group: muscleGroup,
+            has_image: !!exercise.image_url,
+          },
+        );
+
+        addBreadcrumb({
+          message: `Exercise details opened: ${exercise.name}`,
+          category: 'user.interaction',
+          level: 'info',
+          data: {
+            exercise_id: exerciseId,
+            exercise_name: exercise.name,
+            muscle_group: muscleGroup,
+            screen: 'exercises-single-group',
+          },
+        });
+
         setSelectedExercise(exercise);
         setExerciseDetailsVisible(true);
       }
     },
-    [exercises],
+    [exercises, muscleGroup],
   );
 
   return {
@@ -307,8 +460,26 @@ const useNavigationHandling = (
   searchState: ReturnType<typeof useSearchState>,
   fromScreen: string | string[] | undefined,
   router: ReturnType<typeof useRouter>,
+  muscleGroup: string,
 ) => {
   const handleBackPress = useCallback(() => {
+    // Track navigation back
+    const targetScreen = fromScreen ? `/(tabs)/${fromScreen}` : '/(tabs)/exercises';
+
+    SentryDistributedTracing.traceNavigation('exercises-single-group', targetScreen);
+
+    SentryAutoInstrumentation.trackUserInteraction(
+      'navigate_back',
+      'back_button',
+      'exercises-single-group',
+      {
+        muscle_group: muscleGroup,
+        target_screen: targetScreen,
+        was_searching: searchState.isSearchActive,
+        search_query: searchState.searchQuery,
+      },
+    );
+
     searchState.setSearchQuery('');
 
     if (searchState.isSearchActive) {
@@ -322,7 +493,7 @@ const useNavigationHandling = (
     } else {
       router.push('/(tabs)/exercises');
     }
-  }, [searchState, fromScreen, router]);
+  }, [searchState, fromScreen, router, muscleGroup]);
 
   return { handleBackPress };
 };
@@ -563,17 +734,56 @@ export default function SingleGroupExercisesScreen() {
 
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
 
+  // Set Sentry context for this screen
+  useEffect(() => {
+    setContext('screen_context', {
+      screen_name: 'exercises-single-group',
+      muscle_group: muscleGroup,
+      from_screen: fromScreen,
+      open_search: openSearchParam,
+      timestamp: new Date().toISOString(),
+    });
+
+    setTag('screen', 'exercises-single-group');
+    setTag('muscle_group', muscleGroup);
+
+    // Log screen view
+    addBreadcrumb({
+      message: `Screen viewed: exercises-single-group (${muscleGroup})`,
+      category: 'navigation',
+      level: 'info',
+      data: {
+        muscle_group: muscleGroup,
+        from_screen: fromScreen,
+        open_search: openSearchParam,
+        category_display_name:
+          CATEGORY_NAMES[muscleGroup as keyof typeof CATEGORY_NAMES] || muscleGroup,
+      },
+    });
+
+    SentryAutoInstrumentation.trackUserInteraction(
+      'screen_view',
+      'screen',
+      'exercises-single-group',
+      {
+        muscle_group: muscleGroup,
+        from_screen: fromScreen,
+        open_search: openSearchParam,
+      },
+    );
+  }, [muscleGroup, fromScreen, openSearchParam]);
+
   // Custom hooks
   const exerciseData = useExerciseData(muscleGroup);
-  const searchState = useSearchState(openSearchParam);
+  const searchState = useSearchState(openSearchParam, muscleGroup);
   const { displayedExercises } = useExerciseFiltering(
     exerciseData.exercises,
     searchState.searchQuery,
     showFavoritesOnly,
     exerciseData.favoriteIds,
   );
-  const exerciseModal = useExerciseModal(exerciseData.exercises);
-  const { handleBackPress } = useNavigationHandling(searchState, fromScreen, router);
+  const exerciseModal = useExerciseModal(exerciseData.exercises, muscleGroup);
+  const { handleBackPress } = useNavigationHandling(searchState, fromScreen, router, muscleGroup);
 
   // Preload images for currently displayed exercises
   const displayedImageUrls = useMemo(() => {
@@ -587,8 +797,35 @@ export default function SingleGroupExercisesScreen() {
   });
 
   const toggleFavoritesFilter = useCallback(() => {
-    setShowFavoritesOnly((prev) => !prev);
-  }, []);
+    setShowFavoritesOnly((prev) => {
+      const newValue = !prev;
+
+      // Track favorites filter toggle
+      SentryAutoInstrumentation.trackUserInteraction(
+        'toggle_favorites_filter',
+        'favorites_button',
+        'exercises-single-group',
+        {
+          muscle_group: muscleGroup,
+          show_favorites_only: newValue,
+          current_exercise_count: displayedExercises.length,
+        },
+      );
+
+      addBreadcrumb({
+        message: `Favorites filter ${newValue ? 'enabled' : 'disabled'}`,
+        category: 'user.filter',
+        level: 'info',
+        data: {
+          muscle_group: muscleGroup,
+          show_favorites_only: newValue,
+          exercise_count: displayedExercises.length,
+        },
+      });
+
+      return newValue;
+    });
+  }, [muscleGroup, displayedExercises.length]);
 
   // Effects for search behavior
   useEffect(() => {
@@ -621,6 +858,32 @@ export default function SingleGroupExercisesScreen() {
 
   useEffect(() => {
     if (!searchState.isSearchActive && searchState.searchQuery.trim() !== '') {
+      // Track search completion
+      SentryAutoInstrumentation.trackUserInteraction(
+        'search_completed',
+        'search_input',
+        'exercises-single-group',
+        {
+          muscle_group: muscleGroup,
+          search_query: searchState.searchQuery,
+          query_length: searchState.searchQuery.length,
+          results_count: displayedExercises.length,
+          show_favorites_only: showFavoritesOnly,
+        },
+      );
+
+      addBreadcrumb({
+        message: `Search completed: "${searchState.searchQuery}" (${displayedExercises.length} results)`,
+        category: 'user.search',
+        level: 'info',
+        data: {
+          muscle_group: muscleGroup,
+          search_query: searchState.searchQuery,
+          results_count: displayedExercises.length,
+          show_favorites_only: showFavoritesOnly,
+        },
+      });
+
       Animated.timing(searchState.searchResultsOpacity, {
         toValue: 1,
         duration: 300,
@@ -633,7 +896,36 @@ export default function SingleGroupExercisesScreen() {
         useNativeDriver: true,
       }).start();
     }
-  }, [searchState.isSearchActive, searchState.searchQuery]);
+  }, [
+    searchState.isSearchActive,
+    searchState.searchQuery,
+    muscleGroup,
+    displayedExercises.length,
+    showFavoritesOnly,
+  ]);
+
+  // Track component render performance
+  useEffect(() => {
+    const renderStartTime = Date.now();
+
+    return () => {
+      const renderDuration = Date.now() - renderStartTime;
+      if (renderDuration > 1000) {
+        // Only log slow renders
+        addBreadcrumb({
+          message: `Slow render detected: exercises-single-group (${renderDuration}ms)`,
+          category: 'performance.render',
+          level: 'warning',
+          data: {
+            muscle_group: muscleGroup,
+            render_duration_ms: renderDuration,
+            exercise_count: displayedExercises.length,
+            is_searching: searchState.isSearchActive,
+          },
+        });
+      }
+    };
+  }, [muscleGroup, displayedExercises.length, searchState.isSearchActive]);
 
   return (
     <View style={styles.container}>
@@ -696,7 +988,20 @@ export default function SingleGroupExercisesScreen() {
       {exerciseModal.selectedExercise && (
         <ExerciseDetailsModal
           visible={exerciseModal.exerciseDetailsVisible}
-          onClose={() => exerciseModal.setExerciseDetailsVisible(false)}
+          onClose={() => {
+            // Track modal close
+            SentryAutoInstrumentation.trackUserInteraction(
+              'close_exercise_details',
+              'modal_close',
+              'exercises-single-group',
+              {
+                exercise_id: exerciseModal.selectedExercise?.id,
+                exercise_name: exerciseModal.selectedExercise?.name,
+                muscle_group: muscleGroup,
+              },
+            );
+            exerciseModal.setExerciseDetailsVisible(false);
+          }}
           exerciseId={exerciseModal.selectedExercise.id}
           exerciseName={exerciseModal.selectedExercise.name}
           exerciseImage={exerciseModal.selectedExercise.image_url}

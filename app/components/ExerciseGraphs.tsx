@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet, View, Alert, Platform, ScrollView, Dimensions } from 'react-native';
 import { Text, IconButton, Surface, useTheme, Button } from 'react-native-paper';
 import { LineChart } from 'react-native-gifted-charts';
+import * as Sentry from '@sentry/react-native';
 import { COLORS } from '../constants/theme';
 
 export interface ExerciseData {
@@ -31,25 +32,175 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
   const theme = useTheme();
   const screenWidth = Dimensions.get('window').width - 32; // Account for outer container margins
 
-  const handleDeletePress = (exerciseId: string) => {
-    const exercise = exercises.find((e) => e.id === exerciseId);
-    if (!exercise) return;
+  // Track component lifecycle with Sentry
+  useEffect(() => {
+    try {
+      Sentry.addBreadcrumb({
+        message: 'ExerciseGraphs component mounted',
+        category: 'component',
+        level: 'info',
+        data: {
+          exerciseCount: exercises.length,
+          hasExercises: exercises.length > 0,
+          exerciseNames: exercises.map((e) => e.name).slice(0, 5), // First 5 exercise names
+          screenWidth,
+        },
+      });
+    } catch (error) {
+      console.warn('Failed to log Sentry breadcrumb for ExerciseGraphs mount:', error);
+    }
 
-    Alert.alert(
-      'Delete Exercise',
-      `Are you sure you want to delete "${exercise.name}"? This action cannot be undone.`,
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
+    return () => {
+      try {
+        Sentry.addBreadcrumb({
+          message: 'ExerciseGraphs component unmounted',
+          category: 'component',
+          level: 'info',
+          data: {
+            exerciseCount: exercises.length,
+          },
+        });
+      } catch (error) {
+        console.warn('Failed to log Sentry breadcrumb for ExerciseGraphs unmount:', error);
+      }
+    };
+  }, [exercises.length, screenWidth]);
+
+  // Track when exercises data changes
+  useEffect(() => {
+    if (exercises.length > 0) {
+      try {
+        const totalDataPoints = exercises.reduce((sum, ex) => sum + ex.data.length, 0);
+        const exercisesWithGoals = exercises.filter((ex) =>
+          ex.data.some((d) => d.date.includes('PR')),
+        );
+
+        Sentry.addBreadcrumb({
+          message: 'Exercise data updated',
+          category: 'data.update',
+          level: 'info',
+          data: {
+            exerciseCount: exercises.length,
+            totalDataPoints,
+            exercisesWithPRs: exercisesWithGoals.length,
+            avgDataPointsPerExercise: Math.round(totalDataPoints / exercises.length),
+          },
+        });
+      } catch (error) {
+        Sentry.captureException(error, {
+          tags: {
+            component: 'ExerciseGraphs',
+            action: 'trackDataChanges',
+          },
+          extra: {
+            exerciseCount: exercises.length,
+          },
+        });
+      }
+    }
+  }, [exercises]);
+
+  const handleDeletePress = (exerciseId: string) => {
+    try {
+      const exercise = exercises.find((e) => e.id === exerciseId);
+      if (!exercise) {
+        Sentry.addBreadcrumb({
+          message: 'Delete button pressed for non-existent exercise',
+          category: 'user.interaction',
+          level: 'warning',
+          data: {
+            exerciseId,
+            availableExerciseIds: exercises.map((e) => e.id),
+          },
+        });
+        return;
+      }
+
+      Sentry.addBreadcrumb({
+        message: 'Delete exercise button pressed',
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          exerciseId,
+          exerciseName: exercise.name,
+          dataPointsToDelete: exercise.data.length,
+          exerciseUnit: exercise.unit,
         },
-        {
-          text: 'Delete',
-          onPress: () => onDeleteExercise?.(exerciseId),
-          style: 'destructive',
+      });
+
+      Alert.alert(
+        'Delete Exercise',
+        `Are you sure you want to delete "${exercise.name}"? This action cannot be undone.`,
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => {
+              try {
+                Sentry.addBreadcrumb({
+                  message: 'Exercise deletion cancelled',
+                  category: 'user.interaction',
+                  level: 'info',
+                  data: {
+                    exerciseId,
+                    exerciseName: exercise.name,
+                  },
+                });
+              } catch (error) {
+                console.warn('Error logging deletion cancel:', error);
+              }
+            },
+          },
+          {
+            text: 'Delete',
+            onPress: () => {
+              try {
+                Sentry.addBreadcrumb({
+                  message: 'Exercise deletion confirmed',
+                  category: 'user.interaction',
+                  level: 'info',
+                  data: {
+                    exerciseId,
+                    exerciseName: exercise.name,
+                    dataPointsDeleted: exercise.data.length,
+                  },
+                });
+
+                onDeleteExercise?.(exerciseId);
+              } catch (error) {
+                Sentry.captureException(error, {
+                  tags: {
+                    component: 'ExerciseGraphs',
+                    action: 'confirmDelete',
+                  },
+                  extra: {
+                    exerciseId,
+                    exerciseName: exercise.name,
+                  },
+                });
+                console.error('Error in exercise deletion confirmation:', error);
+
+                // Still try to delete
+                onDeleteExercise?.(exerciseId);
+              }
+            },
+            style: 'destructive',
+          },
+        ],
+      );
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'ExerciseGraphs',
+          action: 'handleDeletePress',
         },
-      ],
-    );
+        extra: {
+          exerciseId,
+          exerciseCount: exercises.length,
+        },
+      });
+      console.error('Error in ExerciseGraphs handleDeletePress:', error);
+    }
   };
 
   return (
@@ -65,7 +216,34 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
         <View style={styles.addExerciseButton}>
           <Button
             mode="contained"
-            onPress={onAddExercise}
+            onPress={() => {
+              try {
+                Sentry.addBreadcrumb({
+                  message: 'Add exercise button pressed',
+                  category: 'user.interaction',
+                  level: 'info',
+                  data: {
+                    currentExerciseCount: exercises.length,
+                  },
+                });
+
+                onAddExercise();
+              } catch (error) {
+                Sentry.captureException(error, {
+                  tags: {
+                    component: 'ExerciseGraphs',
+                    action: 'handleAddExercise',
+                  },
+                  extra: {
+                    exerciseCount: exercises.length,
+                  },
+                });
+                console.error('Error in ExerciseGraphs handleAddExercise:', error);
+
+                // Still call the original handler
+                onAddExercise();
+              }
+            }}
             style={styles.trackButton}
             labelStyle={styles.buttonLabel}
             contentStyle={{ flexDirection: 'row', alignItems: 'center' }}
@@ -140,7 +318,37 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
                       mode="contained"
                       iconColor={COLORS.text}
                       size={16}
-                      onPress={() => onSetGoal?.(exercise.id)}
+                      onPress={() => {
+                        try {
+                          Sentry.addBreadcrumb({
+                            message: 'Set goal button pressed',
+                            category: 'user.interaction',
+                            level: 'info',
+                            data: {
+                              exerciseId: exercise.id,
+                              exerciseName: exercise.name,
+                              currentDataPoints: exercise.data.length,
+                              currentMaxValue: Math.max(...exercise.data.map((d) => d.value)),
+                            },
+                          });
+
+                          onSetGoal?.(exercise.id);
+                        } catch (error) {
+                          Sentry.captureException(error, {
+                            tags: {
+                              component: 'ExerciseGraphs',
+                              action: 'handleSetGoal',
+                            },
+                            extra: {
+                              exerciseId: exercise.id,
+                            },
+                          });
+                          console.error('Error in ExerciseGraphs handleSetGoal:', error);
+
+                          // Still call the original handler
+                          onSetGoal?.(exercise.id);
+                        }
+                      }}
                       style={styles.goalButton}
                       containerColor={COLORS.primary}
                     />

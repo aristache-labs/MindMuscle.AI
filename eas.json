@@ -8,7 +8,11 @@
       "developmentClient": true,
       "distribution": "internal",
       "ios": {
-        "buildConfiguration": "Debug"
+        "buildConfiguration": "Debug",
+        "autoIncrement": "buildNumber"
+      },
+      "android": {
+        "autoIncrement": "versionCode"
       },
       "prebuildCommand": "npx expo prebuild",
       "env": {
@@ -20,10 +24,12 @@
       "developmentClient": false,      // ← embed JS, no Metro
       "distribution": "internal",      // ← internal/TestFlight only
       "ios": {
-        "buildConfiguration": "Release"// ← use Xcode "Release" scheme
+        "buildConfiguration": "Release",// ← use Xcode "Release" scheme
+        "autoIncrement": "buildNumber"
       },
       "android": {
-        "buildType": "apk"             // ← produce an .apk for sideload
+        "buildType": "apk",             // ← produce an .apk for sideload
+        "autoIncrement": "versionCode"
       },
       "prebuildCommand": "npx expo prebuild",
       "env": {
@@ -35,7 +41,11 @@
       "developmentClient": false,      // embed JS bundle
       "distribution": "store",         // App Store provisioning
       "ios": {
-        "buildConfiguration": "Release"
+        "buildConfiguration": "Release",
+        "autoIncrement": "buildNumber"
+      },
+      "android": {
+        "autoIncrement": "versionCode"
       },
       "prebuildCommand": "npx expo prebuild",
       "env": {
@@ -46,6 +56,12 @@
     "production": {
       "developmentClient": false,
       "distribution": "store",
+      "ios": {
+        "autoIncrement": "buildNumber"
+      },
+      "android": {
+        "autoIncrement": "versionCode"
+      },
       "prebuildCommand": "npx expo prebuild",
       "env": {
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
@@ -57,6 +73,13 @@
     "preview": {
       "ios": {
         "appleId": "apple.adriancristache@gmail.com"
+      }
+    },
+    "testflight": {
+      "ios": {
+        "appleId": "apple.adriancristache@gmail.com",
+        "ascAppId": "6670648462",
+        "appleTeamId": "5T54JHP7FY"
       }
     },
     "production": {}

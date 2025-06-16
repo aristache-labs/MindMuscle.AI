@@ -16,7 +16,11 @@ import {
 import { IconButton, Portal, Provider, Text } from 'react-native-paper';
 import { COLORS } from '../constants/theme';
 import { Measurement, MeasurementCategory, measurementService } from '../services/measurements';
+import { validationService } from '../services/validationService';
+import { logger } from '../utils/logger';
 import MeasurementHistory from './MeasurementHistory';
+import * as Sentry from '@sentry/react-native';
+
 interface Props {
   visible: boolean;
   category: MeasurementCategory;
@@ -58,7 +62,7 @@ const CATEGORY_ICONS: Record<MeasurementCategory, CategoryIcon> = {
     type: 'image',
     source: require('../../assets/measurements/instructions/chest-instruction.png'),
   },
-  SHLDRS: {
+  SHOULDERS: {
     type: 'image',
     source: require('../../assets/measurements/instructions/shoulders-instruction.png'),
   },
@@ -86,6 +90,70 @@ export default function MeasurementModal({
   const [value, setValue] = useState(lastValue?.toString() || MIN_VALUE.toString());
   const [sliderValue, setSliderValue] = useState(lastValue || MIN_VALUE);
   const [measurements, setMeasurements] = useState<Measurement[]>(initialMeasurements);
+  const [validationError, setValidationError] = useState<string>('');
+
+  // Track component lifecycle
+  React.useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: 'MeasurementModal component mounted',
+      category: 'component.lifecycle',
+      level: 'info',
+      data: {
+        category,
+        userId,
+        hasLastValue: !!lastValue,
+        measurementCount: initialMeasurements.length,
+        initialVisible: visible,
+      },
+    });
+
+    return () => {
+      Sentry.addBreadcrumb({
+        message: 'MeasurementModal component unmounted',
+        category: 'component.lifecycle',
+        level: 'info',
+        data: { category, userId },
+      });
+    };
+  }, []);
+
+  // Track modal visibility changes
+  React.useEffect(() => {
+    if (visible) {
+      Sentry.addBreadcrumb({
+        message: 'MeasurementModal opened',
+        category: 'ui.modal',
+        level: 'info',
+        data: {
+          category,
+          userId,
+          hasLastValue: !!lastValue,
+          measurementCount: measurements.length,
+        },
+      });
+    } else {
+      Sentry.addBreadcrumb({
+        message: 'MeasurementModal closed',
+        category: 'ui.modal',
+        level: 'info',
+        data: { category, userId },
+      });
+    }
+  }, [visible, category, userId, lastValue, measurements.length]);
+
+  // Track input mode changes
+  React.useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: `MeasurementModal mode changed to ${showInput ? 'input' : 'history'}`,
+      category: 'ui.state',
+      level: 'info',
+      data: {
+        category,
+        showInput,
+        currentValue: value,
+      },
+    });
+  }, [showInput, category, value]);
 
   useEffect(() => {
     setMeasurements(initialMeasurements);
@@ -99,37 +167,206 @@ export default function MeasurementModal({
       setValue(MIN_VALUE.toString());
       setSliderValue(MIN_VALUE);
     }
+    // Clear validation error when modal opens
+    setValidationError('');
   }, [visible, lastValue]);
 
+  const validateMeasurement = (measurementValue: number) => {
+    try {
+      const formData = {
+        category,
+        value: measurementValue,
+        unit: category === 'WEIGHT' ? 'kg' : 'cm',
+        measuredAt: new Date(),
+      };
+
+      const validationResult = validationService.validateMeasurementForm(formData);
+
+      if (!validationResult.success) {
+        const errorMessage = validationResult.errors.map((e) => e.message).join(', ');
+        setValidationError(errorMessage);
+
+        Sentry.addBreadcrumb({
+          message: 'MeasurementModal validation failed',
+          category: 'validation.error',
+          level: 'warning',
+          data: {
+            category,
+            value: measurementValue,
+            errors: validationResult.errors,
+          },
+        });
+
+        logger.warn('Measurement validation failed', {
+          context: { formData, errors: validationResult.errors },
+        });
+        return false;
+      }
+
+      setValidationError('');
+
+      Sentry.addBreadcrumb({
+        message: 'MeasurementModal validation passed',
+        category: 'validation.success',
+        level: 'info',
+        data: {
+          category,
+          value: measurementValue,
+        },
+      });
+
+      return true;
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'MeasurementModal',
+          action: 'validate_measurement',
+        },
+        extra: {
+          category,
+          measurementValue,
+          userId,
+        },
+      });
+      setValidationError('Validation error occurred');
+      return false;
+    }
+  };
+
   const handleAddMeasurement = () => {
-    setValue(lastValue?.toString() || MIN_VALUE.toString());
-    setSliderValue(lastValue || MIN_VALUE);
-    setShowInput(true);
+    try {
+      Sentry.addBreadcrumb({
+        message: 'MeasurementModal add measurement initiated',
+        category: 'ui.interaction',
+        level: 'info',
+        data: {
+          category,
+          currentMeasurementCount: measurements.length,
+        },
+      });
+
+      setValue(lastValue?.toString() || MIN_VALUE.toString());
+      setSliderValue(lastValue || MIN_VALUE);
+      setValidationError('');
+      setShowInput(true);
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'MeasurementModal',
+          action: 'add_measurement',
+        },
+        extra: { category, userId },
+      });
+    }
   };
 
   const handleSave = async (value: number) => {
     try {
       const numericValue = Number.isNaN(value) ? 0 : parseFloat(value.toFixed(1));
+
+      Sentry.addBreadcrumb({
+        message: 'MeasurementModal save attempt',
+        category: 'ui.interaction',
+        level: 'info',
+        data: {
+          category,
+          value: numericValue,
+          userId,
+        },
+      });
+
+      // Validate the measurement before saving
+      if (!validateMeasurement(numericValue)) {
+        return; // Don't save if validation fails
+      }
+
       await onSave(numericValue);
+
       const updatedMeasurements = await measurementService.getMeasurementHistory(userId, category);
       setMeasurements(updatedMeasurements);
       onMeasurementsChange?.();
       setShowInput(false);
+
+      Sentry.addBreadcrumb({
+        message: 'MeasurementModal measurement saved successfully',
+        category: 'data.save',
+        level: 'info',
+        data: {
+          category,
+          value: numericValue,
+          userId,
+          newMeasurementCount: updatedMeasurements.length,
+        },
+      });
+
+      logger.info('Measurement saved successfully', {
+        context: { userId, category, value: numericValue },
+      });
     } catch (error) {
-      console.error('Error saving measurement:', error);
+      logger.error('Error saving measurement', error as Error, {
+        context: { userId, category, value },
+      });
+
+      Sentry.captureException(error, {
+        tags: {
+          component: 'MeasurementModal',
+          action: 'save_measurement',
+        },
+        extra: {
+          category,
+          value,
+          userId,
+        },
+      });
+
+      setValidationError('Failed to save measurement. Please try again.');
     }
   };
 
   const handleClose = () => {
-    Keyboard.dismiss();
-    setShowInput(false);
-    setValue(lastValue?.toString() || MIN_VALUE.toString());
-    setSliderValue(lastValue || MIN_VALUE);
-    onClose();
+    try {
+      Sentry.addBreadcrumb({
+        message: 'MeasurementModal close initiated',
+        category: 'ui.interaction',
+        level: 'info',
+        data: {
+          category,
+          userId,
+          wasInInputMode: showInput,
+        },
+      });
+
+      Keyboard.dismiss();
+      setShowInput(false);
+      setValue(lastValue?.toString() || MIN_VALUE.toString());
+      setSliderValue(lastValue || MIN_VALUE);
+      setValidationError('');
+      onClose();
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'MeasurementModal',
+          action: 'close',
+        },
+        extra: { category, userId },
+      });
+    }
   };
 
   const handleDeleteMeasurement = async (measurementId: string) => {
     try {
+      Sentry.addBreadcrumb({
+        message: 'MeasurementModal delete measurement initiated',
+        category: 'ui.interaction',
+        level: 'info',
+        data: {
+          category,
+          measurementId,
+          userId,
+          currentCount: measurements.length,
+        },
+      });
+
       await measurementService.deleteMeasurement(measurementId);
       const updatedMeasurements = await measurementService.getMeasurementHistory(userId, category);
       setMeasurements(updatedMeasurements);
@@ -143,46 +380,182 @@ export default function MeasurementModal({
         setValue(newLastValue.toFixed(1));
         setSliderValue(newLastValue);
       }
+
+      Sentry.addBreadcrumb({
+        message: 'MeasurementModal measurement deleted successfully',
+        category: 'data.delete',
+        level: 'info',
+        data: {
+          category,
+          measurementId,
+          userId,
+          remainingCount: updatedMeasurements.length,
+        },
+      });
+
+      logger.info('Measurement deleted successfully', {
+        context: { userId, category, measurementId },
+      });
     } catch (error) {
-      console.error('Error deleting measurement:', error);
+      logger.error('Error deleting measurement', error as Error, {
+        context: { userId, category, measurementId },
+      });
+
+      Sentry.captureException(error, {
+        tags: {
+          component: 'MeasurementModal',
+          action: 'delete_measurement',
+        },
+        extra: {
+          category,
+          measurementId,
+          userId,
+        },
+      });
+
+      setValidationError('Failed to delete measurement. Please try again.');
     }
   };
 
   const handleValueChange = (text: string) => {
-    // Allow user to type freely, only numbers and dot
-    const sanitizedText = text.replace(/[^0-9.]/g, '');
-    setValue(sanitizedText);
-    // Only update slider if value is within bounds
-    const numValue = parseFloat(sanitizedText);
-    if (!Number.isNaN(numValue) && numValue >= MIN_VALUE && numValue <= MAX_VALUE) {
-      setSliderValue(numValue);
+    try {
+      // Allow user to type freely, only numbers and dot
+      const sanitizedText = text.replace(/[^0-9.]/g, '');
+      setValue(sanitizedText);
+
+      Sentry.addBreadcrumb({
+        message: 'MeasurementModal value input changed',
+        category: 'ui.input',
+        level: 'debug',
+        data: {
+          category,
+          originalText: text,
+          sanitizedText,
+        },
+      });
+
+      // Clear validation error when user makes changes
+      if (validationError) {
+        setValidationError('');
+      }
+
+      // Only update slider if value is within bounds
+      const numValue = parseFloat(sanitizedText);
+      if (!Number.isNaN(numValue) && numValue >= MIN_VALUE && numValue <= MAX_VALUE) {
+        setSliderValue(numValue);
+      }
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'MeasurementModal',
+          action: 'value_change',
+        },
+        extra: { category, text, userId },
+      });
     }
   };
 
   // Clamp and format value on blur
   const handleValueBlur = () => {
-    let numValue = parseFloat(value);
-    if (Number.isNaN(numValue)) numValue = MIN_VALUE;
-    if (numValue < MIN_VALUE) numValue = MIN_VALUE;
-    if (numValue > MAX_VALUE) numValue = MAX_VALUE;
-    setValue(numValue.toFixed(1));
-    setSliderValue(numValue);
+    try {
+      let numValue = parseFloat(value);
+      if (Number.isNaN(numValue)) numValue = MIN_VALUE;
+      if (numValue < MIN_VALUE) numValue = MIN_VALUE;
+      if (numValue > MAX_VALUE) numValue = MAX_VALUE;
+      setValue(numValue.toFixed(1));
+      setSliderValue(numValue);
+
+      Sentry.addBreadcrumb({
+        message: 'MeasurementModal value input blurred',
+        category: 'ui.input',
+        level: 'debug',
+        data: {
+          category,
+          finalValue: numValue,
+          wasClamped: parseFloat(value) !== numValue,
+        },
+      });
+
+      // Validate the value when user finishes editing
+      validateMeasurement(numValue);
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'MeasurementModal',
+          action: 'value_blur',
+        },
+        extra: { category, value, userId },
+      });
+    }
   };
 
   const handleSliderChange = (newValue: number) => {
-    const clampedValue = Math.max(MIN_VALUE, Math.min(MAX_VALUE, newValue));
-    const formattedValue = clampedValue.toFixed(1);
-    setValue(formattedValue);
-    setSliderValue(clampedValue);
+    try {
+      const clampedValue = Math.max(MIN_VALUE, Math.min(MAX_VALUE, newValue));
+      const formattedValue = clampedValue.toFixed(1);
+      setValue(formattedValue);
+      setSliderValue(clampedValue);
+
+      Sentry.addBreadcrumb({
+        message: 'MeasurementModal slider value changed',
+        category: 'ui.slider',
+        level: 'debug',
+        data: {
+          category,
+          originalValue: newValue,
+          clampedValue,
+        },
+      });
+
+      // Clear validation error when user makes changes
+      if (validationError) {
+        setValidationError('');
+      }
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'MeasurementModal',
+          action: 'slider_change',
+        },
+        extra: { category, newValue, userId },
+      });
+    }
   };
 
   const adjustValue = (increment: boolean) => {
-    const current = parseFloat(value) || MIN_VALUE;
-    const newValue = increment
-      ? Math.min(MAX_VALUE, current + STEP)
-      : Math.max(MIN_VALUE, current - STEP);
-    setValue(newValue.toFixed(1));
-    setSliderValue(newValue);
+    try {
+      const current = parseFloat(value) || MIN_VALUE;
+      const newValue = increment
+        ? Math.min(MAX_VALUE, current + STEP)
+        : Math.max(MIN_VALUE, current - STEP);
+      setValue(newValue.toFixed(1));
+      setSliderValue(newValue);
+
+      Sentry.addBreadcrumb({
+        message: `MeasurementModal value ${increment ? 'incremented' : 'decremented'}`,
+        category: 'ui.interaction',
+        level: 'debug',
+        data: {
+          category,
+          previousValue: current,
+          newValue,
+          increment,
+        },
+      });
+
+      // Clear validation error when user makes changes
+      if (validationError) {
+        setValidationError('');
+      }
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'MeasurementModal',
+          action: 'adjust_value',
+        },
+        extra: { category, increment, currentValue: value, userId },
+      });
+    }
   };
 
   if (!visible) return null;
@@ -229,6 +602,18 @@ export default function MeasurementModal({
                             source={getCategoryIcon(category).source as ImageSourcePropType}
                             style={styles.measurementImage}
                             resizeMode="contain"
+                            onError={(error) => {
+                              Sentry.captureException(error.nativeEvent.error, {
+                                tags: {
+                                  component: 'MeasurementModal',
+                                  action: 'image_load_error',
+                                },
+                                extra: {
+                                  category,
+                                  userId,
+                                },
+                              });
+                            }}
                           />
                         </View>
 

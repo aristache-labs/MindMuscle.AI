@@ -14,6 +14,7 @@ import {
 import { Button, Divider, IconButton, Surface, Text, useTheme } from 'react-native-paper';
 import { COLORS } from '../constants/theme';
 import { Achievement, achievementService, UserAchievement } from '../services/achievements';
+import { simpleErrorHandler } from '../services/sentry/simpleErrorHandler';
 import { useAuth } from '../store/AuthContext';
 import InitialLoadingScreen from './InitialLoadingScreen';
 
@@ -24,19 +25,30 @@ export default function Achievements() {
   const [achievements, setAchievements] = useState<UserAchievement[]>([]);
   const [loading, setLoading] = useState(true);
   const [showFullLoadingScreen, setShowFullLoadingScreen] = useState(false);
-  const loadingTimerRef = useRef<number | null>(null);
+  const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Simple function to handle back navigation
   const handleGoBack = () => {
     try {
+      simpleErrorHandler.addBreadcrumb('User navigated back from achievements', 'navigation', {
+        level: 'info',
+      });
       router.push('/(tabs)/insights');
     } catch (error) {
+      simpleErrorHandler.captureException(error as Error, {
+        component: 'Achievements',
+        category: 'navigation_error',
+      });
       console.error('Error during back navigation:', error);
       // Try once more after a short delay
       setTimeout(() => {
         try {
           router.push('/(tabs)/insights');
         } catch (secondError) {
+          simpleErrorHandler.captureException(secondError as Error, {
+            component: 'Achievements',
+            category: 'navigation_error',
+          });
           console.error('Second attempt failed:', secondError);
         }
       }, 100);
@@ -44,28 +56,58 @@ export default function Achievements() {
   };
 
   useEffect(() => {
+    // Track component mount
+    simpleErrorHandler.addBreadcrumb('Achievements component mounted', 'lifecycle', {
+      userId: user?.id,
+      hasUser: !!user,
+    });
+
     loadAchievements();
+
     return () => {
       if (loadingTimerRef.current) {
         clearTimeout(loadingTimerRef.current);
       }
+
+      simpleErrorHandler.addBreadcrumb('Achievements component unmounted', 'lifecycle');
     };
   }, [user]);
 
   const loadAchievements = async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      simpleErrorHandler.addBreadcrumb('Attempted to load achievements without user ID', 'warning');
+      return;
+    }
 
     try {
       setLoading(true);
 
+      simpleErrorHandler.addBreadcrumb('Started loading achievements', 'data', { userId: user.id });
+
       // Only show the full loading screen if loading takes more than 500ms
-      loadingTimerRef.current = window.setTimeout(() => {
+      loadingTimerRef.current = setTimeout(() => {
         setShowFullLoadingScreen(true);
+        simpleErrorHandler.addBreadcrumb('Showing full loading screen for achievements', 'ui');
       }, 500);
 
       const userAchievements = await achievementService.getUserAchievements(user.id);
+
+      simpleErrorHandler.addBreadcrumb('Successfully loaded achievements', 'data', {
+        userId: user.id,
+        achievementCount: userAchievements.length,
+        completedCount: userAchievements.filter((a) => a.is_completed).length,
+      });
+
+      console.log('🏆 Loaded achievements:', userAchievements.length);
+      console.log('🏆 First achievement:', userAchievements[0]);
       setAchievements(userAchievements);
     } catch (error) {
+      simpleErrorHandler.captureException(error as Error, {
+        component: 'Achievements',
+        category: 'database_error',
+        userId: user.id,
+      });
+
       console.error('Error loading achievements:', error);
       Alert.alert('Error', 'Failed to load achievements. Please try again.');
     } finally {
@@ -79,14 +121,32 @@ export default function Achievements() {
   };
 
   const handleAchievementPress = (achievement: UserAchievement) => {
-    setSelectedAchievement(achievement.achievement || null);
+    try {
+      simpleErrorHandler.addBreadcrumb('User pressed achievement', 'user_interaction', {
+        achievementId: achievement.id,
+        achievementTitle: achievement.achievement?.title,
+        isCompleted: achievement.is_completed,
+      });
+
+      setSelectedAchievement(achievement.achievement || null);
+    } catch (error) {
+      simpleErrorHandler.captureException(error as Error, {
+        component: 'Achievements',
+        category: 'ui_error',
+      });
+      console.error('Error handling achievement press:', error);
+    }
   };
 
   const renderProgress = (userAchievement: UserAchievement) => {
     if (!userAchievement.achievement?.total_progress) return null;
+
+    const progress = userAchievement.current_progress || 0;
+    const total = userAchievement.achievement.total_progress;
+
     return (
       <Text style={styles.progressText}>
-        {userAchievement.current_progress}/{userAchievement.achievement.total_progress}
+        {progress}/{total}
       </Text>
     );
   };
@@ -158,7 +218,7 @@ export default function Achievements() {
                           !userAchievement.is_completed && styles.achievementTextLocked,
                         ]}
                       >
-                        {userAchievement.achievement?.title}
+                        {userAchievement.achievement?.title || 'Achievement Title'}
                       </Text>
                       <Text
                         style={[
@@ -166,7 +226,7 @@ export default function Achievements() {
                           !userAchievement.is_completed && styles.achievementTextLocked,
                         ]}
                       >
-                        {userAchievement.achievement?.subtitle}
+                        {userAchievement.achievement?.subtitle || 'Achievement Description'}
                       </Text>
                       {renderProgress(userAchievement)}
                     </View>
@@ -183,9 +243,24 @@ export default function Achievements() {
         visible={!!selectedAchievement}
         transparent={true}
         animationType="fade"
-        onRequestClose={() => setSelectedAchievement(null)}
+        onRequestClose={() => {
+          simpleErrorHandler.addBreadcrumb('User closed achievement modal', 'user_interaction', {
+            achievementId: selectedAchievement?.id,
+            achievementTitle: selectedAchievement?.title,
+          });
+          setSelectedAchievement(null);
+        }}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setSelectedAchievement(null)}>
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => {
+            simpleErrorHandler.addBreadcrumb(
+              'User closed achievement modal via overlay tap',
+              'user_interaction',
+            );
+            setSelectedAchievement(null);
+          }}
+        >
           <View style={styles.modalContainer}>
             <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
               <View style={styles.modalHeader}>
@@ -194,7 +269,13 @@ export default function Achievements() {
                   iconColor="#fff"
                   size={24}
                   style={styles.closeButton}
-                  onPress={() => setSelectedAchievement(null)}
+                  onPress={() => {
+                    simpleErrorHandler.addBreadcrumb(
+                      'User closed achievement modal via close button',
+                      'user_interaction',
+                    );
+                    setSelectedAchievement(null);
+                  }}
                 />
               </View>
 
@@ -208,9 +289,11 @@ export default function Achievements() {
                   >
                     <IconButton icon={selectedAchievement.icon} size={40} iconColor="#000" />
                   </View>
-                  <Text style={styles.achievementDetailTitle}>{selectedAchievement.title}</Text>
+                  <Text style={styles.achievementDetailTitle}>
+                    {selectedAchievement.title || 'Achievement'}
+                  </Text>
                   <Text style={styles.achievementDescription}>
-                    {selectedAchievement.description}
+                    {selectedAchievement.description || 'Achievement description'}
                   </Text>
                   {selectedAchievement.total_progress && (
                     <Text style={styles.achievementProgress}>
@@ -228,7 +311,21 @@ export default function Achievements() {
                       foundAchievement?.completed_at && (
                         <Text style={styles.achievementDate}>
                           Completed on{' '}
-                          {format(new Date(foundAchievement.completed_at), 'MMM dd, yyyy')}
+                          {(() => {
+                            try {
+                              return format(
+                                new Date(foundAchievement.completed_at),
+                                'MMM dd, yyyy',
+                              );
+                            } catch (error) {
+                              simpleErrorHandler.captureException(error as Error, {
+                                component: 'Achievements',
+                                category: 'ui_error',
+                              });
+                              console.error('Date formatting error:', error);
+                              return 'Recently';
+                            }
+                          })()}
                         </Text>
                       )
                     );
@@ -243,7 +340,17 @@ export default function Achievements() {
                           mode="contained"
                           style={styles.shareButton}
                           labelStyle={styles.shareButtonLabel}
-                          onPress={() => {}}
+                          onPress={() => {
+                            simpleErrorHandler.addBreadcrumb(
+                              'User pressed share achievement button',
+                              'user_interaction',
+                              {
+                                achievementId: selectedAchievement.id,
+                                achievementTitle: selectedAchievement.title,
+                              },
+                            );
+                            // TODO: Implement share functionality
+                          }}
                         >
                           Share
                         </Button>

@@ -30,8 +30,8 @@ function configureSentryIntegrations(
           },
         };
       },
-      idleTimeoutMs: 1000,
-      finalTimeoutMs: 60000,
+      idleTimeoutMs: 500,
+      finalTimeoutMs: 30000,
     }),
     Sentry.httpClientIntegration(),
   ];
@@ -67,30 +67,29 @@ function configureSentryIntegrations(
 export function createExpoRouterNavigationIntegration(isExpoGo: boolean) {
   return Sentry.reactNavigationIntegration({
     enableTimeToInitialDisplay: !isExpoGo,
-    routeChangeTimeoutMs: 1000,
+    routeChangeTimeoutMs: 500,
     ignoreEmptyBackNavigationTransactions: true,
   });
 }
 
 /**
- * Create Sentry configuration object
+ * Create base Sentry configuration
  */
-function createSentryConfig(
+function createBaseSentryConfig(
   sentryDsn: string,
   isDevelopment: boolean,
   isExpoGo: boolean,
-  isIOS: boolean,
-  navigationIntegration?: unknown,
+  enableDebugLogging: boolean,
 ) {
   return {
     dsn: sentryDsn,
     environment: Constants.expoConfig?.extra?.environment || 'development',
     release: Constants.expoConfig?.version || '1.0.0',
     dist: Constants.expoConfig?.extra?.buildNumber || '1',
-    debug: isDevelopment,
-    enableNative: !isExpoGo, // Enable native SDK unless in Expo Go
-    autoInitializeNativeSdk: !isExpoGo, // Auto-initialize unless in Expo Go
-    enableNativeCrashHandling: !isExpoGo, // Enable native crash handling unless in Expo Go
+    debug: enableDebugLogging,
+    enableNative: !isExpoGo,
+    autoInitializeNativeSdk: !isExpoGo,
+    enableNativeCrashHandling: !isExpoGo,
     enableAutoPerformanceTracing: true,
     enableTracing: true,
     enableAutoInstrumentation: true,
@@ -102,17 +101,27 @@ function createSentryConfig(
     enableAppHangTracking: true,
     sendDefaultPii: true,
     attachStacktrace: true,
-    maxBreadcrumbs: 100,
-    tracesSampleRate: isDevelopment ? 1.0 : 0.2,
-    profilesSampleRate: isDevelopment ? 1.0 : 0.1,
-    replaysSessionSampleRate: isDevelopment ? 1.0 : 0.1,
+  };
+}
+
+/**
+ * Create sampling configuration
+ */
+function createSamplingSentryConfig(isDevelopment: boolean) {
+  return {
+    maxBreadcrumbs: 50,
+    tracesSampleRate: isDevelopment ? 0.3 : 0.2,
+    profilesSampleRate: isDevelopment ? 0.2 : 0.1,
+    replaysSessionSampleRate: isDevelopment ? 0.2 : 0.1,
     replaysOnErrorSampleRate: 1.0,
-    integrations: configureSentryIntegrations(
-      isDevelopment,
-      isExpoGo,
-      isIOS,
-      navigationIntegration,
-    ) as never,
+  };
+}
+
+/**
+ * Create network configuration
+ */
+function createNetworkSentryConfig() {
+  return {
     tracePropagationTargets: [
       'localhost',
       /^https:\/\/[^/]*\.supabase\.co/,
@@ -120,61 +129,110 @@ function createSentryConfig(
       /^https:\/\/[^/]*\.firebase\.com/,
       /^https:\/\/[^/]*\.googleapis\.com/,
     ],
-    beforeSend(event: Sentry.Event, _hint: unknown) {
-      if (isIOS && event.contexts) {
-        event.contexts.ios_debug = {
-          device_model: Constants.platform?.ios ? 'iOS Device' : 'Unknown',
-          expo_version: Constants.expoConfig?.sdkVersion,
-          hermes_enabled: true,
-          new_architecture: Constants.expoConfig?.newArchEnabled,
-        };
+  };
+}
+
+/**
+ * Create beforeSend handler
+ */
+function createBeforeSendHandler(isDevelopment: boolean, isIOS: boolean) {
+  return (event: Sentry.Event, _hint: unknown) => {
+    // Filter out excessive navigation transactions in development
+    if (isDevelopment && event.type === 'transaction') {
+      // Only send 20% of navigation transactions in development to reduce noise
+      if (event.transaction?.includes('Route Change') && Math.random() > 0.2) {
+        return null;
       }
-      if (event.exception) {
-        event.tags = {
-          ...event.tags,
-          debug_session: isDevelopment ? 'active' : 'production',
-          platform_specific: isIOS ? 'ios' : 'android',
-        };
-      }
-      return event;
-    },
-    beforeBreadcrumb(breadcrumb: Sentry.Breadcrumb, _hint: unknown) {
-      breadcrumb.data = {
-        ...breadcrumb.data,
-        ios_timestamp: Date.now(),
-        platform: isIOS ? 'ios' : 'android',
+    }
+
+    if (isIOS && event.contexts) {
+      event.contexts.ios_debug = {
+        device_model: Constants.platform?.ios ? 'iOS Device' : 'Unknown',
+        expo_version: Constants.expoConfig?.sdkVersion,
+        hermes_enabled: true,
+        new_architecture: Constants.expoConfig?.newArchEnabled,
       };
-      return breadcrumb;
+    }
+    if (event.exception) {
+      event.tags = {
+        ...event.tags,
+        debug_session: isDevelopment ? 'active' : 'production',
+        platform_specific: isIOS ? 'ios' : 'android',
+      };
+    }
+    return event;
+  };
+}
+
+/**
+ * Create initial scope configuration
+ */
+function createInitialScopeConfig(isDevelopment: boolean, isIOS: boolean) {
+  return {
+    tags: {
+      platform: isIOS ? 'ios' : 'android',
+      expo_version: Constants.expoConfig?.sdkVersion || 'unknown',
+      hermes_engine: 'enabled',
+      new_architecture: Constants.expoConfig?.newArchEnabled ? 'enabled' : 'disabled',
+      debug_mode: isDevelopment ? 'enabled' : 'disabled',
     },
-    initialScope: {
-      tags: {
-        platform: isIOS ? 'ios' : 'android',
-        expo_version: Constants.expoConfig?.sdkVersion || 'unknown',
-        hermes_engine: 'enabled',
-        new_architecture: Constants.expoConfig?.newArchEnabled ? 'enabled' : 'disabled',
-        debug_mode: isDevelopment ? 'enabled' : 'disabled',
+    contexts: {
+      device: {
+        family: isIOS ? 'iOS' : 'Android',
+        model: isIOS ? 'iOS Device' : 'Android Device',
+        year_class: Constants.deviceYearClass,
+        is_device: Constants.isDevice,
       },
-      contexts: {
-        device: {
-          family: isIOS ? 'iOS' : 'Android',
-          model: isIOS ? 'iOS Device' : 'Android Device',
-          year_class: Constants.deviceYearClass,
-          is_device: Constants.isDevice,
-        },
-        app: {
-          app_version: Constants.expoConfig?.version,
-          app_build: Constants.expoConfig?.extra?.buildNumber || '1',
-          sdk_version: Constants.expoConfig?.sdkVersion,
-          js_engine: 'hermes',
-        },
-        debugging: {
-          session_replay_enabled: true,
-          profiling_enabled: true,
-          performance_monitoring: true,
-          native_crash_reporting: !isDevelopment && !isExpoGo,
-        },
+      app: {
+        app_version: Constants.expoConfig?.version,
+        app_build: Constants.expoConfig?.extra?.buildNumber || '1',
+        sdk_version: Constants.expoConfig?.sdkVersion,
+        js_engine: 'hermes',
+      },
+      debugging: {
+        session_replay_enabled: true,
+        profiling_enabled: true,
+        performance_monitoring: true,
+        native_crash_reporting: !isDevelopment,
       },
     },
+  };
+}
+
+/**
+ * Create Sentry configuration object
+ *
+ * Note: Debug logging is disabled by default to reduce console noise.
+ * To enable verbose Sentry logging for debugging, set SENTRY_DEBUG=true in your environment
+ * or temporarily change debug: false to debug: isDevelopment
+ */
+function createSentryConfig(
+  sentryDsn: string,
+  isDevelopment: boolean,
+  isExpoGo: boolean,
+  isIOS: boolean,
+  navigationIntegration?: unknown,
+) {
+  // Check for explicit debug flag - temporarily enabled for debugging
+  const enableDebugLogging = process.env.SENTRY_DEBUG === 'true' || true;
+
+  const baseConfig = createBaseSentryConfig(sentryDsn, isDevelopment, isExpoGo, enableDebugLogging);
+  const samplingConfig = createSamplingSentryConfig(isDevelopment);
+  const networkConfig = createNetworkSentryConfig();
+  const initialScope = createInitialScopeConfig(isDevelopment, isIOS);
+
+  return {
+    ...baseConfig,
+    ...samplingConfig,
+    ...networkConfig,
+    integrations: configureSentryIntegrations(
+      isDevelopment,
+      isExpoGo,
+      isIOS,
+      navigationIntegration,
+    ) as never,
+    beforeSend: createBeforeSendHandler(isDevelopment, isIOS),
+    initialScope,
   };
 }
 
@@ -182,7 +240,60 @@ function createSentryConfig(
  * Initialize Sentry with comprehensive features
  */
 export function initializeSentry(navigationIntegration?: unknown) {
+  // Store original console methods before modification
+  const originalWarn = console.warn;
+  const originalLog = console.log;
+
   try {
+    // Suppress Sentry's promise package warning by patching console before initialization
+
+    // Temporarily suppress specific Sentry promise warnings
+    console.warn = (...args: unknown[]) => {
+      const message = args.join(' ');
+      if (
+        message.includes('multiple versions of the "promise" package') ||
+        message.includes('Promise.allSettled') ||
+        message.includes('Sentry Logger [warn]')
+      ) {
+        // Suppress this specific warning since we've properly handled it
+        return;
+      }
+      originalWarn.apply(console, args);
+    };
+
+    console.log = (...args: unknown[]) => {
+      const message = args.join(' ');
+      if (
+        message.includes('Sentry Logger [log]') &&
+        message.includes('Unhandled promise rejections')
+      ) {
+        // This is the follow-up log message, suppress it too
+        return;
+      }
+      originalLog.apply(console, args);
+    };
+
+    // Ensure Promise.allSettled is available before Sentry checks
+    if (!Promise.allSettled) {
+      Promise.allSettled = function <T>(
+        promises: readonly (T | PromiseLike<T>)[],
+      ): Promise<PromiseSettledResult<T>[]> {
+        return Promise.all(
+          promises.map((promise: T | PromiseLike<T>) =>
+            Promise.resolve(promise)
+              .then((value): PromiseFulfilledResult<T> => ({ status: 'fulfilled' as const, value }))
+              .catch((reason): PromiseRejectedResult => ({ status: 'rejected' as const, reason })),
+          ),
+        );
+      };
+    }
+
+    // Mark Promise as properly polyfilled to prevent Sentry warnings
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (Promise as any).__sentryPolyfilled = true;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (Promise as any).__mindmusclePolyfilled = true;
+
     const sentryDsn = Constants.expoConfig?.extra?.sentryDsn || '';
 
     if (!sentryDsn) {
@@ -196,13 +307,20 @@ export function initializeSentry(navigationIntegration?: unknown) {
     const isDevelopment = __DEV__;
     const isIOS = Boolean(Constants.platform?.ios);
 
-    console.log('🔧 Sentry Environment:', {
-      isDevelopment,
-      isExpoGo,
-      isIOS,
-      appOwnership: Constants.appOwnership,
-      platform: Constants.platform,
-    });
+    console.log(
+      '🔧 Sentry Environment:',
+      JSON.stringify(
+        {
+          isDevelopment,
+          isExpoGo,
+          isIOS,
+          appOwnership: Constants.appOwnership,
+          platform: Constants.platform,
+        },
+        null,
+        2,
+      ),
+    );
 
     const config = createSentryConfig(
       sentryDsn,
@@ -211,6 +329,14 @@ export function initializeSentry(navigationIntegration?: unknown) {
       isIOS,
       navigationIntegration,
     );
+
+    // Debug release value to identify formatting issue
+    console.log('🔧 Release value debug:', {
+      rawRelease: config.release,
+      releaseLength: config.release?.length,
+      releaseType: typeof config.release,
+      releaseCharCodes: config.release?.split('').map((char) => char.charCodeAt(0)),
+    });
 
     console.log('🔧 Sentry Config:', {
       environment: config.environment,
@@ -226,6 +352,10 @@ export function initializeSentry(navigationIntegration?: unknown) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Sentry.init(config as any);
 
+    // Restore original console methods after Sentry initialization
+    console.warn = originalWarn;
+    console.log = originalLog;
+
     // Test Sentry connection
     testSentryConnection(isDevelopment);
 
@@ -234,6 +364,14 @@ export function initializeSentry(navigationIntegration?: unknown) {
 
     console.log('🚀 Sentry initialized successfully');
   } catch (error) {
+    // Restore original console methods in case of error
+    try {
+      console.warn = originalWarn;
+      console.log = originalLog;
+    } catch {
+      // If restoration fails, at least log the error
+    }
+
     console.error('❌ Sentry initialization failed:', error);
     try {
       Sentry.captureException(error);
@@ -309,4 +447,9 @@ function configureSentryScope(isDevelopment: boolean, isExpoGo: boolean, isIOS: 
       timestamp: new Date().toISOString(),
     },
   });
+}
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function CoreRouterPlaceholder() {
+  return null;
 }

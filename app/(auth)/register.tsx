@@ -13,70 +13,31 @@ import {
 import { Checkbox, HelperText, Text, TextInput } from 'react-native-paper';
 import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import { useNavigationDebounce } from '../hooks/useDebounce';
+import { captureAuthError } from '../services/sentry';
+import * as Sentry from '@sentry/react-native';
+import { validationService } from '../services/validationService';
 import { useAuth } from '../store/AuthContext';
 
-// Custom hook for form validation
-function useFormValidation() {
-  const [fieldErrors, setFieldErrors] = useState({
-    fullName: '',
-    email: '',
-    password: '',
-    confirmPassword: '',
-  });
-
-  const validateInputs = (
-    fullName: string,
-    email: string,
-    password: string,
-    confirmPassword: string,
-  ) => {
-    const errors = {
-      fullName: '',
-      email: '',
-      password: '',
-      confirmPassword: '',
-    };
-
-    if (!fullName.trim()) {
-      errors.fullName = 'Full name is required';
-    }
-    if (!email.trim()) {
-      errors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(email)) {
-      errors.email = 'Please enter a valid email address';
-    }
-    if (!password.trim()) {
-      errors.password = 'Password is required';
-    } else if (password.trim().length < 6) {
-      errors.password = 'Password should be at least 6 characters';
-    }
-    if (!confirmPassword.trim()) {
-      errors.confirmPassword = 'Please confirm your password';
-    } else if (password.trim() !== confirmPassword.trim()) {
-      errors.confirmPassword = 'Passwords do not match';
-    }
-
-    setFieldErrors(errors);
-    return !Object.values(errors).some((error) => error !== '');
-  };
-
-  const clearFieldError = (field: keyof typeof fieldErrors) => {
-    setFieldErrors((prev) => ({ ...prev, [field]: '' }));
-  };
-
-  return { fieldErrors, validateInputs, clearFieldError };
-}
-
 // Custom hook for input handlers
-function useInputHandlers(
-  clearError: () => void,
-  clearFieldError: (field: keyof ReturnType<typeof useFormValidation>['fieldErrors']) => void,
-) {
+function useInputHandlers(clearError: () => void, clearFieldError: (field: string) => void) {
   const createInputHandler = (setter: (value: string) => void, field: string) => {
     return (text: string) => {
       setter(text);
-      clearFieldError(field as keyof ReturnType<typeof useFormValidation>['fieldErrors']);
+      clearFieldError(field);
       clearError();
+
+      // Track form interactions for analytics (only on meaningful milestones)
+      if (text.length === 1 || (text.length > 0 && text.length % 5 === 0)) {
+        Sentry.addBreadcrumb({
+          message: `User entered text in ${field}`,
+          category: 'user.input',
+          data: {
+            field,
+            hasValue: text.length > 0,
+            length: text.length,
+          },
+        });
+      }
     };
   };
 
@@ -193,12 +154,49 @@ export default function RegisterScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [focusedInput, setFocusedInput] = useState('');
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   const isMountedRef = useRef(true);
+  const componentMountTimeRef = useRef(Date.now());
   const { signUp, isLoading, error, clearError } = useAuth();
-  const { fieldErrors, validateInputs, clearFieldError } = useFormValidation();
-  const { createInputHandler } = useInputHandlers(clearError, clearFieldError);
   const debouncedNavigate = useNavigationDebounce();
+
+  // Initialize Sentry tracking for registration screen
+  useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: 'Registration screen mounted',
+      category: 'navigation',
+      data: {
+        screen: 'register',
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    // Navigation already tracked in breadcrumb above
+
+    return () => {
+      const sessionDuration = Date.now() - componentMountTimeRef.current;
+      Sentry.addBreadcrumb({
+        message: 'Registration screen unmounted',
+        category: 'navigation',
+        data: {
+          screen: 'register',
+          sessionDuration: `${sessionDuration}ms`,
+        },
+      });
+    };
+  }, []);
+
+  // Clear field error helper
+  const clearFieldError = (field: string) => {
+    setValidationErrors((prev) => {
+      const newErrors = { ...prev };
+      delete newErrors[field];
+      return newErrors;
+    });
+  };
+
+  const { createInputHandler } = useInputHandlers(clearError, clearFieldError);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -220,21 +218,120 @@ export default function RegisterScreen() {
 
   const handleRegister = async () => {
     clearError();
-    if (!validateInputs(fullName, email, password, confirmPassword)) return;
+    setValidationErrors({});
+
+    // Track registration attempt
+    Sentry.addBreadcrumb({
+      message: 'User initiated registration',
+      category: 'user.action',
+      data: {
+        email: email.split('@')[0] + '@***', // Masked email for privacy
+        hasFullName: !!fullName,
+        rememberMe,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    const formData = {
+      fullName,
+      email,
+      password,
+      confirmPassword,
+    };
+
+    const validationResult = validationService.validateRegisterForm(formData);
+    if (!validationResult.success) {
+      const errors: Record<string, string> = {};
+      validationResult.errors.forEach((error) => {
+        errors[error.field] = error.message;
+
+        // Track validation errors as breadcrumbs (not actual errors)
+        Sentry.addBreadcrumb({
+          message: `Validation failed for ${error.field}: ${error.message}`,
+          category: 'validation',
+          data: {
+            field: error.field,
+            message: error.message,
+            value: String(formData[error.field as keyof typeof formData]).substring(0, 10) + '***', // Truncated for privacy
+          },
+          level: 'warning',
+        });
+      });
+      setValidationErrors(errors);
+
+      // Track overall validation failure
+      Sentry.addBreadcrumb({
+        message: 'Registration form validation failed',
+        category: 'validation',
+        data: {
+          errorCount: validationResult.errors.length,
+          failedFields: validationResult.errors.map((e) => e.field),
+        },
+      });
+
+      return;
+    }
 
     try {
       await signUp(email, password, fullName, rememberMe);
+
+      // Track successful registration attempt
+      Sentry.addBreadcrumb({
+        message: 'Registration successful',
+        category: 'auth.success',
+        data: {
+          email: email.split('@')[0] + '@***',
+          hasFullName: !!fullName,
+          rememberMe,
+        },
+      });
+
+      // Set user context for future tracking
+      Sentry.setUser({ email: email, username: fullName });
     } catch (err) {
       console.error('Registration error:', err);
+
+      // Capture authentication error with Sentry
+      const error = err instanceof Error ? err : new Error(String(err));
+      captureAuthError(error, 'registration');
+
+      // Add breadcrumb for failed registration
+      Sentry.addBreadcrumb({
+        message: 'Registration failed',
+        category: 'auth.error',
+        data: {
+          email: email.split('@')[0] + '@***',
+          errorMessage: error.message,
+          timestamp: new Date().toISOString(),
+        },
+        level: 'error',
+      });
     }
   };
 
   const handleBackNavigation = () => {
+    Sentry.addBreadcrumb({
+      message: 'User navigated back from registration',
+      category: 'navigation',
+      data: {
+        from: 'register',
+        action: 'back_button',
+      },
+    });
     debouncedNavigate(() => router.back());
   };
 
   const handleSignInNavigation = () => {
     if (!isLoading) {
+      Sentry.addBreadcrumb({
+        message: 'User navigated to login from registration',
+        category: 'navigation',
+        data: {
+          from: 'register',
+          to: 'login',
+          action: 'sign_in_link',
+        },
+      });
       debouncedNavigate(() => router.push('/(auth)/login'));
     }
   };
@@ -268,16 +365,23 @@ export default function RegisterScreen() {
               icon="account"
               focusedInput={focusedInput}
               inputName="fullName"
-              onFocus={setFocusedInput}
+              onFocus={(field) => {
+                setFocusedInput(field);
+                Sentry.addBreadcrumb({
+                  message: `User focused on ${field} input`,
+                  category: 'user.focus',
+                  data: { field },
+                });
+              }}
               onBlur={() => setFocusedInput('')}
               isLoading={isLoading}
               autoCapitalize="words"
               autoComplete="name"
               textContentType="name"
             />
-            {fieldErrors.fullName ? (
+            {validationErrors.fullName ? (
               <HelperText type="error" style={styles.errorText}>
-                {fieldErrors.fullName}
+                {validationErrors.fullName}
               </HelperText>
             ) : null}
 
@@ -288,16 +392,23 @@ export default function RegisterScreen() {
               icon="email"
               focusedInput={focusedInput}
               inputName="email"
-              onFocus={setFocusedInput}
+              onFocus={(field) => {
+                setFocusedInput(field);
+                Sentry.addBreadcrumb({
+                  message: `User focused on ${field} input`,
+                  category: 'user.focus',
+                  data: { field },
+                });
+              }}
               onBlur={() => setFocusedInput('')}
               isLoading={isLoading}
               keyboardType="email-address"
               autoComplete="email"
               textContentType="emailAddress"
             />
-            {fieldErrors.email ? (
+            {validationErrors.email ? (
               <HelperText type="error" style={styles.errorText}>
-                {fieldErrors.email}
+                {validationErrors.email}
               </HelperText>
             ) : null}
 
@@ -308,18 +419,35 @@ export default function RegisterScreen() {
               icon="lock"
               focusedInput={focusedInput}
               inputName="password"
-              onFocus={setFocusedInput}
+              onFocus={(field) => {
+                setFocusedInput(field);
+                Sentry.addBreadcrumb({
+                  message: `User focused on ${field} input`,
+                  category: 'user.focus',
+                  data: { field },
+                });
+              }}
               onBlur={() => setFocusedInput('')}
               isLoading={isLoading}
               secureTextEntry={!showPassword}
               rightIcon={showPassword ? 'eye-off' : 'eye'}
-              onTogglePassword={() => setShowPassword(!showPassword)}
+              onTogglePassword={() => {
+                setShowPassword(!showPassword);
+                Sentry.addBreadcrumb({
+                  message: `User ${!showPassword ? 'showed' : 'hid'} password`,
+                  category: 'user.interaction',
+                  data: {
+                    field: 'password',
+                    visible: !showPassword,
+                  },
+                });
+              }}
               autoComplete="new-password"
               textContentType="newPassword"
             />
-            {fieldErrors.password ? (
+            {validationErrors.password ? (
               <HelperText type="error" style={styles.errorText}>
-                {fieldErrors.password}
+                {validationErrors.password}
               </HelperText>
             ) : null}
 
@@ -330,18 +458,35 @@ export default function RegisterScreen() {
               icon="lock-check"
               focusedInput={focusedInput}
               inputName="confirmPassword"
-              onFocus={setFocusedInput}
+              onFocus={(field) => {
+                setFocusedInput(field);
+                Sentry.addBreadcrumb({
+                  message: `User focused on ${field} input`,
+                  category: 'user.focus',
+                  data: { field },
+                });
+              }}
               onBlur={() => setFocusedInput('')}
               isLoading={isLoading}
               secureTextEntry={!showConfirmPassword}
               rightIcon={showConfirmPassword ? 'eye-off' : 'eye'}
-              onTogglePassword={() => setShowConfirmPassword(!showConfirmPassword)}
+              onTogglePassword={() => {
+                setShowConfirmPassword(!showConfirmPassword);
+                Sentry.addBreadcrumb({
+                  message: `User ${!showConfirmPassword ? 'showed' : 'hid'} confirm password`,
+                  category: 'user.interaction',
+                  data: {
+                    field: 'confirmPassword',
+                    visible: !showConfirmPassword,
+                  },
+                });
+              }}
               autoComplete="new-password"
               textContentType="newPassword"
             />
-            {fieldErrors.confirmPassword ? (
+            {validationErrors.confirmPassword ? (
               <HelperText type="error" style={styles.errorText}>
-                {fieldErrors.confirmPassword}
+                {validationErrors.confirmPassword}
               </HelperText>
             ) : null}
 
@@ -355,7 +500,16 @@ export default function RegisterScreen() {
               <View style={styles.checkboxContainer}>
                 <Checkbox.Android
                   status={rememberMe ? 'checked' : 'unchecked'}
-                  onPress={() => setRememberMe(!rememberMe)}
+                  onPress={() => {
+                    setRememberMe(!rememberMe);
+                    Sentry.addBreadcrumb({
+                      message: `User ${!rememberMe ? 'enabled' : 'disabled'} remember me`,
+                      category: 'user.preference',
+                      data: {
+                        rememberMe: !rememberMe,
+                      },
+                    });
+                  }}
                   color={COLORS.primary}
                   uncheckedColor={COLORS.primary}
                 />

@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Dimensions, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Text, useTheme } from 'react-native-paper';
@@ -42,12 +42,11 @@ export default function HomeScreen() {
     try {
       sentry.trackLogout();
       await signOut();
-      router.replace('/(auth)/login');
+      // AuthGuard will handle the redirect automatically when session becomes null
     } catch (error) {
       console.error('Logout error:', error);
       sentry.captureException(error as Error, {
-        context: 'logout_navigation',
-        attempted_route: '/(auth)/login',
+        context: 'logout',
       });
     }
   };

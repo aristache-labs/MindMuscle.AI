@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
 import { Surface, Button, ActivityIndicator, IconButton } from 'react-native-paper';
 import { router } from 'expo-router';
 import { format } from 'date-fns';
 import { Achievement, UserAchievement } from '../../services/achievements';
 import { COLORS } from '../../constants/theme';
+import * as Sentry from '@sentry/react-native';
+import { captureUIError, captureNavigationError, SentryReactProfiler } from '../../services/sentry';
 
 interface AchievementsSectionProps {
   achievementsLoading: boolean;
@@ -14,13 +16,217 @@ interface AchievementsSectionProps {
   onRandomAchievementPress: (achievement: Achievement) => void;
 }
 
-export const AchievementsSection: React.FC<AchievementsSectionProps> = ({
+const AchievementsSectionComponent: React.FC<AchievementsSectionProps> = ({
   achievementsLoading,
   completedAchievements,
   randomAchievements,
   onAchievementPress,
   onRandomAchievementPress,
 }) => {
+  // Track component lifecycle and data state
+  useEffect(() => {
+    // Track component mount and data loading state
+    Sentry.addBreadcrumb({
+      message: 'Achievements Section Rendered',
+      category: 'ui.render',
+      level: 'info',
+      data: {
+        isLoading: achievementsLoading,
+        completedCount: completedAchievements.length,
+        randomCount: randomAchievements.length,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    // Track component lifecycle
+    SentryReactProfiler.trackComponentLifecycle('AchievementsSection', 'mount');
+
+    return () => {
+      SentryReactProfiler.trackComponentLifecycle('AchievementsSection', 'unmount');
+    };
+  }, []);
+
+  // Track loading state changes
+  useEffect(() => {
+    if (
+      !achievementsLoading &&
+      (completedAchievements.length > 0 || randomAchievements.length > 0)
+    ) {
+      Sentry.addBreadcrumb({
+        message: 'Achievements Data Loaded Successfully',
+        category: 'api.success',
+        level: 'info',
+        data: {
+          completedAchievements: completedAchievements.length,
+          randomAchievements: randomAchievements.length,
+          hasData: completedAchievements.length > 0 || randomAchievements.length > 0,
+        },
+      });
+    }
+  }, [achievementsLoading, completedAchievements.length, randomAchievements.length]);
+
+  const handleNavigateToAchievements = () => {
+    try {
+      // Track navigation attempt
+      Sentry.addBreadcrumb({
+        message: 'Navigating to Achievements Page',
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          trigger: 'more_button_press',
+          currentAchievements: completedAchievements.length,
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      router.push('/achievements');
+
+      // Track successful navigation
+      Sentry.addBreadcrumb({
+        message: 'Successfully Navigated to Achievements',
+        category: 'navigation',
+        level: 'info',
+      });
+    } catch (error) {
+      // Capture navigation errors
+      captureNavigationError(error as Error, '/achievements', 'achievements-section-more-button');
+
+      Sentry.addBreadcrumb({
+        message: 'Failed to Navigate to Achievements',
+        category: 'navigation.error',
+        level: 'error',
+        data: {
+          error: (error as Error).message,
+          route: '/achievements',
+        },
+      });
+
+      console.error('Navigation error:', error);
+    }
+  };
+
+  const handleAchievementPress = (userAchievement: UserAchievement) => {
+    try {
+      // Track user interaction with completed achievement
+      Sentry.addBreadcrumb({
+        message: 'Completed Achievement Pressed',
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          achievementId: userAchievement.id,
+          achievementTitle: userAchievement.achievement?.title,
+          completedAt: userAchievement.completed_at,
+          hasIcon: !!userAchievement.achievement?.icon,
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      onAchievementPress(userAchievement);
+
+      // Track successful achievement interaction
+      Sentry.addBreadcrumb({
+        message: 'Achievement Interaction Successful',
+        category: 'user.success',
+        level: 'info',
+        data: {
+          achievementId: userAchievement.id,
+          type: 'completed',
+        },
+      });
+    } catch (error) {
+      // Capture achievement interaction errors
+      captureUIError(
+        error as Error,
+        'AchievementsSection.handleAchievementPress',
+        'insights-achievements',
+      );
+
+      Sentry.addBreadcrumb({
+        message: 'Achievement Press Handler Failed',
+        category: 'user.error',
+        level: 'error',
+        data: {
+          error: (error as Error).message,
+          achievementId: userAchievement.id,
+          achievementTitle: userAchievement.achievement?.title,
+        },
+      });
+
+      console.error('Achievement press error:', error);
+    }
+  };
+
+  const handleRandomAchievementPress = (achievement: Achievement) => {
+    try {
+      // Track user interaction with locked achievement
+      Sentry.addBreadcrumb({
+        message: 'Locked Achievement Pressed',
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          achievementId: achievement.id,
+          achievementTitle: achievement.title,
+          achievementDescription: achievement.description,
+          hasIcon: !!achievement.icon,
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      onRandomAchievementPress(achievement);
+
+      // Track successful locked achievement interaction
+      Sentry.addBreadcrumb({
+        message: 'Locked Achievement Interaction Successful',
+        category: 'user.success',
+        level: 'info',
+        data: {
+          achievementId: achievement.id,
+          type: 'locked',
+        },
+      });
+    } catch (error) {
+      // Capture random achievement interaction errors
+      captureUIError(
+        error as Error,
+        'AchievementsSection.handleRandomAchievementPress',
+        'insights-achievements',
+      );
+
+      Sentry.addBreadcrumb({
+        message: 'Random Achievement Press Handler Failed',
+        category: 'user.error',
+        level: 'error',
+        data: {
+          error: (error as Error).message,
+          achievementId: achievement.id,
+          achievementTitle: achievement.title,
+        },
+      });
+
+      console.error('Random achievement press error:', error);
+    }
+  };
+
+  const formatAchievementDate = (dateString: string) => {
+    try {
+      return format(new Date(dateString), 'MMM dd, yyyy');
+    } catch (error) {
+      // Capture date formatting errors
+      Sentry.addBreadcrumb({
+        message: 'Achievement Date Formatting Error',
+        category: 'ui.error',
+        level: 'error',
+        data: {
+          originalDate: dateString,
+          error: (error as Error).message,
+        },
+      });
+
+      console.error('Date formatting error:', error);
+      return 'Invalid date';
+    }
+  };
+
   return (
     <Surface style={styles.achievementsContainer} elevation={2}>
       <View style={styles.sectionHeader}>
@@ -34,7 +240,7 @@ export const AchievementsSection: React.FC<AchievementsSectionProps> = ({
             textColor="#6B4EFF"
             style={styles.moreButton}
             labelStyle={styles.moreButtonLabel}
-            onPress={() => router.push('/achievements')}
+            onPress={handleNavigateToAchievements}
           >
             More
           </Button>
@@ -49,7 +255,7 @@ export const AchievementsSection: React.FC<AchievementsSectionProps> = ({
               <Pressable
                 key={userAchievement.id}
                 style={styles.achievementCard}
-                onPress={() => onAchievementPress(userAchievement)}
+                onPress={() => handleAchievementPress(userAchievement)}
               >
                 <View style={styles.achievementContent}>
                   <View style={styles.achievementIconContainer}>
@@ -62,7 +268,7 @@ export const AchievementsSection: React.FC<AchievementsSectionProps> = ({
                   <Text style={styles.achievementLabel}>{userAchievement.achievement?.title}</Text>
                   {userAchievement.completed_at && (
                     <Text style={styles.achievementDate}>
-                      {format(new Date(userAchievement.completed_at), 'MMM dd, yyyy')}
+                      {formatAchievementDate(userAchievement.completed_at)}
                     </Text>
                   )}
                 </View>
@@ -72,7 +278,7 @@ export const AchievementsSection: React.FC<AchievementsSectionProps> = ({
               <Pressable
                 key={achievement.id}
                 style={[styles.achievementCard, styles.achievementLocked]}
-                onPress={() => onRandomAchievementPress(achievement)}
+                onPress={() => handleRandomAchievementPress(achievement)}
               >
                 <View style={styles.achievementContent}>
                   <View style={[styles.achievementIconContainer, styles.achievementIconLocked]}>
@@ -95,6 +301,12 @@ export const AchievementsSection: React.FC<AchievementsSectionProps> = ({
     </Surface>
   );
 };
+
+// Export the component wrapped with Sentry profiler
+export const AchievementsSection = SentryReactProfiler.withProfiler(
+  AchievementsSectionComponent as React.ComponentType<unknown>,
+  'AchievementsSection',
+) as React.FC<AchievementsSectionProps>;
 
 const styles = StyleSheet.create({
   achievementsContainer: {

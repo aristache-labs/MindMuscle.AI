@@ -64,3 +64,8 @@ export const SentryInsights = {
     }
   },
 };
+
+// Default export to satisfy Expo Router (this file should not be a route)
+export default function InsightsRouterPlaceholder() {
+  return null;
+}

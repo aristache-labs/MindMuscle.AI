@@ -107,6 +107,9 @@ export interface PausedWorkout {
   currentExerciseIndex: number;
   originalCycleWeek: number;
   pausedAt: string;
+  exerciseCustomized?: Record<string, boolean>;
+  userEnteredValues?: Record<string, boolean>;
+  focusedInputs?: Record<string, boolean>;
 }
 export default function disablewarn() {
   return null;

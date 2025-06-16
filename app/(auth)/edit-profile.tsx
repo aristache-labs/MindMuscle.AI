@@ -1,24 +1,30 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { format, isAfter, isBefore, isValid, subYears } from 'date-fns';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  StyleSheet,
-  View,
-  ScrollView,
+  Keyboard,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
-  KeyboardAvoidingView,
+  ScrollView,
+  StyleSheet,
   TouchableWithoutFeedback,
-  Keyboard,
+  View,
 } from 'react-native';
-import { Text, TextInput, IconButton, Menu } from 'react-native-paper';
-import { COLORS, SPACING, BORDER_RADIUS } from '../constants/theme';
-import { useRouter } from 'expo-router';
+import { IconButton, Menu, Text, TextInput } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '../store/AuthContext';
-import { useMeasurements } from '../store/MeasurementsContext';
-import { format, isValid, subYears, isAfter, isBefore } from 'date-fns';
-import supabase from '../services/supabase';
 import { ThemedDatePicker } from '../components/ThemedDatePicker';
 import { ThemedNumberPicker } from '../components/ThemedNumberPicker';
+import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
+import { captureAuthError } from '../services/sentry';
+import * as Sentry from '@sentry/react-native';
+import supabase from '../services/supabase';
+import { validationService } from '../services/validationService';
+import { useAuth, UserProfile } from '../store/AuthContext';
+import { useMeasurements } from '../store/MeasurementsContext';
+import type { MeasurementCategory } from '../services/measurements';
+import { logger } from '../utils/logger';
+import { ProfileUpdateSchema } from '../validation/schemas';
 
 // Define types for form data
 interface FormData {
@@ -30,20 +36,11 @@ interface FormData {
   height: string;
 }
 
-interface User {
-  id: string;
-  email?: string;
-  full_name?: string;
-  user_metadata?: {
-    name?: string;
-    dateOfBirth?: string;
-    gender?: string;
-    weight?: number;
-    height?: number;
-    preferred_weight_unit?: 'KG' | 'LB';
-    preferred_height_unit?: 'CM' | 'INCH';
-    [key: string]: string | number | boolean | null | undefined;
-  };
+// Helper function to safely get user metadata values
+function getUserMetadataValue<T>(user: UserProfile | null, key: string, defaultValue: T): T {
+  if (!user?.user_metadata) return defaultValue;
+  const value = user.user_metadata[key];
+  return value !== undefined && value !== null ? (value as T) : defaultValue;
 }
 
 const genderOptions = [
@@ -53,28 +50,28 @@ const genderOptions = [
 ];
 
 // Custom hook for form data management
-function useFormData(user: User | null) {
+function useFormData(user: UserProfile | null) {
   const [formData, setFormData] = useState<FormData>({
-    fullName: user?.user_metadata?.name || '',
+    fullName: getUserMetadataValue(user, 'name', ''),
     email: user?.email || '',
-    dateOfBirth: user?.user_metadata?.dateOfBirth
-      ? new Date(user.user_metadata.dateOfBirth)
+    dateOfBirth: getUserMetadataValue(user, 'dateOfBirth', null)
+      ? new Date(getUserMetadataValue(user, 'dateOfBirth', ''))
       : new Date('1990-01-01'),
-    gender: (user?.user_metadata?.gender as FormData['gender']) || '',
-    weight: user?.user_metadata?.weight?.toString() || '',
-    height: user?.user_metadata?.height?.toString() || '',
+    gender: getUserMetadataValue(user, 'gender', '') as FormData['gender'],
+    weight: getUserMetadataValue(user, 'weight', 0).toString() || '',
+    height: getUserMetadataValue(user, 'height', 0).toString() || '',
   });
 
   return { formData, setFormData };
 }
 
 // Custom hook for unit preferences
-function useUnitPreferences(user: User | null) {
+function useUnitPreferences(user: UserProfile | null) {
   const [weightUnit, setWeightUnit] = useState<'KG' | 'LB'>(
-    user?.user_metadata?.preferred_weight_unit || 'KG',
+    getUserMetadataValue(user, 'preferred_weight_unit', 'KG') as 'KG' | 'LB',
   );
   const [heightUnit, setHeightUnit] = useState<'CM' | 'INCH'>(
-    user?.user_metadata?.preferred_height_unit || 'CM',
+    getUserMetadataValue(user, 'preferred_height_unit', 'CM') as 'CM' | 'INCH',
   );
 
   return { weightUnit, setWeightUnit, heightUnit, setHeightUnit };
@@ -103,7 +100,7 @@ function useUIState() {
 }
 
 // Custom hook for data loading
-function useDataLoading(user: User | null, refreshMeasurements: () => Promise<void>) {
+function useDataLoading(user: UserProfile | null, refreshMeasurements: () => Promise<void>) {
   const isMounted = useRef(false);
 
   useEffect(() => {
@@ -149,6 +146,255 @@ function useDataLoading(user: User | null, refreshMeasurements: () => Promise<vo
   return { isMounted, loadUserData };
 }
 
+// Helper functions for profile validation and tracking
+function trackProfileUpdateStart(formData: FormData, weightUnit: string, heightUnit: string) {
+  Sentry.addBreadcrumb({
+    message: 'User initiated profile update',
+    category: 'user.action',
+    data: {
+      fullName: formData.fullName.substring(0, 3) + '***', // Masked for privacy
+      hasGender: !!formData.gender,
+      weightUnit,
+      heightUnit,
+      timestamp: new Date().toISOString(),
+    },
+  });
+}
+
+function validateUserAuthentication(user: UserProfile | null) {
+  if (!user) {
+    const error = new Error('User not authenticated');
+    captureAuthError(error, 'profile_update');
+    Sentry.addBreadcrumb({
+      message: 'Profile update failed - user not authenticated',
+      category: 'auth.error',
+      data: { action: 'profile_update' },
+      level: 'error',
+    });
+    throw error;
+  }
+}
+
+function validateProfileData(formData: FormData, weightUnit: string, heightUnit: string) {
+  // Validate schema
+  const profileUpdateData = {
+    full_name: formData.fullName,
+    avatar_url: undefined,
+    preferences: {
+      preferred_weight_unit: weightUnit,
+      preferred_height_unit: heightUnit,
+    },
+  };
+
+  const validationResult = validationService.validateWithSchema(
+    ProfileUpdateSchema,
+    profileUpdateData,
+    'profile update',
+  );
+
+  if (!validationResult.success) {
+    const errorMessage = `Profile validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+    Sentry.addBreadcrumb({
+      message: 'Profile validation failed',
+      category: 'validation',
+      data: {
+        errorCount: validationResult.errors.length,
+        failedFields: validationResult.errors.map((e) => e.field),
+        errors: validationResult.errors.map((e) => e.message),
+      },
+      level: 'warning',
+    });
+    logger.error('Profile update validation failed', new Error(errorMessage), {
+      context: { profileUpdateData, errors: validationResult.errors },
+    });
+    throw new Error(errorMessage);
+  }
+}
+
+function validateUserPreferences(weightUnit: string, heightUnit: string) {
+  const preferencesData = {
+    preferred_weight_unit: weightUnit,
+    preferred_height_unit: heightUnit,
+    notifications_enabled: true,
+    workout_reminders: true,
+    dark_theme: true,
+    sound_enabled: true,
+  };
+
+  const preferencesValidationResult = validationService.validateUserPreferences(preferencesData);
+
+  if (!preferencesValidationResult.success) {
+    const errorMessage = `Preferences validation failed: ${preferencesValidationResult.errors.map((e) => e.message).join(', ')}`;
+    Sentry.addBreadcrumb({
+      message: 'Preferences validation failed',
+      category: 'validation',
+      data: {
+        errorCount: preferencesValidationResult.errors.length,
+        weightUnit,
+        heightUnit,
+        errors: preferencesValidationResult.errors.map((e) => e.message),
+      },
+      level: 'warning',
+    });
+    logger.error('Preferences validation failed', new Error(errorMessage), {
+      context: { preferencesData, errors: preferencesValidationResult.errors },
+    });
+    throw new Error(errorMessage);
+  }
+}
+
+function validateNumericFields(formData: FormData, weightUnit: string, heightUnit: string) {
+  if (isNaN(parseFloat(formData.weight)) || parseFloat(formData.weight) <= 0) {
+    Sentry.addBreadcrumb({
+      message: 'Weight validation failed - invalid value',
+      category: 'validation',
+      data: { field: 'weight', value: formData.weight, weightUnit },
+      level: 'warning',
+    });
+    throw new Error('Please enter a valid weight');
+  }
+
+  if (isNaN(parseFloat(formData.height)) || parseFloat(formData.height) <= 0) {
+    Sentry.addBreadcrumb({
+      message: 'Height validation failed - invalid value',
+      category: 'validation',
+      data: { field: 'height', value: formData.height, heightUnit },
+      level: 'warning',
+    });
+    throw new Error('Please enter a valid height');
+  }
+}
+
+function validateDateOfBirth(dateOfBirth: Date) {
+  if (!isValid(dateOfBirth)) {
+    Sentry.addBreadcrumb({
+      message: 'Date of birth validation failed - invalid date',
+      category: 'validation',
+      data: { field: 'dateOfBirth', value: dateOfBirth?.toString() },
+      level: 'warning',
+    });
+    throw new Error('Please select a valid date of birth');
+  }
+
+  const minDate = subYears(new Date(), 100);
+  const maxDate = subYears(new Date(), 13);
+
+  if (isAfter(dateOfBirth, maxDate)) {
+    Sentry.addBreadcrumb({
+      message: 'Date of birth validation failed - too young',
+      category: 'validation',
+      data: {
+        field: 'dateOfBirth',
+        age: new Date().getFullYear() - dateOfBirth.getFullYear(),
+        minAge: 13,
+      },
+      level: 'warning',
+    });
+    throw new Error('You must be at least 13 years old');
+  }
+
+  if (isBefore(dateOfBirth, minDate)) {
+    Sentry.addBreadcrumb({
+      message: 'Date of birth validation failed - too old',
+      category: 'validation',
+      data: {
+        field: 'dateOfBirth',
+        age: new Date().getFullYear() - dateOfBirth.getFullYear(),
+        maxAge: 100,
+      },
+      level: 'warning',
+    });
+    throw new Error('Please select a more recent date');
+  }
+}
+
+async function updateProfileDetails(user: UserProfile, formData: FormData) {
+  const { error: profileError } = await supabase.rpc('upsert_profile_details', {
+    p_user_id: user.id,
+    p_date_of_birth: formData.dateOfBirth.toISOString().split('T')[0],
+    p_gender: formData.gender,
+    p_height_cm: parseFloat(formData.height),
+    p_weight_kg: parseFloat(formData.weight),
+  });
+
+  if (profileError) {
+    console.error('Error updating profile details:', profileError);
+    captureAuthError(profileError, 'profile_details_update');
+    Sentry.addBreadcrumb({
+      message: 'Profile details update failed',
+      category: 'api.error',
+      data: { error: profileError.message, operation: 'upsert_profile_details' },
+      level: 'error',
+    });
+    throw profileError;
+  }
+
+  Sentry.addBreadcrumb({
+    message: 'Profile details updated successfully',
+    category: 'api.success',
+    data: { operation: 'upsert_profile_details', hasGender: !!formData.gender },
+  });
+}
+
+async function updateUserPreferences(user: UserProfile, weightUnit: string, heightUnit: string) {
+  const { error: preferencesError } = await supabase
+    .from('user_profile_details')
+    .update({
+      preferred_weight_unit: weightUnit,
+      preferred_height_unit: heightUnit,
+    })
+    .eq('user_id', user.id);
+
+  if (preferencesError) {
+    console.error('Error updating unit preferences:', preferencesError);
+    captureAuthError(preferencesError, 'preferences_update');
+    Sentry.addBreadcrumb({
+      message: 'Unit preferences update failed',
+      category: 'api.error',
+      data: {
+        error: preferencesError.message,
+        operation: 'update_preferences',
+        weightUnit,
+        heightUnit,
+      },
+      level: 'error',
+    });
+    throw preferencesError;
+  }
+
+  Sentry.addBreadcrumb({
+    message: 'Unit preferences updated successfully',
+    category: 'api.success',
+    data: { operation: 'update_preferences', weightUnit, heightUnit },
+  });
+}
+
+async function addWeightMeasurement(
+  addMeasurement: (category: MeasurementCategory, value: number, unit: string) => Promise<void>,
+  formData: FormData,
+) {
+  try {
+    await addMeasurement('WEIGHT', parseFloat(formData.weight), 'kg');
+    Sentry.addBreadcrumb({
+      message: 'Weight measurement added successfully',
+      category: 'api.success',
+      data: { operation: 'add_measurement', type: 'WEIGHT', unit: 'kg' },
+    });
+  } catch (measurementError) {
+    console.error('Error adding measurements:', measurementError);
+    Sentry.addBreadcrumb({
+      message: 'Weight measurement addition failed',
+      category: 'api.error',
+      data: {
+        operation: 'add_measurement',
+        error:
+          measurementError instanceof Error ? measurementError.message : String(measurementError),
+      },
+      level: 'warning',
+    });
+  }
+}
+
 // Custom hook for save functionality
 function useSaveProfile() {
   const { user, updateUserMetadata, refreshUser } = useAuth();
@@ -164,10 +410,19 @@ function useSaveProfile() {
     try {
       setIsLoading(true);
 
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
+      // Track profile update initiation
+      trackProfileUpdateStart(formData, weightUnit, heightUnit);
 
+      // Validate user authentication
+      validateUserAuthentication(user);
+
+      // Validate all form data
+      validateProfileData(formData, weightUnit, heightUnit);
+      validateUserPreferences(weightUnit, heightUnit);
+      validateNumericFields(formData, weightUnit, heightUnit);
+      validateDateOfBirth(formData.dateOfBirth);
+
+      // Update user metadata
       await updateUserMetadata({
         name: formData.fullName,
         dateOfBirth: formData.dateOfBirth.toISOString().split('T')[0],
@@ -176,46 +431,47 @@ function useSaveProfile() {
         height: parseFloat(formData.height),
       });
 
-      const { error: profileError } = await supabase.rpc('upsert_profile_details', {
-        p_user_id: user.id,
-        p_date_of_birth: formData.dateOfBirth.toISOString().split('T')[0],
-        p_gender: formData.gender,
-        p_height_cm: parseFloat(formData.height),
-        p_weight_kg: parseFloat(formData.weight),
-      });
+      // Update profile details and preferences
+      await updateProfileDetails(user!, formData);
+      await updateUserPreferences(user!, weightUnit, heightUnit);
 
-      if (profileError) {
-        console.error('Error updating profile details:', profileError);
-        throw profileError;
-      }
+      // Add weight measurement (non-critical)
+      await addWeightMeasurement(addMeasurement, formData);
 
-      const { error: preferencesError } = await supabase
-        .from('user_profile_details')
-        .update({
-          preferred_weight_unit: weightUnit,
-          preferred_height_unit: heightUnit,
-        })
-        .eq('user_id', user.id);
-
-      if (preferencesError) {
-        console.error('Error updating unit preferences:', preferencesError);
-        throw preferencesError;
-      }
-
-      try {
-        await addMeasurement('WEIGHT', parseFloat(formData.weight), 'kg');
-      } catch (measurementError) {
-        console.error('Error adding measurements:', measurementError);
-      }
-
+      // Refresh data
       await refreshUser();
       await refreshMeasurements();
+
+      // Track successful completion
+      Sentry.addBreadcrumb({
+        message: 'Profile update completed successfully',
+        category: 'conversion',
+        data: {
+          funnel_step: 'profile_update_complete',
+          redirectTo: 'profile_tab',
+        },
+      });
 
       setTimeout(() => {
         router.push('/(tabs)/profile');
       }, 300);
     } catch (error) {
       console.error('Error updating profile:', error);
+
+      // Capture general profile update error
+      const errorObj = error instanceof Error ? error : new Error(String(error));
+      captureAuthError(errorObj, 'profile_update_general');
+
+      // Track profile update failure
+      Sentry.addBreadcrumb({
+        message: 'Profile update failed',
+        category: 'user.error',
+        data: {
+          errorMessage: errorObj.message,
+          timestamp: new Date().toISOString(),
+        },
+        level: 'error',
+      });
     } finally {
       setIsLoading(false);
     }
@@ -608,6 +864,7 @@ export default function EditProfileScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { measurements, refreshMeasurements } = useMeasurements();
+  const componentMountTimeRef = useRef(Date.now());
 
   const { formData, setFormData } = useFormData(user);
   const { weightUnit, setWeightUnit, heightUnit, setHeightUnit } = useUnitPreferences(user);
@@ -626,7 +883,44 @@ export default function EditProfileScreen() {
   const { isMounted, loadUserData } = useDataLoading(user, refreshMeasurements);
   const { handleSave } = useSaveProfile();
 
+  // Initialize Sentry tracking for edit profile screen
+  useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: 'Edit profile screen mounted',
+      category: 'navigation',
+      data: {
+        screen: 'edit-profile',
+        userId: user?.id.substring(0, 8) + '***', // Masked for privacy
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    return () => {
+      const sessionDuration = Date.now() - componentMountTimeRef.current;
+      Sentry.addBreadcrumb({
+        message: 'Edit profile screen unmounted',
+        category: 'navigation',
+        data: {
+          screen: 'edit-profile',
+          sessionDuration: `${sessionDuration}ms`,
+          hadChanges: formData.fullName !== getUserMetadataValue(user, 'name', ''),
+        },
+      });
+    };
+  }, [user, formData.fullName]);
+
   const safeGoBack = () => {
+    // Track navigation back to profile
+    Sentry.addBreadcrumb({
+      message: 'User navigated back from edit profile',
+      category: 'navigation',
+      data: {
+        from: 'edit-profile',
+        to: 'profile-tab',
+        hadChanges: formData.fullName !== getUserMetadataValue(user, 'name', ''),
+      },
+    });
+
     router.push('/(tabs)/profile');
   };
 
@@ -652,15 +946,55 @@ export default function EditProfileScreen() {
     setFormData((prev) => ({ ...prev, weight: value.toString() }));
     setWeightPickerVisible(false);
     setFocusedInput('');
+
+    // Track weight change
+    Sentry.addBreadcrumb({
+      message: 'User changed weight value',
+      category: 'user.selection',
+      data: {
+        field: 'weight',
+        value: value,
+        unit: weightUnit,
+        source: 'picker',
+      },
+    });
   };
 
   const handleHeightChange = (value: number) => {
     setFormData((prev) => ({ ...prev, height: value.toString() }));
     setHeightPickerVisible(false);
     setFocusedInput('');
+
+    // Track height change
+    Sentry.addBreadcrumb({
+      message: 'User changed height value',
+      category: 'user.selection',
+      data: {
+        field: 'height',
+        value: value,
+        unit: heightUnit,
+        source: 'picker',
+      },
+    });
   };
 
   const onSave = () => {
+    // Track save button click with form state
+    Sentry.addBreadcrumb({
+      message: 'User clicked save profile button',
+      category: 'user.action',
+      data: {
+        action: 'save_profile',
+        hasFullName: !!formData.fullName,
+        hasGender: !!formData.gender,
+        hasWeight: !!formData.weight && !isNaN(parseFloat(formData.weight)),
+        hasHeight: !!formData.height && !isNaN(parseFloat(formData.height)),
+        weightUnit,
+        heightUnit,
+        isLoading,
+      },
+    });
+
     handleSave(formData, weightUnit, heightUnit, setIsLoading);
   };
 
@@ -676,7 +1010,21 @@ export default function EditProfileScreen() {
               <IconButton
                 icon="arrow-left"
                 size={28}
-                onPress={safeGoBack}
+                onPress={() => {
+                  // Track back button click
+                  Sentry.addBreadcrumb({
+                    message: 'User clicked back button in edit profile',
+                    category: 'user.action',
+                    data: {
+                      action: 'navigate_back',
+                      from: 'edit-profile',
+                      hadUnsavedChanges:
+                        formData.fullName !== getUserMetadataValue(user, 'name', ''),
+                    },
+                  });
+
+                  safeGoBack();
+                }}
                 iconColor={COLORS.text}
                 style={styles.backButton}
               />
@@ -703,7 +1051,22 @@ export default function EditProfileScreen() {
                 mode="flat"
                 placeholder="Full Name"
                 value={formData.fullName}
-                onChangeText={(text) => setFormData((prev) => ({ ...prev, fullName: text }))}
+                onChangeText={(text) => {
+                  setFormData((prev) => ({ ...prev, fullName: text }));
+
+                  // Track meaningful input milestones
+                  if (text.length === 1 || text.length % 5 === 0) {
+                    Sentry.addBreadcrumb({
+                      message: 'User typing in full name field',
+                      category: 'user.input',
+                      data: {
+                        field: 'fullName',
+                        characterCount: text.length,
+                        hasContent: text.length > 0,
+                      },
+                    });
+                  }
+                }}
                 style={styles.input}
                 contentStyle={{ backgroundColor: '#1f222a' }}
                 theme={{
@@ -724,7 +1087,19 @@ export default function EditProfileScreen() {
                     color={focusedInput === 'fullName' ? COLORS.primary : COLORS.text}
                   />
                 }
-                onFocus={() => setFocusedInput('fullName')}
+                onFocus={() => {
+                  setFocusedInput('fullName');
+
+                  // Track field focus
+                  Sentry.addBreadcrumb({
+                    message: 'User focused on full name field',
+                    category: 'user.interaction',
+                    data: {
+                      field: 'fullName',
+                      currentValue: formData.fullName.substring(0, 3) + '***',
+                    },
+                  });
+                }}
                 onBlur={() => setFocusedInput('')}
               />
             </View>
@@ -760,9 +1135,34 @@ export default function EditProfileScreen() {
 
             <GenderDropdown
               value={formData.gender}
-              onChange={(value) => setFormData((prev) => ({ ...prev, gender: value }))}
+              onChange={(value) => {
+                setFormData((prev) => ({ ...prev, gender: value }));
+
+                // Track gender selection
+                Sentry.addBreadcrumb({
+                  message: 'User selected gender',
+                  category: 'user.selection',
+                  data: {
+                    field: 'gender',
+                    value: value,
+                    wasEmpty: !formData.gender,
+                  },
+                });
+              }}
               focused={focusedInput === 'gender'}
-              onFocus={() => setFocusedInput('gender')}
+              onFocus={() => {
+                setFocusedInput('gender');
+
+                // Track gender field focus
+                Sentry.addBreadcrumb({
+                  message: 'User focused on gender field',
+                  category: 'user.interaction',
+                  data: {
+                    field: 'gender',
+                    currentValue: formData.gender || 'empty',
+                  },
+                });
+              }}
             />
 
             <WeightInput
@@ -775,7 +1175,20 @@ export default function EditProfileScreen() {
               inputWidth={inputWidth}
               setInputWidth={setInputWidth}
               onWeightChange={handleWeightChange}
-              onUnitChange={setWeightUnit}
+              onUnitChange={(unit) => {
+                setWeightUnit(unit);
+
+                // Track weight unit change
+                Sentry.addBreadcrumb({
+                  message: 'User changed weight unit',
+                  category: 'user.selection',
+                  data: {
+                    field: 'weightUnit',
+                    newUnit: unit,
+                    previousUnit: weightUnit,
+                  },
+                });
+              }}
             />
 
             <HeightInput
@@ -788,14 +1201,54 @@ export default function EditProfileScreen() {
               inputWidth={inputWidth}
               setInputWidth={setInputWidth}
               onHeightChange={handleHeightChange}
-              onUnitChange={setHeightUnit}
+              onUnitChange={(unit) => {
+                setHeightUnit(unit);
+
+                // Track height unit change
+                Sentry.addBreadcrumb({
+                  message: 'User changed height unit',
+                  category: 'user.selection',
+                  data: {
+                    field: 'heightUnit',
+                    newUnit: unit,
+                    previousUnit: heightUnit,
+                  },
+                });
+              }}
             />
 
             <DOBPicker
               date={formData.dateOfBirth}
-              onChange={(date) => setFormData((prev) => ({ ...prev, dateOfBirth: date }))}
+              onChange={(date) => {
+                setFormData((prev) => ({ ...prev, dateOfBirth: date }));
+
+                // Track date of birth selection
+                const age = new Date().getFullYear() - date.getFullYear();
+                Sentry.addBreadcrumb({
+                  message: 'User selected date of birth',
+                  category: 'user.selection',
+                  data: {
+                    field: 'dateOfBirth',
+                    age: age,
+                    ageGroup:
+                      age < 18 ? 'under-18' : age < 30 ? '18-29' : age < 50 ? '30-49' : '50+',
+                  },
+                });
+              }}
               focused={focusedInput === 'dateOfBirth'}
-              onFocus={() => setFocusedInput('dateOfBirth')}
+              onFocus={() => {
+                setFocusedInput('dateOfBirth');
+
+                // Track date of birth field focus
+                Sentry.addBreadcrumb({
+                  message: 'User focused on date of birth field',
+                  category: 'user.interaction',
+                  data: {
+                    field: 'dateOfBirth',
+                    currentDate: format(formData.dateOfBirth, 'yyyy-MM-dd'),
+                  },
+                });
+              }}
             />
 
             <Pressable

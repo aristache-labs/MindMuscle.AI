@@ -3,10 +3,12 @@ import React, { useCallback, useEffect } from 'react';
 import { ActivityIndicator, FlatList, ScrollView, View } from 'react-native';
 import { Appbar, Button, FAB, IconButton } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import ExerciseDetailsModal from '../../../components/ExerciseDetailsModal';
 import MyPlanCalendar from '../../../components/myplanCalendar';
 import PlanOverviewModal from '../../../components/PlanOverviewModal';
 import { COLORS, SPACING } from '../../../constants/theme';
+import { SentryDataCollection, SentryLogger } from '../../../services/sentry';
 import workoutPlanService from '../../../services/workoutPlanService';
 import { useAuth } from '../../../store/AuthContext';
 import {
@@ -14,12 +16,12 @@ import {
   DateSelectionLoadingComponent,
   ExerciseItem,
   LockedWeekComponent,
-  NoPlanView,
   PausedWorkoutModal,
   RestDayComponent,
   WorkoutHeader,
   WorkoutStatsRow,
 } from '../components';
+import NoPlanView from '../components/NoPlanView';
 import {
   useCalendarData,
   useDateSelection,
@@ -39,6 +41,7 @@ import {
   WorkoutDay,
 } from '../types';
 import { calculateWorkoutStats, updatePausedWorkoutWithCustomizations } from '../utils';
+import supabase from '../../../services/supabase';
 
 // Loading Screen Component
 const LoadingScreen: React.FC<{ embedded: boolean }> = ({ embedded }) => {
@@ -349,11 +352,55 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
 
+  // Sentry initialization for My Plan screen
+  useEffect(() => {
+    try {
+      // Log my plan screen access
+      SentryLogger.info('My Plan screen accessed', {
+        user_id: user?.id,
+        embedded_mode: embedded,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Add breadcrumb for screen navigation
+      SentryDataCollection.addBreadcrumb({
+        message: 'User navigated to My Plan screen',
+        category: 'navigation',
+        level: 'info',
+        data: {
+          screen: 'my-plan',
+          embedded: embedded,
+          user_authenticated: !!user,
+        },
+      });
+
+      // Set user context for this session
+      if (user) {
+        SentryDataCollection.setUser({
+          id: user.id,
+          email: user.email,
+        });
+      }
+
+      // Set context for my plan analytics
+      SentryDataCollection.setContext('my_plan_screen', {
+        embedded_mode: embedded,
+        feature_type: 'plan_management',
+        user_has_plan: false, // Will be updated when plan data loads
+      });
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'my_plan_screen_initialization',
+        user_id: user?.id,
+        embedded,
+      });
+    }
+  }, [user, embedded]);
+
   // Use the plan state hook
   const {
     isLoading,
     plan,
-    error: _error,
     userWorkoutDays,
     selectedDate,
     activeDay,
@@ -370,7 +417,6 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
     lockedWeekInfo,
     isDateSelectionLoading,
     isManualDateSelection,
-    hasAppliedCustomizations: _hasAppliedCustomizations,
     exerciseDetailsModalVisible,
     selectedExercise,
     planOverviewModalVisible,
@@ -401,7 +447,7 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
   } = usePlanState();
 
   // Use the plan data hook
-  const { fetchUserWorkoutDays, fetchActivePlan } = usePlanData({
+  const { fetchUserWorkoutDays, fetchActivePlan, fetchCycleProgress } = usePlanData({
     userWorkoutDays,
     setPlan,
     setCycleProgress,
@@ -439,38 +485,134 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
   // Function to update paused workout with current exercise customizations
   const updatePausedWorkoutWithCustomizationsCallback = useCallback(
     async (pausedWorkoutData: PausedWorkout) => {
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-      if (!plan) {
-        throw new Error('No active plan found');
-      }
-      return await updatePausedWorkoutWithCustomizations(
-        pausedWorkoutData,
-        user,
-        plan,
-        workoutPlanService,
-      );
+      // SIMPLIFIED: No longer needs user, plan, or workoutPlanService parameters
+      return await updatePausedWorkoutWithCustomizations(pausedWorkoutData);
     },
-    [user, plan],
+    [], // No dependencies needed anymore
   );
 
   // Use the workout actions hook
-  const { handleStartWorkout, handleResumeWorkout, handleRedoWorkout } = useWorkoutActions({
+  const {
+    handleStartWorkout: originalHandleStartWorkout,
+    handleResumeWorkout: originalHandleResumeWorkout,
+    handleRedoWorkout: originalHandleRedoWorkout,
+  } = useWorkoutActions({
     plan,
     activeDay,
     selectedDate,
     userWorkoutDays,
     pausedWorkout,
     hasPausedWorkout,
-    setIsLoading,
     setPausedWorkout,
-    setHasPausedWorkout,
     setShowPausedWorkoutModal,
     setPausedWorkoutInfo,
     setHasAppliedCustomizations,
     updatePausedWorkoutWithCustomizations: updatePausedWorkoutWithCustomizationsCallback,
   });
+
+  // Wrap workout actions with Sentry tracking
+  const handleStartWorkout = useCallback(async () => {
+    try {
+      SentryLogger.info('User started workout from My Plan', {
+        user_id: user?.id,
+        plan_id: plan?.id,
+        plan_title: plan?.title,
+        workout_day: activeDay,
+        selected_date: selectedDate?.toISOString(),
+        action: 'start_workout',
+      });
+
+      SentryDataCollection.addBreadcrumb({
+        message: 'User started workout from My Plan',
+        category: 'user-action',
+        level: 'info',
+        data: {
+          plan_id: plan?.id,
+          workout_day: activeDay,
+          action_type: 'start_workout',
+        },
+      });
+
+      await originalHandleStartWorkout();
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'my_plan_start_workout',
+        user_id: user?.id,
+        plan_id: plan?.id,
+        workout_day: activeDay,
+      });
+      throw error;
+    }
+  }, [originalHandleStartWorkout, user, plan, activeDay, selectedDate]);
+
+  const handleResumeWorkout = useCallback(async () => {
+    try {
+      SentryLogger.info('User resumed paused workout from My Plan', {
+        user_id: user?.id,
+        plan_id: plan?.id,
+        plan_title: plan?.title,
+        workout_day: activeDay,
+        paused_workout_day: pausedWorkout?.workoutDay,
+        action: 'resume_workout',
+      });
+
+      SentryDataCollection.addBreadcrumb({
+        message: 'User resumed paused workout',
+        category: 'user-action',
+        level: 'info',
+        data: {
+          plan_id: plan?.id,
+          workout_day: activeDay,
+          paused_workout_day: pausedWorkout?.workoutDay,
+          action_type: 'resume_workout',
+        },
+      });
+
+      await originalHandleResumeWorkout();
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'my_plan_resume_workout',
+        user_id: user?.id,
+        plan_id: plan?.id,
+        workout_day: activeDay,
+      });
+      throw error;
+    }
+  }, [originalHandleResumeWorkout, user, plan, activeDay, pausedWorkout]);
+
+  const handleRedoWorkout = useCallback(async () => {
+    try {
+      SentryLogger.info('User redoing completed workout from My Plan', {
+        user_id: user?.id,
+        plan_id: plan?.id,
+        plan_title: plan?.title,
+        workout_day: activeDay,
+        selected_date: selectedDate?.toISOString(),
+        action: 'redo_workout',
+      });
+
+      SentryDataCollection.addBreadcrumb({
+        message: 'User redoing completed workout',
+        category: 'user-action',
+        level: 'info',
+        data: {
+          plan_id: plan?.id,
+          workout_day: activeDay,
+          action_type: 'redo_workout',
+        },
+      });
+
+      await originalHandleRedoWorkout();
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        context: 'my_plan_redo_workout',
+        user_id: user?.id,
+        plan_id: plan?.id,
+        workout_day: activeDay,
+      });
+      throw error;
+    }
+  }, [originalHandleRedoWorkout, user, plan, activeDay, selectedDate]);
 
   // Modal handlers
   const handleExerciseNamePress = useCallback(
@@ -505,21 +647,107 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
     console.log('Edit plan pressed');
   }, []);
 
-  const handleBackToCurrentWeek = useCallback(() => {
-    const today = new Date();
-    setSelectedDate(today);
-    setIsViewingLockedWeek(false);
-    setLockedWeekInfo(null);
+  const handleBackToCurrentWeek = useCallback(async () => {
+    if (!plan || !cycleProgress || userWorkoutDays.length === 0 || !user?.id) {
+      return;
+    }
 
-    if (plan && userWorkoutDays.length > 0) {
+    try {
+      setIsViewingLockedWeek(false);
+      setLockedWeekInfo(null);
+
+      // Get the calendar dates with cycle week information
+      const markedDatesObj = workoutPlanService.setupCalendarDatesProgressive(
+        plan.start_date,
+        plan.workoutDays.length,
+        userWorkoutDays,
+        { primary: '#7B69EE' },
+      );
+
+      // Get completed workouts for this plan
+      const { data: completedWorkouts, error: completedError } = (await supabase
+        .from('user_workout_history')
+        .select('workout_day, completed_at, cycle_week')
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id)) as {
+        data: Array<{
+          workout_day: number;
+          completed_at: string;
+          cycle_week: number;
+        }> | null;
+        error: Error | null;
+      };
+
+      if (completedError) {
+        console.error('Error fetching completed workouts:', completedError);
+        // Fallback to today's date
+        const today = new Date();
+        setSelectedDate(today);
+        handleCalendarDateSelect(today, null, false);
+        return;
+      }
+
+      // Get all workout dates sorted by date
+      const allWorkouts = Object.entries(markedDatesObj)
+        .map(([dateStr, dateInfo]) => ({
+          date: new Date(dateStr),
+          dateStr,
+          workoutDayIndex: dateInfo.workoutDayIndex,
+          cycleWeek: dateInfo.cycleWeek,
+          weekName: dateInfo.weekName,
+        }))
+        .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+      // Find the first unfinished workout from the beginning
+      let targetWorkout: (typeof allWorkouts)[0] | null = null;
+
+      for (const workout of allWorkouts) {
+        // Check if this workout is completed
+        const isCompleted = completedWorkouts?.some(
+          (completed) =>
+            completed.workout_day === workout.workoutDayIndex &&
+            completed.cycle_week === workout.cycleWeek,
+        );
+
+        if (!isCompleted) {
+          // Found first unfinished workout
+          targetWorkout = workout;
+          break;
+        }
+      }
+
+      if (targetWorkout) {
+        // Navigate to the first unfinished workout
+        setSelectedDate(targetWorkout.date);
+        await handleCalendarDateSelect(targetWorkout.date, targetWorkout.workoutDayIndex, true);
+      } else {
+        // All workouts are completed, go to the last workout
+        if (allWorkouts.length > 0) {
+          const lastWorkout = allWorkouts[allWorkouts.length - 1];
+          setSelectedDate(lastWorkout.date);
+          await handleCalendarDateSelect(lastWorkout.date, lastWorkout.workoutDayIndex, true);
+        } else {
+          // No workouts found, fallback to today
+          const today = new Date();
+          setSelectedDate(today);
+          handleCalendarDateSelect(today, null, false);
+        }
+      }
+    } catch (error) {
+      console.error('Error navigating back to current week:', error);
+      // Fallback to today's date
+      const today = new Date();
+      setSelectedDate(today);
       handleCalendarDateSelect(today, null, false);
     }
   }, [
+    plan,
+    cycleProgress,
+    userWorkoutDays,
+    user?.id,
     setSelectedDate,
     setIsViewingLockedWeek,
     setLockedWeekInfo,
-    plan,
-    userWorkoutDays,
     handleCalendarDateSelect,
   ]);
 
@@ -577,6 +805,63 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
     }
   }, [user?.id, userWorkoutDays.length, fetchActivePlan]);
 
+  // Sentry tracking for plan data loading
+  useEffect(() => {
+    if (plan) {
+      try {
+        // Log successful plan loading
+        SentryLogger.info('User plan loaded successfully', {
+          user_id: user?.id,
+          plan_id: plan.id,
+          plan_title: plan.title,
+          plan_subtitle: plan.subtitle,
+          workout_days_count: plan.workoutDays?.length || 0,
+          cycle_progress: cycleProgress
+            ? {
+                current_week: cycleProgress.currentWeek,
+                week_name: cycleProgress.weekName,
+                completed_workouts: cycleProgress.completedWorkouts,
+                total_workouts_in_cycle: cycleProgress.totalWorkoutsInCycle,
+                progress_percentage: cycleProgress.progressPercentage,
+              }
+            : null,
+        });
+
+        // Update context with plan information
+        SentryDataCollection.setContext('my_plan_screen', {
+          embedded_mode: embedded,
+          feature_type: 'plan_management',
+          user_has_plan: true,
+          plan_id: plan.id,
+          plan_title: plan.title,
+          workout_days_count: plan.workoutDays?.length || 0,
+        });
+
+        // Set plan-related tags
+        SentryDataCollection.setTag('user_active_plan', plan.id);
+        SentryDataCollection.setTag('plan_type', plan.category_name || 'unknown');
+
+        // Add breadcrumb for plan loading
+        SentryDataCollection.addBreadcrumb({
+          message: `User plan loaded: ${plan.title}`,
+          category: 'data',
+          level: 'info',
+          data: {
+            plan_id: plan.id,
+            plan_title: plan.title,
+            workout_days: plan.workoutDays?.length || 0,
+          },
+        });
+      } catch (error) {
+        SentryDataCollection.captureException(error as Error, {
+          context: 'plan_data_tracking',
+          user_id: user?.id,
+          plan_id: plan?.id,
+        });
+      }
+    }
+  }, [plan, cycleProgress, user, embedded]);
+
   // CALENDAR UPDATE EFFECT
   useEffect(() => {
     const updateCalendarData = async () => {
@@ -602,6 +887,58 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
     isManualDateSelection,
     updateCalendarWorkoutStatus,
   ]);
+
+  // Refresh cycle progress when screen comes into focus (e.g., after completing a workout)
+  useFocusEffect(
+    useCallback(() => {
+      let hasRun = false; // Prevent multiple runs within the same focus event
+
+      const refreshCycleProgress = async () => {
+        if (hasRun || !plan?.id || !user?.id || isLoading) {
+          return;
+        }
+        hasRun = true;
+
+        try {
+          // Refresh cycle progress to detect any week unlocks from completed workouts
+          const updatedProgress = await fetchCycleProgress(plan.id);
+          if (updatedProgress) {
+            setCycleProgress(updatedProgress);
+
+            console.log('🔄 Cycle progress refreshed on screen focus', {
+              currentWeek: updatedProgress.currentWeek,
+              weekName: updatedProgress.weekName,
+              completedWorkouts: updatedProgress.completedWorkouts,
+            });
+
+            // If user is viewing a locked week that might now be unlocked, refresh the date selection
+            if (isViewingLockedWeek && lockedWeekInfo) {
+              const wasLocked = lockedWeekInfo.selectedWeek > updatedProgress.currentWeek;
+              if (!wasLocked) {
+                // Week is now unlocked, refresh current selection
+                const currentActiveDay = activeDay;
+                const currentSelectedDate = selectedDate;
+                setTimeout(() => {
+                  handleCalendarDateSelect(
+                    currentSelectedDate,
+                    currentActiveDay,
+                    currentActiveDay !== null,
+                  );
+                }, 50);
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error refreshing cycle progress on focus:', error);
+        }
+      };
+
+      // Add a small delay to ensure screen is fully focused
+      const timeoutId = setTimeout(refreshCycleProgress, 200);
+
+      return () => clearTimeout(timeoutId);
+    }, [plan?.id, user?.id, isLoading, fetchCycleProgress, setCycleProgress]),
+  );
 
   // Main render
   if (isLoading) {
@@ -637,7 +974,6 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
         pausedWorkoutDays={pausedWorkoutDays}
         embedded={embedded}
         initialSelectedDate={selectedDate}
-        _cycleProgress={cycleProgress}
       />
 
       {/* Scrollable Content */}

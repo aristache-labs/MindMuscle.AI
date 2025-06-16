@@ -1,6 +1,7 @@
 import { MD3DarkTheme, MD3LightTheme, Provider as PaperProvider } from 'react-native-paper';
 import { useColorScheme } from 'react-native';
 import React from 'react';
+import { SentryLogger, addBreadcrumb, setContext } from '../services/sentry';
 
 export const COLORS = {
   primary: '#6c47ff',
@@ -90,9 +91,60 @@ const lightTheme = {
 
 export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
   const colorScheme = useColorScheme();
-  const theme = colorScheme === 'dark' ? darkTheme : lightTheme;
 
-  return <PaperProvider theme={theme}>{children}</PaperProvider>;
+  try {
+    // Log theme initialization
+    addBreadcrumb({
+      message: 'Theme provider initializing',
+      category: 'theme.initialization',
+      level: 'info',
+      data: {
+        colorScheme,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    const theme = colorScheme === 'dark' ? darkTheme : lightTheme;
+
+    // Set theme context for Sentry
+    setContext('theme', {
+      colorScheme,
+      themeName: colorScheme === 'dark' ? 'dark' : 'light',
+      primaryColor: COLORS.primary,
+      backgroundColor: theme.colors.background,
+      textColor: theme.colors.text,
+    });
+
+    // Log successful theme selection
+    SentryLogger.info('Theme applied successfully', {
+      colorScheme,
+      themeName: colorScheme === 'dark' ? 'dark' : 'light',
+      primaryColor: COLORS.primary,
+    });
+
+    return <PaperProvider theme={theme}>{children}</PaperProvider>;
+  } catch (error) {
+    // Log theme provider error
+    SentryLogger.error('Theme provider error', {
+      error,
+      colorScheme,
+      errorMessage: error instanceof Error ? error.message : 'Unknown error',
+    });
+
+    // Fallback to dark theme in case of error
+    addBreadcrumb({
+      message: 'Theme provider fallback to dark theme',
+      category: 'theme.fallback',
+      level: 'warning',
+      data: {
+        originalColorScheme: colorScheme,
+        fallbackTheme: 'dark',
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    return <PaperProvider theme={darkTheme}>{children}</PaperProvider>;
+  }
 };
 
 export default {

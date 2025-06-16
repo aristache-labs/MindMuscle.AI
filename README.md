@@ -21,8 +21,10 @@ MindMuscle.AI delivers AI‑powered fitness coaching and progress tracking using
 - [Sentry Setup](#sentry-setup)
 
 ## Future Requirements
-
 - WatermelondDB offline with the Supabase database
+
+## Later requirements implementation
+- 
 
 ## Features
 
@@ -76,8 +78,8 @@ mindmuscle-ai/
 │   │   ├── ProgressContext   # Progress tracking state
 │   │   ├── ProgressPhotosContext# Photos management
 │   │   └── TaskContext       # Workout scheduling
-│   ├── types/                 # TypeScript definitions
-│   └── utils/                 # Utility functions
+│   └── types/                 # TypeScript definitions
+├── utils/                     # Utility functions (moved to root level)
 ├── assets/                    # Static assets
 │   ├── exercises/            # Exercise images
 │   └── measurements/         # Measurement reference images

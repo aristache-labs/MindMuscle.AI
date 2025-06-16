@@ -4,6 +4,9 @@ import React, { useState } from 'react';
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
+import { validationService } from '../services/validationService';
+import { simpleErrorHandler } from '../services/sentry/simpleErrorHandler';
+import { logger } from '../utils/logger';
 import ChangeExerciseModal from './ChangeExerciseModal';
 import OptimizedImage from './OptimizedImage';
 
@@ -91,18 +94,100 @@ export default function CustomizeExerciseModal({
     return parseInt(range[1]) || parseInt(range[0]) || 10;
   });
   const [showChangeExerciseModal, setShowChangeExerciseModal] = useState(false);
+  const [validationError, setValidationError] = useState<string>('');
+
+  // Track component lifecycle
+  React.useEffect(() => {
+    if (visible) {
+      simpleErrorHandler.addBreadcrumb('CustomizeExerciseModal opened', 'ui', {
+        exerciseId: exercise?.exercise_id || exercise?.id,
+        exerciseName: exercise?.name,
+        availableAlternativesCount: availableExercises.length,
+        hasExerciseChangeCallback: !!onExerciseChange,
+      });
+    }
+  }, [visible, exercise]);
 
   // Reset values when exercise changes
   React.useEffect(() => {
     if (exercise) {
+      simpleErrorHandler.addBreadcrumb('Exercise data loaded in CustomizeExerciseModal', 'data', {
+        exerciseId: exercise?.exercise_id || exercise?.id,
+        exerciseName: exercise?.name,
+        originalSets: exercise.sets,
+        originalRepsRange: exercise.reps_range,
+      });
+
       setSets(exercise.sets);
       const range = exercise.reps_range.split('-');
       setRepsMin(parseInt(range[0]) || 8);
       setRepsMax(parseInt(range[1]) || parseInt(range[0]) || 10);
+      setValidationError(''); // Clear validation error when exercise changes
     }
   }, [exercise]);
 
+  const validateForm = () => {
+    if (!exercise) {
+      simpleErrorHandler.addBreadcrumb('Validation failed: No exercise selected', 'warning');
+      setValidationError('No exercise selected');
+      return false;
+    }
+
+    const reps_range = repsMin === repsMax ? repsMin.toString() : `${repsMin}-${repsMax}`;
+
+    const formData = {
+      exerciseId: exercise.id,
+      sets,
+      repsRange: reps_range,
+      restTime: 60, // Default rest time
+    };
+
+    simpleErrorHandler.addBreadcrumb('Validating exercise customization form', 'validation', {
+      exerciseId: exercise.id,
+      sets,
+      repsRange: reps_range,
+    });
+
+    const validationResult = validationService.validateCustomizeExerciseForm(formData);
+
+    if (!validationResult.success) {
+      const errorMessage = validationResult.errors.map((e) => e.message).join(', ');
+
+      simpleErrorHandler.addBreadcrumb('Exercise customization validation failed', 'validation', {
+        errors: validationResult.errors.map((e) => e.message),
+        exerciseId: exercise.id,
+        formData,
+      });
+
+      setValidationError(errorMessage);
+      logger.warn('Exercise customization validation failed', {
+        context: { formData, errors: validationResult.errors },
+      });
+      return false;
+    }
+
+    simpleErrorHandler.addBreadcrumb('Exercise customization validation successful', 'validation', {
+      exerciseId: exercise.id,
+      sets,
+      repsRange: reps_range,
+    });
+
+    setValidationError('');
+    return true;
+  };
+
   const handleDiscard = () => {
+    simpleErrorHandler.addBreadcrumb('User discarded exercise customization', 'user_interaction', {
+      exerciseId: exercise?.exercise_id || exercise?.id,
+      exerciseName: exercise?.name,
+      hadChanges: exercise
+        ? sets !== exercise.sets ||
+          repsMin !== parseInt(exercise.reps_range.split('-')[0]) ||
+          repsMax !==
+            parseInt(exercise.reps_range.split('-')[1] || exercise.reps_range.split('-')[0])
+        : false,
+    });
+
     // Reset to original values
     if (exercise) {
       setSets(exercise.sets);
@@ -110,21 +195,85 @@ export default function CustomizeExerciseModal({
       setRepsMin(parseInt(range[0]) || 8);
       setRepsMax(parseInt(range[1]) || parseInt(range[0]) || 10);
     }
+    setValidationError('');
     onClose();
   };
 
   const handleSave = () => {
+    simpleErrorHandler.addBreadcrumb(
+      'User attempted to save exercise customization',
+      'user_interaction',
+      {
+        exerciseId: exercise?.exercise_id || exercise?.id,
+        exerciseName: exercise?.name,
+        newSets: sets,
+        newRepsRange: repsMin === repsMax ? repsMin.toString() : `${repsMin}-${repsMax}`,
+      },
+    );
+
+    if (!validateForm()) {
+      return; // Don't save if validation fails
+    }
+
     const reps_range = repsMin === repsMax ? repsMin.toString() : `${repsMin}-${repsMax}`;
-    onSave({ sets, reps_range });
-    onClose();
+
+    try {
+      simpleErrorHandler.addBreadcrumb('Saving exercise customization', 'data', {
+        exerciseId: exercise?.exercise_id || exercise?.id,
+        sets,
+        reps_range,
+      });
+
+      onSave({ sets, reps_range });
+
+      simpleErrorHandler.addBreadcrumb('Exercise customization saved successfully', 'data', {
+        exerciseId: exercise?.exercise_id || exercise?.id,
+        sets,
+        reps_range,
+      });
+
+      logger.info('Exercise customization saved successfully', {
+        context: { exerciseId: exercise?.id, sets, reps_range },
+      });
+      onClose();
+    } catch (error) {
+      simpleErrorHandler.captureException(error as Error, {
+        component: 'CustomizeExerciseModal',
+        category: 'ui_error',
+      });
+
+      logger.error('Failed to save exercise customization', error as Error, {
+        context: { exerciseId: exercise?.id, sets, reps_range },
+      });
+      setValidationError('Failed to save changes. Please try again.');
+    }
   };
 
   const handleChangeExercise = () => {
+    simpleErrorHandler.addBreadcrumb('User opened change exercise modal', 'user_interaction', {
+      currentExerciseId: exercise?.exercise_id || exercise?.id,
+      currentExerciseName: exercise?.name,
+      availableAlternativesCount: availableExercises.length,
+    });
     setShowChangeExerciseModal(true);
   };
 
   const handleExerciseSelect = (selectedExercise: ExerciseAlternative) => {
-    console.log('CustomizeExerciseModal: Received exercise selection:', selectedExercise);
+    simpleErrorHandler.addBreadcrumb('User selected new exercise', 'user_interaction', {
+      oldExerciseId: exercise?.exercise_id || exercise?.id,
+      oldExerciseName: exercise?.name,
+      newExerciseId: selectedExercise.id,
+      newExerciseName: selectedExercise.name,
+      recommendationType: selectedExercise.recommendation_type,
+      similarityScore: selectedExercise.similarity_score,
+    });
+
+    logger.info('Exercise selection received', {
+      context: {
+        selectedExerciseId: selectedExercise.id,
+        selectedExerciseName: selectedExercise.name,
+      },
+    });
 
     if (onExerciseChange) {
       try {
@@ -144,8 +293,26 @@ export default function CustomizeExerciseModal({
           isChangedExercise: selectedExercise.isChangedExercise || false,
         };
 
-        console.log('CustomizeExerciseModal: Calling onExerciseChange with:', newExercise);
+        simpleErrorHandler.addBreadcrumb(
+          'Successfully converted and applying exercise change',
+          'data',
+          {
+            newExerciseId: newExercise.id,
+            newExerciseName: newExercise.name,
+            newSets: newExercise.sets,
+            newRepsRange: newExercise.reps_range,
+          },
+        );
+
+        logger.info('Calling onExerciseChange with converted exercise', {
+          context: { newExerciseId: newExercise.id, newExerciseName: newExercise.name },
+        });
         onExerciseChange(newExercise);
+
+        simpleErrorHandler.addBreadcrumb('Exercise change completed successfully', 'data', {
+          newExerciseId: newExercise.id,
+          newExerciseName: newExercise.name,
+        });
 
         // Close modals after successful exercise change
         setTimeout(() => {
@@ -153,7 +320,15 @@ export default function CustomizeExerciseModal({
           onClose();
         }, 100); // Small delay to ensure state updates complete
       } catch (error) {
-        console.error('Error in handleExerciseSelect:', error);
+        simpleErrorHandler.captureException(error as Error, {
+          component: 'CustomizeExerciseModal',
+          category: 'ui_error',
+        });
+
+        logger.error('Error in handleExerciseSelect', error as Error, {
+          context: { selectedExerciseId: selectedExercise.id },
+        });
+        setValidationError('Failed to change exercise. Please try again.');
         // Still close modals even if there's an error
         setShowChangeExerciseModal(false);
         onClose();
@@ -168,7 +343,14 @@ export default function CustomizeExerciseModal({
   const adjustSets = (increment: boolean) => {
     setSets((prev) => {
       const newValue = increment ? prev + 1 : prev - 1;
-      return Math.max(1, Math.min(10, newValue)); // Limit between 1-10
+      const clampedValue = Math.max(1, Math.min(20, newValue)); // Limit between 1-20 to match validation
+
+      // Clear validation error when user makes changes
+      if (validationError) {
+        setValidationError('');
+      }
+
+      return clampedValue;
     });
   };
 

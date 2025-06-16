@@ -1,5 +1,15 @@
-import { createContext, useContext } from 'react';
+import React, { createContext, useContext } from 'react';
+import { logger } from '../utils/logger';
 import supabase from './supabase';
+import { validationService } from './validationService';
+// Add Sentry imports
+import {
+  captureError,
+  captureDatabaseError,
+  captureValidationError,
+  captureAuthError,
+} from './sentry';
+import { addBreadcrumb } from './sentry/simpleErrorHandler';
 
 export const db = {
   // User operations
@@ -12,46 +22,106 @@ export const db = {
       measurementUnit: string;
     };
   }) => {
-    // Create user in auth
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: data.email,
-      password: data.hashedPassword,
-    });
-
-    if (authError) throw authError;
-
-    // Create user profile
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .insert({
-        id: authData.user?.id,
+    try {
+      addBreadcrumb('Starting user creation process', 'database', {
         email: data.email,
-        name: data.name,
-      })
-      .select()
-      .single();
-
-    if (userError) throw userError;
-
-    // Create preferences if provided
-    if (data.preferences) {
-      const { error: prefError } = await supabase.from('user_preferences').insert({
-        user_id: userData.id,
-        goal: data.preferences.goal,
-        measurement_unit: data.preferences.measurementUnit,
+        hasPreferences: !!data.preferences,
       });
 
-      if (prefError) throw prefError;
+      // Validate user data before database operation
+      const userValidationData = {
+        email: data.email,
+        full_name: data.name,
+        id: 'temp-id', // Will be replaced by auth
+      };
+
+      const validationResult = validationService.validateUserProfile(userValidationData);
+      if (!validationResult.success) {
+        const errorMessage = `User validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+        logger.error('User validation failed', new Error(errorMessage), {
+          context: { userData: userValidationData, errors: validationResult.errors },
+        });
+        captureValidationError(new Error(errorMessage), 'userProfile');
+        throw new Error(errorMessage);
+      }
+
+      // Create user in auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: data.email,
+        password: data.hashedPassword,
+      });
+
+      if (authError) {
+        logger.error('Auth signup failed', authError, { context: { email: data.email } });
+        captureAuthError(authError, 'signup');
+        throw authError;
+      }
+
+      // Create user profile
+      const { data: createdUser, error: userError } = await supabase
+        .from('users')
+        .insert({
+          id: authData.user?.id,
+          email: data.email,
+          name: data.name,
+        })
+        .select()
+        .single();
+
+      if (userError) {
+        logger.error('User profile creation failed', userError, {
+          context: { userId: authData.user?.id },
+        });
+        captureDatabaseError(new Error(userError.message), 'users', 'insert');
+        throw userError;
+      }
+
+      // Create preferences if provided
+      if (data.preferences) {
+        const { error: prefError } = await supabase.from('user_preferences').insert({
+          user_id: createdUser.id,
+          goal: data.preferences.goal,
+          measurement_unit: data.preferences.measurementUnit,
+        });
+
+        if (prefError) {
+          logger.error('User preferences creation failed', prefError, {
+            context: { userId: createdUser.id },
+          });
+          throw prefError;
+        }
+      }
+
+      // Create stats
+      const { error: statsError } = await supabase.from('user_stats').insert({
+        user_id: createdUser.id,
+      });
+
+      if (statsError) {
+        logger.error('User stats creation failed', statsError, {
+          context: { userId: createdUser.id },
+        });
+        throw statsError;
+      }
+
+      addBreadcrumb('User created successfully', 'database', {
+        userId: createdUser.id,
+        email: data.email,
+      });
+
+      logger.info('User created successfully', {
+        context: { userId: createdUser.id, email: data.email },
+      });
+      return createdUser;
+    } catch (error) {
+      logger.error('Failed to create user', error as Error, { context: { email: data.email } });
+      captureError(error as Error, {
+        category: 'database_error',
+        component: 'database',
+        email: data.email,
+      });
+      throw error;
     }
-
-    // Create stats
-    const { error: statsError } = await supabase.from('user_stats').insert({
-      user_id: userData.id,
-    });
-
-    if (statsError) throw statsError;
-
-    return userData;
   },
 
   getUserByEmail: async (email: string) => {

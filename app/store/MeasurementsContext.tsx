@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { measurementService, Measurement, MeasurementCategory } from '../services/measurements';
 import { useAuth } from './AuthContext';
 import supabase from '../services/supabase';
+import { setUser, setContext, setTag } from '../services/sentry';
+import { captureError, addBreadcrumb } from '../services/sentry/simpleErrorHandler';
 
 interface MeasurementsContextType {
   measurements: Record<MeasurementCategory, Measurement | null>;
@@ -33,23 +35,62 @@ export function MeasurementsProvider({ children }: { children: React.ReactNode }
       setLoading(true);
       setError(null);
 
+      addBreadcrumb('Loading user measurements', 'measurements');
+
+      // Set user context for Sentry
+      setUser({
+        id: user.id,
+        email: user.email || undefined,
+      });
+
+      setTag('measurements.operation', 'load_measurements');
+
       // Load latest measurements for all categories
       const latestMeasurements = await measurementService.getLatestMeasurements(user.id);
       setMeasurements(latestMeasurements);
+
+      addBreadcrumb('Latest measurements loaded successfully', 'measurements');
 
       // Load history for all categories
       const history: Record<MeasurementCategory, Measurement[]> = {} as Record<
         MeasurementCategory,
         Measurement[]
       >;
+
+      let totalHistoryRecords = 0;
       for (const category of Object.keys(latestMeasurements) as MeasurementCategory[]) {
         const categoryHistory = await measurementService.getMeasurementHistory(user.id, category);
         history[category] = categoryHistory;
+        totalHistoryRecords += categoryHistory.length;
       }
+
       setMeasurementHistory(history);
+
+      addBreadcrumb('Measurement history loaded successfully', 'measurements');
+
+      setContext('measurements_context', {
+        user_id: user.id,
+        categories_loaded: Object.keys(latestMeasurements).length,
+        total_history_records: totalHistoryRecords,
+        has_measurements: Object.values(latestMeasurements).some((m) => m !== null),
+      });
+
+      setTag('measurements.load_status', 'success');
     } catch (err) {
-      console.error('Error loading measurements:', err);
+      const error = err as Error;
+      console.error('Error loading measurements:', error);
+
+      addBreadcrumb('Error loading measurements', 'measurements');
+
+      captureError(error, {
+        category: 'database_error',
+        component: 'MeasurementsContext',
+        operation: 'load_measurements',
+        userId: user?.id,
+      });
+
       setError('Failed to load measurements');
+      setTag('measurements.load_status', 'error');
     } finally {
       setLoading(false);
     }
@@ -64,33 +105,110 @@ export function MeasurementsProvider({ children }: { children: React.ReactNode }
 
     try {
       setError(null);
+
+      addBreadcrumb('Adding new measurement', 'measurements');
+
+      setTag('measurements.operation', 'add_measurement');
+      setContext('measurement_addition', {
+        category,
+        value,
+        unit,
+        user_id: user.id,
+      });
+
       await measurementService.addMeasurement(user.id, category, value, unit);
+
+      addBreadcrumb('Measurement added successfully', 'measurements');
 
       // If updating weight, also update user_profile_details
       if (category === 'WEIGHT') {
+        addBreadcrumb('Updating user profile with new weight', 'measurements');
+
         await supabase
           .from('user_profile_details')
           .update({ weight_kg: value })
           .eq('user_id', user.id);
+
+        addBreadcrumb('User profile weight updated successfully', 'measurements');
       }
 
       await loadMeasurements(); // Refresh all measurements
+
+      addBreadcrumb('Measurements refreshed after addition', 'measurements');
+
+      setTag('measurements.add_status', 'success');
+      setContext('measurement_success', {
+        category,
+        value,
+        unit,
+        profile_updated: category === 'WEIGHT',
+      });
     } catch (err) {
-      console.error('Error adding measurement:', err);
+      const error = err as Error;
+      console.error('Error adding measurement:', error);
+
+      addBreadcrumb('Error adding measurement', 'measurements');
+
+      captureError(error, {
+        category: 'database_error',
+        component: 'MeasurementsContext',
+        operation: 'add_measurement',
+        userId: user?.id,
+        measurementCategory: category,
+        value: value.toString(),
+        unit,
+      });
+
       setError('Failed to add measurement');
-      throw err;
+      setTag('measurements.add_status', 'error');
+      throw error;
     }
   };
 
-  const deleteMeasurement = async (measurementId: string, _category: MeasurementCategory) => {
+  const deleteMeasurement = async (measurementId: string, category: MeasurementCategory) => {
     try {
       setError(null);
+
+      addBreadcrumb('Deleting measurement', 'measurements');
+
+      setTag('measurements.operation', 'delete_measurement');
+      setContext('measurement_deletion', {
+        measurement_id: measurementId,
+        category,
+        user_id: user?.id,
+      });
+
       await measurementService.deleteMeasurement(measurementId);
+
+      addBreadcrumb('Measurement deleted successfully', 'measurements');
+
       await loadMeasurements(); // Refresh all measurements
+
+      addBreadcrumb('Measurements refreshed after deletion', 'measurements');
+
+      setTag('measurements.delete_status', 'success');
+      setContext('measurement_delete_success', {
+        measurement_id: measurementId,
+        category,
+      });
     } catch (err) {
-      console.error('Error deleting measurement:', err);
+      const error = err as Error;
+      console.error('Error deleting measurement:', error);
+
+      addBreadcrumb('Error deleting measurement', 'measurements');
+
+      captureError(error, {
+        category: 'database_error',
+        component: 'MeasurementsContext',
+        operation: 'delete_measurement',
+        userId: user?.id,
+        measurementId,
+        measurementCategory: category,
+      });
+
       setError('Failed to delete measurement');
-      throw err;
+      setTag('measurements.delete_status', 'error');
+      throw error;
     }
   };
 
@@ -110,7 +228,17 @@ export function MeasurementsProvider({ children }: { children: React.ReactNode }
 export function useMeasurements() {
   const context = useContext(MeasurementsContext);
   if (context === undefined) {
-    throw new Error('useMeasurements must be used within a MeasurementsProvider');
+    const error = new Error('useMeasurements must be used within a MeasurementsProvider');
+
+    addBreadcrumb('useMeasurements hook used outside provider', 'measurements');
+
+    captureError(error, {
+      category: 'ui_error',
+      component: 'MeasurementsContext',
+      operation: 'use_measurements_hook',
+    });
+
+    throw error;
   }
   return context;
 }

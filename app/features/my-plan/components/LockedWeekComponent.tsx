@@ -28,8 +28,8 @@ const LockedWeekComponent: React.FC<LockedWeekComponentProps> = ({
 
       <View style={styles.lockedWeekContent}>
         <Text style={styles.lockedWeekMessage}>
-          Complete Week {lockedWeekInfo.currentWeek} - {lockedWeekInfo.currentWeekName} before
-          accessing this week's workouts.
+          Week {lockedWeekInfo.selectedWeek} is currently locked. Complete more workouts in Week{' '}
+          {lockedWeekInfo.currentWeek} to unlock the next phase.
         </Text>
 
         <View style={styles.lockedWeekProgress}>
@@ -45,17 +45,19 @@ const LockedWeekComponent: React.FC<LockedWeekComponentProps> = ({
         <View style={styles.lockedWeekTips}>
           <Text style={styles.lockedTipsTitle}>To unlock Week {lockedWeekInfo.selectedWeek}:</Text>
           <Text style={styles.lockedTip}>
-            • Complete all workouts in Week {lockedWeekInfo.currentWeek}
+            • Complete remaining workouts in Week {lockedWeekInfo.currentWeek}
           </Text>
-          <Text style={styles.lockedTip}>• Follow the progressive training plan</Text>
-          <Text style={styles.lockedTip}>• Maintain consistency with your schedule</Text>
+          <Text style={styles.lockedTip}>
+            • You can catch up on missed workouts from previous weeks
+          </Text>
+          <Text style={styles.lockedTip}>
+            • The system will automatically unlock new weeks as you progress
+          </Text>
         </View>
 
         <TouchableOpacity style={styles.backToCurrentWeekButton} onPress={onBackToCurrentWeek}>
           <Icon source="arrow-left" size={20} color={COLORS.text} />
-          <Text style={styles.backToCurrentWeekText}>
-            Back to Week {lockedWeekInfo.currentWeek}
-          </Text>
+          <Text style={styles.backToCurrentWeekText}>Back to Current Workout</Text>
         </TouchableOpacity>
       </View>
     </View>

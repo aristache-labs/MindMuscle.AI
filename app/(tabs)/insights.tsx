@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Dimensions,
   Easing,
@@ -17,7 +18,6 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import * as ImagePicker from 'expo-image-picker';
 import { Stack } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ExerciseGraphModal from '../components/ExerciseGraphModal';
 import ExerciseGraphs, { ExerciseData } from '../components/ExerciseGraphs';
 import { GeneralHeader } from '../components/GeneralHeader';
@@ -38,6 +38,7 @@ import supabase from '../services/supabase';
 import { useAuth } from '../store/AuthContext';
 import { useMeasurements } from '../store/MeasurementsContext';
 import { markAsImportantImage } from '../utils/imagePreloader';
+import { SentryAutoInstrumentation, SentryDataCollection, SentryLogger } from '../services/sentry';
 
 interface DisplayProgressPhoto {
   id: string;
@@ -74,12 +75,33 @@ const convertProgressPhotoToDisplayPhoto = (
 
 // Helper functions for photo management
 const requestCameraPermissions = async (): Promise<boolean> => {
-  const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (status !== 'granted') {
-    alert('Sorry, we need camera roll permissions to make this work!');
+  try {
+    SentryDataCollection.addBreadcrumb({
+      message: 'Requesting camera permissions',
+      category: 'permission',
+      level: 'info',
+      data: { component: 'InsightsScreen', platform: Platform.OS },
+    });
+
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (status !== 'granted') {
+      SentryLogger.warn('Camera permissions denied', { component: 'InsightsScreen', status });
+      Alert.alert(
+        'Permission Required',
+        'Sorry, we need camera roll permissions to make this work!',
+      );
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    SentryDataCollection.captureException(error as Error, {
+      component: 'InsightsScreen',
+      action: 'camera_permissions_error',
+    });
     return false;
   }
-  return true;
 };
 
 const deleteExistingPhoto = async (
@@ -90,15 +112,16 @@ const deleteExistingPhoto = async (
   setBeforePhoto: React.Dispatch<React.SetStateAction<ProgressPhoto | undefined>>,
   setAfterPhoto: React.Dispatch<React.SetStateAction<ProgressPhoto | undefined>>,
 ): Promise<void> => {
-  const hasExistingPhoto =
-    (type === 'before' && beforePhoto?.id) || (type === 'after' && afterPhoto?.id);
+  try {
+    const photoToDelete = type === 'before' ? beforePhoto : afterPhoto;
+    if (!photoToDelete?.id) return;
 
-  if (!hasExistingPhoto) return;
+    SentryDataCollection.addBreadcrumb({
+      message: `Deleting ${type} photo`,
+      category: 'data.operation',
+      data: { component: 'InsightsScreen', photo_type: type, photo_id: photoToDelete.id },
+    });
 
-  const photoToDelete = type === 'before' ? beforePhoto : afterPhoto;
-
-  if (photoToDelete?.id) {
-    console.log(`Deleting existing ${type} photo with ID: ${photoToDelete.id}`);
     await firebaseProgressPhotoService.deletePhoto(userId, photoToDelete.id);
 
     if (type === 'before') {
@@ -106,6 +129,13 @@ const deleteExistingPhoto = async (
     } else {
       setAfterPhoto(undefined);
     }
+  } catch (error) {
+    SentryDataCollection.captureException(error as Error, {
+      component: 'InsightsScreen',
+      action: 'delete_photo_error',
+      photo_type: type,
+    });
+    throw error;
   }
 };
 
@@ -115,32 +145,54 @@ const pickAndUploadImage = async (
   setBeforePhoto: React.Dispatch<React.SetStateAction<ProgressPhoto | undefined>>,
   setAfterPhoto: React.Dispatch<React.SetStateAction<ProgressPhoto | undefined>>,
 ): Promise<void> => {
-  const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ImagePicker.MediaTypeOptions.Images,
-    allowsEditing: true,
-    aspect: [3, 4],
-    quality: 0.8,
-  });
+  try {
+    SentryDataCollection.addBreadcrumb({
+      message: `Launching image picker for ${type} photo`,
+      category: 'ui.interaction',
+      data: { component: 'InsightsScreen', photo_type: type },
+    });
 
-  if (result.canceled || !result.assets || result.assets.length === 0) {
-    return;
-  }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [3, 4],
+      quality: 0.8,
+    });
 
-  console.log(`Uploading new ${type} photo from URI: ${result.assets[0].uri.substring(0, 50)}...`);
+    if (result.canceled || !result.assets || result.assets.length === 0) {
+      SentryDataCollection.addBreadcrumb({
+        message: `Image picker canceled`,
+        category: 'ui.interaction',
+        data: { component: 'InsightsScreen', photo_type: type },
+      });
+      return;
+    }
 
-  const photo = await firebaseProgressPhotoService.uploadPhoto(
-    userId,
-    type,
-    result.assets[0].uri,
-    new Date(),
-  );
+    const photo = await firebaseProgressPhotoService.uploadPhoto(
+      userId,
+      type,
+      result.assets[0].uri,
+      new Date(),
+    );
 
-  console.log(`Successfully uploaded ${type} photo with ID: ${photo.id}`);
+    SentryDataCollection.addBreadcrumb({
+      message: `Photo uploaded successfully`,
+      category: 'data.operation',
+      data: { component: 'InsightsScreen', photo_type: type, photo_id: photo.id },
+    });
 
-  if (type === 'before') {
-    setBeforePhoto(photo);
-  } else {
-    setAfterPhoto(photo);
+    if (type === 'before') {
+      setBeforePhoto(photo);
+    } else {
+      setAfterPhoto(photo);
+    }
+  } catch (error) {
+    SentryDataCollection.captureException(error as Error, {
+      component: 'InsightsScreen',
+      action: 'pick_upload_image_error',
+      photo_type: type,
+    });
+    throw error;
   }
 };
 
@@ -152,17 +204,16 @@ export default function InsightsScreen() {
     measurementHistory,
     loading: measurementsLoading,
     addMeasurement,
-    deleteMeasurement: _deleteMeasurement,
     refreshMeasurements,
   } = useMeasurements();
-  const _insets = useSafeAreaInsets();
+
   const [selectedFilter, setSelectedFilter] = useState('1w');
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [key, setKey] = useState(0);
   const [beforePhoto, setBeforePhoto] = useState<ProgressPhoto | undefined>();
   const [afterPhoto, setAfterPhoto] = useState<ProgressPhoto | undefined>();
   const [isLoading, setIsLoading] = useState(false);
-  const [_imageLoadError, setImageLoadError] = useState({ before: false, after: false });
+
   const [selectedAchievement, setSelectedAchievement] = useState<Achievement | null>(null);
   const [completedAchievements, setCompletedAchievements] = useState<UserAchievement[]>([]);
   const [randomAchievements, setRandomAchievements] = useState<Achievement[]>([]);
@@ -186,7 +237,7 @@ export default function InsightsScreen() {
   }, [beforePhoto?.url, afterPhoto?.url]);
 
   // Use the image preloader hook to preload progress photos
-  const { loaded: _photosLoaded } = useImagePreloader(progressPhotosToPreload, {
+  useImagePreloader(progressPhotosToPreload, {
     priority: 'high',
     debugLabel: 'InsightsProgressPhotos',
     skipIfCached: true,
@@ -204,6 +255,31 @@ export default function InsightsScreen() {
 
   // Animated modal open/close handlers
   const openHowToMeasure = () => {
+    // Track modal open interaction
+    SentryAutoInstrumentation.trackUserInteraction(
+      'open_how_to_measure_modal',
+      'button_press',
+      'insights_screen',
+      {
+        component: 'InsightsScreen',
+        action: 'open_how_to_measure',
+        user_id: user?.id,
+        platform: Platform.OS,
+      },
+    );
+
+    SentryDataCollection.addBreadcrumb({
+      message: 'Opening how to measure modal',
+      category: 'ui.interaction',
+      level: 'info',
+      data: {
+        component: 'InsightsScreen',
+        action: 'open_how_to_measure_modal',
+        user_id: user?.id,
+        platform: Platform.OS,
+      },
+    });
+
     setShowHowToMeasure(true);
     Animated.parallel([
       Animated.timing(scaleAnim, {
@@ -222,6 +298,31 @@ export default function InsightsScreen() {
   };
 
   const closeHowToMeasure = () => {
+    // Track modal close interaction
+    SentryAutoInstrumentation.trackUserInteraction(
+      'close_how_to_measure_modal',
+      'button_press',
+      'insights_screen',
+      {
+        component: 'InsightsScreen',
+        action: 'close_how_to_measure',
+        user_id: user?.id,
+        platform: Platform.OS,
+      },
+    );
+
+    SentryDataCollection.addBreadcrumb({
+      message: 'Closing how to measure modal',
+      category: 'ui.interaction',
+      level: 'info',
+      data: {
+        component: 'InsightsScreen',
+        action: 'close_how_to_measure_modal',
+        user_id: user?.id,
+        platform: Platform.OS,
+      },
+    });
+
     Animated.parallel([
       Animated.timing(scaleAnim, {
         toValue: 1,
@@ -240,25 +341,64 @@ export default function InsightsScreen() {
 
   // Load saved photos, achievements, and measurements on component mount
   useEffect(() => {
+    // Track screen mount
+    SentryDataCollection.addBreadcrumb({
+      message: 'InsightsScreen mounted',
+      category: 'lifecycle',
+      level: 'info',
+      data: {
+        component: 'InsightsScreen',
+        action: 'screen_mount',
+        user_id: user?.id,
+        has_user: !!user?.id,
+        platform: Platform.OS,
+      },
+    });
+
     if (user?.id) {
+      // Track data loading start
+      SentryDataCollection.addBreadcrumb({
+        message: 'Starting initial data load for InsightsScreen',
+        category: 'data.load',
+        level: 'info',
+        data: {
+          component: 'InsightsScreen',
+          action: 'initial_data_load_start',
+          user_id: user.id,
+          platform: Platform.OS,
+        },
+      });
+
       loadSavedPhotos();
       loadAchievements();
       loadExerciseData();
+    } else {
+      // Track no user scenario
+      SentryDataCollection.addBreadcrumb({
+        message: 'InsightsScreen mounted without user',
+        category: 'lifecycle',
+        level: 'warning',
+        data: {
+          component: 'InsightsScreen',
+          action: 'mount_no_user',
+          platform: Platform.OS,
+        },
+      });
     }
   }, [user?.id]);
 
   const loadAchievements = async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      SentryLogger.warn('No user ID for achievements loading', { component: 'InsightsScreen' });
+      return;
+    }
 
     try {
       setAchievementsLoading(true);
       const completed = await achievementService.getUserCompletedAchievements(user.id);
       setCompletedAchievements(completed.slice(0, 3));
 
-      // Calculate how many random achievements we need
-      const completedCount = completed.length;
-      const randomCount = Math.max(0, 3 - completedCount);
-
+      const randomCount = Math.max(0, 3 - completed.length);
       if (randomCount > 0) {
         const random = await achievementService.getRandomAchievements(user.id, randomCount);
         setRandomAchievements(random);
@@ -266,46 +406,93 @@ export default function InsightsScreen() {
         setRandomAchievements([]);
       }
     } catch (error) {
-      console.error('Error loading achievements:', error);
+      SentryDataCollection.captureException(error as Error, {
+        component: 'InsightsScreen',
+        action: 'load_achievements_error',
+      });
+      SentryLogger.error('Error loading achievements', {
+        error: error as Error,
+        component: 'InsightsScreen',
+      });
     } finally {
       setAchievementsLoading(false);
     }
   };
 
   const loadSavedPhotos = async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      SentryLogger.warn('No user ID for photo loading', { component: 'InsightsScreen' });
+      return;
+    }
 
     try {
+      SentryDataCollection.addBreadcrumb({
+        message: 'Loading progress photos',
+        category: 'data.load',
+        data: { component: 'InsightsScreen', user_id: user.id },
+      });
+
       setIsLoading(true);
       const latestPhotos = await firebaseProgressPhotoService.getLatestPhotos(user.id);
 
-      // Only update state if the URLs have changed to avoid unnecessary re-renders
+      // Update state only if URLs have changed
       if (latestPhotos.before?.url !== beforePhoto?.url) {
         setBeforePhoto(latestPhotos.before);
       }
-
       if (latestPhotos.after?.url !== afterPhoto?.url) {
         setAfterPhoto(latestPhotos.after);
       }
 
-      // Preload the photos immediately when we get them
-      if (latestPhotos.before?.url) {
-        markAsImportantImage(latestPhotos.before.url);
-      }
-      if (latestPhotos.after?.url) {
-        markAsImportantImage(latestPhotos.after.url);
-      }
+      // Preload photos
+      if (latestPhotos.before?.url) markAsImportantImage(latestPhotos.before.url);
+      if (latestPhotos.after?.url) markAsImportantImage(latestPhotos.after.url);
+
+      SentryDataCollection.addBreadcrumb({
+        message: 'Photos loaded successfully',
+        category: 'data.load',
+        data: {
+          component: 'InsightsScreen',
+          has_before: !!latestPhotos.before,
+          has_after: !!latestPhotos.after,
+        },
+      });
     } catch (error) {
-      console.error('Error loading saved photos:', error);
+      SentryDataCollection.captureException(error as Error, {
+        component: 'InsightsScreen',
+        action: 'load_photos_error',
+      });
+      SentryLogger.error('Error loading photos', {
+        error: error as Error,
+        component: 'InsightsScreen',
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
   const loadExerciseData = async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      SentryLogger.warn('Attempted to load exercise data without user ID', {
+        component: 'InsightsScreen',
+        action: 'load_exercise_data_no_user',
+      });
+      return;
+    }
 
     try {
+      // Track exercise data loading start
+      SentryDataCollection.addBreadcrumb({
+        message: 'Loading exercise data for InsightsScreen',
+        category: 'data.load',
+        level: 'info',
+        data: {
+          component: 'InsightsScreen',
+          action: 'load_exercise_data_start',
+          user_id: user.id,
+          platform: Platform.OS,
+        },
+      });
+
       // Get user's exercise records from the database with exercise details
       const { data: exerciseRecords, error } = await supabase
         .from('user_exercise_records')
@@ -327,7 +514,13 @@ export default function InsightsScreen() {
         .order('user_workout_history(completed_at)', { ascending: true });
 
       if (error) {
-        console.error('Error loading exercise data:', error);
+        SentryDataCollection.captureException(
+          new Error('Supabase query error for exercise records'),
+          {
+            component: 'InsightsScreen',
+            supabase_error: error,
+          },
+        );
         setExercises([]);
         return;
       }
@@ -337,10 +530,7 @@ export default function InsightsScreen() {
         return;
       }
 
-      // Get exercise details for the exercise IDs
-      const _exerciseIds = [
-        ...new Set(exerciseRecords.map((record: UserExerciseRecord) => record.exercise_id)),
-      ];
+      // Get exercise details
       const exercises = await exerciseService.getAllExercises();
       const exerciseMap = new Map(exercises.map((ex) => [ex.id, ex.name]));
 
@@ -378,14 +568,18 @@ export default function InsightsScreen() {
 
       setExercises(exerciseDataArray);
     } catch (error) {
-      console.error('Error loading exercise data:', error);
+      SentryDataCollection.captureException(error as Error, {
+        component: 'InsightsScreen',
+        action: 'load_exercise_data_error',
+      });
       setExercises([]);
     }
   };
 
   const cleanupAndPickImage = async (type: 'before' | 'after') => {
     if (!user?.id) {
-      alert('Please sign in to add progress photos');
+      SentryLogger.warn('Photo access without user ID', { component: 'InsightsScreen' });
+      Alert.alert('Authentication Required', 'Please sign in to add progress photos');
       return;
     }
 
@@ -406,51 +600,123 @@ export default function InsightsScreen() {
           setAfterPhoto,
         );
       } catch (error) {
-        console.error('Error deleting existing photo:', error);
         // Continue with uploading a new photo even if deletion failed
+        SentryLogger.warn('Photo deletion failed, continuing', { error: error as Error });
       }
 
       // Pick and upload new image
       try {
         await pickAndUploadImage(type, user.id, setBeforePhoto, setAfterPhoto);
       } catch (error) {
-        console.error('Error uploading photo:', error);
-        alert('Failed to upload photo. Please try again.');
+        SentryLogger.error('Photo upload failed', { error: error as Error });
+        Alert.alert('Upload Failed', 'Failed to upload photo. Please try again.');
       }
     } catch (pickError) {
-      console.error('Error picking image:', pickError);
-      alert('Failed to select photo. Please try again.');
+      SentryDataCollection.captureException(pickError as Error, {
+        component: 'InsightsScreen',
+        action: 'photo_workflow_error',
+      });
+      Alert.alert('Selection Failed', 'Failed to select photo. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
   const handlePhotoPress = (type: 'before' | 'after') => {
+    SentryAutoInstrumentation.trackUserInteraction(
+      'progress_photo_press',
+      'button_press',
+      'insights_screen',
+      {
+        photo_type: type,
+      },
+    );
     cleanupAndPickImage(type);
   };
 
   const handleMonthChange = (date: { timestamp: number }) => {
+    // Track month change interaction
+    SentryAutoInstrumentation.trackUserInteraction(
+      'calendar_month_change',
+      'calendar_navigation',
+      'insights_screen',
+      {
+        component: 'InsightsScreen',
+        action: 'month_change',
+        new_date: new Date(date.timestamp).toISOString(),
+        user_id: user?.id,
+        platform: Platform.OS,
+      },
+    );
+
+    SentryDataCollection.addBreadcrumb({
+      message: 'Calendar month changed',
+      category: 'ui.interaction',
+      level: 'info',
+      data: {
+        component: 'InsightsScreen',
+        action: 'calendar_month_change',
+        new_date: new Date(date.timestamp).toISOString(),
+        user_id: user?.id,
+        platform: Platform.OS,
+      },
+    });
+
     setCalendarDate(new Date(date.timestamp));
   };
 
   const handleTodayPress = () => {
+    SentryAutoInstrumentation.trackUserInteraction(
+      'calendar_today_press',
+      'button_press',
+      'insights_screen',
+    );
     const today = new Date();
     setCalendarDate(today);
     setKey((prev) => prev + 1);
   };
 
   const handleAchievementPress = (achievement: UserAchievement) => {
+    SentryAutoInstrumentation.trackUserInteraction(
+      'achievement_press',
+      'button_press',
+      'insights_screen',
+      {
+        achievement_id: achievement.achievement?.id,
+      },
+    );
     setSelectedAchievement(achievement.achievement || null);
   };
 
   const handleMeasurementPress = async (category: MeasurementCategory) => {
+    SentryAutoInstrumentation.trackUserInteraction(
+      'measurement_press',
+      'button_press',
+      'insights_screen',
+      {
+        measurement_category: category,
+      },
+    );
     setSelectedMeasurement(category);
   };
 
   const handleSaveMeasurement = async (value: number) => {
-    if (!user?.id || !selectedMeasurement) return;
+    if (!user?.id || !selectedMeasurement) {
+      SentryLogger.warn('Invalid measurement save attempt', { component: 'InsightsScreen' });
+      return;
+    }
 
     try {
+      SentryAutoInstrumentation.trackUserInteraction(
+        'save_measurement',
+        'form_submit',
+        'insights_screen',
+        {
+          measurement_category: selectedMeasurement,
+          measurement_value: value,
+        },
+      );
+
       await addMeasurement(
         selectedMeasurement,
         value,
@@ -458,49 +724,162 @@ export default function InsightsScreen() {
       );
       setSelectedMeasurement(null);
     } catch (error) {
-      console.error('Error saving measurement:', error);
+      SentryDataCollection.captureException(error as Error, {
+        component: 'InsightsScreen',
+        action: 'save_measurement_error',
+      });
+      SentryLogger.error('Error saving measurement', {
+        error: error as Error,
+        component: 'InsightsScreen',
+      });
     }
   };
 
-  // No need to use useImagePreloader as all images are already preloaded during splash screen
-  const _imagesPreloaded = true; // All images are already preloaded
+  // Note: All images are already preloaded during splash screen
 
   const handleAddExercise = () => {
+    // Track add exercise interaction
+    SentryAutoInstrumentation.trackUserInteraction(
+      'add_exercise_press',
+      'button_press',
+      'insights_screen',
+      {
+        component: 'InsightsScreen',
+        action: 'add_exercise',
+        user_id: user?.id,
+        platform: Platform.OS,
+      },
+    );
+
+    SentryDataCollection.addBreadcrumb({
+      message: 'Add exercise button pressed',
+      category: 'ui.interaction',
+      level: 'info',
+      data: {
+        component: 'InsightsScreen',
+        action: 'add_exercise_press',
+        user_id: user?.id,
+        platform: Platform.OS,
+      },
+    });
+
     setSelectedExercise(undefined);
     setShowExerciseModal(true);
   };
 
   const handleExercisePress = (exerciseId: string) => {
+    // Track exercise press interaction
+    SentryAutoInstrumentation.trackUserInteraction(
+      'exercise_press',
+      'button_press',
+      'insights_screen',
+      {
+        component: 'InsightsScreen',
+        action: 'exercise_press',
+        exercise_id: exerciseId,
+        user_id: user?.id,
+        platform: Platform.OS,
+      },
+    );
+
     const exercise = exercises.find((e) => e.id === exerciseId);
+
+    SentryDataCollection.addBreadcrumb({
+      message: 'Exercise pressed for editing',
+      category: 'ui.interaction',
+      level: 'info',
+      data: {
+        component: 'InsightsScreen',
+        action: 'exercise_press',
+        exercise_id: exerciseId,
+        exercise_name: exercise?.name,
+        exercise_found: !!exercise,
+        user_id: user?.id,
+        platform: Platform.OS,
+      },
+    });
+
     if (exercise) {
       setSelectedExercise(exercise);
       setShowExerciseModal(true);
+    } else {
+      SentryLogger.warn('Exercise not found when pressed', {
+        component: 'InsightsScreen',
+        exercise_id: exerciseId,
+        available_exercises: exercises.length,
+        user_id: user?.id,
+      });
     }
   };
 
   const handleSaveExercise = (exerciseData: Partial<ExerciseData>) => {
-    if (exerciseData.id) {
-      // Update existing exercise
-      setExercises((prev) =>
-        prev.map((e) => (e.id === exerciseData.id ? { ...e, ...exerciseData } : e)),
+    try {
+      const isUpdate = !!exerciseData.id;
+
+      SentryAutoInstrumentation.trackUserInteraction(
+        isUpdate ? 'update_exercise' : 'add_exercise',
+        'form_submit',
+        'insights_screen',
+        { exercise_id: exerciseData.id, exercise_name: exerciseData.name },
       );
-    } else {
-      // Add new exercise
-      const newExercise: ExerciseData = {
-        id: Date.now().toString(),
-        name: exerciseData.name!,
-        data: exerciseData.data!,
-        unit: exerciseData.unit,
-      };
-      setExercises((prev) => [...prev, newExercise]);
+
+      if (exerciseData.id) {
+        setExercises((prev) =>
+          prev.map((e) => (e.id === exerciseData.id ? { ...e, ...exerciseData } : e)),
+        );
+      } else {
+        const newExercise: ExerciseData = {
+          id: Date.now().toString(),
+          name: exerciseData.name!,
+          data: exerciseData.data!,
+          unit: exerciseData.unit,
+        };
+        setExercises((prev) => [...prev, newExercise]);
+      }
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'InsightsScreen',
+        action: 'save_exercise_error',
+      });
+      SentryLogger.error('Error saving exercise', {
+        error: error as Error,
+        component: 'InsightsScreen',
+      });
     }
   };
 
   const handleDeleteExercise = (exerciseId: string) => {
-    setExercises((prev) => prev.filter((e) => e.id !== exerciseId));
+    try {
+      SentryAutoInstrumentation.trackUserInteraction(
+        'delete_exercise',
+        'button_press',
+        'insights_screen',
+        {
+          exercise_id: exerciseId,
+        },
+      );
+      setExercises((prev) => prev.filter((e) => e.id !== exerciseId));
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'InsightsScreen',
+        action: 'delete_exercise_error',
+      });
+      SentryLogger.error('Error deleting exercise', {
+        error: error as Error,
+        component: 'InsightsScreen',
+      });
+    }
   };
 
   const handleSetGoal = (exerciseId: string) => {
+    SentryAutoInstrumentation.trackUserInteraction(
+      'set_exercise_goal',
+      'button_press',
+      'insights_screen',
+      {
+        exercise_id: exerciseId,
+      },
+    );
     // TODO: Implement goal setting functionality
     console.log('Set goal for exercise:', exerciseId);
   };
@@ -559,7 +938,7 @@ export default function InsightsScreen() {
               afterPhoto={convertProgressPhotoToDisplayPhoto(afterPhoto)}
               isLoading={isLoading}
               onPhotoPress={handlePhotoPress}
-              onImageError={(type) => setImageLoadError((prev) => ({ ...prev, [type]: true }))}
+              onImageError={() => {}}
             />
 
             {/* Achievements Section */}
@@ -714,29 +1093,6 @@ export default function InsightsScreen() {
     </Provider>
   );
 }
-
-const _getMeasurementIcon = (category: MeasurementCategory): string => {
-  switch (category) {
-    case 'WEIGHT':
-      return 'weight';
-    case 'BICEPS':
-      return 'arm-flex';
-    case 'ABS':
-      return 'stomach';
-    case 'WAIST':
-      return 'tape-measure';
-    case 'CHEST':
-      return 'human-male-board';
-    case 'SHLDRS':
-      return 'account-box';
-    case 'THIGH':
-      return 'human-male-height';
-    case 'CALF':
-      return 'foot-print';
-    default:
-      return 'ruler';
-  }
-};
 
 const styles = StyleSheet.create({
   container: {

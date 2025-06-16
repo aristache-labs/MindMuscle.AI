@@ -5,6 +5,7 @@ import { GestureResponderEvent, StyleSheet, TouchableOpacity, View } from 'react
 import { Divider, IconButton, Menu, Text } from 'react-native-paper';
 import { COLORS } from '../constants/theme';
 import { GeneralHeader } from './GeneralHeader';
+import * as Sentry from '@sentry/react-native';
 
 const options = [
   { label: 'My Plan', icon: 'calendar-today', route: '/(tabs)', isTab: true },
@@ -22,36 +23,206 @@ export function MenuHeader({ currentOption, onOptionSelect }: MenuHeaderProps) {
   const [menuVisible, setMenuVisible] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState({ x: 0, y: 0 });
 
+  // Track component lifecycle
+  React.useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: 'MenuHeader component mounted',
+      category: 'component.lifecycle',
+      level: 'info',
+      data: {
+        currentOption,
+        hasOnOptionSelect: !!onOptionSelect,
+        availableOptions: options.length,
+      },
+    });
+
+    return () => {
+      Sentry.addBreadcrumb({
+        message: 'MenuHeader component unmounted',
+        category: 'component.lifecycle',
+        level: 'info',
+        data: { currentOption },
+      });
+    };
+  }, [currentOption, onOptionSelect]);
+
+  // Track current option changes
+  React.useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: 'MenuHeader current option changed',
+      category: 'ui.state',
+      level: 'info',
+      data: {
+        newCurrentOption: currentOption,
+        isValidOption: options.some((opt) => opt.label === currentOption),
+      },
+    });
+  }, [currentOption]);
+
+  // Track menu visibility changes
+  React.useEffect(() => {
+    if (menuVisible) {
+      Sentry.addBreadcrumb({
+        message: 'MenuHeader dropdown menu opened',
+        category: 'ui.menu',
+        level: 'info',
+        data: {
+          currentOption,
+          availableOptions: options.map((opt) => opt.label),
+        },
+      });
+    } else {
+      Sentry.addBreadcrumb({
+        message: 'MenuHeader dropdown menu closed',
+        category: 'ui.menu',
+        level: 'info',
+        data: { currentOption },
+      });
+    }
+  }, [menuVisible, currentOption]);
+
   const showMenu = (event: GestureResponderEvent) => {
-    const { pageX, pageY } = event.nativeEvent;
-    setMenuAnchor({ x: pageX - 10, y: pageY + 10 });
-    setMenuVisible(true);
+    try {
+      const { pageX, pageY } = event.nativeEvent;
+
+      Sentry.addBreadcrumb({
+        message: 'MenuHeader dropdown button pressed',
+        category: 'ui.interaction',
+        level: 'info',
+        data: {
+          currentOption,
+          menuPosition: { x: pageX, y: pageY },
+        },
+      });
+
+      setMenuAnchor({ x: pageX - 10, y: pageY + 10 });
+      setMenuVisible(true);
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'MenuHeader',
+          action: 'show_menu',
+        },
+        extra: {
+          currentOption,
+          eventData: event.nativeEvent,
+        },
+      });
+    }
   };
 
   const handleOptionSelect = (option: (typeof options)[0]) => {
-    setMenuVisible(false);
+    try {
+      Sentry.addBreadcrumb({
+        message: 'MenuHeader option selected',
+        category: 'ui.interaction',
+        level: 'info',
+        data: {
+          selectedOption: option.label,
+          selectedRoute: option.route,
+          isTab: option.isTab,
+          previousOption: currentOption,
+          isSameOption: option.label === currentOption,
+        },
+      });
 
-    // Always navigate to the selected route regardless of current state
-    // This ensures navigation works correctly from any screen
-    if (option.label !== currentOption) {
-      // Handle tab navigation differently
-      if (option.isTab) {
-        // For My Plan, navigate to the tabs index with a parameter
-        router.replace({
-          pathname: option.route,
-          params: { selectedOption: option.label },
+      setMenuVisible(false);
+
+      // Always navigate to the selected route regardless of current state
+      // This ensures navigation works correctly from any screen
+      if (option.label !== currentOption) {
+        Sentry.addBreadcrumb({
+          message: 'MenuHeader initiating navigation',
+          category: 'navigation.start',
+          level: 'info',
+          data: {
+            from: currentOption,
+            to: option.label,
+            route: option.route,
+            isTab: option.isTab,
+          },
         });
-      } else {
-        // For other options, navigate directly to their stack routes
-        router.replace(option.route);
-      }
 
-      // Also call the callback if provided (for UI state updates)
-      if (onOptionSelect) {
-        onOptionSelect(option.label);
+        // Handle tab navigation differently
+        if (option.isTab) {
+          // For My Plan, navigate to the tabs index with a parameter
+          router.replace({
+            pathname: option.route,
+            params: { selectedOption: option.label },
+          });
+        } else {
+          // For other options, navigate directly to their stack routes
+          router.replace(option.route);
+        }
+
+        Sentry.addBreadcrumb({
+          message: 'MenuHeader navigation completed',
+          category: 'navigation.complete',
+          level: 'info',
+          data: {
+            selectedOption: option.label,
+            route: option.route,
+          },
+        });
+
+        // Also call the callback if provided (for UI state updates)
+        if (onOptionSelect) {
+          try {
+            onOptionSelect(option.label);
+          } catch (callbackError) {
+            Sentry.captureException(callbackError, {
+              tags: {
+                component: 'MenuHeader',
+                action: 'option_select_callback',
+              },
+              extra: {
+                selectedOption: option.label,
+                currentOption,
+              },
+            });
+          }
+        }
+      } else {
+        Sentry.addBreadcrumb({
+          message: 'MenuHeader same option selected, no navigation needed',
+          category: 'ui.interaction',
+          level: 'debug',
+          data: { option: option.label },
+        });
       }
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'MenuHeader',
+          action: 'handle_option_select',
+        },
+        extra: {
+          selectedOption: option,
+          currentOption,
+        },
+      });
     }
   };
+
+  const handleMenuDismiss = React.useCallback(() => {
+    try {
+      Sentry.addBreadcrumb({
+        message: 'MenuHeader menu dismissed',
+        category: 'ui.interaction',
+        level: 'info',
+        data: { currentOption },
+      });
+      setMenuVisible(false);
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'MenuHeader',
+          action: 'menu_dismiss',
+        },
+        extra: { currentOption },
+      });
+    }
+  }, [currentOption]);
 
   return (
     <>
@@ -77,7 +248,7 @@ export function MenuHeader({ currentOption, onOptionSelect }: MenuHeaderProps) {
       />
       <Menu
         visible={menuVisible}
-        onDismiss={() => setMenuVisible(false)}
+        onDismiss={handleMenuDismiss}
         anchor={menuAnchor}
         style={styles.menuContent}
         contentStyle={styles.menuInner}

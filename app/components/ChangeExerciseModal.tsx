@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import { fetchExerciseAlternatives } from '../services/exerciseAlternativesService';
+import { simpleErrorHandler } from '../services/sentry/simpleErrorHandler';
 import OptimizedImage from './OptimizedImage';
 
 type _ListItemType =
@@ -66,6 +67,33 @@ interface ChangeExerciseModalProps {
   onExerciseSelect: (exercise: ExerciseAlternative) => void;
 }
 
+// Helper function to get a valid muscle group from primary muscles array
+function getValidMuscleGroupFromArray(primaryMuscles: string[]): string {
+  try {
+    // Check if we have valid primary muscles
+    if (primaryMuscles && primaryMuscles.length > 0) {
+      const primaryMuscle = primaryMuscles[0];
+
+      // Validate that it's not empty or undefined
+      if (primaryMuscle && primaryMuscle.trim().length > 0) {
+        return primaryMuscle.trim();
+      }
+    }
+
+    // Default fallback to a valid muscle group that works with SVG highlighting
+    return 'Chest'; // Using 'Chest' as a safe fallback since it's always visible and well-defined in SVG
+  } catch (error) {
+    simpleErrorHandler.captureException(error as Error, {
+      component: 'ChangeExerciseModal',
+      action: 'get_valid_muscle_group',
+      primaryMuscles,
+    });
+
+    // Return safe fallback on error
+    return 'Chest';
+  }
+}
+
 export default function ChangeExerciseModal({
   visible,
   onClose,
@@ -82,8 +110,19 @@ export default function ChangeExerciseModal({
   // Fetch exercise alternatives when modal opens
   useEffect(() => {
     if (visible && currentExercise) {
+      simpleErrorHandler.addBreadcrumb('ChangeExerciseModal opened', 'ui', {
+        currentExerciseId: currentExercise.exercise_id,
+        currentExerciseName: currentExercise.name,
+        availableExercisesCount: availableExercises.length,
+      });
       fetchAlternatives();
     } else {
+      if (visible) {
+        simpleErrorHandler.addBreadcrumb(
+          'ChangeExerciseModal opened without current exercise',
+          'warning',
+        );
+      }
       setSelectedExercise(null);
       setRecommendedExercises([]);
       setOtherExercises([]);
@@ -91,9 +130,20 @@ export default function ChangeExerciseModal({
   }, [visible, currentExercise]);
 
   const fetchAlternatives = async () => {
-    if (!currentExercise) return;
+    if (!currentExercise) {
+      simpleErrorHandler.addBreadcrumb(
+        'fetchAlternatives called without current exercise',
+        'warning',
+      );
+      return;
+    }
 
     setIsLoading(true);
+    simpleErrorHandler.addBreadcrumb('Started fetching exercise alternatives', 'data', {
+      currentExerciseId: currentExercise.exercise_id,
+      currentExerciseName: currentExercise.name,
+    });
+
     try {
       const currentExerciseData = {
         exercise_id: currentExercise.exercise_id,
@@ -111,6 +161,13 @@ export default function ChangeExerciseModal({
       console.log('ChangeExerciseModal: Fetching alternatives for:', currentExerciseData);
 
       const { recommended, other } = await fetchExerciseAlternatives(currentExerciseData);
+
+      simpleErrorHandler.addBreadcrumb('Successfully fetched exercise alternatives', 'data', {
+        recommendedCount: recommended.length,
+        otherCount: other.length,
+        totalAlternatives: recommended.length + other.length,
+        currentExerciseId: currentExercise.exercise_id,
+      });
 
       console.log('ChangeExerciseModal: Received alternatives:', {
         recommended: recommended.length,
@@ -153,9 +210,9 @@ export default function ChangeExerciseModal({
             primary_muscles: ex.primary_muscles || [],
             secondary_muscles: [],
             difficulty: ex.difficulty || 'Intermediate',
-            equipment: ex.equipment || 'Unknown',
+            equipment: ex.equipment || 'Standard',
             requires_weight: ex.requires_weight !== false,
-            muscle_group: ex.primary_muscles?.[0] || 'Unknown',
+            muscle_group: getValidMuscleGroupFromArray(ex.primary_muscles || []),
             rest_time: ex.rest_time || 60,
             recommendation_type: 'other' as 'recommended' | 'other',
             similarity_score: 25, // Lower score for fallback exercises
@@ -200,10 +257,24 @@ export default function ChangeExerciseModal({
       setRecommendedExercises(finalRecommended);
       setOtherExercises(finalOther);
     } catch (error) {
+      simpleErrorHandler.captureException(error as Error, {
+        component: 'ChangeExerciseModal',
+        category: 'api_error',
+        currentExerciseId: currentExercise.exercise_id,
+      });
+
       console.error('Error fetching exercise alternatives:', error);
 
       // Fallback: use availableExercises if service fails
       if (availableExercises.length > 0) {
+        simpleErrorHandler.addBreadcrumb(
+          'Using availableExercises as fallback due to API error',
+          'data',
+          {
+            fallbackExerciseCount: availableExercises.length,
+            currentExerciseId: currentExercise.exercise_id,
+          },
+        );
         console.log('ChangeExerciseModal: Using availableExercises as fallback due to error');
 
         const fallbackExercises = availableExercises
@@ -215,9 +286,9 @@ export default function ChangeExerciseModal({
             primary_muscles: ex.primary_muscles || [],
             secondary_muscles: [],
             difficulty: ex.difficulty || 'Intermediate',
-            equipment: ex.equipment || 'Unknown',
+            equipment: ex.equipment || 'Standard',
             requires_weight: ex.requires_weight !== false,
-            muscle_group: ex.primary_muscles?.[0] || 'Unknown',
+            muscle_group: getValidMuscleGroupFromArray(ex.primary_muscles || []),
             rest_time: ex.rest_time || 60,
             recommendation_type: 'other' as 'recommended' | 'other',
             similarity_score: 20,
@@ -250,11 +321,33 @@ export default function ChangeExerciseModal({
   };
 
   const handleExercisePress = useCallback((exercise: ExerciseAlternative) => {
-    setSelectedExercise(exercise);
+    try {
+      simpleErrorHandler.addBreadcrumb('User selected exercise alternative', 'user_interaction', {
+        selectedExerciseId: exercise.id,
+        selectedExerciseName: exercise.name,
+        recommendationType: exercise.recommendation_type,
+        similarityScore: exercise.similarity_score,
+      });
+      setSelectedExercise(exercise);
+    } catch (error) {
+      simpleErrorHandler.captureException(error as Error, {
+        component: 'ChangeExerciseModal',
+        category: 'ui_error',
+      });
+      console.error('Error handling exercise press:', error);
+    }
   }, []);
 
   const handleConfirmChange = useCallback(() => {
     if (selectedExercise) {
+      simpleErrorHandler.addBreadcrumb('User confirmed exercise change', 'user_interaction', {
+        oldExerciseId: currentExercise?.exercise_id,
+        oldExerciseName: currentExercise?.name,
+        newExerciseId: selectedExercise.id,
+        newExerciseName: selectedExercise.name,
+        recommendationType: selectedExercise.recommendation_type,
+      });
+
       console.log('ChangeExerciseModal: Confirming exercise change:', selectedExercise);
       try {
         // Add a flag to indicate this is a changed exercise that needs history data
@@ -265,10 +358,19 @@ export default function ChangeExerciseModal({
         onExerciseSelect(exerciseWithChangeFlag);
         onClose();
       } catch (error) {
+        simpleErrorHandler.captureException(error as Error, {
+          component: 'ChangeExerciseModal',
+          category: 'ui_error',
+        });
         console.error('Error in handleConfirmChange:', error);
       }
+    } else {
+      simpleErrorHandler.addBreadcrumb(
+        'User attempted to confirm change without selecting exercise',
+        'warning',
+      );
     }
-  }, [selectedExercise, onExerciseSelect, onClose]);
+  }, [selectedExercise, onExerciseSelect, onClose, currentExercise]);
 
   const getMuscleTagColor = useCallback((muscle: string) => {
     const muscleColors: Record<string, string> = {
@@ -423,7 +525,7 @@ export default function ChangeExerciseModal({
         key: 'recommended-header',
       });
 
-      recommendedExercises.forEach((exercise, _index) => {
+      recommendedExercises.forEach((exercise) => {
         exercises.push({
           type: 'exercise' as const,
           exercise,
@@ -441,7 +543,7 @@ export default function ChangeExerciseModal({
         key: 'other-header',
       });
 
-      otherExercises.forEach((exercise, _index) => {
+      otherExercises.forEach((exercise) => {
         exercises.push({
           type: 'exercise' as const,
           exercise,
@@ -451,7 +553,7 @@ export default function ChangeExerciseModal({
     }
 
     // Add debug info in development
-    if (__DEV__ && !isLoading) {
+    if (process.env.NODE_ENV === 'development' && !isLoading) {
       exercises.push({
         type: 'debug' as const,
         key: 'debug-info',
@@ -588,7 +690,18 @@ export default function ChangeExerciseModal({
   );
 
   return (
-    <Modal visible={visible} transparent={true} animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => {
+        simpleErrorHandler.addBreadcrumb('User closed ChangeExerciseModal', 'user_interaction', {
+          selectedExerciseId: selectedExercise?.id,
+          hadSelection: !!selectedExercise,
+        });
+        onClose();
+      }}
+    >
       <View style={styles.modalOverlay}>
         <View style={[styles.modalContainer, { paddingTop: insets.top }]}>
           <LinearGradient
@@ -603,7 +716,20 @@ export default function ChangeExerciseModal({
 
             {/* Header */}
             <View style={styles.header}>
-              <TouchableOpacity onPress={onClose} style={styles.headerButton}>
+              <TouchableOpacity
+                onPress={() => {
+                  simpleErrorHandler.addBreadcrumb(
+                    'User cancelled exercise change',
+                    'user_interaction',
+                    {
+                      hadSelection: !!selectedExercise,
+                      selectedExerciseId: selectedExercise?.id,
+                    },
+                  );
+                  onClose();
+                }}
+                style={styles.headerButton}
+              >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
 

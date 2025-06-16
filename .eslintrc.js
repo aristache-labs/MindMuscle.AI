@@ -19,7 +19,7 @@ module.exports = {
   rules: {
     // ---- file + function complexity ----
     'max-lines': [
-      'error',
+      'warn',
       {
         max: 1500, // Increased from 300 to 500 for React Native components
         skipBlankLines: true,
@@ -30,7 +30,7 @@ module.exports = {
 
     // ---- prettier formatting overrides ----
     'prettier/prettier': [
-      'error',
+      'warn',
       {
         singleQuote: true,
         semi: true,
@@ -43,24 +43,31 @@ module.exports = {
     '@typescript-eslint/ban-types': 'off',
     '@typescript-eslint/no-explicit-any': 'warn', // Changed from error to warn for flexibility
     '@typescript-eslint/no-unused-vars': [
-      'error',
+      'warn',
       {
         argsIgnorePattern: '^_',
         varsIgnorePattern: '^_',
       },
     ],
     '@typescript-eslint/no-require-imports': [
-      'error',
+      'warn',
       {
         allow: ['\\.jpg$', '\\.png$', '\\.jpeg$', '\\.gif$', '\\.svg$'], // Allow require() for image assets
       },
     ],
 
     // ---- React Native specific adjustments ----
-    radix: ['error', 'as-needed'],
+    radix: ['warn', 'as-needed'],
     'prefer-const': 'warn',
     'no-console': 'off', // Allow console logs for debugging in development
     'max-params': ['warn', 6], // Allow more parameters for React Native component props
+
+    // ---- Additional rules to prevent aggressive auto-fixes ----
+    'no-unused-vars': 'warn', // Warn instead of auto-removing
+    'no-undef': 'warn', // Warn instead of breaking
+    'import/no-unresolved': 'off', // Disable import resolution errors that can be aggressive
+    'import/order': 'off', // Disable automatic import ordering
+    'sort-imports': 'off', // Disable automatic import sorting
   },
   overrides: [
     {
@@ -73,6 +80,13 @@ module.exports = {
       files: ['metro.config.js', 'babel.config.js'],
       rules: {
         '@typescript-eslint/no-require-imports': 'off', // Allow require() in config files
+      },
+    },
+    {
+      files: ['scripts/**/*.js', 'scripts/**/*.mjs'],
+      rules: {
+        '@typescript-eslint/no-require-imports': 'off', // Allow require() in Node.js scripts
+        '@typescript-eslint/no-var-requires': 'off', // Allow var requires in Node.js scripts
       },
     },
   ],

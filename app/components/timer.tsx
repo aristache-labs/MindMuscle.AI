@@ -18,6 +18,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import Svg, { Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { COLORS } from '../constants/theme';
+import { SentryDataCollection, SentryLogger, SentryAutoInstrumentation } from '../services/sentry';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -36,7 +37,54 @@ export default function Timer({ onClose }: TimerProps) {
   const [seconds, setSeconds] = useState(30);
   const [isActive, setIsActive] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState(30);
+  const [timerStartTime, setTimerStartTime] = useState<number | null>(null);
   const progress = useSharedValue(0);
+
+  // Track timer component mount
+  React.useEffect(() => {
+    try {
+      SentryDataCollection.addBreadcrumb({
+        message: 'Timer component mounted',
+        category: 'ui-lifecycle',
+        level: 'info',
+        data: {
+          component: 'Timer',
+          action: 'component_mount',
+          initial_preset: selectedPreset,
+          platform: Platform.OS,
+        },
+      });
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'Timer',
+        action: 'component_mount_tracking',
+        platform: Platform.OS,
+      });
+    }
+
+    return () => {
+      try {
+        SentryDataCollection.addBreadcrumb({
+          message: 'Timer component unmounted',
+          category: 'ui-lifecycle',
+          level: 'info',
+          data: {
+            component: 'Timer',
+            action: 'component_unmount',
+            was_active: isActive,
+            current_seconds: seconds,
+            platform: Platform.OS,
+          },
+        });
+      } catch (error) {
+        SentryDataCollection.captureException(error as Error, {
+          component: 'Timer',
+          action: 'component_unmount_tracking',
+          platform: Platform.OS,
+        });
+      }
+    };
+  }, []);
 
   const animatedProps = useAnimatedProps(() => ({
     strokeDashoffset: progress.value * CIRCLE_CIRCUMFERENCE,
@@ -59,20 +107,66 @@ export default function Timer({ onClose }: TimerProps) {
   }, [isActive, seconds]);
 
   useEffect(() => {
-    let interval: number;
+    let interval: ReturnType<typeof setInterval>;
     if (isActive && seconds > 0) {
-      interval = window.setInterval(() => {
+      interval = setInterval(() => {
         setSeconds((prev) => {
-          if (prev <= 1) {
-            setIsActive(false);
-            return selectedPreset;
+          try {
+            if (prev <= 1) {
+              // Timer completed
+              SentryAutoInstrumentation.trackUserInteraction(
+                'timer_completed',
+                'timer_automatic',
+                'timer',
+                {
+                  duration: selectedPreset,
+                  start_time: timerStartTime,
+                  completion_time: Date.now(),
+                  platform: Platform.OS,
+                },
+              );
+
+              SentryDataCollection.addBreadcrumb({
+                message: 'Timer completed successfully',
+                category: 'timer.completion',
+                level: 'info',
+                data: {
+                  component: 'Timer',
+                  action: 'timer_completed',
+                  duration: selectedPreset,
+                  platform: Platform.OS,
+                },
+              });
+
+              setIsActive(false);
+              setTimerStartTime(null);
+              return selectedPreset;
+            }
+            return prev - 1;
+          } catch (error) {
+            SentryDataCollection.captureException(error as Error, {
+              component: 'Timer',
+              action: 'timer_interval_update',
+              current_seconds: prev,
+              platform: Platform.OS,
+            });
+            return prev - 1; // Continue timer even if tracking fails
           }
-          return prev - 1;
         });
       }, 1000);
     }
-    return () => clearInterval(interval);
-  }, [isActive, seconds]);
+    return () => {
+      try {
+        clearInterval(interval);
+      } catch (error) {
+        SentryDataCollection.captureException(error as Error, {
+          component: 'Timer',
+          action: 'interval_cleanup',
+          platform: Platform.OS,
+        });
+      }
+    };
+  }, [isActive, seconds, selectedPreset, timerStartTime]);
 
   const formatTime = (totalSeconds: number) => {
     const minutes = Math.floor(totalSeconds / 60);
@@ -81,17 +175,156 @@ export default function Timer({ onClose }: TimerProps) {
   };
 
   const adjustTime = (amount: number) => {
-    if (!isActive) {
-      setSeconds((prev) => Math.max(5, Math.min(3600, prev + amount)));
+    try {
+      if (!isActive) {
+        const previousSeconds = seconds;
+        const newSeconds = Math.max(5, Math.min(3600, seconds + amount));
+
+        setSeconds(newSeconds);
+
+        // Track time adjustment
+        SentryAutoInstrumentation.trackUserInteraction('adjust_time', 'adjust_button', 'timer', {
+          adjustment: amount,
+          previous_seconds: previousSeconds,
+          new_seconds: newSeconds,
+          platform: Platform.OS,
+        });
+
+        SentryDataCollection.addBreadcrumb({
+          message: `User adjusted timer by ${amount} seconds`,
+          category: 'user-interaction',
+          level: 'info',
+          data: {
+            component: 'Timer',
+            action: 'adjust_time',
+            adjustment: amount,
+            previous_seconds: previousSeconds,
+            new_seconds: newSeconds,
+            platform: Platform.OS,
+          },
+        });
+      }
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'Timer',
+        action: 'adjust_time_handler',
+        adjustment: amount,
+        current_seconds: seconds,
+        platform: Platform.OS,
+      });
+
+      SentryLogger.error('Error in Timer adjust time handler', {
+        error: error as Error,
+        component: 'Timer',
+        adjustment: amount,
+        current_seconds: seconds,
+      });
+
+      // Still try to adjust time even if tracking fails
+      try {
+        if (!isActive) {
+          setSeconds((prev) => Math.max(5, Math.min(3600, prev + amount)));
+        }
+      } catch (adjustError) {
+        SentryDataCollection.captureException(adjustError as Error, {
+          component: 'Timer',
+          action: 'adjust_time_execution',
+          platform: Platform.OS,
+        });
+      }
     }
   };
 
   const handlePress = () => {
-    if (isActive) {
-      setIsActive(false);
-      setSeconds(selectedPreset);
-    } else {
-      setIsActive(true);
+    try {
+      if (isActive) {
+        // Reset timer
+        const completionPercentage = ((selectedPreset - seconds) / selectedPreset) * 100;
+
+        SentryAutoInstrumentation.trackUserInteraction('timer_reset', 'timer_circle', 'timer', {
+          original_duration: selectedPreset,
+          remaining_seconds: seconds,
+          completion_percentage: completionPercentage,
+          was_running: isActive,
+          platform: Platform.OS,
+        });
+
+        SentryDataCollection.addBreadcrumb({
+          message: 'User reset timer',
+          category: 'user-interaction',
+          level: 'info',
+          data: {
+            component: 'Timer',
+            action: 'timer_reset',
+            original_duration: selectedPreset,
+            remaining_seconds: seconds,
+            completion_percentage: completionPercentage,
+            platform: Platform.OS,
+          },
+        });
+
+        setIsActive(false);
+        setSeconds(selectedPreset);
+        setTimerStartTime(null);
+      } else {
+        // Start timer
+        const startTime = Date.now();
+
+        SentryAutoInstrumentation.trackUserInteraction('timer_start', 'timer_circle', 'timer', {
+          duration: seconds,
+          start_time: startTime,
+          platform: Platform.OS,
+        });
+
+        SentryDataCollection.addBreadcrumb({
+          message: 'User started timer',
+          category: 'user-interaction',
+          level: 'info',
+          data: {
+            component: 'Timer',
+            action: 'timer_start',
+            duration: seconds,
+            start_time: startTime,
+            platform: Platform.OS,
+          },
+        });
+
+        setIsActive(true);
+        setTimerStartTime(startTime);
+      }
+    } catch (error) {
+      SentryDataCollection.captureException(error as Error, {
+        component: 'Timer',
+        action: 'timer_press_handler',
+        is_active: isActive,
+        current_seconds: seconds,
+        platform: Platform.OS,
+      });
+
+      SentryLogger.error('Error in Timer press handler', {
+        error: error as Error,
+        component: 'Timer',
+        is_active: isActive,
+        current_seconds: seconds,
+      });
+
+      // Still try to execute the action even if tracking fails
+      try {
+        if (isActive) {
+          setIsActive(false);
+          setSeconds(selectedPreset);
+          setTimerStartTime(null);
+        } else {
+          setIsActive(true);
+          setTimerStartTime(Date.now());
+        }
+      } catch (pressError) {
+        SentryDataCollection.captureException(pressError as Error, {
+          component: 'Timer',
+          action: 'timer_press_execution',
+          platform: Platform.OS,
+        });
+      }
     }
   };
 
@@ -104,7 +337,65 @@ export default function Timer({ onClose }: TimerProps) {
             icon="close"
             iconColor="white"
             size={24}
-            onPress={onClose}
+            onPress={() => {
+              try {
+                // Track timer close
+                SentryAutoInstrumentation.trackUserInteraction(
+                  'close_timer',
+                  'close_button',
+                  'timer',
+                  {
+                    was_active: isActive,
+                    remaining_seconds: seconds,
+                    selected_preset: selectedPreset,
+                    session_duration: timerStartTime ? Date.now() - timerStartTime : 0,
+                    platform: Platform.OS,
+                  },
+                );
+
+                SentryDataCollection.addBreadcrumb({
+                  message: 'User closed timer',
+                  category: 'user-interaction',
+                  level: 'info',
+                  data: {
+                    component: 'Timer',
+                    action: 'close_timer',
+                    was_active: isActive,
+                    remaining_seconds: seconds,
+                    selected_preset: selectedPreset,
+                    platform: Platform.OS,
+                  },
+                });
+
+                if (onClose) {
+                  onClose();
+                }
+              } catch (error) {
+                SentryDataCollection.captureException(error as Error, {
+                  component: 'Timer',
+                  action: 'close_timer_handler',
+                  platform: Platform.OS,
+                });
+
+                SentryLogger.error('Error in Timer close handler', {
+                  error: error as Error,
+                  component: 'Timer',
+                });
+
+                // Still try to execute the close even if tracking fails
+                try {
+                  if (onClose) {
+                    onClose();
+                  }
+                } catch (closeError) {
+                  SentryDataCollection.captureException(closeError as Error, {
+                    component: 'Timer',
+                    action: 'close_timer_execution',
+                    platform: Platform.OS,
+                  });
+                }
+              }
+            }}
             style={styles.closeButton}
           />
           <View style={styles.headerTitleContainer}>
@@ -210,9 +501,65 @@ export default function Timer({ onClose }: TimerProps) {
                 isActive && styles.presetButtonDisabled,
               ]}
               onPress={() => {
-                if (!isActive) {
-                  setSelectedPreset(preset);
-                  setSeconds(preset);
+                try {
+                  if (!isActive) {
+                    const previousPreset = selectedPreset;
+
+                    // Track preset selection
+                    SentryAutoInstrumentation.trackUserInteraction(
+                      'preset_selection',
+                      'preset_button',
+                      'timer',
+                      {
+                        selected_preset: preset,
+                        previous_preset: previousPreset,
+                        platform: Platform.OS,
+                      },
+                    );
+
+                    SentryDataCollection.addBreadcrumb({
+                      message: `User selected timer preset: ${preset} seconds`,
+                      category: 'user-interaction',
+                      level: 'info',
+                      data: {
+                        component: 'Timer',
+                        action: 'preset_selection',
+                        selected_preset: preset,
+                        previous_preset: previousPreset,
+                        platform: Platform.OS,
+                      },
+                    });
+
+                    setSelectedPreset(preset);
+                    setSeconds(preset);
+                  }
+                } catch (error) {
+                  SentryDataCollection.captureException(error as Error, {
+                    component: 'Timer',
+                    action: 'preset_selection_handler',
+                    selected_preset: preset,
+                    platform: Platform.OS,
+                  });
+
+                  SentryLogger.error('Error in Timer preset selection handler', {
+                    error: error as Error,
+                    component: 'Timer',
+                    selected_preset: preset,
+                  });
+
+                  // Still try to execute the selection even if tracking fails
+                  try {
+                    if (!isActive) {
+                      setSelectedPreset(preset);
+                      setSeconds(preset);
+                    }
+                  } catch (selectionError) {
+                    SentryDataCollection.captureException(selectionError as Error, {
+                      component: 'Timer',
+                      action: 'preset_selection_execution',
+                      platform: Platform.OS,
+                    });
+                  }
                 }
               }}
               disabled={isActive}

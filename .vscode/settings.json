@@ -16,13 +16,12 @@
   "reactNative.packager.projectRoot": "${workspaceFolder}",
   "reactNative.showUserTips": true,
   "reactNative.terminal.useIntegratedTerminal": true,
-  "editor.formatOnSave": true,
-  "editor.formatOnPaste": true,
+  "editor.formatOnSave": false,
+  "editor.formatOnPaste": false,
   "editor.formatOnType": false,
   "editor.codeActionsOnSave": {
-    "source.fixAll.eslint": "explicit",
-    "source.organizeImports": "explicit",
-    "source.removeUnusedImports": "explicit"
+    "source.fixAll.eslint": "never",
+    "source.organizeImports": "never"
   },
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "editor.tabSize": 2,
@@ -96,37 +95,38 @@
   "eslint.enable": true,
   "eslint.validate": ["javascript", "javascriptreact", "typescript", "typescriptreact"],
   "eslint.workingDirectories": ["${workspaceFolder}"],
-  "eslint.codeActionsOnSave.mode": "all",
+  "eslint.format.enable": false,
+  "eslint.autoFixOnSave": false,
   "prettier.enable": true,
   "prettier.requireConfig": true,
   "prettier.useEditorConfig": false,
   "[javascript]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
-    "editor.formatOnSave": true
+    "editor.formatOnSave": false
   },
   "[javascriptreact]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
-    "editor.formatOnSave": true
+    "editor.formatOnSave": false
   },
   "[typescript]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
-    "editor.formatOnSave": true
+    "editor.formatOnSave": false
   },
   "[typescriptreact]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
-    "editor.formatOnSave": true
+    "editor.formatOnSave": false
   },
   "[json]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
-    "editor.formatOnSave": true
+    "editor.formatOnSave": false
   },
   "[jsonc]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
-    "editor.formatOnSave": true
+    "editor.formatOnSave": false
   },
   "[markdown]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
-    "editor.formatOnSave": true,
+    "editor.formatOnSave": false,
     "editor.wordWrap": "on"
   },
   "terminal.integrated.defaultProfile.windows": "PowerShell",
@@ -169,7 +169,7 @@
   "workbench.editor.enablePreviewFromQuickOpen": false,
   "workbench.startupEditor": "welcomePage",
   "workbench.iconTheme": "vs-seti",
-  "extensions.ignoreRecommendations": false,
+  "extensions.ignoreRecommendations": true,
   "security.workspace.trust.untrustedFiles": "open",
   "typescript.disableAutomaticTypeAcquisition": false,
   "search.smartCase": true,

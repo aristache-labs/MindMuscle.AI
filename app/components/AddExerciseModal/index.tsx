@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -28,12 +29,21 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../../constants/theme';
 import exerciseService, { Exercise, ExerciseCategory } from '../../services/exerciseService';
+import { validationService } from '../../services/validationService';
+import { logger } from '../../utils/logger';
 import ExerciseCard from '../ExerciseCard';
 import DraggableConfigurationItem from './components/DraggableConfigurationItem';
 import { MuscleGroupRender } from './components/MuscleMarkers';
 import { FALLBACK_IMAGE_OBJECT, muscleGroups } from './constants';
 import { styles } from './styles';
 import { AddExerciseModalProps, ExerciseConfiguration, SelectedExercise } from './types';
+import {
+  captureUIError,
+  captureAPIError,
+  captureValidationError,
+  SentryReactProfiler,
+} from '../../services/sentry';
+import * as Sentry from '@sentry/react-native';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const ITEM_HEIGHT = 100;
@@ -83,22 +93,37 @@ const handleSearchOperations = ({
   SCREEN_WIDTH,
 }: SearchOperationsParams) => {
   const openSearch = () => {
-    setIsSearchActive(true);
-    Animated.timing(searchWidthAnim, {
-      toValue: SCREEN_WIDTH - 32,
-      duration: 300,
-      useNativeDriver: false,
-    }).start(() => {
-      if (searchInputRef.current) {
-        searchInputRef.current.focus();
-      }
-    });
+    try {
+      // Track search activation
+      Sentry.addBreadcrumb({
+        message: 'Search Bar Opened',
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          trigger: 'search_icon_click',
+          screenWidth: SCREEN_WIDTH,
+        },
+      });
 
-    Animated.timing(contentOffsetAnim, {
-      toValue: 50,
-      duration: 300,
-      useNativeDriver: false,
-    }).start();
+      setIsSearchActive(true);
+      Animated.timing(searchWidthAnim, {
+        toValue: SCREEN_WIDTH - 32,
+        duration: 300,
+        useNativeDriver: false,
+      }).start(() => {
+        if (searchInputRef.current) {
+          searchInputRef.current.focus();
+        }
+      });
+
+      Animated.timing(contentOffsetAnim, {
+        toValue: 50,
+        duration: 300,
+        useNativeDriver: false,
+      }).start();
+    } catch (error) {
+      captureUIError(error as Error, 'SearchOperations.openSearch', 'add-exercise-modal');
+    }
   };
 
   const collapseSearchUI = () => {
@@ -234,11 +259,7 @@ const useSearchState = (onSearchFromStep1?: () => void) => {
 };
 
 // Enhanced filtering hook for exercises
-const useExerciseFiltering = (
-  exercises: Exercise[],
-  searchQuery: string,
-  _selectedMuscleGroup?: string,
-) => {
+const useExerciseFiltering = (exercises: Exercise[], searchQuery: string) => {
   const matchesMuscleGroup = useCallback((exercise: Exercise, query: string): boolean => {
     if (exercise.muscle_group && exercise.muscle_group.toLowerCase().includes(query)) {
       return true;
@@ -429,6 +450,20 @@ const Step1MuscleSelection = ({
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const SWIPE_THRESHOLD = 50;
 
+  // Track step 1 rendering
+  useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: 'Step 1 Muscle Selection Rendered',
+      category: 'ui.render',
+      level: 'info',
+      data: {
+        currentView,
+        isImageLoaded,
+        searchQuery: searchState.searchQuery,
+      },
+    });
+  }, [currentView, isImageLoaded, searchState.searchQuery]);
+
   const frontBodyModel = require('../../../assets/body-model_front.png');
   const backBodyModel = require('../../../assets/body-model_back.png');
 
@@ -448,21 +483,37 @@ const Step1MuscleSelection = ({
   const handleViewChange = (newView: 'front' | 'back') => {
     if (isTransitioning || newView === currentView) return;
 
-    setIsTransitioning(true);
-    Animated.timing(fadeAnim, {
-      toValue: 0,
-      duration: 150,
-      useNativeDriver: true,
-    }).start(() => {
-      setCurrentView(newView);
+    try {
+      // Track view change
+      Sentry.addBreadcrumb({
+        message: 'Body Model View Changed',
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          fromView: currentView,
+          toView: newView,
+          trigger: 'swipe',
+        },
+      });
+
+      setIsTransitioning(true);
       Animated.timing(fadeAnim, {
-        toValue: 1,
+        toValue: 0,
         duration: 150,
         useNativeDriver: true,
       }).start(() => {
-        setIsTransitioning(false);
+        setCurrentView(newView);
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 150,
+          useNativeDriver: true,
+        }).start(() => {
+          setIsTransitioning(false);
+        });
       });
-    });
+    } catch (error) {
+      captureUIError(error as Error, 'Step1MuscleSelection.handleViewChange', 'add-exercise-modal');
+    }
   };
 
   const handleTouchStart = (event: GestureResponderEvent) => {
@@ -564,8 +615,22 @@ const StepAllExercises = ({
 
   useEffect(() => {
     const loadAllExercises = async () => {
+      const startTime = Date.now();
+
       try {
         setLoading(true);
+
+        // Track all exercises loading start
+        Sentry.addBreadcrumb({
+          message: 'Loading All Exercises from Search',
+          category: 'api.request',
+          level: 'info',
+          data: {
+            trigger: 'step1_search',
+            step: 'all_exercises',
+          },
+        });
+
         // Load all exercises from all categories
         const allCategories: ExerciseCategory[] = [
           'Chest',
@@ -588,18 +653,51 @@ const StepAllExercises = ({
         ];
 
         const allExercises: Exercise[] = [];
+        const failedCategories: string[] = [];
+
         for (const category of allCategories) {
           try {
             const categoryExercises = await exerciseService.getExercisesByCategory(category);
             allExercises.push(...categoryExercises);
           } catch (error) {
             console.warn(`Failed to load exercises for category ${category}:`, error);
+            failedCategories.push(category);
+
+            // Track individual category failures
+            captureAPIError(error as Error, `category-${category}-loading`, 'StepAllExercises');
           }
         }
 
         setExercises(allExercises);
+
+        // Track successful loading
+        const duration = Date.now() - startTime;
+        Sentry.addBreadcrumb({
+          message: 'All Exercises Loaded',
+          category: 'api.success',
+          level: 'info',
+          data: {
+            totalExercises: allExercises.length,
+            categoriesLoaded: allCategories.length - failedCategories.length,
+            failedCategories,
+            loadDuration: duration,
+          },
+        });
       } catch (error) {
         console.error('Error loading all exercises:', error);
+
+        // Capture comprehensive error
+        captureAPIError(error as Error, 'all-exercises-loading', 'StepAllExercises');
+
+        Sentry.addBreadcrumb({
+          message: 'Failed to Load All Exercises',
+          category: 'api.error',
+          level: 'error',
+          data: {
+            error: (error as Error).message,
+            duration: Date.now() - startTime,
+          },
+        });
       } finally {
         setLoading(false);
       }
@@ -710,18 +808,61 @@ const Step2ExerciseSelection = ({
 
   useEffect(() => {
     const loadExercises = async () => {
+      const startTime = Date.now();
+
       try {
         setLoading(true);
+
+        // Track exercise loading start
+        Sentry.addBreadcrumb({
+          message: 'Loading Exercises for Muscle Group',
+          category: 'api.request',
+          level: 'info',
+          data: {
+            muscleGroup: selectedMuscleGroup,
+            step: 'exercise_selection',
+          },
+        });
+
         let categoryKey = selectedMuscleGroup;
         if (selectedMuscleGroup === 'Lower back') {
           categoryKey = 'Lower_back';
         }
+
         const exerciseData = await exerciseService.getExercisesByCategory(
           categoryKey as ExerciseCategory,
         );
+
         setExercises(exerciseData);
+
+        // Track successful loading
+        const duration = Date.now() - startTime;
+        Sentry.addBreadcrumb({
+          message: 'Exercises Loaded Successfully',
+          category: 'api.success',
+          level: 'info',
+          data: {
+            muscleGroup: selectedMuscleGroup,
+            exerciseCount: exerciseData.length,
+            loadDuration: duration,
+          },
+        });
       } catch (error) {
         console.error('Error loading exercises:', error);
+
+        // Capture API error
+        captureAPIError(error as Error, 'exercise-loading', 'Step2ExerciseSelection');
+
+        Sentry.addBreadcrumb({
+          message: 'Failed to Load Exercises',
+          category: 'api.error',
+          level: 'error',
+          data: {
+            error: (error as Error).message,
+            muscleGroup: selectedMuscleGroup,
+            duration: Date.now() - startTime,
+          },
+        });
       } finally {
         setLoading(false);
       }
@@ -730,11 +871,7 @@ const Step2ExerciseSelection = ({
     loadExercises();
   }, [selectedMuscleGroup]);
 
-  const { filteredExercises } = useExerciseFiltering(
-    exercises,
-    searchState.searchQuery,
-    selectedMuscleGroup,
-  );
+  const { filteredExercises } = useExerciseFiltering(exercises, searchState.searchQuery);
 
   const emptyComponent = () => (
     <View style={styles.emptyContainer}>
@@ -865,11 +1002,7 @@ const StepFavorites = ({
     loadFavoriteExercises();
   }, [selectedMuscleGroup]);
 
-  const { filteredExercises } = useExerciseFiltering(
-    favoriteExercises,
-    searchState.searchQuery,
-    selectedMuscleGroup,
-  );
+  const { filteredExercises } = useExerciseFiltering(favoriteExercises, searchState.searchQuery);
 
   const getEmptyStateText = () => {
     if (searchState.searchQuery.trim()) {
@@ -972,17 +1105,9 @@ const StepFavorites = ({
 
 const Step3Configuration = ({
   selectedExercises,
-  _exercises,
-  _onConfigurationChange,
   onAddAll,
 }: {
   selectedExercises: SelectedExercise[];
-  _exercises: Exercise[];
-  _onConfigurationChange: (
-    exerciseId: string,
-    field: 'sets' | 'reps_range',
-    value: string | number,
-  ) => void;
   onAddAll: (exercises: SelectedExercise[]) => void;
 }) => {
   const [localExercises, setLocalExercises] = useState(selectedExercises || []);
@@ -1177,8 +1302,6 @@ const renderStepContent = ({
   handleStep2Next,
   searchState,
   selectedExercises,
-  exercises,
-  handleConfigurationChange,
   handleAddAll,
 }: {
   currentStep: number;
@@ -1194,12 +1317,6 @@ const renderStepContent = ({
   handleStep2Next: () => void;
   searchState: ReturnType<typeof useSearchState>;
   selectedExercises: SelectedExercise[];
-  exercises: Exercise[];
-  handleConfigurationChange: (
-    exerciseId: string,
-    field: 'sets' | 'reps_range',
-    value: string | number,
-  ) => void;
   handleAddAll: (exercises: SelectedExercise[]) => void;
 }) => {
   if (currentStep === 1) {
@@ -1251,14 +1368,7 @@ const renderStepContent = ({
   }
 
   if (currentStep === 3) {
-    return (
-      <Step3Configuration
-        selectedExercises={selectedExercises}
-        _exercises={exercises}
-        _onConfigurationChange={handleConfigurationChange}
-        onAddAll={handleAddAll}
-      />
-    );
+    return <Step3Configuration selectedExercises={selectedExercises} onAddAll={handleAddAll} />;
   }
 
   return null;
@@ -1275,9 +1385,62 @@ export default function AddExerciseModal({
   const [selectedMuscleGroup, setSelectedMuscleGroup] = useState<string>('');
   const [selectedExerciseIds, setSelectedExerciseIds] = useState<Set<string>>(new Set());
   const [selectedExercises, setSelectedExercises] = useState<SelectedExercise[]>([]);
-  const [exercises, setExercises] = useState<Exercise[]>([]);
+
   const [showFavorites, setShowFavorites] = useState(false);
   const [showAllExercises, setShowAllExercises] = useState(false);
+
+  // Track modal lifecycle and errors
+  useEffect(() => {
+    if (visible) {
+      // Track modal opening
+      Sentry.addBreadcrumb({
+        message: 'Add Exercise Modal Opened',
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          timestamp: new Date().toISOString(),
+          initialStep: currentStep,
+        },
+      });
+
+      // Track component lifecycle
+      SentryReactProfiler.trackComponentLifecycle('AddExerciseModal', 'mount');
+    } else {
+      // Track modal closing
+      Sentry.addBreadcrumb({
+        message: 'Add Exercise Modal Closed',
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          timestamp: new Date().toISOString(),
+          finalStep: currentStep,
+          selectedExercisesCount: selectedExercises.length,
+          selectedMuscleGroup,
+        },
+      });
+
+      // Track component lifecycle
+      SentryReactProfiler.trackComponentLifecycle('AddExerciseModal', 'unmount');
+    }
+  }, [visible]);
+
+  // Track step changes
+  useEffect(() => {
+    if (visible && currentStep > 1) {
+      Sentry.addBreadcrumb({
+        message: `Step Changed to ${currentStep}`,
+        category: 'user.navigation',
+        level: 'info',
+        data: {
+          step: currentStep,
+          muscleGroup: selectedMuscleGroup,
+          exerciseCount: selectedExerciseIds.size,
+          showFavorites,
+          showAllExercises,
+        },
+      });
+    }
+  }, [currentStep, visible]);
 
   // Handle search from step 1 - navigate to step 2 with all exercises
   const handleSearchFromStep1 = useCallback(() => {
@@ -1368,37 +1531,106 @@ export default function AddExerciseModal({
     };
   });
 
-  const handleMuscleSelect = useCallback(async (muscleName: string) => {
-    try {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {
-      // Haptics might not be available
-    }
+  const handleMuscleSelect = useCallback(
+    async (muscleName: string) => {
+      try {
+        // Track muscle group selection
+        Sentry.addBreadcrumb({
+          message: 'Muscle Group Selected',
+          category: 'user.interaction',
+          level: 'info',
+          data: {
+            muscleGroup: muscleName,
+            previousStep: currentStep,
+            timestamp: new Date().toISOString(),
+          },
+        });
 
-    setSelectedMuscleGroup(muscleName);
-    setCurrentStep(2);
-  }, []);
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-  const handleExerciseToggle = useCallback((exerciseId: string) => {
-    setSelectedExerciseIds((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(exerciseId)) {
-        newSet.delete(exerciseId);
-      } else {
-        newSet.add(exerciseId);
+        setSelectedMuscleGroup(muscleName);
+        setCurrentStep(2);
+      } catch (error) {
+        // Capture haptics or other errors
+        captureUIError(error as Error, 'AddExerciseModal.handleMuscleSelect', 'add-exercise-modal');
+
+        // Still proceed with muscle selection even if haptics fail
+        setSelectedMuscleGroup(muscleName);
+        setCurrentStep(2);
       }
-      return newSet;
-    });
-  }, []);
+    },
+    [currentStep],
+  );
+
+  const handleExerciseToggle = useCallback(
+    (exerciseId: string) => {
+      try {
+        setSelectedExerciseIds((prev) => {
+          const newSet = new Set(prev);
+          const wasSelected = newSet.has(exerciseId);
+
+          if (wasSelected) {
+            newSet.delete(exerciseId);
+          } else {
+            newSet.add(exerciseId);
+          }
+
+          // Track exercise selection/deselection
+          Sentry.addBreadcrumb({
+            message: `Exercise ${wasSelected ? 'Deselected' : 'Selected'}`,
+            category: 'user.interaction',
+            level: 'info',
+            data: {
+              exerciseId,
+              action: wasSelected ? 'deselect' : 'select',
+              totalSelected: newSet.size,
+              muscleGroup: selectedMuscleGroup,
+              step: currentStep,
+            },
+          });
+
+          return newSet;
+        });
+      } catch (error) {
+        captureUIError(
+          error as Error,
+          'AddExerciseModal.handleExerciseToggle',
+          'add-exercise-modal',
+        );
+      }
+    },
+    [selectedMuscleGroup, currentStep],
+  );
 
   const handleStep2Next = useCallback(async () => {
+    const startTime = Date.now();
+
     try {
+      // Track progression to configuration step
+      Sentry.addBreadcrumb({
+        message: 'Proceeding to Exercise Configuration',
+        category: 'user.navigation',
+        level: 'info',
+        data: {
+          selectedCount: selectedExerciseIds.size,
+          muscleGroup: selectedMuscleGroup,
+          showFavorites,
+          showAllExercises,
+        },
+      });
+
       setCurrentStep(3);
 
       let exerciseData: Exercise[] = [];
 
       if (showFavorites) {
         // If we're in favorites mode, get all favorite exercises
+        Sentry.addBreadcrumb({
+          message: 'Loading Favorite Exercises for Configuration',
+          category: 'api.request',
+          level: 'info',
+        });
+
         exerciseData = await exerciseService.getFavoriteExercises();
       } else {
         // Load full exercise data for selected muscle group
@@ -1406,6 +1638,16 @@ export default function AddExerciseModal({
         if (selectedMuscleGroup === 'Lower back') {
           categoryKey = 'Lower_back';
         }
+
+        Sentry.addBreadcrumb({
+          message: 'Loading Category Exercises for Configuration',
+          category: 'api.request',
+          level: 'info',
+          data: {
+            category: categoryKey,
+            originalMuscleGroup: selectedMuscleGroup,
+          },
+        });
 
         exerciseData = await exerciseService.getExercisesByCategory(
           categoryKey as ExerciseCategory,
@@ -1421,37 +1663,176 @@ export default function AddExerciseModal({
         }));
 
       setSelectedExercises(selected);
-      setExercises(exerciseData);
+
+      // Track successful progression
+      const duration = Date.now() - startTime;
+      Sentry.addBreadcrumb({
+        message: 'Exercise Configuration Data Loaded Successfully',
+        category: 'api.success',
+        level: 'info',
+        data: {
+          exercisesLoaded: exerciseData.length,
+          selectedForConfiguration: selected.length,
+          loadDuration: duration,
+        },
+      });
     } catch (error) {
       console.error('Error loading exercise data:', error);
-    }
-  }, [selectedMuscleGroup, selectedExerciseIds, showFavorites]);
 
-  const handleConfigurationChange = useCallback(
-    (exerciseId: string, field: 'sets' | 'reps_range', value: string | number) => {
-      setSelectedExercises((prev) =>
-        prev.map((ex) => (ex.id === exerciseId ? { ...ex, [field]: value } : ex)),
-      );
-    },
-    [],
-  );
+      // Capture API error with detailed context
+      captureAPIError(error as Error, 'exercise-configuration-load', 'AddExerciseModal');
+
+      Sentry.addBreadcrumb({
+        message: 'Failed to Load Exercise Configuration Data',
+        category: 'api.error',
+        level: 'error',
+        data: {
+          error: (error as Error).message,
+          muscleGroup: selectedMuscleGroup,
+          showFavorites,
+          selectedCount: selectedExerciseIds.size,
+        },
+      });
+    }
+  }, [selectedMuscleGroup, selectedExerciseIds, showFavorites, showAllExercises]);
 
   const handleAddAll = useCallback(
-    (exercisesToAdd: SelectedExercise[]) => {
-      const exerciseConfigurations: ExerciseConfiguration[] = exercisesToAdd.map((exercise) => ({
-        exerciseId: exercise.id,
-        name: exercise.name,
-        sets: exercise.sets,
-        reps_range: exercise.reps_range,
-        image_url: exercise.image_url,
-        muscle_group: exercise.muscle_group || selectedMuscleGroup,
-        primary_muscles: exercise.primary_muscles,
-        requires_weight: exercise.requires_weight,
-      }));
+    async (exercisesToAdd: SelectedExercise[]) => {
+      const startTime = Date.now();
 
-      console.log('AddExerciseModal: Adding exercises:', exerciseConfigurations);
-      onAddExercises(exerciseConfigurations);
-      onClose();
+      try {
+        // Track add all exercises attempt
+        Sentry.addBreadcrumb({
+          message: 'Adding All Configured Exercises',
+          category: 'user.action',
+          level: 'info',
+          data: {
+            exerciseCount: exercisesToAdd.length,
+            muscleGroup: selectedMuscleGroup,
+            exercises: exercisesToAdd.map((ex) => ({
+              id: ex.id,
+              name: ex.name,
+              sets: ex.sets,
+              reps: ex.reps_range,
+            })),
+          },
+        });
+
+        const exerciseConfigurations: ExerciseConfiguration[] = exercisesToAdd.map((exercise) => ({
+          exerciseId: exercise.id,
+          name: exercise.name,
+          sets: exercise.sets,
+          reps_range: exercise.reps_range,
+          image_url: exercise.image_url,
+          muscle_group: exercise.muscle_group || selectedMuscleGroup,
+          primary_muscles: exercise.primary_muscles,
+          requires_weight: exercise.requires_weight,
+        }));
+
+        // Track validation start
+        Sentry.addBreadcrumb({
+          message: 'Validating Exercise Configurations',
+          category: 'validation.start',
+          level: 'info',
+          data: {
+            configurationsCount: exerciseConfigurations.length,
+          },
+        });
+
+        // Validate the exercise configurations before adding
+        const validationData = { exercises: exerciseConfigurations };
+        const validationResult = await validationService.validateAddExerciseForm(validationData);
+
+        if (!validationResult.success) {
+          const errorMessage = `Add exercise form validation failed: ${validationResult.errors.map((e: { message: string }) => e.message).join(', ')}`;
+
+          // Capture validation error with detailed context
+          captureValidationError(
+            new Error(errorMessage),
+            'exerciseConfigurations',
+            exerciseConfigurations,
+          );
+
+          logger.error('AddExerciseModal validation failed', undefined, {
+            context: {
+              errors: validationResult.errors,
+              exerciseConfigurations,
+            },
+          });
+
+          Sentry.addBreadcrumb({
+            message: 'Exercise Configuration Validation Failed',
+            category: 'validation.error',
+            level: 'error',
+            data: {
+              errors: validationResult.errors,
+              exerciseCount: exerciseConfigurations.length,
+            },
+          });
+
+          // Show error to user (you might want to add a state for this)
+          console.error('Validation failed:', errorMessage);
+          return;
+        }
+
+        // Track successful validation
+        Sentry.addBreadcrumb({
+          message: 'Exercise Configuration Validation Successful',
+          category: 'validation.success',
+          level: 'info',
+          data: {
+            exerciseCount: exerciseConfigurations.length,
+          },
+        });
+
+        console.log('AddExerciseModal: Adding exercises:', exerciseConfigurations);
+
+        // Track successful exercise addition
+        const duration = Date.now() - startTime;
+        Sentry.addBreadcrumb({
+          message: 'Exercises Added Successfully',
+          category: 'user.success',
+          level: 'info',
+          data: {
+            exerciseCount: exerciseConfigurations.length,
+            muscleGroup: selectedMuscleGroup,
+            totalDuration: duration,
+            addedExercises: exerciseConfigurations.map((ex) => ({
+              name: ex.name,
+              sets: ex.sets,
+              reps: ex.reps_range,
+            })),
+          },
+        });
+
+        onAddExercises(exerciseConfigurations);
+        onClose();
+      } catch (error) {
+        // Capture comprehensive error context
+        captureUIError(error as Error, 'AddExerciseModal.handleAddAll', 'add-exercise-modal');
+
+        logger.error(
+          'AddExerciseModal: Error adding exercises',
+          error instanceof Error ? error : undefined,
+          {
+            context: { exercisesToAdd },
+          },
+        );
+
+        Sentry.addBreadcrumb({
+          message: 'Failed to Add Exercises',
+          category: 'user.error',
+          level: 'error',
+          data: {
+            error: (error as Error).message,
+            exerciseCount: exercisesToAdd.length,
+            muscleGroup: selectedMuscleGroup,
+            duration: Date.now() - startTime,
+          },
+        });
+
+        console.error('Error adding exercises:', error);
+      }
     },
     [selectedMuscleGroup, onAddExercises, onClose],
   );
@@ -1608,8 +1989,6 @@ export default function AddExerciseModal({
                     handleStep2Next,
                     searchState,
                     selectedExercises,
-                    exercises,
-                    handleConfigurationChange,
                     handleAddAll,
                   })}
                 </Animated.View>

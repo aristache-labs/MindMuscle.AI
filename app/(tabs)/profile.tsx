@@ -95,7 +95,7 @@ export default function ProfileScreen() {
 
       // First check if it's in the user metadata (fastest)
       if (user.user_metadata?.avatar_url) {
-        const avatarUri = user.user_metadata.avatar_url;
+        const avatarUri = user.user_metadata.avatar_url as string;
         // Only update if the URL has changed
         if (avatarUrl !== avatarUri) {
           setAvatarUrl(avatarUri);
@@ -130,7 +130,17 @@ export default function ProfileScreen() {
         setAvatarUrl(null);
       }
     }
-  }, [user, avatarUrl]);
+  }, [user?.id, user?.user_metadata?.avatar_url]);
+
+  // Load avatar when user data changes
+  useEffect(() => {
+    if (user?.id) {
+      loadUserAvatar();
+    }
+  }, [user?.id, user?.user_metadata?.avatar_url, loadUserAvatar]);
+
+  // Track if we've already loaded data for this screen visit
+  const [hasLoadedForCurrentVisit, setHasLoadedForCurrentVisit] = useState(false);
 
   // Refresh user data when screen is mounted or becomes active
   const refreshData = useCallback(async () => {
@@ -138,27 +148,35 @@ export default function ProfileScreen() {
 
     setIsRefreshing(true);
     try {
-      await Promise.all([loadUserAvatar(), refreshUser()]);
+      // Only refresh user data, avatar will be loaded automatically via useEffect
+      await refreshUser();
     } catch (error) {
       console.error('Error refreshing profile data:', error);
       console.error('Profile refresh error:', error);
     } finally {
       setIsRefreshing(false);
     }
-  }, [isRefreshing, loadUserAvatar, refreshUser, pathname]);
+  }, [isRefreshing, refreshUser]);
 
   useEffect(() => {
-    // Only refresh when the screen becomes active and we're not already refreshing
-    if (pathname === '/profile') {
+    // Only refresh when the screen becomes active and we haven't loaded yet
+    if (pathname === '/profile' && !hasLoadedForCurrentVisit && !isRefreshing) {
+      setHasLoadedForCurrentVisit(true);
       safeAsyncFireAndForget(() => refreshData(), {
         errorPrefix: 'Profile data refresh failed',
         context: { pathname },
       });
     }
-  }, [pathname, refreshData]);
+
+    // Reset the flag when leaving the profile screen
+    if (pathname !== '/profile') {
+      setHasLoadedForCurrentVisit(false);
+    }
+  }, [pathname, hasLoadedForCurrentVisit, isRefreshing, refreshData]);
 
   // Get user's full name and email from metadata, fallback to defaults if not set
-  const userFullName = user?.user_metadata?.name || user?.email?.split('@')[0] || 'User';
+  const userFullName =
+    (user?.user_metadata?.name as string) || user?.email?.split('@')[0] || 'User';
   const userEmail = user?.email || '';
 
   const _handleEditProfile = () => {
@@ -195,7 +213,7 @@ export default function ProfileScreen() {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -347,12 +365,11 @@ export default function ProfileScreen() {
               try {
                 sentry.trackLogout();
                 await signOut();
-                router.replace('/(auth)/login');
+                // AuthGuard will handle the redirect automatically when session becomes null
               } catch (error) {
                 console.error('Error signing out:', error);
                 sentry.captureException(error as Error, {
-                  context: 'profile_logout_navigation',
-                  attempted_route: '/(auth)/login',
+                  context: 'profile_logout',
                 });
                 alert('Failed to sign out. Please try again.');
               }

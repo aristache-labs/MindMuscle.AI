@@ -19,6 +19,10 @@ type UseWorkoutExitHandlingProps = {
   currentExerciseIndex: number;
   originalCycleWeek: number | null;
   stopWorkoutTimer: () => void;
+  // Add customization state
+  exerciseCustomized?: Record<string, boolean>;
+  userEnteredValues?: Record<string, boolean>;
+  focusedInputs?: Record<string, boolean>;
 };
 
 export const useWorkoutExitHandling = ({
@@ -35,6 +39,9 @@ export const useWorkoutExitHandling = ({
   currentExerciseIndex,
   originalCycleWeek,
   stopWorkoutTimer,
+  exerciseCustomized,
+  userEnteredValues,
+  focusedInputs,
 }: UseWorkoutExitHandlingProps) => {
   const router = useRouter();
   const [showExitModal, setShowExitModal] = useState(false);
@@ -78,15 +85,20 @@ export const useWorkoutExitHandling = ({
         );
       }
 
-      // Save the current workout state
-      // No change needed for user.id, as UserProfile also has an id property.
+      // SIMPLIFIED: No need to track customization data separately
+      // The exercises array already contains the customized sets/reps values
+      console.log(
+        'PAUSING WORKOUT - Saving exercises with their current values (already customized)',
+      );
+
+      // Save the current workout state - exercises already contain customizations
       const success = await workoutPlanService.savePausedWorkout({
         userId: user?.id || '',
         planId,
         workoutDay,
         cycleWeek,
         weekName,
-        exercises,
+        exercises, // Already contains customized sets/reps
         exerciseSets,
         workoutDuration,
         totalVolume,
@@ -137,6 +149,9 @@ export const useWorkoutExitHandling = ({
     originalCycleWeek,
     stopWorkoutTimer,
     router,
+    exerciseCustomized,
+    userEnteredValues,
+    focusedInputs,
   ]);
 
   const handleReturnToWorkout = useCallback(() => {

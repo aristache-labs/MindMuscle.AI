@@ -14,9 +14,7 @@ interface UseWorkoutActionsProps {
   userWorkoutDays: number[];
   pausedWorkout: PausedWorkout | null;
   hasPausedWorkout: boolean;
-  setIsLoading: (loading: boolean) => void;
   setPausedWorkout: (workout: PausedWorkout | null) => void;
-  setHasPausedWorkout: (has: boolean) => void;
   setShowPausedWorkoutModal: (show: boolean) => void;
   setPausedWorkoutInfo: (info: PausedWorkoutInfo) => void;
   setHasAppliedCustomizations: (applied: boolean) => void;
@@ -32,9 +30,7 @@ export const useWorkoutActions = ({
   userWorkoutDays,
   pausedWorkout,
   hasPausedWorkout,
-  setIsLoading: _setIsLoading,
   setPausedWorkout,
-  setHasPausedWorkout: _setHasPausedWorkout,
   setShowPausedWorkoutModal,
   setPausedWorkoutInfo,
   setHasAppliedCustomizations,
@@ -111,7 +107,7 @@ export const useWorkoutActions = ({
       const currentWeek = activePlanData?.current_week || 1;
 
       // Get the week name from the database
-      const { data: weekData, error: _weekError } = await supabase
+      const { data: weekData } = await supabase
         .from('workout_cycle_weeks')
         .select('name')
         .eq('week_number', currentWeek)
@@ -150,65 +146,12 @@ export const useWorkoutActions = ({
     }
 
     try {
-      // Update paused workout with any exercise customizations
-      const updatedPausedWorkout = await updatePausedWorkoutWithCustomizations(pausedWorkout);
+      // SIMPLIFIED: No need to update paused workout - just use it as-is
+      console.log('RESUME: Using paused workout data exactly as saved');
+      const updatedPausedWorkout = pausedWorkout;
       setHasAppliedCustomizations(true);
 
-      // Save the updated paused workout back to the database
-      if (updatedPausedWorkout !== pausedWorkout) {
-        // Convert Exercise[] to ExerciseData[] by adding the required 'order' property
-        // and ensuring exercise_id is a string
-        const exercisesWithOrder = updatedPausedWorkout.exercises.map((exercise, index) => ({
-          id: exercise.id,
-          exercise_id: exercise.exercise_id || exercise.id, // Ensure exercise_id is always a string
-          name: exercise.name,
-          sets: exercise.sets,
-          reps_range: exercise.reps_range,
-          image_url: exercise.image_url,
-          primary_muscles: exercise.primary_muscles,
-          workout_day: exercise.workout_day,
-          order: index + 1,
-        }));
-
-        // Convert ExerciseSet format from my-plan types to workoutPlanService types
-        const convertedExerciseSets: Record<
-          string,
-          Array<{
-            id: string;
-            setNumber: number;
-            weight: string;
-            reps: string;
-            isCompleted: boolean;
-          }>
-        > = {};
-
-        Object.entries(updatedPausedWorkout.exerciseSets).forEach(([exerciseId, sets]) => {
-          convertedExerciseSets[exerciseId] = sets.map((set, index) => ({
-            id: `${exerciseId}-set-${index + 1}`,
-            setNumber: index + 1,
-            weight: set.weight?.toString() || '0',
-            reps: set.reps?.toString() || '0',
-            isCompleted: set.isCompleted,
-          }));
-        });
-
-        await workoutPlanService.savePausedWorkout({
-          userId: user.id,
-          planId: plan.id,
-          workoutDay: updatedPausedWorkout.workoutDay,
-          cycleWeek: updatedPausedWorkout.cycleWeek,
-          weekName: updatedPausedWorkout.weekName,
-          exercises: exercisesWithOrder,
-          exerciseSets: convertedExerciseSets,
-          workoutDuration: updatedPausedWorkout.workoutDuration,
-          totalVolume: updatedPausedWorkout.totalVolume,
-          totalReps: updatedPausedWorkout.totalReps,
-          currentExerciseIndex: updatedPausedWorkout.currentExerciseIndex,
-          originalCycleWeek: updatedPausedWorkout.originalCycleWeek,
-        });
-
-        setPausedWorkout(updatedPausedWorkout);
-      }
+      // SIMPLIFIED: Just navigate directly since paused workout is already saved correctly
 
       // Get the cycle week from the selected date
       const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');

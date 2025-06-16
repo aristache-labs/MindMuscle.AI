@@ -3,6 +3,7 @@ import { View, StyleSheet, Animated, Easing } from 'react-native';
 import { Text, ProgressBar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Sentry from '@sentry/react-native';
 
 // Import shared loading messages
 import { LOADING_MESSAGES } from '../constants/loadingMessages';
@@ -23,6 +24,30 @@ export default function InitialLoadingScreen({
   showProgress = true,
   progressValue,
 }: InitialLoadingScreenProps) {
+  // Track component lifecycle
+  React.useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: 'InitialLoadingScreen component mounted',
+      category: 'component.lifecycle',
+      level: 'info',
+      data: {
+        duration,
+        hasMessage: !!message,
+        showProgress,
+        hasProgressValue: progressValue !== undefined,
+        hasOnFinish: !!onFinish,
+      },
+    });
+
+    return () => {
+      Sentry.addBreadcrumb({
+        message: 'InitialLoadingScreen component unmounted',
+        category: 'component.lifecycle',
+        level: 'info',
+      });
+    };
+  }, []);
+
   // Disable excessive logging
   // console.log('InitialLoadingScreen rendered with message:', message);
   const outerSpinValue = useRef(new Animated.Value(0)).current;
@@ -39,12 +64,35 @@ export default function InitialLoadingScreen({
   useEffect(() => {
     if (progressValue !== undefined) {
       setProgress(progressValue);
+
+      // Track progress updates
+      Sentry.addBreadcrumb({
+        message: 'InitialLoadingScreen progress updated',
+        category: 'ui.progress',
+        level: 'debug',
+        data: {
+          progressValue,
+          isComplete: progressValue >= 1,
+        },
+      });
     }
   }, [progressValue]);
 
   // Update message when message prop changes
   useEffect(() => {
     if (message && message !== prevMessage) {
+      // Track message changes
+      Sentry.addBreadcrumb({
+        message: 'InitialLoadingScreen message updated',
+        category: 'ui.update',
+        level: 'info',
+        data: {
+          previousMessage: prevMessage,
+          newMessage: message,
+          isFirstMessage: !prevMessage,
+        },
+      });
+
       // Only animate text if this is not the first message
       if (prevMessage) {
         animateText();
@@ -55,133 +103,240 @@ export default function InitialLoadingScreen({
   }, [message, prevMessage]);
 
   const animateText = () => {
-    textScaleValue.setValue(0.8);
-    textOpacityValue.setValue(0);
+    try {
+      textScaleValue.setValue(0.8);
+      textOpacityValue.setValue(0);
 
-    Animated.parallel([
-      Animated.spring(textScaleValue, {
-        toValue: 1,
-        friction: 8,
-        tension: 40,
-        useNativeDriver: true,
-      }),
-      Animated.timing(textOpacityValue, {
-        toValue: 1,
-        duration: 400,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start();
+      Animated.parallel([
+        Animated.spring(textScaleValue, {
+          toValue: 1,
+          friction: 8,
+          tension: 40,
+          useNativeDriver: true,
+        }),
+        Animated.timing(textOpacityValue, {
+          toValue: 1,
+          duration: 400,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'InitialLoadingScreen',
+          action: 'animate_text',
+        },
+      });
+    }
   };
 
   useEffect(() => {
-    // Fade in animation
-    Animated.timing(fadeValue, {
-      toValue: 1,
-      duration: 500,
-      useNativeDriver: true,
-    }).start();
-
-    // Start spinning animations
-    const startSpinning = () => {
-      // Reset values to 0 without animation
-      outerSpinValue.setValue(0);
-      innerSpinValue.setValue(0);
-      dumbbellSpinValue.setValue(0);
-
-      // Create parallel animations
-      Animated.parallel([
-        // Outer circle
-        Animated.loop(
-          Animated.timing(outerSpinValue, {
-            toValue: 1,
-            duration: 3000,
-            easing: Easing.linear,
-            useNativeDriver: true,
-          }),
-          { iterations: -1 },
-        ),
-        // Inner circle
-        Animated.loop(
-          Animated.timing(innerSpinValue, {
-            toValue: 1,
-            duration: 2000,
-            easing: Easing.linear,
-            useNativeDriver: true,
-          }),
-          { iterations: -1 },
-        ),
-        // Dumbbell
-        Animated.loop(
-          Animated.timing(dumbbellSpinValue, {
-            toValue: 1,
-            duration: 4000,
-            easing: Easing.linear,
-            useNativeDriver: true,
-          }),
-          { iterations: -1 },
-        ),
-      ]).start();
-    };
-
-    startSpinning();
-
-    if (showProgress && progressValue === undefined) {
-      // Progress update - only if not externally controlled
-      const progressInterval = setInterval(() => {
-        setProgress((prev) => {
-          const newProgress = prev + 1 / (duration / 1000);
-          return newProgress > 1 ? 1 : newProgress;
-        });
-      }, 1000);
-
-      // Message rotation with animation - only if no message prop is provided
-      const messageInterval = setInterval(() => {
-        if (!message) {
-          setLoadingMessage((prev: string) => {
-            const currentIndex = LOADING_MESSAGES.ROTATION.indexOf(prev);
-            const nextIndex = (currentIndex + 1) % LOADING_MESSAGES.ROTATION.length;
-            // If current message not found in rotation, start from beginning
-            const nextMessage =
-              currentIndex === -1
-                ? LOADING_MESSAGES.ROTATION[0]
-                : LOADING_MESSAGES.ROTATION[nextIndex];
-            animateText();
-            return nextMessage;
+    try {
+      // Fade in animation
+      Animated.timing(fadeValue, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }).start((finished) => {
+        if (finished) {
+          Sentry.addBreadcrumb({
+            message: 'InitialLoadingScreen fade-in animation completed',
+            category: 'ui.animation',
+            level: 'debug',
           });
         }
-      }, 3000);
+      });
 
-      // Navigation timeout
-      const navigationTimeout = setTimeout(() => {
-        // Fade out animation before navigation
-        Animated.timing(fadeValue, {
-          toValue: 0,
-          duration: 500,
-          useNativeDriver: true,
-        }).start(() => {
-          if (onFinish) onFinish();
+      // Start spinning animations
+      const startSpinning = () => {
+        // Reset values to 0 without animation
+        outerSpinValue.setValue(0);
+        innerSpinValue.setValue(0);
+        dumbbellSpinValue.setValue(0);
+
+        Sentry.addBreadcrumb({
+          message: 'InitialLoadingScreen spinning animations started',
+          category: 'ui.animation',
+          level: 'debug',
         });
-      }, duration - 500);
 
-      return () => {
-        clearInterval(progressInterval);
-        clearInterval(messageInterval);
-        clearTimeout(navigationTimeout);
+        // Create parallel animations
+        Animated.parallel([
+          // Outer circle
+          Animated.loop(
+            Animated.timing(outerSpinValue, {
+              toValue: 1,
+              duration: 3000,
+              easing: Easing.linear,
+              useNativeDriver: true,
+            }),
+            { iterations: -1 },
+          ),
+          // Inner circle
+          Animated.loop(
+            Animated.timing(innerSpinValue, {
+              toValue: 1,
+              duration: 2000,
+              easing: Easing.linear,
+              useNativeDriver: true,
+            }),
+            { iterations: -1 },
+          ),
+          // Dumbbell
+          Animated.loop(
+            Animated.timing(dumbbellSpinValue, {
+              toValue: 1,
+              duration: 4000,
+              easing: Easing.linear,
+              useNativeDriver: true,
+            }),
+            { iterations: -1 },
+          ),
+        ]).start();
       };
-    } else if (progressValue !== undefined && progressValue >= 1 && onFinish) {
-      // If external progress is complete, trigger onFinish
-      const finishTimeout = setTimeout(() => {
-        Animated.timing(fadeValue, {
-          toValue: 0,
-          duration: 500,
-          useNativeDriver: true,
-        }).start(() => {
-          if (onFinish) onFinish();
-        });
-      }, 1000); // Wait a bit longer to show 100% completion
 
-      return () => clearTimeout(finishTimeout);
+      startSpinning();
+
+      if (showProgress && progressValue === undefined) {
+        // Progress update - only if not externally controlled
+        const progressInterval = setInterval(() => {
+          setProgress((prev) => {
+            const newProgress = prev + 1 / (duration / 1000);
+            const finalProgress = newProgress > 1 ? 1 : newProgress;
+
+            // Track progress milestones
+            if (finalProgress >= 0.25 && prev < 0.25) {
+              Sentry.addBreadcrumb({
+                message: 'InitialLoadingScreen 25% progress milestone',
+                category: 'ui.milestone',
+                level: 'info',
+              });
+            } else if (finalProgress >= 0.5 && prev < 0.5) {
+              Sentry.addBreadcrumb({
+                message: 'InitialLoadingScreen 50% progress milestone',
+                category: 'ui.milestone',
+                level: 'info',
+              });
+            } else if (finalProgress >= 0.75 && prev < 0.75) {
+              Sentry.addBreadcrumb({
+                message: 'InitialLoadingScreen 75% progress milestone',
+                category: 'ui.milestone',
+                level: 'info',
+              });
+            } else if (finalProgress >= 1 && prev < 1) {
+              Sentry.addBreadcrumb({
+                message: 'InitialLoadingScreen 100% progress milestone',
+                category: 'ui.milestone',
+                level: 'info',
+              });
+            }
+
+            return finalProgress;
+          });
+        }, 1000);
+
+        // Message rotation with animation - only if no message prop is provided
+        const messageInterval = setInterval(() => {
+          if (!message) {
+            setLoadingMessage((prev: string) => {
+              const currentIndex = LOADING_MESSAGES.ROTATION.indexOf(prev);
+              const nextIndex = (currentIndex + 1) % LOADING_MESSAGES.ROTATION.length;
+              // If current message not found in rotation, start from beginning
+              const nextMessage =
+                currentIndex === -1
+                  ? LOADING_MESSAGES.ROTATION[0]
+                  : LOADING_MESSAGES.ROTATION[nextIndex];
+
+              Sentry.addBreadcrumb({
+                message: 'InitialLoadingScreen message rotated',
+                category: 'ui.update',
+                level: 'debug',
+                data: {
+                  previousMessage: prev,
+                  newMessage: nextMessage,
+                  rotationIndex: nextIndex,
+                },
+              });
+
+              animateText();
+              return nextMessage;
+            });
+          }
+        }, 3000);
+
+        // Navigation timeout
+        const navigationTimeout = setTimeout(() => {
+          Sentry.addBreadcrumb({
+            message: 'InitialLoadingScreen duration timeout reached',
+            category: 'ui.timeout',
+            level: 'info',
+            data: { duration },
+          });
+
+          // Fade out animation before navigation
+          Animated.timing(fadeValue, {
+            toValue: 0,
+            duration: 500,
+            useNativeDriver: true,
+          }).start(() => {
+            if (onFinish) {
+              Sentry.addBreadcrumb({
+                message: 'InitialLoadingScreen onFinish callback called',
+                category: 'ui.callback',
+                level: 'info',
+              });
+              onFinish();
+            }
+          });
+        }, duration - 500);
+
+        return () => {
+          clearInterval(progressInterval);
+          clearInterval(messageInterval);
+          clearTimeout(navigationTimeout);
+        };
+      } else if (progressValue !== undefined && progressValue >= 1 && onFinish) {
+        // If external progress is complete, trigger onFinish
+        const finishTimeout = setTimeout(() => {
+          Sentry.addBreadcrumb({
+            message: 'InitialLoadingScreen external progress completed',
+            category: 'ui.completion',
+            level: 'info',
+            data: { progressValue },
+          });
+
+          Animated.timing(fadeValue, {
+            toValue: 0,
+            duration: 500,
+            useNativeDriver: true,
+          }).start(() => {
+            if (onFinish) {
+              Sentry.addBreadcrumb({
+                message: 'InitialLoadingScreen onFinish callback called (external progress)',
+                category: 'ui.callback',
+                level: 'info',
+              });
+              onFinish();
+            }
+          });
+        }, 1000); // Wait a bit longer to show 100% completion
+
+        return () => clearTimeout(finishTimeout);
+      }
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'InitialLoadingScreen',
+          action: 'setup_animations',
+        },
+        extra: {
+          duration,
+          showProgress,
+          progressValue,
+          hasOnFinish: !!onFinish,
+        },
+      });
     }
   }, [duration, message, onFinish, showProgress, progressValue]);
 

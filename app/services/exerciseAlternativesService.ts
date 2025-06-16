@@ -1,4 +1,12 @@
 import supabase from './supabase';
+import {
+  captureError,
+  captureDatabaseError,
+  captureAPIError,
+  capturePerformanceError,
+  simpleErrorHandler,
+} from './sentry';
+import * as Sentry from '@sentry/react-native';
 
 interface Exercise {
   id: string;
@@ -45,52 +53,154 @@ interface ExerciseCache {
 
 // Helper to get cached exercises (reuse existing cache system)
 const getCachedExercises = (): ExerciseCache | null => {
-  try {
-    const cache = (global as { exercisesCache?: ExerciseCache }).exercisesCache;
-    if (!cache) return null;
+  return Sentry.startSpan(
+    {
+      name: 'getCachedExercises',
+      op: 'cache.read',
+      attributes: { service: 'exerciseAlternatives' },
+    },
+    (span) => {
+      try {
+        simpleErrorHandler.setComponent('exerciseAlternativesService');
 
-    // Check if cache is expired (30 minutes)
-    const CACHE_EXPIRY = 30 * 60 * 1000;
-    const now = Date.now();
-    if (now - cache.lastUpdated > CACHE_EXPIRY) {
-      console.log('Exercise cache expired, will refresh from API');
-      return null;
-    }
+        const cache = (global as { exercisesCache?: ExerciseCache }).exercisesCache;
+        if (!cache) {
+          span.setAttributes({ cache_status: 'miss' });
+          return null;
+        }
 
-    return cache;
-  } catch (error) {
-    console.warn('Error accessing exercise cache:', error);
-    return null;
-  }
+        // Check if cache is expired (30 minutes)
+        const CACHE_EXPIRY = 30 * 60 * 1000;
+        const now = Date.now();
+        const cacheAge = now - cache.lastUpdated;
+
+        if (cacheAge > CACHE_EXPIRY) {
+          console.log('Exercise cache expired, will refresh from API');
+          span.setAttributes({
+            cache_status: 'expired',
+            age_minutes: Math.round(cacheAge / 60000),
+          });
+          return null;
+        }
+
+        span.setAttributes({
+          cache_status: 'hit',
+          exercise_count: cache.all?.length || 0,
+          age_minutes: Math.round(cacheAge / 60000),
+        });
+
+        return cache;
+      } catch (error) {
+        const errorObj = error instanceof Error ? error : new Error(String(error));
+        captureError(errorObj, {
+          category: 'storage_error',
+          component: 'exerciseAlternativesService',
+          operation: 'getCachedExercises',
+        });
+
+        span.setAttributes({ cache_status: 'error', error_message: errorObj.message });
+        console.warn('Error accessing exercise cache:', error);
+        return null;
+      }
+    },
+  );
 };
 
 // Helper to fetch exercises for specific muscle group with caching
 const getExercisesForMuscleGroup = async (primaryMuscle: string): Promise<Exercise[]> => {
-  // Try cache first
-  const cache = getCachedExercises();
-  if (cache?.all) {
-    console.log(`🚀 Using cached exercises for muscle group: ${primaryMuscle}`);
-    // Filter cached exercises by primary muscle
-    return cache.all.filter(
-      (exercise: Exercise) =>
-        exercise.primary_muscles && exercise.primary_muscles.includes(primaryMuscle),
-    );
-  }
+  return await Sentry.startSpan(
+    {
+      name: 'getExercisesForMuscleGroup',
+      op: 'db.query',
+      attributes: {
+        service: 'exerciseAlternatives',
+        muscle_group: primaryMuscle,
+      },
+    },
+    async (span) => {
+      try {
+        // Try cache first
+        const cache = getCachedExercises();
+        if (cache?.all) {
+          console.log(`🚀 Using cached exercises for muscle group: ${primaryMuscle}`);
 
-  // Fallback to API call for specific muscle group
-  console.log(`📡 Fetching exercises from API for muscle group: ${primaryMuscle}`);
-  const { data: exercises, error } = await supabase
-    .from('exercises')
-    .select('*')
-    .contains('primary_muscles', [primaryMuscle])
-    .order('name');
+          // Filter cached exercises by primary muscle
+          const filteredExercises = cache.all.filter(
+            (exercise: Exercise) =>
+              exercise.primary_muscles && exercise.primary_muscles.includes(primaryMuscle),
+          );
 
-  if (error) {
-    console.error(`❌ Error fetching exercises for ${primaryMuscle}:`, error);
-    throw error;
-  }
+          span.setAttributes({
+            data_source: 'cache',
+            exercise_count: filteredExercises.length,
+            total_cached: cache.all.length,
+          });
 
-  return exercises || [];
+          return filteredExercises;
+        }
+
+        // Fallback to API call for specific muscle group
+        console.log(`📡 Fetching exercises from API for muscle group: ${primaryMuscle}`);
+
+        const startTime = Date.now();
+        const { data: exercises, error } = await supabase
+          .from('exercises')
+          .select('*')
+          .contains('primary_muscles', [primaryMuscle])
+          .order('name');
+
+        const queryDuration = Date.now() - startTime;
+
+        if (error) {
+          console.error(`❌ Error fetching exercises for ${primaryMuscle}:`, error);
+
+          captureDatabaseError(
+            new Error(`Failed to fetch exercises for muscle group: ${error.message}`),
+            'exercises',
+            'select_by_muscle_group',
+          );
+
+          span.setAttributes({
+            query_status: 'error',
+            error_message: error.message,
+          });
+
+          throw error;
+        }
+
+        const exerciseCount = exercises?.length || 0;
+
+        // Log performance if query is slow
+        if (queryDuration > 2000) {
+          capturePerformanceError(
+            `Slow exercise query for muscle group: ${primaryMuscle}`,
+            'database_query_duration',
+            queryDuration,
+          );
+        }
+
+        span.setAttributes({
+          data_source: 'api',
+          query_status: 'success',
+          exercise_count: exerciseCount,
+          query_duration_ms: queryDuration,
+        });
+
+        return exercises || [];
+      } catch (error) {
+        const errorObj = error instanceof Error ? error : new Error(String(error));
+
+        captureAPIError(errorObj, 'exercises', 'supabase');
+
+        span.setAttributes({
+          query_status: 'error',
+          error_message: errorObj.message,
+        });
+
+        throw errorObj;
+      }
+    },
+  );
 };
 
 /**
@@ -379,84 +489,166 @@ export async function fetchExerciseAlternatives(currentExercise: CurrentExercise
   recommended: ExerciseAlternative[];
   other: ExerciseAlternative[];
 }> {
-  try {
-    console.log('🔍 fetchExerciseAlternatives called with:', {
-      exercise_id: currentExercise.exercise_id,
-      primary_muscles: currentExercise.primary_muscles,
-      difficulty: currentExercise.difficulty,
-      equipment: currentExercise.equipment,
-    });
-
-    if (!currentExercise.primary_muscles || currentExercise.primary_muscles.length === 0) {
-      console.log('❌ No primary muscles found for current exercise');
-      return { recommended: [], other: [] };
-    }
-
-    const primaryMuscle = currentExercise.primary_muscles[0];
-    console.log(`🎯 Fetching ALL exercises for muscle group: ${primaryMuscle}`);
-
-    // Get ALL exercises for the same muscle group using cache for optimal performance
-    const muscleGroupExercises = await getExercisesForMuscleGroup(primaryMuscle);
-
-    if (!muscleGroupExercises || muscleGroupExercises.length === 0) {
-      console.log(`❌ No exercises found for muscle group: ${primaryMuscle}`);
-      return { recommended: [], other: [] };
-    }
-
-    console.log(
-      `📊 Found ${muscleGroupExercises.length} exercises for ${primaryMuscle} muscle group`,
-    );
-
-    // Filter out current exercise and process all others in the same muscle group
-    const availableExercises = muscleGroupExercises.filter(
-      (exercise) => exercise.id !== currentExercise.exercise_id,
-    );
-
-    console.log(
-      `🎯 ${availableExercises.length} ${primaryMuscle} exercises available after filtering current exercise`,
-    );
-
-    // Process ALL available exercises in the muscle group and add smart defaults
-    const processedExercises: ExerciseAlternative[] = availableExercises.map((exercise) => {
-      const smartDefaults = generateSmartDefaults(exercise, currentExercise);
-      const similarityScore = calculateSimilarityScore(exercise, currentExercise);
-
-      return {
-        ...exercise,
-        exercise_id: exercise.id, // Map id to exercise_id for compatibility
-        ...smartDefaults,
-        order: currentExercise.order,
-        workout_day: currentExercise.workout_day,
-        recommendation_type: 'other' as 'recommended' | 'other', // Will be determined below
-        similarity_score: similarityScore,
-      };
-    });
-
-    // Sort by similarity score (highest first)
-    processedExercises.sort((a, b) => b.similarity_score - a.similarity_score);
-
-    console.log(`📊 Exercise categorization for ${primaryMuscle}:`, {
-      totalExercises: processedExercises.length,
-      topScores: processedExercises
-        .slice(0, 5)
-        .map((ex) => ({ name: ex.name, score: ex.similarity_score })),
-      scoreRange: {
-        highest: processedExercises[0]?.similarity_score || 0,
-        lowest: processedExercises[processedExercises.length - 1]?.similarity_score || 0,
+  return await Sentry.startSpan(
+    {
+      name: 'fetchExerciseAlternatives',
+      op: 'service.exercise_alternatives',
+      attributes: {
+        service: 'exerciseAlternatives',
+        exercise_id: currentExercise.exercise_id,
       },
-    });
+    },
+    async (span) => {
+      try {
+        simpleErrorHandler.setComponent('exerciseAlternativesService');
 
-    // Use the categorization helper function
-    const result = categorizeExercises(processedExercises, primaryMuscle);
+        console.log('🔍 fetchExerciseAlternatives called with:', {
+          exercise_id: currentExercise.exercise_id,
+          primary_muscles: currentExercise.primary_muscles,
+          difficulty: currentExercise.difficulty,
+          equipment: currentExercise.equipment,
+        });
 
-    return {
-      recommended: result.recommended, // Show ALL recommended exercises for this muscle group
-      other: result.other, // Show ALL other alternatives for this muscle group
-    };
-  } catch (error) {
-    console.error('Error in fetchExerciseAlternatives:', error);
-    return { recommended: [], other: [] };
-  }
+        if (!currentExercise.primary_muscles || currentExercise.primary_muscles.length === 0) {
+          const errorMessage = 'No primary muscles found for current exercise';
+          console.log('❌ ' + errorMessage);
+
+          simpleErrorHandler.captureMessage(errorMessage, 'warning', {
+            category: 'validation_error',
+            component: 'exerciseAlternativesService',
+            exerciseId: currentExercise.exercise_id,
+          });
+
+          span.setAttributes({ result: 'no_primary_muscles' });
+          return { recommended: [], other: [] };
+        }
+
+        const primaryMuscle = currentExercise.primary_muscles[0];
+        console.log(`🎯 Fetching ALL exercises for muscle group: ${primaryMuscle}`);
+
+        // Get ALL exercises for the same muscle group using cache for optimal performance
+        const startTime = Date.now();
+        const muscleGroupExercises = await getExercisesForMuscleGroup(primaryMuscle);
+        const fetchDuration = Date.now() - startTime;
+
+        if (!muscleGroupExercises || muscleGroupExercises.length === 0) {
+          const errorMessage = `No exercises found for muscle group: ${primaryMuscle}`;
+          console.log(`❌ ${errorMessage}`);
+
+          simpleErrorHandler.captureMessage(errorMessage, 'warning', {
+            category: 'database_error',
+            component: 'exerciseAlternativesService',
+            muscleGroup: primaryMuscle,
+          });
+
+          span.setAttributes({
+            result: 'no_exercises_found',
+            muscle_group: primaryMuscle,
+          });
+
+          return { recommended: [], other: [] };
+        }
+
+        console.log(
+          `📊 Found ${muscleGroupExercises.length} exercises for ${primaryMuscle} muscle group`,
+        );
+
+        // Filter out current exercise and process all others in the same muscle group
+        const availableExercises = muscleGroupExercises.filter(
+          (exercise) => exercise.id !== currentExercise.exercise_id,
+        );
+
+        console.log(
+          `🎯 ${availableExercises.length} ${primaryMuscle} exercises available after filtering current exercise`,
+        );
+
+        // Process ALL available exercises in the muscle group and add smart defaults
+        const processingStartTime = Date.now();
+        const processedExercises: ExerciseAlternative[] = availableExercises.map((exercise) => {
+          const smartDefaults = generateSmartDefaults(exercise, currentExercise);
+          const similarityScore = calculateSimilarityScore(exercise, currentExercise);
+
+          return {
+            ...exercise,
+            exercise_id: exercise.id, // Map id to exercise_id for compatibility
+            ...smartDefaults,
+            order: currentExercise.order,
+            workout_day: currentExercise.workout_day,
+            recommendation_type: 'other' as 'recommended' | 'other', // Will be determined below
+            similarity_score: similarityScore,
+          };
+        });
+        const processingDuration = Date.now() - processingStartTime;
+
+        // Sort by similarity score (highest first)
+        processedExercises.sort((a, b) => b.similarity_score - a.similarity_score);
+
+        console.log(`📊 Exercise categorization for ${primaryMuscle}:`, {
+          totalExercises: processedExercises.length,
+          topScores: processedExercises
+            .slice(0, 5)
+            .map((ex) => ({ name: ex.name, score: ex.similarity_score })),
+          scoreRange: {
+            highest: processedExercises[0]?.similarity_score || 0,
+            lowest: processedExercises[processedExercises.length - 1]?.similarity_score || 0,
+          },
+        });
+
+        // Use the categorization helper function
+        const categorizationStartTime = Date.now();
+        const result = categorizeExercises(processedExercises, primaryMuscle);
+        const categorizationDuration = Date.now() - categorizationStartTime;
+
+        const totalDuration = Date.now() - startTime;
+
+        // Log performance metrics
+        if (totalDuration > 5000) {
+          capturePerformanceError(
+            `Slow exercise alternatives fetch for muscle group: ${primaryMuscle}`,
+            'service_duration',
+            totalDuration,
+          );
+        }
+
+        span.setAttributes({
+          result: 'success',
+          muscle_group: primaryMuscle,
+          total_exercises: muscleGroupExercises.length,
+          available_exercises: availableExercises.length,
+          recommended_count: result.recommended.length,
+          other_count: result.other.length,
+          total_duration_ms: totalDuration,
+          processing_duration_ms: processingDuration,
+          categorization_duration_ms: categorizationDuration,
+          fetch_duration_ms: fetchDuration,
+        });
+
+        return {
+          recommended: result.recommended, // Show ALL recommended exercises for this muscle group
+          other: result.other, // Show ALL other alternatives for this muscle group
+        };
+      } catch (error) {
+        const errorObj = error instanceof Error ? error : new Error(String(error));
+
+        console.error('Error in fetchExerciseAlternatives:', error);
+
+        captureError(errorObj, {
+          category: 'api_error',
+          component: 'exerciseAlternativesService',
+          operation: 'fetchExerciseAlternatives',
+          exerciseId: currentExercise.exercise_id,
+          primaryMuscles: currentExercise.primary_muscles,
+        });
+
+        span.setAttributes({
+          result: 'error',
+          error_message: errorObj.message,
+        });
+
+        return { recommended: [], other: [] };
+      }
+    },
+  );
 }
 
 /**
@@ -519,45 +711,122 @@ export async function fetchEnhancedExerciseAlternatives(
   recommended: ExerciseAlternative[];
   other: ExerciseAlternative[];
 }> {
-  try {
-    const baseAlternatives = await fetchExerciseAlternatives(currentExercise);
+  return await Sentry.startSpan(
+    {
+      name: 'fetchEnhancedExerciseAlternatives',
+      op: 'service.enhanced_exercise_alternatives',
+      attributes: {
+        service: 'exerciseAlternatives',
+        exercise_id: currentExercise.exercise_id,
+        has_preferences: !!userPreferences,
+      },
+    },
+    async (span) => {
+      try {
+        simpleErrorHandler.setComponent('exerciseAlternativesService');
 
-    if (!userPreferences) {
-      return baseAlternatives;
-    }
+        const startTime = Date.now();
+        const baseAlternatives = await fetchExerciseAlternatives(currentExercise);
+        const baseFetchDuration = Date.now() - startTime;
 
-    // Apply user preferences to boost/filter recommendations
-    const allProcessed = applyUserPreferences(
-      [...baseAlternatives.recommended, ...baseAlternatives.other],
-      userPreferences,
-    );
+        if (!userPreferences) {
+          span.setAttributes({
+            preferences_applied: 'none',
+            recommended_count: baseAlternatives.recommended.length,
+            other_count: baseAlternatives.other.length,
+            base_fetch_duration_ms: baseFetchDuration,
+          });
 
-    if (allProcessed.length === 0) {
-      return { recommended: [], other: [] };
-    }
+          return baseAlternatives;
+        }
 
-    const primaryMuscle = currentExercise.primary_muscles?.[0] || 'Unknown';
+        // Apply user preferences to boost/filter recommendations
+        const preferencesStartTime = Date.now();
+        const allProcessed = applyUserPreferences(
+          [...baseAlternatives.recommended, ...baseAlternatives.other],
+          userPreferences,
+        );
+        const preferencesProcessingDuration = Date.now() - preferencesStartTime;
 
-    // Use the same categorization helper function for consistent distribution
-    const result = categorizeExercises(allProcessed, primaryMuscle);
+        if (allProcessed.length === 0) {
+          const warningMessage = 'No exercises found after applying user preferences';
 
-    console.log(`🎯 Enhanced categorization result for ${primaryMuscle} (SMART SPLIT):`, {
-      recommended: result.recommended.length,
-      other: result.other.length,
-      total: result.recommended.length + result.other.length,
-      distribution: `${Math.round((result.recommended.length / (result.recommended.length + result.other.length)) * 100)}% recommended, ${Math.round((result.other.length / (result.recommended.length + result.other.length)) * 100)}% other`,
-      recommendedNames: result.recommended.slice(0, 3).map((ex) => ex.name),
-      otherNames: result.other.slice(0, 3).map((ex) => ex.name),
-    });
+          simpleErrorHandler.captureMessage(warningMessage, 'warning', {
+            category: 'validation_error',
+            component: 'exerciseAlternativesService',
+            exerciseId: currentExercise.exercise_id,
+            userPreferences,
+          });
 
-    return {
-      recommended: result.recommended, // Show ALL recommended exercises for this muscle group
-      other: result.other, // Show ALL other alternatives for this muscle group
-    };
-  } catch (error) {
-    console.error('Error in fetchEnhancedExerciseAlternatives:', error);
-    return { recommended: [], other: [] };
-  }
+          span.setAttributes({ result: 'no_exercises_after_preferences' });
+          return { recommended: [], other: [] };
+        }
+
+        const primaryMuscle = currentExercise.primary_muscles?.[0] || 'Unknown';
+
+        // Use the same categorization helper function for consistent distribution
+        const categorizationStartTime = Date.now();
+        const result = categorizeExercises(allProcessed, primaryMuscle);
+        const categorizationDuration = Date.now() - categorizationStartTime;
+
+        const totalDuration = Date.now() - startTime;
+
+        console.log(`🎯 Enhanced categorization result for ${primaryMuscle} (SMART SPLIT):`, {
+          recommended: result.recommended.length,
+          other: result.other.length,
+          total: result.recommended.length + result.other.length,
+          distribution: `${Math.round((result.recommended.length / (result.recommended.length + result.other.length)) * 100)}% recommended, ${Math.round((result.other.length / (result.recommended.length + result.other.length)) * 100)}% other`,
+          recommendedNames: result.recommended.slice(0, 3).map((ex) => ex.name),
+          otherNames: result.other.slice(0, 3).map((ex) => ex.name),
+        });
+
+        // Log performance metrics
+        if (totalDuration > 7000) {
+          capturePerformanceError(
+            `Slow enhanced exercise alternatives fetch for muscle group: ${primaryMuscle}`,
+            'enhanced_service_duration',
+            totalDuration,
+          );
+        }
+
+        span.setAttributes({
+          preferences_applied: 'yes',
+          result: 'success',
+          muscle_group: primaryMuscle,
+          recommended_count: result.recommended.length,
+          other_count: result.other.length,
+          total_duration_ms: totalDuration,
+          preferences_processing_ms: preferencesProcessingDuration,
+          categorization_duration_ms: categorizationDuration,
+          base_fetch_duration_ms: baseFetchDuration,
+        });
+
+        return {
+          recommended: result.recommended, // Show ALL recommended exercises for this muscle group
+          other: result.other, // Show ALL other alternatives for this muscle group
+        };
+      } catch (error) {
+        const errorObj = error instanceof Error ? error : new Error(String(error));
+
+        console.error('Error in fetchEnhancedExerciseAlternatives:', error);
+
+        captureError(errorObj, {
+          category: 'api_error',
+          component: 'exerciseAlternativesService',
+          operation: 'fetchEnhancedExerciseAlternatives',
+          exerciseId: currentExercise.exercise_id,
+          userPreferences,
+        });
+
+        span.setAttributes({
+          result: 'error',
+          error_message: errorObj.message,
+        });
+
+        return { recommended: [], other: [] };
+      }
+    },
+  );
 }
 
 export default {

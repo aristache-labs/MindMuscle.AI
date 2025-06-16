@@ -1,6 +1,8 @@
 import { Asset } from 'expo-asset';
 import { Image } from 'expo-image';
 import { Platform } from 'react-native';
+import * as Sentry from '@sentry/react-native';
+import { startTransaction, TransactionLike } from './sentryCompat';
 import { loggers } from './debugHelpers';
 
 // Get the image preloader logger
@@ -14,6 +16,106 @@ export default function ImagePreloaderWrapper() {
 
 // Debug flag - set to false to reduce logging
 export const DEBUG_IMAGE_PRELOADER = false;
+
+// Sentry performance tracking configuration
+const SENTRY_CONFIG = {
+  TRACE_NAMES: {
+    PRELOAD_BATCH: 'image.preload.batch',
+    PRELOAD_SINGLE: 'image.preload.single',
+    CACHE_OPERATION: 'image.cache.operation',
+    SVG_PRELOAD: 'image.svg.preload',
+    MODAL_PRELOAD: 'image.modal.preload',
+    STRATEGIC_PRELOAD: 'image.strategic.preload',
+  },
+  ERROR_CATEGORIES: {
+    FASTIMAGE_ERROR: 'fastimage_error',
+    ASSET_API_ERROR: 'asset_api_error',
+    CACHE_ERROR: 'cache_error',
+    SVG_ERROR: 'svg_error',
+    TIMEOUT_ERROR: 'timeout_error',
+  },
+  BREADCRUMB_CATEGORIES: {
+    PRELOAD: 'image.preload',
+    CACHE: 'image.cache',
+    PERFORMANCE: 'image.performance',
+  },
+} as const;
+
+// Helper function to add Sentry breadcrumb
+const addSentryBreadcrumb = (
+  message: string,
+  category: keyof typeof SENTRY_CONFIG.BREADCRUMB_CATEGORIES,
+  data?: Record<string, unknown>,
+  level: Sentry.SeverityLevel = 'info',
+): void => {
+  try {
+    Sentry.addBreadcrumb({
+      message,
+      category: SENTRY_CONFIG.BREADCRUMB_CATEGORIES[category],
+      data,
+      level,
+      timestamp: Date.now() / 1000,
+    });
+  } catch (error) {
+    console.warn('Failed to add Sentry breadcrumb:', error);
+  }
+};
+
+// Helper function to capture Sentry exception with context
+const captureSentryException = (
+  error: Error,
+  category: keyof typeof SENTRY_CONFIG.ERROR_CATEGORIES,
+  context?: Record<string, unknown>,
+): void => {
+  try {
+    Sentry.withScope((scope) => {
+      scope.setTag('error_category', SENTRY_CONFIG.ERROR_CATEGORIES[category]);
+      scope.setTag('component', 'imagePreloader');
+
+      if (context) {
+        Object.entries(context).forEach(([key, value]) => {
+          scope.setContext(
+            key,
+            typeof value === 'object' && value !== null
+              ? (value as Record<string, unknown>)
+              : { value },
+          );
+        });
+      }
+
+      scope.setLevel('error');
+      Sentry.captureException(error);
+    });
+  } catch (sentryError) {
+    console.warn('Failed to capture Sentry exception:', sentryError);
+  }
+};
+
+// Helper function to start Sentry transaction
+const startSentryTransaction = (
+  name: keyof typeof SENTRY_CONFIG.TRACE_NAMES,
+  description?: string,
+): TransactionLike | null => {
+  try {
+    const transaction = startTransaction({
+      name: SENTRY_CONFIG.TRACE_NAMES[name],
+      op: description || SENTRY_CONFIG.TRACE_NAMES[name],
+      tags: {
+        component: 'imagePreloader',
+        platform: Platform.OS,
+      },
+    });
+
+    addSentryBreadcrumb(`Started ${name} transaction`, 'PERFORMANCE', {
+      transactionName: SENTRY_CONFIG.TRACE_NAMES[name],
+    });
+
+    return transaction;
+  } catch (error) {
+    console.warn('Failed to start Sentry transaction:', error);
+    return null;
+  }
+};
 
 // Define types for global object extensions
 interface GlobalWithPreloadedAssets {
@@ -41,17 +143,41 @@ export let isFastImageAvailable = false;
 
 // Helper function to safely get FastImage
 const getFastImageModule = (): FastImageStatic | null => {
+  const transaction = startSentryTransaction('CACHE_OPERATION', 'Get FastImage module');
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fastImageModule = require('react-native-fast-image');
+
+    addSentryBreadcrumb('FastImage module loaded successfully', 'CACHE', { platform: Platform.OS });
+
     return fastImageModule.default as FastImageStatic;
-  } catch {
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    captureSentryException(err, 'FASTIMAGE_ERROR', {
+      platform: Platform.OS,
+      operation: 'getFastImageModule',
+    });
+
+    addSentryBreadcrumb(
+      'FastImage module not available',
+      'CACHE',
+      { error: err.message },
+      'warning',
+    );
+
     return null;
+  } finally {
+    if (transaction) {
+      transaction.finish();
+    }
   }
 };
 
 // Helper function to initialize FastImage
 const initializeFastImage = (): void => {
+  const transaction = startSentryTransaction('CACHE_OPERATION', 'Initialize FastImage');
+
   try {
     FastImage = getFastImageModule();
 
@@ -68,20 +194,53 @@ const initializeFastImage = (): void => {
         `${isFastImageAvailable ? 'FastImage is available ✅' : 'FastImage is not available ❌'}`,
     );
 
+    addSentryBreadcrumb(
+      `FastImage initialization ${isFastImageAvailable ? 'successful' : 'failed'}`,
+      'CACHE',
+      {
+        available: isFastImageAvailable,
+        platform: Platform.OS,
+        hasPreloadFunction: FastImage ? typeof FastImage.preload === 'function' : false,
+      },
+    );
+
     if (!isFastImageAvailable) {
       log.debug(
         'Fallback configuration',
         () =>
           `Using Asset API for preloading in ${Platform.OS === 'web' ? 'web' : 'Expo Go'} environment`,
       );
+
+      addSentryBreadcrumb('Using Asset API fallback', 'CACHE', {
+        reason: 'FastImage not available',
+        platform: Platform.OS,
+      });
     }
-  } catch {
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+
     // FastImage is not available - this is expected in some environments
     FastImage = null;
     isFastImageAvailable = false;
 
+    captureSentryException(err, 'FASTIMAGE_ERROR', {
+      operation: 'initializeFastImage',
+      platform: Platform.OS,
+    });
+
     log.debug('FastImage import failed (falling back to Asset API)');
     log.debug('Running in Expo Go or unsupported environment');
+
+    addSentryBreadcrumb(
+      'FastImage initialization failed, using fallback',
+      'CACHE',
+      { error: err.message, platform: Platform.OS },
+      'warning',
+    );
+  } finally {
+    if (transaction) {
+      transaction.finish();
+    }
   }
 };
 
@@ -97,7 +256,7 @@ let assetApiPreloadCount = 0;
 if (log.isDebugging()) {
   setInterval(() => {
     if (totalImagesPreloaded > 0) {
-      log.debug('Preloading stats', () => ({
+      const stats = {
         total: totalImagesPreloaded,
         fastImage: {
           count: fastImagePreloadCount,
@@ -107,7 +266,11 @@ if (log.isDebugging()) {
           count: assetApiPreloadCount,
           percentage: Math.round((assetApiPreloadCount / totalImagesPreloaded) * 100),
         },
-      }));
+      };
+
+      log.debug('Preloading stats', () => stats);
+
+      addSentryBreadcrumb('Periodic preloading stats', 'PERFORMANCE', stats);
     }
   }, 10000);
 }
@@ -117,25 +280,6 @@ export const ImagePriority = {
   LOW: 'low' as const,
   NORMAL: 'normal' as const,
   HIGH: 'high' as const,
-};
-
-// Helper function to get FastImage priority if available
-const _getFastImagePriority = (priority: 'low' | 'normal' | 'high'): string => {
-  if (isFastImageAvailable && FastImage?.priority) {
-    switch (priority) {
-      case 'low':
-        return FastImage.priority.low;
-      case 'normal':
-        return FastImage.priority.normal;
-      case 'high':
-        return FastImage.priority.high;
-      default:
-        // Fallback to normal priority for any unexpected values
-        console.warn(`Unknown priority: ${priority}, falling back to normal`);
-        return FastImage.priority.normal;
-    }
-  }
-  return priority;
 };
 
 // Define cache policies for expo-image
@@ -288,24 +432,52 @@ const formatGenericUrl = (url: string): string => {
  * @param size Optional estimated size in bytes
  */
 export const addImageToCache = (uri: string, size?: number): void => {
-  if (!uri) return;
+  const transaction = startSentryTransaction('CACHE_OPERATION', 'Add image to cache');
 
-  // Don't add duplicates
-  if (preloadedImageCache.has(uri)) return;
+  try {
+    if (!uri) {
+      addSentryBreadcrumb('Attempted to cache image with empty URI', 'CACHE', undefined, 'warning');
+      return;
+    }
 
-  const estimatedSize = size || CACHE_CONFIG.ESTIMATED_IMAGE_SIZE;
+    // Don't add duplicates
+    if (preloadedImageCache.has(uri)) {
+      addSentryBreadcrumb('Image already in cache', 'CACHE', { uri: formatUrlForLogs(uri) });
+      return;
+    }
 
-  // Add to cache with timestamp
-  preloadedImageCache.set(uri, {
-    timestamp: Date.now(),
-    size: estimatedSize,
-  });
+    const estimatedSize = size || CACHE_CONFIG.ESTIMATED_IMAGE_SIZE;
 
-  // Update estimated total cache size
-  estimatedCacheSize += estimatedSize;
+    // Add to cache with timestamp
+    preloadedImageCache.set(uri, {
+      timestamp: Date.now(),
+      size: estimatedSize,
+    });
 
-  // Apply cache size limits
-  enforceMemoryCacheLimit();
+    // Update estimated total cache size
+    estimatedCacheSize += estimatedSize;
+
+    addSentryBreadcrumb('Image added to cache', 'CACHE', {
+      uri: formatUrlForLogs(uri),
+      size: estimatedSize,
+      totalCacheSize: estimatedCacheSize,
+      cacheEntries: preloadedImageCache.size,
+    });
+
+    // Apply cache size limits
+    enforceMemoryCacheLimit();
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    captureSentryException(err, 'CACHE_ERROR', {
+      operation: 'addImageToCache',
+      uri: formatUrlForLogs(uri),
+      size,
+    });
+  } finally {
+    if (transaction) {
+      transaction.finish();
+    }
+  }
 };
 
 /**
@@ -315,23 +487,52 @@ const enforceMemoryCacheLimit = (): void => {
   // If cache is under the limit, no action needed
   if (preloadedImageCache.size <= CACHE_CONFIG.MAX_SIZE) return;
 
-  // Get entries sorted by age (oldest first)
-  const entries = Array.from(preloadedImageCache.entries()).sort(
-    ([, a], [, b]) => a.timestamp - b.timestamp,
-  );
+  const transaction = startSentryTransaction('CACHE_OPERATION', 'Enforce memory cache limit');
 
-  // Calculate how many entries to remove
-  const entriesToRemove = Math.ceil(preloadedImageCache.size * 0.2); // Remove oldest 20%
+  try {
+    const initialSize = preloadedImageCache.size;
+    const initialCacheSize = estimatedCacheSize;
 
-  // Remove oldest entries
-  for (let i = 0; i < entriesToRemove && i < entries.length; i++) {
-    const [uri, entry] = entries[i];
-    preloadedImageCache.delete(uri);
-    estimatedCacheSize -= entry.size || CACHE_CONFIG.ESTIMATED_IMAGE_SIZE;
-  }
+    // Get entries sorted by age (oldest first)
+    const entries = Array.from(preloadedImageCache.entries()).sort(
+      ([, a], [, b]) => a.timestamp - b.timestamp,
+    );
 
-  if (DEBUG_IMAGE_PRELOADER) {
-    console.log(`Cache pruned: removed ${entriesToRemove} oldest entries`);
+    // Calculate how many entries to remove
+    const entriesToRemove = Math.ceil(preloadedImageCache.size * 0.2); // Remove oldest 20%
+
+    // Remove oldest entries
+    for (let i = 0; i < entriesToRemove && i < entries.length; i++) {
+      const [uri, entry] = entries[i];
+      preloadedImageCache.delete(uri);
+      estimatedCacheSize -= entry.size || CACHE_CONFIG.ESTIMATED_IMAGE_SIZE;
+    }
+
+    const removedEntries = initialSize - preloadedImageCache.size;
+    const sizeReduction = initialCacheSize - estimatedCacheSize;
+
+    addSentryBreadcrumb(`Cache pruned: removed ${removedEntries} oldest entries`, 'CACHE', {
+      removedEntries,
+      remainingEntries: preloadedImageCache.size,
+      sizeReduction,
+      newCacheSize: estimatedCacheSize,
+      maxSize: CACHE_CONFIG.MAX_SIZE,
+    });
+
+    if (DEBUG_IMAGE_PRELOADER) {
+      console.log(`Cache pruned: removed ${entriesToRemove} oldest entries`);
+    }
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    captureSentryException(err, 'CACHE_ERROR', {
+      operation: 'enforceMemoryCacheLimit',
+      cacheSize: preloadedImageCache.size,
+      maxSize: CACHE_CONFIG.MAX_SIZE,
+    });
+  } finally {
+    if (transaction) {
+      transaction.finish();
+    }
   }
 };
 
@@ -465,62 +666,149 @@ const extractUrisFromSources = (sources: (Source | string)[]): string[] => {
 
 // Helper function to preload with FastImage
 const preloadWithFastImage = async (sources: (Source | string)[]): Promise<void> => {
-  if (!isFastImageAvailable || !FastImage) {
-    throw new Error('FastImage not available');
+  const transaction = startSentryTransaction('PRELOAD_BATCH', 'FastImage preload batch');
+
+  try {
+    if (!isFastImageAvailable || !FastImage) {
+      const error = new Error('FastImage not available');
+      captureSentryException(error, 'FASTIMAGE_ERROR', {
+        operation: 'preloadWithFastImage',
+        sourcesCount: sources.length,
+        available: isFastImageAvailable,
+        fastImageExists: !!FastImage,
+      });
+      throw error;
+    }
+
+    const processedSources = prepareFastImageSources(sources);
+    if (processedSources.length === 0) {
+      addSentryBreadcrumb('No valid sources to preload with FastImage', 'PRELOAD', {
+        originalCount: sources.length,
+      });
+      return;
+    }
+
+    addSentryBreadcrumb(`Starting FastImage preload batch`, 'PRELOAD', {
+      sourceCount: processedSources.length,
+      originalCount: sources.length,
+      platform: Platform.OS,
+    });
+
+    if (DEBUG_IMAGE_PRELOADER) {
+      const uris = processedSources.map((s) => formatUrlForLogs(s.uri));
+      console.log(
+        `🔄 [ImagePreloader] Preloading ${processedSources.length} images with FastImage: ${
+          uris.length > 3
+            ? uris.slice(0, 3).join(', ') + ` and ${uris.length - 3} more`
+            : uris.join(', ')
+        }`,
+      );
+    }
+
+    totalImagesPreloaded += processedSources.length;
+    fastImagePreloadCount += processedSources.length;
+
+    const startTime = Date.now();
+    await FastImage.preload(processedSources);
+    const duration = Date.now() - startTime;
+
+    addSentryBreadcrumb(`FastImage preload batch completed`, 'PRELOAD', {
+      imageCount: processedSources.length,
+      duration,
+      avgTimePerImage: Math.round(duration / processedSources.length),
+    });
+
+    if (transaction) {
+      transaction.setData('imageCount', processedSources.length);
+      transaction.setData('duration', duration);
+      transaction.setData('method', 'FastImage');
+    }
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    captureSentryException(err, 'FASTIMAGE_ERROR', {
+      operation: 'preloadWithFastImage',
+      sourcesCount: sources.length,
+      platform: Platform.OS,
+    });
+    throw err;
+  } finally {
+    if (transaction) {
+      transaction.finish();
+    }
   }
-
-  const processedSources = prepareFastImageSources(sources);
-  if (processedSources.length === 0) {
-    return;
-  }
-
-  if (DEBUG_IMAGE_PRELOADER) {
-    const uris = processedSources.map((s) => formatUrlForLogs(s.uri));
-    console.log(
-      `🔄 [ImagePreloader] Preloading ${processedSources.length} images with FastImage: ${
-        uris.length > 3
-          ? uris.slice(0, 3).join(', ') + ` and ${uris.length - 3} more`
-          : uris.join(', ')
-      }`,
-    );
-  }
-
-  totalImagesPreloaded += processedSources.length;
-  fastImagePreloadCount += processedSources.length;
-
-  return FastImage.preload(processedSources);
 };
 
 // Helper function to preload with Asset API
 const preloadWithAssetApi = async (sources: (Source | string)[]): Promise<void> => {
-  const uris = extractUrisFromSources(sources);
-  if (uris.length === 0) {
-    return;
-  }
+  const transaction = startSentryTransaction('PRELOAD_BATCH', 'Asset API preload batch');
 
-  if (DEBUG_IMAGE_PRELOADER) {
-    const formattedUris = uris.map((uri) => formatUrlForLogs(uri));
-    console.log(
-      `🔄 [ImagePreloader] Preloading ${uris.length} images with Asset API: ${
-        formattedUris.length > 3
-          ? formattedUris.slice(0, 3).join(', ') + ` and ${formattedUris.length - 3} more`
-          : formattedUris.join(', ')
-      }`,
-    );
-  }
-
-  totalImagesPreloaded += uris.length;
-  assetApiPreloadCount += uris.length;
-
-  const assets = uris.map((uri) => {
-    if (typeof uri === 'number') {
-      return Asset.fromModule(uri);
+  try {
+    const uris = extractUrisFromSources(sources);
+    if (uris.length === 0) {
+      addSentryBreadcrumb('No valid URIs to preload with Asset API', 'PRELOAD', {
+        originalCount: sources.length,
+      });
+      return;
     }
-    return Asset.fromURI(uri);
-  });
 
-  const downloadPromises = assets.map((asset) => asset.downloadAsync());
-  await Promise.all(downloadPromises);
+    addSentryBreadcrumb(`Starting Asset API preload batch`, 'PRELOAD', {
+      uriCount: uris.length,
+      originalCount: sources.length,
+      platform: Platform.OS,
+    });
+
+    if (DEBUG_IMAGE_PRELOADER) {
+      const formattedUris = uris.map((uri) => formatUrlForLogs(uri));
+      console.log(
+        `🔄 [ImagePreloader] Preloading ${uris.length} images with Asset API: ${
+          formattedUris.length > 3
+            ? formattedUris.slice(0, 3).join(', ') + ` and ${formattedUris.length - 3} more`
+            : formattedUris.join(', ')
+        }`,
+      );
+    }
+
+    totalImagesPreloaded += uris.length;
+    assetApiPreloadCount += uris.length;
+
+    const startTime = Date.now();
+
+    const assets = uris.map((uri) => {
+      if (typeof uri === 'number') {
+        return Asset.fromModule(uri);
+      }
+      return Asset.fromURI(uri);
+    });
+
+    const downloadPromises = assets.map((asset) => asset.downloadAsync());
+    await Promise.all(downloadPromises);
+
+    const duration = Date.now() - startTime;
+
+    addSentryBreadcrumb(`Asset API preload batch completed`, 'PRELOAD', {
+      imageCount: uris.length,
+      duration,
+      avgTimePerImage: Math.round(duration / uris.length),
+    });
+
+    if (transaction) {
+      transaction.setData('imageCount', uris.length);
+      transaction.setData('duration', duration);
+      transaction.setData('method', 'AssetAPI');
+    }
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    captureSentryException(err, 'ASSET_API_ERROR', {
+      operation: 'preloadWithAssetApi',
+      sourcesCount: sources.length,
+      platform: Platform.OS,
+    });
+    throw err;
+  } finally {
+    if (transaction) {
+      transaction.finish();
+    }
+  }
 };
 
 /**
@@ -529,36 +817,105 @@ const preloadWithAssetApi = async (sources: (Source | string)[]): Promise<void> 
  * @returns Promise that resolves when preloading is complete
  */
 export const safePreloadImages = async (sources: Source[] | string[]): Promise<void> => {
-  if (!Array.isArray(sources) || sources.length === 0) {
-    return;
-  }
+  const transaction = startSentryTransaction('PRELOAD_BATCH', 'Safe preload images');
 
   try {
-    const filteredSources = sources.filter((source) => !isPlaceholderImage(source));
-    if (filteredSources.length === 0) {
+    if (!Array.isArray(sources) || sources.length === 0) {
+      addSentryBreadcrumb('No sources provided for safe preload', 'PRELOAD', {
+        sourcesProvided: !!sources,
+        isArray: Array.isArray(sources),
+      });
       return;
     }
+
+    const filteredSources = sources.filter((source) => !isPlaceholderImage(source));
+    if (filteredSources.length === 0) {
+      addSentryBreadcrumb('All sources filtered out as placeholders', 'PRELOAD', {
+        originalCount: sources.length,
+      });
+      return;
+    }
+
+    addSentryBreadcrumb('Starting safe preload with fallback strategy', 'PRELOAD', {
+      originalCount: sources.length,
+      filteredCount: filteredSources.length,
+      platform: Platform.OS,
+      fastImageAvailable: isFastImageAvailable,
+    });
 
     // Try FastImage first if available
     if (isFastImageAvailable && Platform.OS !== 'web') {
       try {
         await preloadWithFastImage(filteredSources);
+
+        addSentryBreadcrumb('Safe preload completed with FastImage', 'PRELOAD', {
+          imageCount: filteredSources.length,
+        });
+
+        if (transaction) {
+          transaction.setData('method', 'FastImage');
+          transaction.setData('imageCount', filteredSources.length);
+        }
         return;
       } catch (fastImageError) {
+        const err =
+          fastImageError instanceof Error ? fastImageError : new Error(String(fastImageError));
+
+        addSentryBreadcrumb(
+          'FastImage preloading failed, falling back to Asset API',
+          'PRELOAD',
+          { error: err.message },
+          'warning',
+        );
+
         console.warn('FastImage preloading failed, falling back to Asset API:', fastImageError);
       }
     }
 
     // Fallback to Asset API
     await preloadWithAssetApi(filteredSources);
+
+    addSentryBreadcrumb('Safe preload completed with Asset API', 'PRELOAD', {
+      imageCount: filteredSources.length,
+    });
+
+    if (transaction) {
+      transaction.setData('method', 'AssetAPI');
+      transaction.setData('imageCount', filteredSources.length);
+    }
   } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+
+    captureSentryException(err, 'ASSET_API_ERROR', {
+      operation: 'safePreloadImages_primary',
+      sourcesCount: sources.length,
+      platform: Platform.OS,
+    });
+
     console.error('Error preloading images:', error);
 
     // Double-fallback to Asset API
     try {
       await preloadWithAssetApi(sources);
+
+      addSentryBreadcrumb('Double-fallback preload succeeded', 'PRELOAD', {
+        imageCount: sources.length,
+      });
     } catch (secondError) {
+      const secondErr = secondError instanceof Error ? secondError : new Error(String(secondError));
+
+      captureSentryException(secondErr, 'ASSET_API_ERROR', {
+        operation: 'safePreloadImages_fallback',
+        sourcesCount: sources.length,
+        platform: Platform.OS,
+        originalError: err.message,
+      });
+
       console.error('Double-fallback preloading also failed:', secondError);
+    }
+  } finally {
+    if (transaction) {
+      transaction.finish();
     }
   }
 };
@@ -577,29 +934,87 @@ export const strategicPreloadImages = async (
   batchSize?: number,
   onProgress?: (progress: number, completed?: number, total?: number) => void,
 ): Promise<void> => {
-  if (!imageUrls || imageUrls.length === 0) {
-    if (onProgress) onProgress(1, 0, 0);
-    return;
-  }
+  const transaction = startSentryTransaction(
+    'STRATEGIC_PRELOAD',
+    `Strategic preload - ${strategy}`,
+  );
 
-  const urlsToLoad = await filterCachedImages(imageUrls);
-  if (urlsToLoad.length === 0) {
-    if (onProgress) onProgress(1, imageUrls.length, imageUrls.length);
-    return;
-  }
+  try {
+    if (!imageUrls || imageUrls.length === 0) {
+      addSentryBreadcrumb('No URLs provided for strategic preload', 'PRELOAD', {
+        strategy,
+        urlsProvided: !!imageUrls,
+      });
+      if (onProgress) onProgress(1, 0, 0);
+      return;
+    }
 
-  const { priority, actualBatchSize } = getStrategyConfig(strategy, batchSize);
+    addSentryBreadcrumb(`Starting strategic preload`, 'PRELOAD', {
+      strategy,
+      totalUrls: imageUrls.length,
+      requestedBatchSize: batchSize,
+    });
 
-  if (DEBUG_IMAGE_PRELOADER) {
-    console.log(
-      `🚀 Strategic preloading (${strategy}): ${urlsToLoad.length} images with priority ${priority}...`,
-    );
-  }
+    const urlsToLoad = await filterCachedImages(imageUrls);
+    if (urlsToLoad.length === 0) {
+      addSentryBreadcrumb('All images already cached', 'PRELOAD', {
+        strategy,
+        totalUrls: imageUrls.length,
+      });
+      if (onProgress) onProgress(1, imageUrls.length, imageUrls.length);
+      return;
+    }
 
-  await processBatchedPreloading(urlsToLoad, actualBatchSize, priority, onProgress);
+    const { priority, actualBatchSize } = getStrategyConfig(strategy, batchSize);
 
-  if (DEBUG_IMAGE_PRELOADER) {
-    console.log(`✅ Strategic preloading complete: ${urlsToLoad.length} images`);
+    addSentryBreadcrumb(`Strategic preload configuration`, 'PRELOAD', {
+      strategy,
+      priority,
+      actualBatchSize,
+      urlsToLoad: urlsToLoad.length,
+      cached: imageUrls.length - urlsToLoad.length,
+    });
+
+    if (DEBUG_IMAGE_PRELOADER) {
+      console.log(
+        `🚀 Strategic preloading (${strategy}): ${urlsToLoad.length} images with priority ${priority}...`,
+      );
+    }
+
+    const startTime = Date.now();
+    await processBatchedPreloading(urlsToLoad, actualBatchSize, priority, onProgress);
+    const duration = Date.now() - startTime;
+
+    addSentryBreadcrumb(`Strategic preload completed`, 'PRELOAD', {
+      strategy,
+      imageCount: urlsToLoad.length,
+      duration,
+      avgTimePerImage: Math.round(duration / urlsToLoad.length),
+    });
+
+    if (transaction) {
+      transaction.setData('strategy', strategy);
+      transaction.setData('imageCount', urlsToLoad.length);
+      transaction.setData('duration', duration);
+      transaction.setData('priority', priority);
+    }
+
+    if (DEBUG_IMAGE_PRELOADER) {
+      console.log(`✅ Strategic preloading complete: ${urlsToLoad.length} images`);
+    }
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    captureSentryException(err, 'ASSET_API_ERROR', {
+      operation: 'strategicPreloadImages',
+      strategy,
+      urlsCount: imageUrls.length,
+      batchSize,
+    });
+    throw err;
+  } finally {
+    if (transaction) {
+      transaction.finish();
+    }
   }
 };
 
@@ -712,27 +1127,65 @@ export const clearImageCache = async (options?: {
   diskOnly?: boolean;
   olderThan?: number;
 }): Promise<{ memoryClearedCount: number; diskCleaned: boolean }> => {
-  const { memoryOnly = false, diskOnly = false, olderThan } = options || {};
-  let memoryClearedCount = 0;
-  let diskCleaned = false;
+  const transaction = startSentryTransaction('CACHE_OPERATION', 'Clear image cache');
 
-  // Clear memory cache
-  if (!diskOnly) {
-    memoryClearedCount = clearMemoryCache(olderThan);
+  try {
+    const { memoryOnly = false, diskOnly = false, olderThan } = options || {};
+    let memoryClearedCount = 0;
+    let diskCleaned = false;
+
+    addSentryBreadcrumb('Starting cache clear operation', 'CACHE', {
+      memoryOnly,
+      diskOnly,
+      olderThan,
+      currentCacheSize: preloadedImageCache.size,
+      estimatedSize: estimatedCacheSize,
+    });
+
+    // Clear memory cache
+    if (!diskOnly) {
+      memoryClearedCount = clearMemoryCache(olderThan);
+    }
+
+    // Clear disk cache if platform supports it
+    if (!memoryOnly) {
+      diskCleaned = await clearDiskCache();
+    }
+
+    const result = { memoryClearedCount, diskCleaned };
+
+    addSentryBreadcrumb('Cache clear operation completed', 'CACHE', {
+      ...result,
+      remainingCacheSize: preloadedImageCache.size,
+      remainingEstimatedSize: estimatedCacheSize,
+    });
+
+    if (transaction) {
+      transaction.setData('memoryClearedCount', memoryClearedCount);
+      transaction.setData('diskCleaned', diskCleaned);
+      transaction.setData('memoryOnly', memoryOnly);
+      transaction.setData('diskOnly', diskOnly);
+    }
+
+    if (DEBUG_IMAGE_PRELOADER) {
+      console.log(
+        `Image cache cleared: ${memoryClearedCount} memory entries, disk cache ${diskCleaned ? 'cleared' : 'unchanged'}`,
+      );
+    }
+
+    return result;
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    captureSentryException(err, 'CACHE_ERROR', {
+      operation: 'clearImageCache',
+      options,
+    });
+    throw err;
+  } finally {
+    if (transaction) {
+      transaction.finish();
+    }
   }
-
-  // Clear disk cache if platform supports it
-  if (!memoryOnly) {
-    diskCleaned = await clearDiskCache();
-  }
-
-  if (DEBUG_IMAGE_PRELOADER) {
-    console.log(
-      `Image cache cleared: ${memoryClearedCount} memory entries, disk cache ${diskCleaned ? 'cleared' : 'unchanged'}`,
-    );
-  }
-
-  return { memoryClearedCount, diskCleaned };
 };
 
 // Helper function to clear memory cache
@@ -863,7 +1316,7 @@ const handlePreloadError = (source: ImageSource, error: unknown): 'failed' => {
 };
 
 // Helper function to check if image should be skipped
-const shouldSkipImage = async (source: ImageSource, _index: number): Promise<boolean> => {
+const shouldSkipImage = async (source: ImageSource): Promise<boolean> => {
   if (!source || (typeof source === 'object' && !source.uri)) {
     return true;
   }
@@ -879,10 +1332,18 @@ const preloadSingleImage = async (
   timeout: number,
   estimatedSizes?: Record<number, number>,
 ): Promise<'loaded' | 'failed' | 'skipped'> => {
+  const transaction = startSentryTransaction('PRELOAD_SINGLE', 'Single image preload');
+
   try {
-    if (await shouldSkipImage(source, index)) {
+    if (await shouldSkipImage(source)) {
+      const uri = extractUriFromImageSource(source) || String(source);
+
+      addSentryBreadcrumb('Image skipped - already cached', 'PRELOAD', {
+        uri: formatUrlForLogs(uri),
+        index,
+      });
+
       if (DEBUG_IMAGE_PRELOADER) {
-        const uri = extractUriFromImageSource(source) || String(source);
         console.log(`⚡ Already cached: ${formatUrlForLogs(uri)}`);
       }
       return 'skipped';
@@ -890,18 +1351,75 @@ const preloadSingleImage = async (
 
     const uri = extractUriFromImageSource(source);
     if (!uri) {
+      addSentryBreadcrumb(
+        'Image failed - no valid URI',
+        'PRELOAD',
+        { source: String(source), index },
+        'warning',
+      );
       return 'failed';
     }
+
+    addSentryBreadcrumb('Starting single image preload', 'PRELOAD', {
+      uri: formatUrlForLogs(uri),
+      index,
+      timeout,
+    });
+
+    const startTime = Date.now();
 
     // Preload using expo-image with timeout
     await Promise.race([
       Image.prefetch(uri),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Preload timeout')), timeout)),
+      new Promise((_, reject) =>
+        setTimeout(() => {
+          const timeoutError = new Error('Preload timeout');
+          captureSentryException(timeoutError, 'TIMEOUT_ERROR', {
+            operation: 'preloadSingleImage',
+            uri: formatUrlForLogs(uri),
+            timeout,
+            index,
+          });
+          reject(timeoutError);
+        }, timeout),
+      ),
     ]);
+
+    const duration = Date.now() - startTime;
+
+    addSentryBreadcrumb('Single image preload completed', 'PRELOAD', {
+      uri: formatUrlForLogs(uri),
+      index,
+      duration,
+    });
+
+    if (transaction) {
+      transaction.setData('uri', formatUrlForLogs(uri));
+      transaction.setData('duration', duration);
+      transaction.setData('index', index);
+    }
 
     return handlePreloadSuccess(uri, index, estimatedSizes);
   } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const uri = extractUriFromImageSource(source) || String(source);
+
+    captureSentryException(
+      err,
+      err.message.includes('timeout') ? 'TIMEOUT_ERROR' : 'ASSET_API_ERROR',
+      {
+        operation: 'preloadSingleImage',
+        uri: formatUrlForLogs(uri),
+        index,
+        timeout,
+      },
+    );
+
     return handlePreloadError(source, error);
+  } finally {
+    if (transaction) {
+      transaction.finish();
+    }
   }
 };
 
@@ -937,29 +1455,43 @@ export const preloadImages = async (
   sources: ImageSource[],
   options: PreloadOptions = {},
 ): Promise<PreloadResult> => {
-  if (!sources || sources.length === 0) {
-    return { success: true, total: 0, loaded: 0, failed: 0, skipped: 0 };
-  }
-
-  const {
-    cachePolicy = CachePolicy.IMMUTABLE,
-    timeout = DEFAULT_TIMEOUT,
-    batchSize = 5,
-    onProgress,
-    estimatedSizes,
-  } = options;
-
-  const processedSources = sources
-    .filter((source) => source !== null && source !== undefined)
-    .map((source) => processImageSource(source));
-
-  const total = processedSources.length;
-
-  if (DEBUG_IMAGE_PRELOADER) {
-    console.log(`🔄 Preloading ${total} images with policy: ${cachePolicy}`);
-  }
+  const transaction = startSentryTransaction('PRELOAD_BATCH', 'Preload images batch');
 
   try {
+    if (!sources || sources.length === 0) {
+      addSentryBreadcrumb('No sources provided for preload', 'PRELOAD', {
+        sourcesProvided: !!sources,
+      });
+      return { success: true, total: 0, loaded: 0, failed: 0, skipped: 0 };
+    }
+
+    const {
+      cachePolicy = CachePolicy.IMMUTABLE,
+      timeout = DEFAULT_TIMEOUT,
+      batchSize = 5,
+      onProgress,
+      estimatedSizes,
+    } = options;
+
+    addSentryBreadcrumb('Starting image preload batch', 'PRELOAD', {
+      totalSources: sources.length,
+      cachePolicy,
+      timeout,
+      batchSize,
+      hasProgressCallback: !!onProgress,
+    });
+
+    const processedSources = sources
+      .filter((source) => source !== null && source !== undefined)
+      .map((source) => processImageSource(source));
+
+    const total = processedSources.length;
+
+    if (DEBUG_IMAGE_PRELOADER) {
+      console.log(`🔄 Preloading ${total} images with policy: ${cachePolicy}`);
+    }
+
+    const startTime = Date.now();
     const { loaded, failed, skipped } = await preloadInBatches(
       processedSources,
       batchSize,
@@ -968,18 +1500,49 @@ export const preloadImages = async (
       onProgress,
       estimatedSizes,
     );
+    const duration = Date.now() - startTime;
 
-    return { success: failed === 0, total, loaded, failed, skipped };
+    const result = { success: failed === 0, total, loaded, failed, skipped };
+
+    addSentryBreadcrumb('Image preload batch completed', 'PRELOAD', {
+      ...result,
+      duration,
+      avgTimePerImage: total > 0 ? Math.round(duration / total) : 0,
+    });
+
+    if (transaction) {
+      transaction.setData('total', total);
+      transaction.setData('loaded', loaded);
+      transaction.setData('failed', failed);
+      transaction.setData('skipped', skipped);
+      transaction.setData('duration', duration);
+      transaction.setData('cachePolicy', cachePolicy);
+    }
+
+    return result;
   } catch (error) {
-    console.error('Error in image preloading:', error);
-    return {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const result = {
       success: false,
-      total,
+      total: sources.length,
       loaded: 0,
-      failed: total,
+      failed: sources.length,
       skipped: 0,
-      error: error instanceof Error ? error : new Error(String(error)),
+      error: err,
     };
+
+    captureSentryException(err, 'ASSET_API_ERROR', {
+      operation: 'preloadImages',
+      sourcesCount: sources.length,
+      options,
+    });
+
+    console.error('Error in image preloading:', error);
+    return result;
+  } finally {
+    if (transaction) {
+      transaction.finish();
+    }
   }
 };
 
@@ -1028,7 +1591,11 @@ const preloadInBatches = async (
  * This should be called during app initialization
  */
 export async function preloadAllSvgAssets() {
+  const transaction = startSentryTransaction('SVG_PRELOAD', 'Preload all SVG assets');
+
   try {
+    addSentryBreadcrumb('Starting SVG assets preload', 'PRELOAD', { platform: Platform.OS });
+
     if (DEBUG_IMAGE_PRELOADER) {
       console.log('🧩 Preloading all SVG assets...');
     }
@@ -1037,13 +1604,22 @@ export async function preloadAllSvgAssets() {
     const svgAssets = [MUSCLE_SVG_ASSETS.front, MUSCLE_SVG_ASSETS.back].filter(Boolean); // Filter out any null values
 
     if (svgAssets.length === 0) {
+      const error = new Error('No SVG assets found');
+      captureSentryException(error, 'SVG_ERROR', {
+        operation: 'preloadAllSvgAssets',
+        availableAssets: Object.keys(MUSCLE_SVG_ASSETS),
+      });
       console.warn('No SVG assets found to preload');
-      return { success: false, error: new Error('No SVG assets found'), count: 0 };
+      return { success: false, error, count: 0 };
     }
+
+    addSentryBreadcrumb('SVG assets identified for preload', 'PRELOAD', {
+      assetCount: svgAssets.length,
+    });
 
     // Use Asset API for preloading
     const startTime = Date.now();
-    const loadPromises = svgAssets.map((asset) => {
+    const loadPromises = svgAssets.map((asset, index) => {
       if (!asset) return Promise.resolve(); // Skip null assets
 
       const assetModule = Asset.fromModule(asset);
@@ -1054,6 +1630,12 @@ export async function preloadAllSvgAssets() {
       }
 
       return assetModule.downloadAsync().catch((error) => {
+        const err = error instanceof Error ? error : new Error(String(error));
+        captureSentryException(err, 'SVG_ERROR', {
+          operation: 'downloadSvgAsset',
+          assetIndex: index,
+          assetId: asset,
+        });
         console.warn('Failed to download asset:', error);
         return Promise.resolve(); // Don't fail the whole batch for one asset
       });
@@ -1074,14 +1656,39 @@ export async function preloadAllSvgAssets() {
     }
 
     const duration = Date.now() - startTime;
+    const result = { success: true, count: svgAssets.length, duration };
+
+    addSentryBreadcrumb('SVG assets preload completed', 'PRELOAD', {
+      ...result,
+      avgTimePerAsset: Math.round(duration / svgAssets.length),
+    });
+
+    if (transaction) {
+      transaction.setData('assetCount', svgAssets.length);
+      transaction.setData('duration', duration);
+      transaction.setData('success', true);
+    }
+
     if (DEBUG_IMAGE_PRELOADER) {
       console.log(`✅ All SVG assets preloaded successfully in ${duration}ms`);
     }
 
-    return { success: true, count: svgAssets.length, duration };
+    return result;
   } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const result = { success: false, error: err, count: 0 };
+
+    captureSentryException(err, 'SVG_ERROR', {
+      operation: 'preloadAllSvgAssets',
+      platform: Platform.OS,
+    });
+
     console.warn('Error preloading SVG assets:', error);
-    return { success: false, error, count: 0 };
+    return result;
+  } finally {
+    if (transaction) {
+      transaction.finish();
+    }
   }
 }
 
@@ -1100,8 +1707,13 @@ export function isSvgPreloaded(svgPath: string | number): boolean {
  * This should be called during app initialization
  */
 export async function preloadModalAssets() {
+  const transaction = startSentryTransaction('MODAL_PRELOAD', 'Preload modal assets');
+
   try {
     const startTime = Date.now();
+
+    addSentryBreadcrumb('Starting modal assets preload', 'PRELOAD', { platform: Platform.OS });
+
     if (DEBUG_IMAGE_PRELOADER) {
       console.log('🔄 Preloading modal assets (SVGs and placeholders)...');
     }
@@ -1119,8 +1731,17 @@ export async function preloadModalAssets() {
       require('../../assets/exercises/dumbbell.jpg'),
     ].filter(Boolean); // Filter out any null/undefined assets
 
+    addSentryBreadcrumb('Modal assets identified', 'PRELOAD', {
+      totalAssets: assetsToPreload.length,
+    });
+
     // First, preload SVGs specifically
-    await preloadAllSvgAssets();
+    const svgResult = await preloadAllSvgAssets();
+
+    addSentryBreadcrumb('SVG preload completed in modal assets', 'PRELOAD', {
+      svgSuccess: svgResult.success,
+      svgCount: svgResult.count,
+    });
 
     // Then preload the placeholder images - only filter non-SVG assets
     const imageAssets = assetsToPreload.filter(
@@ -1129,21 +1750,66 @@ export async function preloadModalAssets() {
         typeof asset === 'number' && !String(Asset.fromModule(asset).uri).endsWith('.svg'),
     );
 
+    addSentryBreadcrumb('Image assets filtered for preload', 'PRELOAD', {
+      imageAssetCount: imageAssets.length,
+    });
+
     // Use Asset API for preloading
-    const assetPromises = imageAssets.map((asset) => Asset.fromModule(asset).downloadAsync());
+    const assetPromises = imageAssets.map((asset, index) =>
+      Asset.fromModule(asset)
+        .downloadAsync()
+        .catch((error) => {
+          const err = error instanceof Error ? error : new Error(String(error));
+          captureSentryException(err, 'ASSET_API_ERROR', {
+            operation: 'downloadModalAsset',
+            assetIndex: index,
+            assetId: asset,
+          });
+          console.warn(`Failed to download modal asset at index ${index}:`, error);
+          return Promise.resolve(); // Don't fail the whole batch
+        }),
+    );
 
     // Wait for all assets to download
     await Promise.all(assetPromises);
 
     const duration = Date.now() - startTime;
+    const result = { success: true, duration };
+
+    addSentryBreadcrumb('Modal assets preload completed', 'PRELOAD', {
+      ...result,
+      totalAssets: assetsToPreload.length,
+      imageAssets: imageAssets.length,
+      svgAssets: svgResult.count || 0,
+    });
+
+    if (transaction) {
+      transaction.setData('totalAssets', assetsToPreload.length);
+      transaction.setData('imageAssets', imageAssets.length);
+      transaction.setData('duration', duration);
+      transaction.setData('success', true);
+    }
+
     if (DEBUG_IMAGE_PRELOADER) {
       console.log(`✅ Modal assets preloaded successfully in ${duration}ms`);
     }
 
     // Return success
-    return { success: true, duration };
+    return result;
   } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const result = { success: false, error: err };
+
+    captureSentryException(err, 'ASSET_API_ERROR', {
+      operation: 'preloadModalAssets',
+      platform: Platform.OS,
+    });
+
     console.warn('Error preloading modal assets:', error);
-    return { success: false, error };
+    return result;
+  } finally {
+    if (transaction) {
+      transaction.finish();
+    }
   }
 }

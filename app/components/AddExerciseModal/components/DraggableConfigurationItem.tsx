@@ -13,6 +13,8 @@ import Animated, {
 import OptimizedImage from '../../OptimizedImage';
 import { styles } from '../styles';
 import { SelectedExercise } from '../types';
+import { captureUIError } from '../../../services/sentry';
+import * as Sentry from '@sentry/react-native';
 
 const ITEM_HEIGHT = 100;
 
@@ -170,6 +172,22 @@ export default function DraggableConfigurationItem({
 }: DraggableConfigurationItemProps) {
   const isBeingDragged = isDragging && draggedIndex === index;
 
+  // Track component lifecycle
+  useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: 'Draggable Configuration Item Rendered',
+      category: 'ui.render',
+      level: 'info',
+      data: {
+        exerciseId: exercise.id,
+        exerciseName: exercise.name,
+        index,
+        sets: exercise.sets,
+        reps: exercise.reps_range,
+      },
+    });
+  }, [exercise.id, exercise.name, index, exercise.sets, exercise.reps_range]);
+
   const { shouldMoveUp, shouldMoveDown } = useDragDisplacement(
     index,
     isDragging,
@@ -207,10 +225,32 @@ export default function DraggableConfigurationItem({
   }, [shouldMoveUp, shouldMoveDown, isBeingDragged, updateDisplacement, isDragging]);
 
   const handleRemove = useCallback(() => {
-    if (!isDragging) {
-      onRemoveExercise(index);
+    try {
+      if (!isDragging) {
+        // Track exercise removal
+        Sentry.addBreadcrumb({
+          message: 'Exercise Removed from Configuration',
+          category: 'user.interaction',
+          level: 'info',
+          data: {
+            exerciseId: exercise.id,
+            exerciseName: exercise.name,
+            index,
+            sets: exercise.sets,
+            reps: exercise.reps_range,
+          },
+        });
+
+        onRemoveExercise(index);
+      }
+    } catch (error) {
+      captureUIError(
+        error as Error,
+        'DraggableConfigurationItem.handleRemove',
+        'add-exercise-modal',
+      );
     }
-  }, [isDragging, onRemoveExercise, index]);
+  }, [isDragging, onRemoveExercise, index, exercise]);
 
   const safeHapticFeedback = useCallback((style: Haptics.ImpactFeedbackStyle) => {
     try {
@@ -220,12 +260,63 @@ export default function DraggableConfigurationItem({
     }
   }, []);
 
+  // Track drag operations
+  const trackDragStart = useCallback(() => {
+    try {
+      Sentry.addBreadcrumb({
+        message: 'Exercise Drag Started',
+        category: 'user.interaction',
+        level: 'info',
+        data: {
+          exerciseId: exercise.id,
+          exerciseName: exercise.name,
+          fromIndex: index,
+          totalExercises,
+        },
+      });
+    } catch (error) {
+      captureUIError(
+        error as Error,
+        'DraggableConfigurationItem.trackDragStart',
+        'add-exercise-modal',
+      );
+    }
+  }, [exercise.id, exercise.name, index, totalExercises]);
+
+  const trackDragEnd = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      try {
+        Sentry.addBreadcrumb({
+          message: 'Exercise Drag Completed',
+          category: 'user.interaction',
+          level: 'info',
+          data: {
+            exerciseId: exercise.id,
+            exerciseName: exercise.name,
+            fromIndex,
+            toIndex,
+            positionChanged: fromIndex !== toIndex,
+            totalExercises,
+          },
+        });
+      } catch (error) {
+        captureUIError(
+          error as Error,
+          'DraggableConfigurationItem.trackDragEnd',
+          'add-exercise-modal',
+        );
+      }
+    },
+    [exercise.id, exercise.name, totalExercises],
+  );
+
   // Drag gesture - only for the drag handle
   const dragHandlePanGesture = useMemo(() => {
     return Gesture.Pan()
       .minDistance(5)
       .onStart(() => {
         'worklet';
+        runOnJS(trackDragStart)();
         runOnJS(onDragStart)(index);
         runOnJS(safeHapticFeedback)(Haptics.ImpactFeedbackStyle.Medium);
         runOnJS(startDragAnimation)();
@@ -251,6 +342,7 @@ export default function DraggableConfigurationItem({
           runOnJS(safeHapticFeedback)(Haptics.ImpactFeedbackStyle.Light);
         }
 
+        runOnJS(trackDragEnd)(index, newIndex);
         runOnJS(onDragEnd)(index, newIndex);
       });
   }, [
@@ -264,6 +356,8 @@ export default function DraggableConfigurationItem({
     startDragAnimation,
     endDragAnimation,
     updateDragPosition,
+    trackDragStart,
+    trackDragEnd,
   ]);
 
   const itemStyle = [styles.configurationItem, isBeingDragged && styles.draggingConfigurationItem];
@@ -324,9 +418,29 @@ export default function DraggableConfigurationItem({
                 <View style={styles.controlRow}>
                   <TouchableOpacity
                     style={styles.controlButton}
-                    onPress={() =>
-                      onConfigurationChange(exercise.id, 'sets', Math.max(1, exercise.sets - 1))
-                    }
+                    onPress={() => {
+                      try {
+                        const newSets = Math.max(1, exercise.sets - 1);
+                        Sentry.addBreadcrumb({
+                          message: 'Exercise Sets Decreased',
+                          category: 'user.interaction',
+                          level: 'info',
+                          data: {
+                            exerciseId: exercise.id,
+                            exerciseName: exercise.name,
+                            oldSets: exercise.sets,
+                            newSets,
+                          },
+                        });
+                        onConfigurationChange(exercise.id, 'sets', newSets);
+                      } catch (error) {
+                        captureUIError(
+                          error as Error,
+                          'DraggableConfigurationItem.decreaseSets',
+                          'add-exercise-modal',
+                        );
+                      }
+                    }}
                     disabled={isDragging}
                   >
                     <Ionicons name="remove" size={12} color="#FFFFFF" />
@@ -336,7 +450,29 @@ export default function DraggableConfigurationItem({
                   </View>
                   <TouchableOpacity
                     style={styles.controlButton}
-                    onPress={() => onConfigurationChange(exercise.id, 'sets', exercise.sets + 1)}
+                    onPress={() => {
+                      try {
+                        const newSets = exercise.sets + 1;
+                        Sentry.addBreadcrumb({
+                          message: 'Exercise Sets Increased',
+                          category: 'user.interaction',
+                          level: 'info',
+                          data: {
+                            exerciseId: exercise.id,
+                            exerciseName: exercise.name,
+                            oldSets: exercise.sets,
+                            newSets,
+                          },
+                        });
+                        onConfigurationChange(exercise.id, 'sets', newSets);
+                      } catch (error) {
+                        captureUIError(
+                          error as Error,
+                          'DraggableConfigurationItem.increaseSets',
+                          'add-exercise-modal',
+                        );
+                      }
+                    }}
                     disabled={isDragging}
                   >
                     <Ionicons name="add" size={12} color="#FFFFFF" />
@@ -351,8 +487,27 @@ export default function DraggableConfigurationItem({
                   <TouchableOpacity
                     style={styles.controlButton}
                     onPress={() => {
-                      const newReps = getPreviousRepRange(exercise.reps_range);
-                      onConfigurationChange(exercise.id, 'reps_range', newReps);
+                      try {
+                        const newReps = getPreviousRepRange(exercise.reps_range);
+                        Sentry.addBreadcrumb({
+                          message: 'Exercise Reps Range Decreased',
+                          category: 'user.interaction',
+                          level: 'info',
+                          data: {
+                            exerciseId: exercise.id,
+                            exerciseName: exercise.name,
+                            oldReps: exercise.reps_range,
+                            newReps,
+                          },
+                        });
+                        onConfigurationChange(exercise.id, 'reps_range', newReps);
+                      } catch (error) {
+                        captureUIError(
+                          error as Error,
+                          'DraggableConfigurationItem.decreaseReps',
+                          'add-exercise-modal',
+                        );
+                      }
                     }}
                     disabled={isDragging}
                   >
@@ -366,8 +521,27 @@ export default function DraggableConfigurationItem({
                   <TouchableOpacity
                     style={styles.controlButton}
                     onPress={() => {
-                      const newReps = getNextRepRange(exercise.reps_range);
-                      onConfigurationChange(exercise.id, 'reps_range', newReps);
+                      try {
+                        const newReps = getNextRepRange(exercise.reps_range);
+                        Sentry.addBreadcrumb({
+                          message: 'Exercise Reps Range Increased',
+                          category: 'user.interaction',
+                          level: 'info',
+                          data: {
+                            exerciseId: exercise.id,
+                            exerciseName: exercise.name,
+                            oldReps: exercise.reps_range,
+                            newReps,
+                          },
+                        });
+                        onConfigurationChange(exercise.id, 'reps_range', newReps);
+                      } catch (error) {
+                        captureUIError(
+                          error as Error,
+                          'DraggableConfigurationItem.increaseReps',
+                          'add-exercise-modal',
+                        );
+                      }
                     }}
                     disabled={isDragging}
                   >

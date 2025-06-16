@@ -4,6 +4,8 @@ import { Text, Button, IconButton } from 'react-native-paper';
 import { format } from 'date-fns';
 import { MeasurementCategory, Measurement } from '../services/measurements';
 import { COLORS } from '../constants/theme';
+import * as Sentry from '@sentry/react-native';
+
 interface Props {
   category: MeasurementCategory;
   measurements: Array<Measurement>;
@@ -19,6 +21,43 @@ export default function MeasurementHistory({
   onClose,
   onDeleteMeasurement,
 }: Props) {
+  // Track component lifecycle
+  React.useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: 'MeasurementHistory component mounted',
+      category: 'component.lifecycle',
+      level: 'info',
+      data: {
+        category,
+        measurementCount: measurements.length,
+        hasMeasurements: measurements.length > 0,
+      },
+    });
+
+    return () => {
+      Sentry.addBreadcrumb({
+        message: 'MeasurementHistory component unmounted',
+        category: 'component.lifecycle',
+        level: 'info',
+        data: { category },
+      });
+    };
+  }, [category, measurements.length]);
+
+  // Track measurements data changes
+  React.useEffect(() => {
+    Sentry.addBreadcrumb({
+      message: 'MeasurementHistory measurements updated',
+      category: 'data.update',
+      level: 'info',
+      data: {
+        category,
+        measurementCount: measurements.length,
+        hasData: measurements.length > 0,
+      },
+    });
+  }, [measurements, category]);
+
   // Sort measurements by date and get first and latest
   const sortedMeasurements = [...measurements].sort(
     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
@@ -48,8 +87,95 @@ export default function MeasurementHistory({
 
   const difference = getDifferenceDisplay();
 
+  const handleClose = React.useCallback(() => {
+    try {
+      Sentry.addBreadcrumb({
+        message: 'MeasurementHistory close button pressed',
+        category: 'ui.interaction',
+        level: 'info',
+        data: { category },
+      });
+      onClose();
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'MeasurementHistory',
+          action: 'close',
+        },
+        extra: { category },
+      });
+    }
+  }, [onClose, category]);
+
+  const handleAddMeasurement = React.useCallback(() => {
+    try {
+      Sentry.addBreadcrumb({
+        message: 'MeasurementHistory add measurement button pressed',
+        category: 'ui.interaction',
+        level: 'info',
+        data: {
+          category,
+          currentMeasurementCount: measurements.length,
+        },
+      });
+      onAddMeasurement();
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          component: 'MeasurementHistory',
+          action: 'add_measurement',
+        },
+        extra: { category, measurementCount: measurements.length },
+      });
+    }
+  }, [onAddMeasurement, category, measurements.length]);
+
+  const handleDeleteMeasurement = React.useCallback(
+    async (measurementId: string) => {
+      try {
+        Sentry.addBreadcrumb({
+          message: 'MeasurementHistory delete measurement requested',
+          category: 'ui.interaction',
+          level: 'info',
+          data: {
+            category,
+            measurementId,
+            measurementCount: measurements.length,
+          },
+        });
+
+        await onDeleteMeasurement(measurementId);
+
+        Sentry.addBreadcrumb({
+          message: 'MeasurementHistory measurement deleted successfully',
+          category: 'data.delete',
+          level: 'info',
+          data: {
+            category,
+            measurementId,
+            remainingCount: measurements.length - 1,
+          },
+        });
+      } catch (error) {
+        Sentry.captureException(error, {
+          tags: {
+            component: 'MeasurementHistory',
+            action: 'delete_measurement',
+          },
+          extra: {
+            category,
+            measurementId,
+            measurementCount: measurements.length,
+          },
+        });
+        throw error; // Re-throw to let parent handle UI feedback
+      }
+    },
+    [onDeleteMeasurement, category, measurements.length],
+  );
+
   return (
-    <Pressable style={styles.overlay} onPress={onClose}>
+    <Pressable style={styles.overlay} onPress={handleClose}>
       <Pressable style={styles.container} onPress={(e) => e.stopPropagation()}>
         <View style={styles.topGlowLeft} />
         <View style={styles.topGlowRight} />
@@ -59,7 +185,7 @@ export default function MeasurementHistory({
             iconColor={COLORS.text}
             size={24}
             style={styles.closeButton}
-            onPress={onClose}
+            onPress={handleClose}
           />
           <Text style={styles.title}>{category}</Text>
         </View>
@@ -110,12 +236,12 @@ export default function MeasurementHistory({
                       </View>
                     )}
                   </View>
-                  {onDeleteMeasurement && latestMeasurement!.id !== firstMeasurement!.id && (
+                  {latestMeasurement!.id !== firstMeasurement!.id && (
                     <IconButton
                       icon="delete"
                       iconColor="#FF4444"
                       size={20}
-                      onPress={() => onDeleteMeasurement(latestMeasurement!.id)}
+                      onPress={() => handleDeleteMeasurement(latestMeasurement!.id)}
                     />
                   )}
                 </View>
@@ -136,12 +262,12 @@ export default function MeasurementHistory({
                     </Text>
                     <Text style={styles.unit}>{firstMeasurement!.unit}</Text>
                   </View>
-                  {onDeleteMeasurement && measurements.length > 1 && (
+                  {measurements.length > 1 && (
                     <IconButton
                       icon="delete"
                       iconColor="#FF4444"
                       size={20}
-                      onPress={() => onDeleteMeasurement(firstMeasurement!.id)}
+                      onPress={() => handleDeleteMeasurement(firstMeasurement!.id)}
                     />
                   )}
                 </View>
@@ -158,7 +284,7 @@ export default function MeasurementHistory({
           mode="contained"
           style={styles.addButton}
           labelStyle={styles.addButtonLabel}
-          onPress={onAddMeasurement}
+          onPress={handleAddMeasurement}
         >
           Add Measurement
         </Button>

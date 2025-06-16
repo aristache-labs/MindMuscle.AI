@@ -1,4 +1,13 @@
+import { z } from 'zod';
+import { logger } from '../utils/logger';
 import supabase from './supabase';
+import { SentryLogger } from './sentry';
+import {
+  addBreadcrumb,
+  captureDatabaseError,
+  capturePerformanceError,
+} from './sentry/simpleErrorHandler';
+import { validationService } from './validationService';
 import { getCycleWeekInfo } from './workoutCycleService';
 import { ExerciseData, ExerciseSet } from './workoutSessionService';
 
@@ -214,13 +223,11 @@ const debugNoExercisesFound = async (planId: string, workoutDay: number): Promis
     .eq('plan_id', planId);
 
   if (!allExercisesError && allPlanExercises) {
-    const _workoutDays = [...new Set(allPlanExercises.map((ex) => ex.workout_day))];
+    // Get unique workout days for debugging
+    void [...new Set(allPlanExercises.map((ex) => ex.workout_day))];
 
-    const { data: _anyExercises, error: _anyError } = await supabase
-      .from('workout_plan_exercises')
-      .select('*')
-      .eq('plan_id', planId)
-      .limit(5);
+    // Check if any exercises exist for this plan
+    void (await supabase.from('workout_plan_exercises').select('*').eq('plan_id', planId).limit(5));
   }
 
   console.error(`No exercises found for planId: ${planId}, workoutDay: ${workoutDay}`);
@@ -349,27 +356,115 @@ export const fetchWorkoutData = async (
   exerciseSets: Record<string, ExerciseSet[]>;
   recommendations: Record<string, unknown>;
 }> => {
-  validateWorkoutParameters(planId, workoutDay);
+  const startTime = Date.now();
 
-  if (isRedoWorkout) {
-    const redoResult = await handleRedoWorkout(userId, planId, workoutDay, cycleWeek);
-    if (redoResult) {
-      return redoResult;
+  try {
+    addBreadcrumb('Fetching workout data', 'workout_data', {
+      plan_id: planId,
+      workout_day: workoutDay,
+      user_id: userId,
+      cycle_week: cycleWeek,
+      is_redo_workout: isRedoWorkout,
+    });
+
+    // Validate input parameters
+    const validationData = { planId, workoutDay, userId, cycleWeek, isRedoWorkout };
+    const validationResult = await validationService.validateFetchWorkoutData(validationData);
+
+    if (!validationResult.success) {
+      const errorMessage = `Fetch workout data validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+
+      SentryLogger.error(
+        'Fetch workout data validation failed',
+        {
+          plan_id: planId,
+          workout_day: workoutDay,
+          user_id: userId,
+          cycle_week: cycleWeek,
+          is_redo_workout: isRedoWorkout,
+          validation_errors: validationResult.errors,
+          operation: 'fetch_workout_data',
+        },
+        { feature: 'workout_data', action: 'validation_error' },
+      );
+
+      logger.error('Fetch workout data validation failed', new Error(errorMessage), {
+        context: { validationData, errors: validationResult.errors },
+      });
+      throw new Error(errorMessage);
     }
+
+    validateWorkoutParameters(planId, workoutDay);
+
+    if (isRedoWorkout) {
+      const redoResult = await handleRedoWorkout(userId, planId, workoutDay, cycleWeek);
+      if (redoResult) {
+        return redoResult;
+      }
+    }
+
+    const exercises = await fetchExercisesFromDatabase(planId, workoutDay);
+    const { exerciseSets, recommendations } = await initializeExerciseSetsAndRecommendations(
+      exercises,
+      userId,
+      cycleWeek,
+    );
+
+    const duration = Date.now() - startTime;
+
+    // Monitor for slow workout data fetching
+    if (duration > 3000) {
+      capturePerformanceError('Slow workout data fetch detected', 'fetch_duration', duration);
+    }
+
+    SentryLogger.info(
+      'Workout data fetched successfully',
+      {
+        plan_id: planId,
+        workout_day: workoutDay,
+        user_id: userId,
+        cycle_week: cycleWeek,
+        is_redo_workout: isRedoWorkout,
+        exercises_count: exercises.length,
+        recommendations_count: Object.keys(recommendations).length,
+        duration_ms: duration,
+        operation: 'fetch_workout_data',
+      },
+      { feature: 'workout_data', action: 'success' },
+    );
+
+    return {
+      exercises,
+      exerciseSets,
+      recommendations,
+    };
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    captureDatabaseError(
+      error instanceof Error ? error : new Error(errorMessage),
+      'workout_plan_exercises',
+      'select',
+    );
+
+    SentryLogger.error(
+      'Failed to fetch workout data',
+      {
+        plan_id: planId,
+        workout_day: workoutDay,
+        user_id: userId,
+        cycle_week: cycleWeek,
+        is_redo_workout: isRedoWorkout,
+        error_message: errorMessage,
+        duration_ms: duration,
+        operation: 'fetch_workout_data',
+      },
+      { feature: 'workout_data', action: 'error' },
+    );
+
+    throw error;
   }
-
-  const exercises = await fetchExercisesFromDatabase(planId, workoutDay);
-  const { exerciseSets, recommendations } = await initializeExerciseSetsAndRecommendations(
-    exercises,
-    userId,
-    cycleWeek,
-  );
-
-  return {
-    exercises,
-    exerciseSets,
-    recommendations,
-  };
 };
 
 // Fetch last exercise records for all exercises
@@ -377,11 +472,51 @@ export const fetchLastExerciseRecords = async (
   userId: string,
   exercises: ExerciseData[],
 ): Promise<Record<string, Record<number, { weight: string; reps: string }>>> => {
-  if (!userId || exercises.length === 0) {
-    return {};
-  }
+  const startTime = Date.now();
 
   try {
+    addBreadcrumb('Fetching last exercise records', 'workout_data', {
+      user_id: userId,
+      exercises_count: exercises.length,
+    });
+
+    // Validate input parameters
+    const validationData = { userId, exercises };
+    const validationResult =
+      await validationService.validateFetchLastExerciseRecords(validationData);
+
+    if (!validationResult.success) {
+      const errorMessage = `Fetch last exercise records validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+
+      SentryLogger.error(
+        'Fetch last exercise records validation failed',
+        {
+          user_id: userId,
+          exercises_count: exercises.length,
+          validation_errors: validationResult.errors,
+          operation: 'fetch_last_exercise_records',
+        },
+        { feature: 'workout_data', action: 'validation_error' },
+      );
+
+      logger.error('Fetch last exercise records validation failed', new Error(errorMessage), {
+        context: { validationData, errors: validationResult.errors },
+      });
+      throw new Error(errorMessage);
+    }
+
+    if (!userId || exercises.length === 0) {
+      SentryLogger.info(
+        'No user ID or exercises provided for last records fetch',
+        {
+          user_id: userId,
+          exercises_count: exercises.length,
+          operation: 'fetch_last_exercise_records',
+        },
+        { feature: 'workout_data', action: 'early_return' },
+      );
+      return {};
+    }
     // Create an object to store the last values for each exercise and set
     const lastValues: Record<string, Record<number, { weight: string; reps: string }>> = {};
 
@@ -424,8 +559,52 @@ export const fetchLastExerciseRecords = async (
       }
     }
 
+    const duration = Date.now() - startTime;
+
+    // Monitor for slow exercise records fetching
+    if (duration > 2000) {
+      capturePerformanceError(
+        'Slow last exercise records fetch detected',
+        'fetch_duration',
+        duration,
+      );
+    }
+
+    SentryLogger.info(
+      'Last exercise records fetched successfully',
+      {
+        user_id: userId,
+        exercises_count: exercises.length,
+        records_found: Object.keys(lastValues).length,
+        duration_ms: duration,
+        operation: 'fetch_last_exercise_records',
+      },
+      { feature: 'workout_data', action: 'success' },
+    );
+
     return lastValues;
-  } catch {
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    captureDatabaseError(
+      error instanceof Error ? error : new Error(errorMessage),
+      'user_exercise_records',
+      'select',
+    );
+
+    SentryLogger.error(
+      'Failed to fetch last exercise records',
+      {
+        user_id: userId,
+        exercises_count: exercises.length,
+        error_message: errorMessage,
+        duration_ms: duration,
+        operation: 'fetch_last_exercise_records',
+      },
+      { feature: 'workout_data', action: 'error' },
+    );
+
     return {};
   }
 };
@@ -439,11 +618,53 @@ export const checkWorkoutCompletion = async (
   isCompleted: boolean;
   completedWorkoutData?: CompletedWorkoutData;
 }> => {
-  if (!userId || !planId) {
-    return { isCompleted: false };
-  }
+  const startTime = Date.now();
 
   try {
+    addBreadcrumb('Checking workout completion', 'workout_data', {
+      user_id: userId,
+      plan_id: planId,
+      workout_day: workoutDay,
+    });
+
+    // Validate input parameters
+    const validationData = { userId, planId, workoutDay };
+    const validationResult = await validationService.validateCheckWorkoutCompletion(validationData);
+
+    if (!validationResult.success) {
+      const errorMessage = `Check workout completion validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+
+      SentryLogger.error(
+        'Check workout completion validation failed',
+        {
+          user_id: userId,
+          plan_id: planId,
+          workout_day: workoutDay,
+          validation_errors: validationResult.errors,
+          operation: 'check_workout_completion',
+        },
+        { feature: 'workout_data', action: 'validation_error' },
+      );
+
+      logger.error('Check workout completion validation failed', new Error(errorMessage), {
+        context: { validationData, errors: validationResult.errors },
+      });
+      throw new Error(errorMessage);
+    }
+
+    if (!userId || !planId) {
+      SentryLogger.info(
+        'Missing user ID or plan ID for workout completion check',
+        {
+          user_id: userId,
+          plan_id: planId,
+          workout_day: workoutDay,
+          operation: 'check_workout_completion',
+        },
+        { feature: 'workout_data', action: 'early_return' },
+      );
+      return { isCompleted: false };
+    }
     // Check if there's a completed workout for this day
     const { data, error } = await supabase
       .from('user_workout_history')
@@ -464,7 +685,7 @@ export const checkWorkoutCompletion = async (
       )[0];
 
       // Get the count of exercises from the user_exercise_records table
-      const { data: exerciseData, error: _exerciseError } = await supabase
+      const { data: exerciseData } = await supabase
         .from('user_exercise_records')
         .select('exercise_id')
         .eq('workout_history_id', mostRecentWorkout.id)
@@ -495,9 +716,43 @@ export const checkWorkoutCompletion = async (
       };
     } else {
       // Workout is not completed
+      const duration = Date.now() - startTime;
+      SentryLogger.info(
+        'Workout not completed',
+        {
+          user_id: userId,
+          plan_id: planId,
+          workout_day: workoutDay,
+          duration_ms: duration,
+          operation: 'check_workout_completion',
+        },
+        { feature: 'workout_data', action: 'not_completed' },
+      );
       return { isCompleted: false };
     }
-  } catch {
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    captureDatabaseError(
+      error instanceof Error ? error : new Error(errorMessage),
+      'user_workout_history',
+      'select',
+    );
+
+    SentryLogger.error(
+      'Failed to check workout completion',
+      {
+        user_id: userId,
+        plan_id: planId,
+        workout_day: workoutDay,
+        error_message: errorMessage,
+        duration_ms: duration,
+        operation: 'check_workout_completion',
+      },
+      { feature: 'workout_data', action: 'error' },
+    );
+
     return { isCompleted: false };
   }
 };
@@ -509,8 +764,24 @@ export const getLastCompletedWorkoutStructure = async (
   workoutDay: number,
   cycleWeek: number,
 ): Promise<ExerciseData[] | null> => {
+  // Validate input parameters
+  const validationData = { userId, planId, workoutDay, cycleWeek };
+  const validationResult =
+    await validationService.validateGetLastCompletedWorkoutStructure(validationData);
+
+  if (!validationResult.success) {
+    const errorMessage = `Get last completed workout structure validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+    logger.error(
+      'Get last completed workout structure validation failed',
+      new Error(errorMessage),
+      {
+        context: { validationData, errors: validationResult.errors },
+      },
+    );
+    throw new Error(errorMessage);
+  }
+
   try {
-    // Get the most recent completed workout for this specific day and cycle week
     const { data, error } = await supabase
       .from('user_workout_history')
       .select('exercise_structure')
@@ -523,38 +794,52 @@ export const getLastCompletedWorkoutStructure = async (
       .single();
 
     if (error || !data?.exercise_structure) {
+      if (error) {
+        logger.error('Error fetching last workout structure from DB', error, {
+          context: validationData,
+        });
+      }
       return null;
     }
 
-    try {
-      // Parse the saved exercise structure
-      const exerciseStructure = JSON.parse(data.exercise_structure);
+    const { SavedExerciseStructureSchema } = await import('../validation/schemas');
+    const exerciseStructureArray = validationService.safeParseJson(
+      data.exercise_structure,
+      z.array(SavedExerciseStructureSchema), // Validate as an array of SavedExerciseStructure
+      'saved_exercise_structure',
+      [], // Fallback to an empty array
+    );
 
-      // Convert back to ExerciseData format
-      const exercises: ExerciseData[] = (exerciseStructure as SavedExerciseStructure[]).map(
-        (ex: SavedExerciseStructure) => ({
-          id: ex.id,
-          exercise_id: ex.exercise_id,
-          name: ex.name,
-          sets: ex.sets,
-          reps_range: ex.reps_range,
-          image_url: ex.image_url,
-          primary_muscles: ex.primary_muscles,
-          requires_weight: ex.requires_weight,
-          workout_day: ex.workout_day,
-          order: ex.order,
-          restTime: ex.restTime,
-          isChangedExercise: ex.isChangedExercise,
-        }),
-      );
-
-      return exercises;
-    } catch (parseError) {
-      console.error('Error parsing exercise structure:', parseError);
+    if (!exerciseStructureArray || exerciseStructureArray.length === 0) {
+      logger.warn('Failed to parse or validate exercise_structure, or it was empty', {
+        context: validationData,
+      });
       return null;
     }
+
+    // Convert back to ExerciseData format
+    // Ensure that the mapping correctly aligns with ExerciseData fields
+    const exercises: ExerciseData[] = exerciseStructureArray.map((ex) => ({
+      id: ex.id,
+      exercise_id: ex.exercise_id,
+      name: ex.name,
+      sets: ex.sets,
+      reps_range: ex.reps_range,
+      image_url: ex.image_url,
+      primary_muscles: ex.primary_muscles,
+      requires_weight: ex.requires_weight,
+      workout_day: ex.workout_day, // Ensure this field is present in SavedExerciseStructureSchema or handled if optional
+      order: ex.order, // Ensure this field is present
+      restTime: ex.restTime, // Ensure this field is present
+      isChangedExercise: ex.isChangedExercise, // Ensure this field is present
+      // Add any other fields required by ExerciseData, ensuring they exist on ex (SavedExerciseStructure)
+    }));
+
+    return exercises;
   } catch (error) {
-    console.error('Error fetching last completed workout structure:', error);
+    logger.error('Error processing last completed workout structure', error as Error, {
+      context: validationData,
+    });
     return null;
   }
 };
@@ -569,6 +854,23 @@ export const checkWorkoutCompletionForCycleWeek = async (
   isCompleted: boolean;
   completedWorkoutData?: CompletedWorkoutData;
 }> => {
+  // Validate input parameters
+  const validationData = { userId, planId, workoutDay, cycleWeek };
+  const validationResult =
+    await validationService.validateCheckWorkoutCompletionForCycleWeek(validationData);
+
+  if (!validationResult.success) {
+    const errorMessage = `Check workout completion for cycle week validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+    logger.error(
+      'Check workout completion for cycle week validation failed',
+      new Error(errorMessage),
+      {
+        context: { validationData, errors: validationResult.errors },
+      },
+    );
+    throw new Error(errorMessage);
+  }
+
   if (!userId || !planId) {
     return { isCompleted: false };
   }
@@ -596,7 +898,7 @@ export const checkWorkoutCompletionForCycleWeek = async (
       )[0];
 
       // Get the count of exercises from the user_exercise_records table
-      const { data: exerciseData, error: _exerciseError } = await supabase
+      const { data: exerciseData } = await supabase
         .from('user_exercise_records')
         .select('exercise_id')
         .eq('workout_history_id', mostRecentWorkout.id)
@@ -772,6 +1074,37 @@ const insertWorkoutHistory = async (options: {
 
   const workoutDurationMinutes = Math.round(workoutDuration / 60);
 
+  // Prepare workout history data for validation
+  const workoutHistoryData = {
+    user_id: userId,
+    plan_id: planId,
+    workout_day: workoutDay,
+    cycle_week: cycleWeek,
+    week_name: weekName,
+    workout_duration: formattedDuration,
+    calories_burned: Math.round(workoutDurationMinutes * 8.5),
+    total_volume: totalVolume,
+    total_reps: totalReps,
+    completed_at: new Date().toISOString(),
+    exercises_count: exercises.length,
+    exercise_structure: JSON.stringify(exerciseStructure),
+  };
+
+  // Validate workout history data
+  try {
+    const validationResult =
+      await validationService.validateWorkoutHistoryRecord(workoutHistoryData);
+
+    if (!validationResult.success) {
+      const errorMessage = `Workout history validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+      console.error(errorMessage, { workoutHistoryData, errors: validationResult.errors });
+      throw new Error(errorMessage);
+    }
+  } catch (validationError) {
+    console.error('Validation error in insertWorkoutHistory:', validationError);
+    throw validationError;
+  }
+
   const { data: workoutData, error: workoutError } = await supabase
     .from('user_workout_history')
     .insert({
@@ -847,6 +1180,20 @@ const createExerciseRecords = (
 // Helper function to insert exercise records
 const insertExerciseRecords = async (exerciseRecords: unknown[]): Promise<void> => {
   if (exerciseRecords.length > 0) {
+    // Validate exercise records before insertion
+    try {
+      const validationResult = await validationService.validateExerciseRecords(exerciseRecords);
+
+      if (!validationResult.success) {
+        const errorMessage = `Exercise records validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+        console.error(errorMessage, { exerciseRecords, errors: validationResult.errors });
+        throw new Error(errorMessage);
+      }
+    } catch (validationError) {
+      console.error('Validation error in insertExerciseRecords:', validationError);
+      throw validationError;
+    }
+
     const { error: recordsError } = await supabase
       .from('user_exercise_records')
       .insert(exerciseRecords);
@@ -936,6 +1283,22 @@ const updateActivePlan = async (
 
 // Complete a workout and save all data
 export const completeWorkout = async (options: CompleteWorkoutOptions): Promise<boolean> => {
+  // Validate input data
+  try {
+    const validationResult = await validationService.validateCompleteWorkoutOptions(options);
+
+    if (!validationResult.success) {
+      const errorMessage = `Workout completion validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+      logger.error('Workout completion validation failed', new Error(errorMessage), {
+        context: { options, errors: validationResult.errors },
+      });
+      throw new Error(errorMessage);
+    }
+  } catch (validationError) {
+    console.error('Validation error in completeWorkout:', validationError);
+    return false;
+  }
+
   const {
     userId,
     planId,

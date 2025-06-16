@@ -1,5 +1,8 @@
-// Initialize polyfills first
+// Initialize polyfills first (includes early Promise polyfills to prevent Sentry warnings)
 import './utils/polyfills';
+
+// Global type declarations
+declare const __DEV__: boolean;
 
 // Apply splash screen compatibility patch before any other imports
 import './utils/splashScreenPatch';
@@ -9,7 +12,7 @@ import { configureReanimatedLogger, ReanimatedLogLevel } from 'react-native-rean
 
 // Disable strict mode warnings for better development experience
 configureReanimatedLogger({
-  level: ReanimatedLogLevel.warn,
+  level: ReanimatedLogLevel.error, // Only show errors, hide warnings
   strict: false, // Disable strict mode warnings
 });
 
@@ -18,7 +21,7 @@ import { isRunningInExpoGo } from 'expo';
 import { useFonts } from 'expo-font';
 import { Slot, useNavigationContainerRef } from 'expo-router';
 import React from 'react';
-import { StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AuthGuard from './components/AuthGuard';
@@ -124,7 +127,6 @@ const errorBoundaryStyles = StyleSheet.create({
 
 // Root component wrapped in SafeAreaProvider
 const RootApp = () => {
-  const _colorScheme = useColorScheme();
   const [fontsLoaded] = useFonts({
     // Add any custom fonts here if needed
   });

@@ -1,9 +1,13 @@
 import * as Sentry from '@sentry/react-native';
 import Constants from 'expo-constants';
+import { SENTRY_DEBUG_CONFIG } from '../../utils/debugConfig';
 
 /**
  * Core Sentry initialization and configuration
  */
+
+// Global type declaration for React Native __DEV__ variable
+declare const __DEV__: boolean;
 
 /**
  * Configure Sentry integrations for automatic instrumentation
@@ -200,11 +204,9 @@ function createInitialScopeConfig(isDevelopment: boolean, isIOS: boolean) {
 }
 
 /**
- * Create Sentry configuration object
- *
- * Note: Debug logging is disabled by default to reduce console noise.
+ * Create complete Sentry configuration
  * To enable verbose Sentry logging for debugging, set SENTRY_DEBUG=true in your environment
- * or temporarily change debug: false to debug: isDevelopment
+ * or update the SENTRY_DEBUG flag in debugConfig.ts
  */
 function createSentryConfig(
   sentryDsn: string,
@@ -213,8 +215,8 @@ function createSentryConfig(
   isIOS: boolean,
   navigationIntegration?: unknown,
 ) {
-  // Check for explicit debug flag - temporarily enabled for debugging
-  const enableDebugLogging = process.env.SENTRY_DEBUG === 'true' || true;
+  // Use proper debug configuration instead of hardcoded value
+  const enableDebugLogging = SENTRY_DEBUG_CONFIG.enableDebug || process.env.SENTRY_DEBUG === 'true';
 
   const baseConfig = createBaseSentryConfig(sentryDsn, isDevelopment, isExpoGo, enableDebugLogging);
   const samplingConfig = createSamplingSentryConfig(isDevelopment);
@@ -243,19 +245,21 @@ export function initializeSentry(navigationIntegration?: unknown) {
   // Store original console methods before modification
   const originalWarn = console.warn;
   const originalLog = console.log;
+  const originalDebug = console.debug;
 
   try {
     // Suppress Sentry's promise package warning by patching console before initialization
 
-    // Temporarily suppress specific Sentry promise warnings
+    // Temporarily suppress specific Sentry debug and log messages
     console.warn = (...args: unknown[]) => {
       const message = args.join(' ');
       if (
         message.includes('multiple versions of the "promise" package') ||
         message.includes('Promise.allSettled') ||
-        message.includes('Sentry Logger [warn]')
+        message.includes('Sentry Logger [warn]') ||
+        message.includes('Sentry Logger [debug]')
       ) {
-        // Suppress this specific warning since we've properly handled it
+        // Suppress Sentry logging messages
         return;
       }
       originalWarn.apply(console, args);
@@ -264,13 +268,38 @@ export function initializeSentry(navigationIntegration?: unknown) {
     console.log = (...args: unknown[]) => {
       const message = args.join(' ');
       if (
-        message.includes('Sentry Logger [log]') &&
-        message.includes('Unhandled promise rejections')
+        message.includes('Sentry Logger [log]') ||
+        message.includes('Sentry Logger [debug]') ||
+        message.includes('[Profiling]') ||
+        message.includes('[Tracing]') ||
+        message.includes('[NativeFrames]') ||
+        message.includes('[Measurements]') ||
+        message.includes('[TimeToDisplay]') ||
+        message.includes('[TouchEvents]') ||
+        message.includes('[UserInteraction]')
       ) {
-        // This is the follow-up log message, suppress it too
+        // Suppress Sentry debug and performance logging messages
         return;
       }
       originalLog.apply(console, args);
+    };
+
+    console.debug = (...args: unknown[]) => {
+      const message = args.join(' ');
+      if (
+        message.includes('Sentry Logger [debug]') ||
+        message.includes('[Profiling]') ||
+        message.includes('[Tracing]') ||
+        message.includes('[NativeFrames]') ||
+        message.includes('[Measurements]') ||
+        message.includes('[TimeToDisplay]') ||
+        message.includes('[TouchEvents]') ||
+        message.includes('[UserInteraction]')
+      ) {
+        // Suppress Sentry debug messages
+        return;
+      }
+      originalDebug.apply(console, args);
     };
 
     // Ensure Promise.allSettled is available before Sentry checks
@@ -355,6 +384,7 @@ export function initializeSentry(navigationIntegration?: unknown) {
     // Restore original console methods after Sentry initialization
     console.warn = originalWarn;
     console.log = originalLog;
+    console.debug = originalDebug;
 
     // Test Sentry connection
     testSentryConnection(isDevelopment);
@@ -368,6 +398,7 @@ export function initializeSentry(navigationIntegration?: unknown) {
     try {
       console.warn = originalWarn;
       console.log = originalLog;
+      console.debug = originalDebug;
     } catch {
       // If restoration fails, at least log the error
     }

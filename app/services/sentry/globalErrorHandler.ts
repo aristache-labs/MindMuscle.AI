@@ -115,7 +115,7 @@ class GlobalErrorHandler {
       enableValidationErrorCapture: true,
       maxBreadcrumbs: 100,
       sampleRate: __DEV__ ? 1.0 : 0.8,
-      enableDebugLogs: __DEV__,
+      enableDebugLogs: false,
     };
   }
 
@@ -206,8 +206,19 @@ class GlobalErrorHandler {
       .map((arg) => (typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)))
       .join(' ');
 
-    // Skip Sentry's own logs to prevent infinite loops
-    if (message.includes('Sentry') || message.includes('sentry')) {
+    // Skip Sentry's own logs and debug messages to prevent infinite loops and noise
+    if (
+      message.includes('Sentry') ||
+      message.includes('sentry') ||
+      message.includes('Sentry Logger') ||
+      message.includes('[Profiling]') ||
+      message.includes('[Tracing]') ||
+      message.includes('[NativeFrames]') ||
+      message.includes('[Measurements]') ||
+      message.includes('[TimeToDisplay]') ||
+      message.includes('[TouchEvents]') ||
+      message.includes('[UserInteraction]')
+    ) {
       return;
     }
 

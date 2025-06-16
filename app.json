@@ -23,7 +23,10 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.mindmuscle.ai",
       "associatedDomains": [
-        "applinks:mindmuscle.app"
+        "applinks:mindmuscle.app",
+        "applinks:www.mindmuscle.app",
+        "webcredentials:mindmuscle.app",
+        "webcredentials:www.mindmuscle.app"
       ],
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false

@@ -1,5 +1,4 @@
 import * as Sentry from '@sentry/react-native';
-import Constants from 'expo-constants';
 import { DEBUG_CONFIG, DebugFlags } from './debugConfig';
 
 // Global type declaration for React Native __DEV__ variable
@@ -133,14 +132,5 @@ class Logger {
 }
 
 export const logger = Logger.getInstance();
-
-if (!__DEV__) {
-  Sentry.init({
-    dsn: Constants.expoConfig?.extra?.sentryDsn || '',
-    enabled: true,
-    debug: false,
-    environment: Constants.expoConfig?.extra?.environment || 'production',
-  });
-}
 
 export default logger;

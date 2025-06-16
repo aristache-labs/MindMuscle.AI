@@ -405,31 +405,49 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
         logger.info('User signed out successfully');
         setError(null);
 
-        // Clear saved credentials when user explicitly signs out
+        // Handle saved credentials based on remember me preference
         safeAsyncFireAndForget(
           async () => {
             Sentry.addBreadcrumb({
-              message: 'Clearing saved credentials on sign out',
+              message: 'Handling saved credentials on sign out',
               category: 'auth.signout',
               level: 'debug',
             });
 
-            await Promise.all([
-              secureStorage.deleteItemAsync(SAVED_EMAIL_KEY),
-              secureStorage.deleteItemAsync(SAVED_PASSWORD_KEY),
-              secureStorage.deleteItemAsync(REMEMBER_ME_KEY),
-            ]);
+            // Check if user had remember me enabled
+            const savedRememberMe = await secureStorage.getItemAsync(REMEMBER_ME_KEY);
+            const shouldRemember = savedRememberMe === 'true';
 
-            Sentry.addBreadcrumb({
-              message: 'Successfully cleared saved credentials',
-              category: 'auth.signout',
-              level: 'debug',
-            });
+            if (shouldRemember) {
+              // If remember me was enabled, only clear the password, keep email and remember me preference
+              await secureStorage.deleteItemAsync(SAVED_PASSWORD_KEY);
 
-            logger.info('Saved credentials cleared on sign out');
+              Sentry.addBreadcrumb({
+                message: 'Cleared password only, preserving email and remember me preference',
+                category: 'auth.signout',
+                level: 'debug',
+              });
+
+              logger.info('Cleared password only on sign out, preserving remember me');
+            } else {
+              // If remember me was not enabled, clear everything
+              await Promise.all([
+                secureStorage.deleteItemAsync(SAVED_EMAIL_KEY),
+                secureStorage.deleteItemAsync(SAVED_PASSWORD_KEY),
+                secureStorage.deleteItemAsync(REMEMBER_ME_KEY),
+              ]);
+
+              Sentry.addBreadcrumb({
+                message: 'Cleared all saved credentials',
+                category: 'auth.signout',
+                level: 'debug',
+              });
+
+              logger.info('Cleared all saved credentials on sign out');
+            }
           },
           {
-            errorPrefix: 'Failed to clear saved credentials on sign out',
+            errorPrefix: 'Failed to handle saved credentials on sign out',
             context: { action: 'sign_out' },
             logToConsole: true,
           },

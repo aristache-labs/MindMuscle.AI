@@ -17,6 +17,12 @@ import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import { useNavigationDebounce } from '../hooks/useDebounce';
 import { useAuth } from '../store/AuthContext';
 import secureStorage from '../utils/secureStorage';
+import {
+  credentialManager,
+  shouldEnableAutofill,
+  getUsernameAutoComplete,
+  getUsernameTextContentType,
+} from '../services/credentialManager';
 
 // Sentry integration imports
 import {
@@ -64,6 +70,7 @@ function useCredentialManagement() {
         setRememberMe(shouldRemember);
 
         if (shouldRemember) {
+          // First check our secure storage
           const [savedEmail, savedPassword] = await Promise.all([
             secureStorage.getItemAsync(SAVED_EMAIL_KEY),
             secureStorage.getItemAsync(SAVED_PASSWORD_KEY),
@@ -71,6 +78,19 @@ function useCredentialManagement() {
 
           if (savedEmail) setEmail(savedEmail);
           if (savedPassword) setPassword(savedPassword);
+
+          // Also try to get credentials from keychain if available
+          try {
+            const keychainCredentials = await credentialManager.getSavedCredentials();
+            if (keychainCredentials?.email && !savedEmail) {
+              setEmail(keychainCredentials.email);
+            }
+            if (keychainCredentials?.password && !savedPassword) {
+              setPassword(keychainCredentials.password);
+            }
+          } catch (error) {
+            console.log('No keychain credentials available:', error);
+          }
 
           addBreadcrumb({
             message: 'Saved credentials loaded successfully',
@@ -348,8 +368,8 @@ function EmailInput({
         onChangeText={handleEmailChange}
         keyboardType="email-address"
         autoCapitalize="none"
-        autoComplete="username"
-        textContentType="username"
+        autoComplete="email"
+        textContentType="emailAddress"
         importantForAutofill="yes"
         autoCorrect={false}
         spellCheck={false}
@@ -416,15 +436,17 @@ function PasswordInput({
         value={password}
         onChangeText={setPassword}
         secureTextEntry={!showPassword}
+        // Enhanced autofill properties for credential managers
         autoComplete="current-password"
         textContentType="password"
         importantForAutofill="yes"
+        // iOS password rules for better autofill integration
+        passwordRules="minlength: 8;"
         autoCapitalize="none"
         autoCorrect={false}
         spellCheck={false}
         enablesReturnKeyAutomatically={true}
         returnKeyType="done"
-        passwordRules="minlength: 8;"
         style={styles.input}
         placeholderTextColor={focusedInput === 'password' ? COLORS.primary : '#fff'}
         textColor={focusedInput === 'password' ? '#fff' : '#666'}
@@ -466,10 +488,12 @@ function RememberMeCheckbox({
   rememberMe,
   onToggle,
   isLoading,
+  isNativeAutofillAvailable,
 }: {
   rememberMe: boolean;
   onToggle: (checked: boolean) => void;
   isLoading: boolean;
+  isNativeAutofillAvailable: boolean;
 }) {
   return (
     <View style={styles.rememberContainer}>
@@ -488,7 +512,13 @@ function RememberMeCheckbox({
           {rememberMe && <Ionicons name="checkmark" size={16} color="#fff" />}
         </View>
         <Text style={styles.rememberText}>Remember me</Text>
+        {isNativeAutofillAvailable && (
+          <Ionicons name="key" size={16} color={COLORS.primary} style={{ marginLeft: 8 }} />
+        )}
       </Pressable>
+      {isNativeAutofillAvailable && (
+        <Text style={styles.autofillHint}>System autofill available</Text>
+      )}
     </View>
   );
 }
@@ -498,6 +528,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [hasLoadedCredentials, setHasLoadedCredentials] = useState(false);
+  const [isNativeAutofillAvailable, setIsNativeAutofillAvailable] = useState(false);
 
   const passwordInputRef = useRef<RNTextInput | null>(null);
   const isMountedRef = useRef(true);
@@ -538,10 +569,41 @@ export default function LoginScreen() {
     };
   }, []);
 
-  // Load saved credentials on component mount (only once)
+  // Check credential manager availability and load saved credentials
   useEffect(() => {
     if (!hasLoadedCredentials && isMountedRef.current) {
       setHasLoadedCredentials(true);
+
+      // Check if native credential manager is available
+      credentialManager.isNativeCredentialManagerAvailable().then(async (available) => {
+        if (isMountedRef.current) {
+          setIsNativeAutofillAvailable(available);
+
+          console.log('🔑 [Login] Credential manager status:', {
+            available,
+            platform: Platform.OS,
+            autofillEnabled: shouldEnableAutofill(),
+            autoComplete: getUsernameAutoComplete(),
+            textContentType: getUsernameTextContentType(),
+          });
+
+          if (available) {
+            const managerInfo = await credentialManager.getCredentialManagerInfo();
+            console.log('🔑 [Login] Credential manager info:', managerInfo);
+            addBreadcrumb({
+              message: 'Native credential manager available',
+              category: 'auth.credentials',
+              level: 'info',
+              data: {
+                platform: managerInfo.platform,
+                features: managerInfo.features,
+              },
+            });
+          }
+        }
+      });
+
+      // Load our app's saved credentials
       loadSavedCredentials(setEmail, setPassword, setRememberMe);
     }
 
@@ -619,6 +681,15 @@ export default function LoginScreen() {
           id: result.data?.user?.id || 'unknown',
           username: email.split('@')[0],
         });
+
+        // Request system to save credentials for future autofill (always show iOS prompt)
+        if (shouldEnableAutofill()) {
+          console.log('🔑 [Login] Requesting to save credentials after successful login');
+          const saveResult = await credentialManager.requestToSaveCredentials(email, password);
+          console.log('🔑 [Login] Credential save request result:', saveResult);
+        } else {
+          console.log('🔑 [Login] Autofill not available on this platform');
+        }
       }
     } catch (err) {
       console.error('Login error:', err);
@@ -731,6 +802,7 @@ export default function LoginScreen() {
               rememberMe={rememberMe}
               onToggle={handleRememberMeChange}
               isLoading={isLoading}
+              isNativeAutofillAvailable={isNativeAutofillAvailable}
             />
 
             <Pressable
@@ -857,6 +929,12 @@ const styles = StyleSheet.create({
   rememberText: {
     color: COLORS.text,
     marginLeft: SPACING.xs,
+  },
+  autofillHint: {
+    color: COLORS.primary,
+    fontSize: 12,
+    marginTop: SPACING.xs,
+    textAlign: 'center',
   },
   signInButton: {
     backgroundColor: COLORS.primary,

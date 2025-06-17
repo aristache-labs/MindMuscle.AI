@@ -218,6 +218,15 @@ export default function ExerciseListModal({
     }
   }, [isCustomizeMode, hasChanges, originalExercises]);
 
+  // Separate exercises into completed and remaining based on currentExerciseIndex
+  const completedExercises = React.useMemo(() => {
+    return localExercises.slice(0, currentExerciseIndex);
+  }, [localExercises, currentExerciseIndex]);
+
+  const remainingExercises = React.useMemo(() => {
+    return localExercises.slice(currentExerciseIndex);
+  }, [localExercises, currentExerciseIndex]);
+
   const handleClose = useCallback(() => {
     try {
       // Track close action with Sentry
@@ -336,12 +345,15 @@ export default function ExerciseListModal({
 
   const handleDragStart = useCallback(
     (index: number) => {
-      // Only allow drag in customize mode
+      // Only allow drag in customize mode and only for remaining exercises
       if (!isCustomizeMode) return;
 
-      // Safety check for valid index
-      if (index < 0 || index >= localExercises.length) {
-        console.warn('Invalid drag start index:', index);
+      // Convert global index to remaining exercises index
+      const remainingIndex = index - currentExerciseIndex;
+
+      // Safety check for valid index within remaining exercises
+      if (remainingIndex < 0 || remainingIndex >= remainingExercises.length) {
+        console.warn('Invalid drag start index for remaining exercises:', remainingIndex);
         return;
       }
 
@@ -352,8 +364,9 @@ export default function ExerciseListModal({
           level: 'info',
           data: {
             draggedIndex: index,
-            exerciseName: localExercises[index]?.name,
-            exerciseCount: localExercises.length,
+            remainingIndex,
+            exerciseName: remainingExercises[remainingIndex]?.name,
+            exerciseCount: remainingExercises.length,
           },
         });
       } catch (error) {
@@ -364,17 +377,19 @@ export default function ExerciseListModal({
       setDraggedIndex(index);
       setDragTargetIndex(index);
     },
-    [isCustomizeMode, localExercises],
+    [isCustomizeMode, remainingExercises, currentExerciseIndex],
   );
 
   const handleDragUpdate = useCallback(
     (draggedIndex: number, currentY: number) => {
-      // Only allow drag updates in customize mode
+      // Only allow drag updates in customize mode and for remaining exercises
       if (!isCustomizeMode) return;
 
+      const remainingIndex = draggedIndex - currentExerciseIndex;
+
       // Safety checks
-      if (draggedIndex < 0 || draggedIndex >= localExercises.length) {
-        console.warn('Invalid drag update index:', draggedIndex);
+      if (remainingIndex < 0 || remainingIndex >= remainingExercises.length) {
+        console.warn('Invalid drag update index for remaining exercises:', remainingIndex);
         return;
       }
 
@@ -384,23 +399,25 @@ export default function ExerciseListModal({
       }
 
       try {
-        // Simple calculation - determine target position based on drag distance
+        // Calculate target position within remaining exercises only
         const itemsMoved = Math.round(currentY / 88); // ITEM_HEIGHT
-        const newTargetIndex = Math.max(
+        const newRemainingTargetIndex = Math.max(
           0,
-          Math.min(draggedIndex + itemsMoved, localExercises.length - 1),
+          Math.min(remainingIndex + itemsMoved, remainingExercises.length - 1),
         );
+        // Convert back to global index
+        const newTargetIndex = newRemainingTargetIndex + currentExerciseIndex;
         setDragTargetIndex(newTargetIndex);
       } catch (error) {
         console.warn('Error in drag update:', error);
       }
     },
-    [localExercises.length, isCustomizeMode, isDragging],
+    [remainingExercises.length, isCustomizeMode, isDragging, currentExerciseIndex],
   );
 
   const handleDragEnd = useCallback(
     (fromIndex: number, toIndex: number) => {
-      // Only allow drag end in customize mode
+      // Only allow drag end in customize mode and for remaining exercises
       if (!isCustomizeMode) return;
 
       // Always reset drag state first, regardless of what happens
@@ -408,19 +425,22 @@ export default function ExerciseListModal({
       setDraggedIndex(-1);
       setDragTargetIndex(-1);
 
-      // Safety checks
-      if (fromIndex < 0 || fromIndex >= localExercises.length) {
-        console.warn('Invalid drag end fromIndex:', fromIndex);
+      const fromRemainingIndex = fromIndex - currentExerciseIndex;
+      const toRemainingIndex = toIndex - currentExerciseIndex;
+
+      // Safety checks for remaining exercises only
+      if (fromRemainingIndex < 0 || fromRemainingIndex >= remainingExercises.length) {
+        console.warn('Invalid drag end fromIndex for remaining exercises:', fromRemainingIndex);
         return;
       }
 
-      if (toIndex < 0 || toIndex >= localExercises.length) {
-        console.warn('Invalid drag end toIndex:', toIndex);
+      if (toRemainingIndex < 0 || toRemainingIndex >= remainingExercises.length) {
+        console.warn('Invalid drag end toIndex for remaining exercises:', toRemainingIndex);
         return;
       }
 
       try {
-        const didReorder = fromIndex !== toIndex;
+        const didReorder = fromRemainingIndex !== toRemainingIndex;
 
         Sentry.addBreadcrumb({
           message: 'Exercise drag operation ended',
@@ -429,18 +449,23 @@ export default function ExerciseListModal({
           data: {
             fromIndex,
             toIndex,
-            exerciseName: localExercises[fromIndex]?.name,
+            fromRemainingIndex,
+            toRemainingIndex,
+            exerciseName: remainingExercises[fromRemainingIndex]?.name,
             didReorder,
-            exerciseCount: localExercises.length,
+            exerciseCount: remainingExercises.length,
           },
         });
 
-        // Only reorder if position actually changed
+        // Only reorder if position actually changed within remaining exercises
         if (didReorder) {
-          const newExercises = [...localExercises];
-          const [movedExercise] = newExercises.splice(fromIndex, 1);
-          newExercises.splice(toIndex, 0, movedExercise);
+          // Create new remaining exercises array with reordered items
+          const newRemainingExercises = [...remainingExercises];
+          const [movedExercise] = newRemainingExercises.splice(fromRemainingIndex, 1);
+          newRemainingExercises.splice(toRemainingIndex, 0, movedExercise);
 
+          // Reconstruct the full exercises array: completed + reordered remaining
+          const newExercises = [...completedExercises, ...newRemainingExercises];
           setLocalExercises(newExercises);
           // Don't call onReorderExercises immediately - wait for apply
         }
@@ -451,33 +476,44 @@ export default function ExerciseListModal({
             drag: {
               fromIndex,
               toIndex,
-              exerciseCount: localExercises.length,
+              fromRemainingIndex,
+              toRemainingIndex,
+              exerciseCount: remainingExercises.length,
             },
           },
         });
         console.warn('Error in drag end:', error);
       }
     },
-    [localExercises, isCustomizeMode],
+    [remainingExercises, completedExercises, isCustomizeMode, currentExerciseIndex],
   );
 
   const handleRemoveExercise = useCallback(
     (index: number) => {
-      // Only allow removal in customize mode
+      // Only allow removal in customize mode and only for remaining exercises
       if (!isCustomizeMode) return;
+
+      const remainingIndex = index - currentExerciseIndex;
+
+      // Safety check for remaining exercises only
+      if (remainingIndex < 0 || remainingIndex >= remainingExercises.length) {
+        console.warn('Cannot remove completed exercise at index:', index);
+        return;
+      }
 
       try {
         const exerciseToRemove = localExercises[index];
 
         Sentry.addBreadcrumb({
-          message: 'Exercise removed from list',
+          message: 'Exercise removed from list (remaining only)',
           category: 'user.interaction',
           level: 'info',
           data: {
             removedIndex: index,
+            remainingIndex,
             exerciseName: exerciseToRemove?.name,
             exerciseId: exerciseToRemove?.id,
-            remainingCount: localExercises.length - 1,
+            remainingCount: remainingExercises.length - 1,
           },
         });
 
@@ -499,6 +535,7 @@ export default function ExerciseListModal({
           contexts: {
             removal: {
               index,
+              remainingIndex,
               exerciseCount: localExercises.length,
               exerciseName: localExercises[index]?.name,
             },
@@ -508,7 +545,13 @@ export default function ExerciseListModal({
         throw error;
       }
     },
-    [localExercises, originalExercises, isCustomizeMode],
+    [
+      localExercises,
+      originalExercises,
+      isCustomizeMode,
+      currentExerciseIndex,
+      remainingExercises.length,
+    ],
   );
 
   const modalStyle = useAnimatedStyle(() => {
@@ -538,7 +581,7 @@ export default function ExerciseListModal({
     };
   }, [modalAnimation]);
 
-  // Separate active and upcoming exercises
+  // Separate active and upcoming exercises for normal mode
   const currentExercise = localExercises[currentExerciseIndex];
   const upcomingExercises = localExercises.slice(currentExerciseIndex + 1);
 
@@ -657,31 +700,74 @@ export default function ExerciseListModal({
             >
               {isCustomizeMode ? (
                 <>
-                  {/* Customize Mode: All Exercises List with drag/drop */}
-                  <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>ALL EXERCISES ({localExercises.length})</Text>
-                    {localExercises.map((exercise, index) => (
-                      <DraggableExerciseItem
-                        key={`exercise-${exercise.id}-${index}`}
-                        exercise={exercise}
-                        index={index}
-                        currentExerciseIndex={currentExerciseIndex}
-                        onExerciseSelect={onExerciseSelect}
-                        onExerciseDetailsPress={onExerciseDetailsPress}
-                        onDragStart={handleDragStart}
-                        onDragEnd={handleDragEnd}
-                        onDragUpdate={handleDragUpdate}
-                        isDragging={isDragging}
-                        draggedIndex={draggedIndex}
-                        dragTargetIndex={dragTargetIndex}
-                        totalExercises={localExercises.length}
-                        isCustomizeMode={isCustomizeMode}
-                        onRemoveExercise={handleRemoveExercise}
-                        showActiveLabel={true}
-                        customizeAnimation={cardAnimations}
-                      />
-                    ))}
-                  </View>
+                  {/* Customize Mode: Completed Exercises Section (Non-draggable) */}
+                  {completedExercises.length > 0 && (
+                    <View style={styles.section}>
+                      <Text style={styles.sectionTitle}>
+                        COMPLETED EXERCISES ({completedExercises.length})
+                      </Text>
+                      <View style={styles.completedExercisesNote}>
+                        <Ionicons name="checkmark-circle" size={16} color={COLORS.primary} />
+                        <Text style={styles.completedExercisesNoteText}>
+                          Completed exercises cannot be reordered or removed
+                        </Text>
+                      </View>
+                      {completedExercises.map((exercise, index) => (
+                        <DraggableExerciseItem
+                          key={`completed-${exercise.id}-${index}`}
+                          exercise={exercise}
+                          index={index}
+                          currentExerciseIndex={currentExerciseIndex}
+                          onExerciseSelect={onExerciseSelect}
+                          onExerciseDetailsPress={onExerciseDetailsPress}
+                          onDragStart={() => {}} // No drag for completed exercises
+                          onDragEnd={() => {}} // No drag for completed exercises
+                          onDragUpdate={() => {}} // No drag for completed exercises
+                          isDragging={false}
+                          draggedIndex={-1}
+                          dragTargetIndex={-1}
+                          totalExercises={localExercises.length}
+                          isCustomizeMode={false} // Treat as non-customizable
+                          onRemoveExercise={undefined} // No removal for completed exercises
+                          showActiveLabel={false}
+                          customizeAnimation={cardAnimations}
+                        />
+                      ))}
+                    </View>
+                  )}
+
+                  {/* Customize Mode: Remaining Exercises Section (Draggable) */}
+                  {remainingExercises.length > 0 && (
+                    <View style={styles.section}>
+                      <Text style={styles.sectionTitle}>
+                        REMAINING EXERCISES ({remainingExercises.length})
+                      </Text>
+                      {remainingExercises.map((exercise, remainingIndex) => {
+                        const actualIndex = currentExerciseIndex + remainingIndex;
+                        return (
+                          <DraggableExerciseItem
+                            key={`remaining-${exercise.id}-${actualIndex}`}
+                            exercise={exercise}
+                            index={actualIndex}
+                            currentExerciseIndex={currentExerciseIndex}
+                            onExerciseSelect={onExerciseSelect}
+                            onExerciseDetailsPress={onExerciseDetailsPress}
+                            onDragStart={handleDragStart}
+                            onDragEnd={handleDragEnd}
+                            onDragUpdate={handleDragUpdate}
+                            isDragging={isDragging}
+                            draggedIndex={draggedIndex}
+                            dragTargetIndex={dragTargetIndex}
+                            totalExercises={remainingExercises.length}
+                            isCustomizeMode={isCustomizeMode}
+                            onRemoveExercise={handleRemoveExercise}
+                            showActiveLabel={actualIndex === currentExerciseIndex}
+                            customizeAnimation={cardAnimations}
+                          />
+                        );
+                      })}
+                    </View>
+                  )}
                 </>
               ) : (
                 <>

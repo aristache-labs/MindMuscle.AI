@@ -208,17 +208,18 @@ export const styles = StyleSheet.create({
   },
   exerciseGrid: {
     flex: 1,
-    paddingHorizontal: SPACING.lg,
+    paddingHorizontal: SPACING.md,
     paddingTop: SPACING.sm,
   },
   exerciseCardsContainer: {
     paddingBottom: SPACING.xl,
+    paddingHorizontal: SPACING.xs,
   },
   exerciseRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: SPACING.sm,
-    gap: SPACING.sm,
+    marginBottom: SPACING.lg,
+    gap: SPACING.md,
   },
   exerciseCardWrapper: {
     flex: 1,

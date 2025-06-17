@@ -48,6 +48,8 @@ export const useExerciseSelection = ({
   const [isInAddExerciseFlow, setIsInAddExerciseFlow] = useState(false);
   // Add flag to preserve customize mode during add exercise flow
   const [wasInCustomizeModeBeforeAdd, setWasInCustomizeModeBeforeAdd] = useState(false);
+  // Store newly added exercises when in customize mode (to be applied only when "Done" is pressed)
+  const [pendingAddedExercises, setPendingAddedExercises] = useState<ExerciseData[]>([]);
 
   // Handle exercise details modal
   const handleExerciseNamePress = useCallback(() => {
@@ -70,6 +72,8 @@ export const useExerciseSelection = ({
     // Only reset customize mode if we're not in an add exercise flow
     if (!isInAddExerciseFlow) {
       setIsCustomizeMode(false);
+      // Clear pending exercises when closing modal without applying
+      setPendingAddedExercises([]);
     }
   }, [isInAddExerciseFlow]);
 
@@ -107,6 +111,10 @@ export const useExerciseSelection = ({
   // Handle customize mode toggle
   const handleToggleCustomizeMode = useCallback(() => {
     setIsCustomizeMode(!isCustomizeMode);
+    // Clear pending added exercises when toggling customize mode
+    if (isCustomizeMode) {
+      setPendingAddedExercises([]);
+    }
   }, [isCustomizeMode]);
 
   // Handle add exercise modal
@@ -171,25 +179,33 @@ export const useExerciseSelection = ({
         isChangedExercise: true, // Mark as added exercise for proper database handling
       }));
 
-      // Add new exercises to the current exercise list
-      setExercises((prev) => [...prev, ...newExercises]);
+      // Only add new exercises to the current exercise list if not in customize mode
+      // In customize mode, exercises should be stored as pending until "Done" is pressed
+      if (!isCustomizeMode) {
+        setExercises((prev) => [...prev, ...newExercises]);
+      } else {
+        // Store exercises as pending when in customize mode
+        setPendingAddedExercises((prev) => [...prev, ...newExercises]);
+      }
 
-      // Initialize exercise sets for each new exercise
-      setExerciseSets((prev) => {
-        const newSets = { ...prev };
-        newExercises.forEach((exercise) => {
-          if (!newSets[exercise.id]) {
-            newSets[exercise.id] = Array.from({ length: exercise.sets }, (_, index) => ({
-              id: `${exercise.id}-set-${index + 1}`,
-              setNumber: index + 1,
-              weight: '',
-              reps: exercise.reps_range,
-              isCompleted: false,
-            }));
-          }
+      // Initialize exercise sets for each new exercise (only if not in customize mode)
+      if (!isCustomizeMode) {
+        setExerciseSets((prev) => {
+          const newSets = { ...prev };
+          newExercises.forEach((exercise) => {
+            if (!newSets[exercise.id]) {
+              newSets[exercise.id] = Array.from({ length: exercise.sets }, (_, index) => ({
+                id: `${exercise.id}-set-${index + 1}`,
+                setNumber: index + 1,
+                weight: '',
+                reps: exercise.reps_range,
+                isCompleted: false,
+              }));
+            }
+          });
+          return newSets;
         });
-        return newSets;
-      });
+      }
 
       // Close the add exercise modal first
       setShowAddExerciseModal(false);
@@ -213,6 +229,34 @@ export const useExerciseSelection = ({
     },
     [exercises, setExercises, setExerciseSets, wasInCustomizeModeBeforeAdd, isCustomizeMode],
   );
+
+  // Handle applying pending added exercises when "Done" is pressed in customize mode
+  const handleApplyPendingExercises = useCallback(() => {
+    if (pendingAddedExercises.length > 0) {
+      // Add pending exercises to the main exercise list
+      setExercises((prev) => [...prev, ...pendingAddedExercises]);
+
+      // Initialize exercise sets for the newly added exercises
+      setExerciseSets((prev) => {
+        const newSets = { ...prev };
+        pendingAddedExercises.forEach((exercise) => {
+          if (!newSets[exercise.id]) {
+            newSets[exercise.id] = Array.from({ length: exercise.sets }, (_, index) => ({
+              id: `${exercise.id}-set-${index + 1}`,
+              setNumber: index + 1,
+              weight: '',
+              reps: exercise.reps_range,
+              isCompleted: false,
+            }));
+          }
+        });
+        return newSets;
+      });
+
+      // Clear pending exercises
+      setPendingAddedExercises([]);
+    }
+  }, [pendingAddedExercises, setExercises, setExerciseSets]);
 
   // Handle action buttons (legacy for compatibility)
   const handleAddExercise = useCallback(() => {
@@ -570,6 +614,7 @@ export const useExerciseSelection = ({
     setIsCustomizeMode,
     isInAddExerciseFlow,
     setIsInAddExerciseFlow,
+    pendingAddedExercises,
 
     // Modal handlers
     handleExerciseNamePress,
@@ -584,6 +629,7 @@ export const useExerciseSelection = ({
     handleAddExercisePress,
     handleAddExerciseModalClose,
     handleAddExercises,
+    handleApplyPendingExercises,
 
     // Exercise customization
     handleCustomizeExerciseSave,

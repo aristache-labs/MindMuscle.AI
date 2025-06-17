@@ -15,7 +15,12 @@ export interface ExerciseListModalProps {
   onAddExercise?: () => void;
   onAddSuperset?: () => void;
   onAddCardio?: () => void;
-  onApplyChanges?: (exercises: ExerciseData[], removedIndices: number[]) => void;
+  onApplyChanges?: (
+    exercises: ExerciseData[],
+    removedIndices: number[],
+    addedExercises?: ExerciseData[],
+  ) => void;
+  pendingAddedExercises?: ExerciseData[];
 }
 
 export interface DraggableExerciseItemProps {

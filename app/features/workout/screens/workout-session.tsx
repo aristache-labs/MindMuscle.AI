@@ -408,6 +408,7 @@ function renderMainWorkoutView(props: any) {
         onAddSuperset={props.handleAddSuperset}
         onAddCardio={props.handleAddCardio}
         onApplyChanges={props.handleApplyChanges}
+        pendingAddedExercises={props.pendingAddedExercises}
       />
 
       <AddExerciseModal
@@ -575,6 +576,7 @@ export default function WorkoutSessionScreen() {
     showCustomizeExerciseModal,
     showAddExerciseModal,
     isCustomizeMode,
+    pendingAddedExercises,
     handleExerciseDetailsModalClose,
     handleExerciseListPress,
     handleExerciseListModalClose,
@@ -585,6 +587,7 @@ export default function WorkoutSessionScreen() {
     handleToggleCustomizeMode,
     handleAddExerciseModalClose,
     handleAddExercises,
+    handleApplyPendingExercises,
     handleCustomizeExerciseSave,
     handleExerciseChange,
     handleAddExercise,
@@ -857,17 +860,22 @@ export default function WorkoutSessionScreen() {
 
   // Handle applying changes from the exercise list modal
   const handleApplyChanges = useCallback(
-    (newExercises: ExerciseData[], removedIndices: number[]) => {
+    (newExercises: ExerciseData[], removedIndices: number[], addedExercises?: ExerciseData[]) => {
       try {
         // Store the original state for comparison
         const originalExercises = [...workoutExercises];
 
-        // First, handle reordering if exercises have changed
+        // First, apply pending added exercises if any
+        if (addedExercises && addedExercises.length > 0) {
+          handleApplyPendingExercises();
+        }
+
+        // Then handle reordering if exercises have changed
         if (JSON.stringify(newExercises) !== JSON.stringify(originalExercises)) {
           handleReorderExercises(newExercises);
         }
 
-        // Then handle removals in reverse order to maintain correct indices
+        // Finally handle removals in reverse order to maintain correct indices
         if (removedIndices.length > 0) {
           const sortedIndices = [...removedIndices].sort((a, b) => b - a);
           sortedIndices.forEach((index) => {
@@ -880,7 +888,7 @@ export default function WorkoutSessionScreen() {
         console.error('Error applying exercise changes:', error);
       }
     },
-    [workoutExercises, handleReorderExercises, handleRemoveExercise],
+    [workoutExercises, handleReorderExercises, handleRemoveExercise, handleApplyPendingExercises],
   );
 
   // Get the current exercise based on the current index
@@ -1004,6 +1012,7 @@ export default function WorkoutSessionScreen() {
     showAddExerciseModal,
     handleAddExerciseModalClose,
     handleAddExercises,
+    pendingAddedExercises,
   });
 }
 

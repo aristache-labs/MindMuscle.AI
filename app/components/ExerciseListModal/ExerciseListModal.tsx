@@ -21,6 +21,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Sentry from '@sentry/react-native';
 import { COLORS } from '../../constants/theme';
+import { ExerciseData } from '../../features/workout/types';
 import { DraggableExerciseItem } from './DraggableExerciseItem';
 import { useCustomizeModeAnimations } from './hooks';
 import { styles } from './styles';
@@ -43,11 +44,13 @@ export default function ExerciseListModal({
   onAddSuperset,
   onAddCardio,
   onApplyChanges,
+  pendingAddedExercises = [],
 }: ExerciseListModalProps) {
   const insets = useSafeAreaInsets();
   const [localExercises, setLocalExercises] = React.useState(exercises);
   const [originalExercises, setOriginalExercises] = React.useState(exercises);
   const [removedIndices, setRemovedIndices] = React.useState<number[]>([]);
+  const [addedExercises, setAddedExercises] = React.useState<ExerciseData[]>([]);
   const [isDragging, setIsDragging] = React.useState(false);
   const [draggedIndex, setDraggedIndex] = React.useState(-1);
   const [dragTargetIndex, setDragTargetIndex] = React.useState(-1);
@@ -159,18 +162,25 @@ export default function ExerciseListModal({
 
   // Update local exercises when prop changes and reset change tracking
   React.useEffect(() => {
-    setLocalExercises(exercises);
+    // In customize mode, include pending added exercises in local exercises
+    const exercisesWithPending = isCustomizeMode
+      ? [...exercises, ...pendingAddedExercises]
+      : exercises;
+
+    setLocalExercises(exercisesWithPending);
     setOriginalExercises(exercises);
     setRemovedIndices([]);
+    setAddedExercises(pendingAddedExercises);
     setHasChanges(false);
-  }, [exercises, isCustomizeMode]);
+  }, [exercises, pendingAddedExercises, isCustomizeMode]);
 
   // Check if there are any changes
   React.useEffect(() => {
     const exercisesChanged = JSON.stringify(localExercises) !== JSON.stringify(originalExercises);
     const hasRemovals = removedIndices.length > 0;
-    setHasChanges(exercisesChanged || hasRemovals);
-  }, [localExercises, originalExercises, removedIndices]);
+    const hasAdditions = addedExercises.length > 0;
+    setHasChanges(exercisesChanged || hasRemovals || hasAdditions);
+  }, [localExercises, originalExercises, removedIndices, addedExercises]);
 
   // Modal entrance animation
   React.useEffect(() => {
@@ -210,6 +220,7 @@ export default function ExerciseListModal({
       // Reset to original state if exiting customize mode without applying changes
       setLocalExercises(originalExercises);
       setRemovedIndices([]);
+      setAddedExercises([]);
       setHasChanges(false);
     }
   }, [isCustomizeMode, hasChanges, originalExercises]);
@@ -242,6 +253,7 @@ export default function ExerciseListModal({
       if (hasChanges) {
         setLocalExercises(originalExercises);
         setRemovedIndices([]);
+        setAddedExercises([]);
         setHasChanges(false);
       }
       onClose();
@@ -285,7 +297,7 @@ export default function ExerciseListModal({
       });
 
       if (hasChanges && onApplyChanges) {
-        onApplyChanges(localExercises, removedIndices);
+        onApplyChanges(localExercises, removedIndices, addedExercises);
       }
 
       // Apply individual changes for backward compatibility
@@ -309,6 +321,7 @@ export default function ExerciseListModal({
       // Update original state and reset changes
       setOriginalExercises(localExercises);
       setRemovedIndices([]);
+      setAddedExercises([]);
       setHasChanges(false);
 
       // Exit customize mode

@@ -196,6 +196,145 @@ async function fetchCompletionDataAsync(
   }
 }
 
+// Helper function to convert saved exercise structure to Exercise format
+function convertSavedExerciseToFormat(
+  exerciseStructure: z.infer<typeof SavedExerciseStructureSchema>[],
+): Exercise[] {
+  return exerciseStructure.map(
+    (item): Exercise => ({
+      id: item.exercise_id || item.id || '',
+      name: item.name || 'Unknown Exercise',
+      sets: item.sets || 3,
+      reps: item.reps_range || '8-12',
+      image: item.image_url,
+      equipment: 'Standard',
+      kg: 0,
+      primary_muscles: item.primary_muscles || [],
+      secondary_muscles: [],
+    }),
+  );
+}
+
+// Helper function to convert exercise data to Exercise format
+function convertExerciseDataToFormat(exerciseData: ExerciseData[]): Exercise[] {
+  return exerciseData.map(
+    (item): Exercise => ({
+      id: item.exercise_id || item.id || '',
+      name: item.exercise_name || 'Unknown Exercise',
+      sets: item.sets || 3,
+      reps: item.reps_range || '8-12',
+      image: item.exercises?.[0]?.image_url,
+      equipment: 'Standard',
+      kg: 0,
+      primary_muscles: item.exercises?.[0]?.primary_muscles || [],
+      secondary_muscles: item.exercises?.[0]?.secondary_muscles || [],
+    }),
+  );
+}
+
+// Helper function to fetch completed workout exercises from history
+async function fetchCompletedWorkoutExercises(
+  userId: string,
+  activePlanId: string,
+  dayNumber: number,
+  weekNumber: number,
+): Promise<Exercise[] | null> {
+  try {
+    const { data: workoutHistory, error } = await supabase
+      .from('user_workout_history')
+      .select('exercise_structure')
+      .eq('user_id', userId)
+      .eq('plan_id', activePlanId)
+      .eq('workout_day', dayNumber)
+      .eq('cycle_week', weekNumber)
+      .eq('is_redo_workout', false)
+      .order('completed_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!error && workoutHistory?.exercise_structure) {
+      const exerciseStructureArray = validationService.safeParseJson(
+        workoutHistory.exercise_structure,
+        z.array(SavedExerciseStructureSchema),
+        'completed_workout_exercise_structure',
+        [],
+      );
+
+      if (exerciseStructureArray && exerciseStructureArray.length > 0) {
+        SentryDataCollection.addBreadcrumb({
+          message: 'Found actual completed exercises from workout history',
+          category: 'data.process',
+          data: {
+            activePlanId,
+            dayNumber,
+            weekNumber,
+            exercisesCount: exerciseStructureArray.length,
+            isCompleted: true,
+          },
+        });
+
+        return convertSavedExerciseToFormat(exerciseStructureArray);
+      }
+    }
+    return null;
+  } catch (historyError) {
+    SentryDataCollection.captureException(historyError as Error, {
+      component: 'PlanOverviewModal',
+      action: 'fetch_completed_workout_exercises',
+      planId: activePlanId,
+      dayNumber,
+      weekNumber,
+      userId,
+    });
+    return null;
+  }
+}
+
+// Helper function to fetch customized exercises for current/future weeks
+async function fetchCustomizedExercises(
+  userId: string,
+  activePlanId: string,
+  dayNumber: number,
+  weekNumber: number,
+  currentWeek: number,
+): Promise<Exercise[] | null> {
+  try {
+    const customizedExercises = await getMostRecentCustomizedWorkoutStructure(
+      userId,
+      activePlanId,
+      dayNumber,
+    );
+
+    if (customizedExercises && customizedExercises.length > 0) {
+      SentryDataCollection.addBreadcrumb({
+        message: 'Found customized exercises for current/future week in plan overview',
+        category: 'data.process',
+        data: {
+          activePlanId,
+          dayNumber,
+          weekNumber,
+          currentWeek,
+          exercisesCount: customizedExercises.length,
+          isCustomized: true,
+        },
+      });
+
+      return convertExerciseDataToFormat(customizedExercises);
+    }
+    return null;
+  } catch (customizationError) {
+    SentryDataCollection.captureException(customizationError as Error, {
+      component: 'PlanOverviewModal',
+      action: 'fetch_customized_exercises',
+      planId: activePlanId,
+      dayNumber,
+      weekNumber,
+      userId,
+    });
+    return null;
+  }
+}
+
 // Helper function to fetch exercises for a specific day (with customization support)
 async function fetchDayExercises(
   activePlanId: string,
@@ -220,124 +359,73 @@ async function fetchDayExercises(
       },
     });
 
-    if (userId) {
-      // For completed past weeks, get the actual exercises from workout history
-      if (weekNumber && currentWeek && weekNumber < currentWeek && isWorkoutDayCompleted) {
-        try {
-          const { data: workoutHistory, error } = await supabase
-            .from('user_workout_history')
-            .select('exercise_structure')
-            .eq('user_id', userId)
-            .eq('plan_id', activePlanId)
-            .eq('workout_day', dayNumber)
-            .eq('cycle_week', weekNumber)
-            .eq('is_redo_workout', false)
-            .order('completed_at', { ascending: false })
-            .limit(1)
-            .single();
+    if (!userId) {
+      return await fetchOriginalPlanExercises(
+        activePlanId,
+        dayNumber,
+        weekNumber,
+        currentWeek,
+        isWorkoutDayCompleted,
+      );
+    }
 
-          if (!error && workoutHistory?.exercise_structure) {
-            const exerciseStructureArray = validationService.safeParseJson(
-              workoutHistory.exercise_structure,
-              z.array(SavedExerciseStructureSchema),
-              'completed_workout_exercise_structure',
-              [],
-            );
-
-            if (exerciseStructureArray && exerciseStructureArray.length > 0) {
-              SentryDataCollection.addBreadcrumb({
-                message: 'Found actual completed exercises from workout history',
-                category: 'data.process',
-                data: {
-                  activePlanId,
-                  dayNumber,
-                  weekNumber,
-                  exercisesCount: exerciseStructureArray.length,
-                  isCompleted: true,
-                },
-              });
-
-              // Convert to Exercise format for display
-              return exerciseStructureArray.map(
-                (item): Exercise => ({
-                  id: item.exercise_id || item.id || '',
-                  name: item.name || 'Unknown Exercise',
-                  sets: item.sets || 3,
-                  reps: item.reps_range || '8-12',
-                  image: item.image_url,
-                  equipment: 'Standard',
-                  kg: 0,
-                  primary_muscles: item.primary_muscles || [],
-                  secondary_muscles: [],
-                }),
-              );
-            }
-          }
-        } catch (historyError) {
-          SentryDataCollection.captureException(historyError as Error, {
-            component: 'PlanOverviewModal',
-            action: 'fetch_completed_workout_exercises',
-            planId: activePlanId,
-            dayNumber,
-            weekNumber,
-            userId,
-          });
-          // Continue to other methods
-        }
-      }
-
-      // For current week and future weeks, apply customizations
-      if (weekNumber && currentWeek && weekNumber >= currentWeek) {
-        try {
-          const customizedExercises = await getMostRecentCustomizedWorkoutStructure(
-            userId,
-            activePlanId,
-            dayNumber,
-          );
-
-          if (customizedExercises && customizedExercises.length > 0) {
-            SentryDataCollection.addBreadcrumb({
-              message: 'Found customized exercises for current/future week in plan overview',
-              category: 'data.process',
-              data: {
-                activePlanId,
-                dayNumber,
-                weekNumber,
-                currentWeek,
-                exercisesCount: customizedExercises.length,
-                isCustomized: true,
-              },
-            });
-
-            // Convert ExerciseData to Exercise format for display
-            return customizedExercises.map(
-              (item): Exercise => ({
-                id: item.exercise_id || item.id || '',
-                name: item.name || 'Unknown Exercise',
-                sets: item.sets || 3,
-                reps: item.reps_range || '8-12',
-                image: item.image_url,
-                equipment: 'Standard',
-                kg: 0,
-                primary_muscles: item.primary_muscles || [],
-                secondary_muscles: [], // Add if available in the future
-              }),
-            );
-          }
-        } catch (customizationError) {
-          SentryDataCollection.captureException(customizationError as Error, {
-            component: 'PlanOverviewModal',
-            action: 'fetch_customized_exercises',
-            planId: activePlanId,
-            dayNumber,
-            weekNumber,
-            userId,
-          });
-          // Continue to fallback to original exercises
-        }
+    // For completed past weeks, get the actual exercises from workout history
+    if (weekNumber && currentWeek && weekNumber < currentWeek && isWorkoutDayCompleted) {
+      const completedExercises = await fetchCompletedWorkoutExercises(
+        userId,
+        activePlanId,
+        dayNumber,
+        weekNumber,
+      );
+      if (completedExercises) {
+        return completedExercises;
       }
     }
 
+    // For current week and future weeks, apply customizations
+    if (weekNumber && currentWeek && weekNumber >= currentWeek) {
+      const customizedExercises = await fetchCustomizedExercises(
+        userId,
+        activePlanId,
+        dayNumber,
+        weekNumber,
+        currentWeek,
+      );
+      if (customizedExercises) {
+        return customizedExercises;
+      }
+    }
+
+    // Fallback to original plan exercises
+    return await fetchOriginalPlanExercises(
+      activePlanId,
+      dayNumber,
+      weekNumber,
+      currentWeek,
+      isWorkoutDayCompleted,
+    );
+  } catch (error) {
+    SentryDataCollection.captureException(error as Error, {
+      component: 'PlanOverviewModal',
+      action: 'fetch_day_exercises',
+      planId: activePlanId,
+      dayNumber,
+      weekNumber,
+      userId: userId || 'not_provided',
+    });
+    return null;
+  }
+}
+
+// Helper function to fetch original plan exercises
+async function fetchOriginalPlanExercises(
+  activePlanId: string,
+  dayNumber: number,
+  weekNumber?: number,
+  currentWeek?: number,
+  isWorkoutDayCompleted?: boolean,
+): Promise<Exercise[] | null> {
+  try {
     // Fallback to original plan exercises
     const { data, error } = await supabase
       .from('workout_plan_exercises')
@@ -415,10 +503,11 @@ async function fetchDayExercises(
   } catch (error) {
     SentryDataCollection.captureException(error as Error, {
       component: 'PlanOverviewModal',
-      action: 'fetch_day_exercises',
+      action: 'fetch_original_plan_exercises',
       planId: activePlanId,
       dayNumber,
-      userId,
+      weekNumber,
+      currentWeek,
     });
     return null;
   }
@@ -821,12 +910,15 @@ export default function PlanOverviewModal({
                                       <View style={styles.exerciseContent}>
                                         <Text style={styles.exerciseName}>{exercise.name}</Text>
                                         <View style={styles.exerciseDetails}>
-                                          {exercise.sets ? (
+                                          {exercise.sets && exercise.reps ? (
+                                            <Text style={styles.exerciseDetail}>
+                                              {`${exercise.sets} sets x ${exercise.reps} reps`}
+                                            </Text>
+                                          ) : exercise.sets ? (
                                             <Text style={styles.exerciseDetail}>
                                               {`${exercise.sets} sets`}
                                             </Text>
-                                          ) : null}
-                                          {exercise.reps ? (
+                                          ) : exercise.reps ? (
                                             <Text style={styles.exerciseDetail}>
                                               {`${exercise.reps} reps`}
                                             </Text>

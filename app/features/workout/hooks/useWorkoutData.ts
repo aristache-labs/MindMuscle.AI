@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import workoutPlanService from '../../../services/workoutPlanService';
 import type { ExerciseData, MaxWeightDataPoint, ExerciseSet } from '../types';
 import type { UserProfile } from '../../../store/AuthContext';
@@ -8,18 +9,20 @@ export interface UseWorkoutDataParams {
   user: UserProfile | null;
   exercises: ExerciseData[];
   cycleWeek: number;
+  externalLastExerciseValues?: Record<string, Record<number, { weight: string; reps: string }>>;
+  isResumingPausedWorkout?: boolean;
 }
 
 export interface UseWorkoutDataReturn {
   maxWeightData: Record<string, MaxWeightDataPoint[]>;
-  setMaxWeightData: React.Dispatch<React.SetStateAction<Record<string, MaxWeightDataPoint[]>>>;
+  setMaxWeightData: Dispatch<SetStateAction<Record<string, MaxWeightDataPoint[]>>>;
   absoluteMaxWeightData: Record<string, { weight: number; reps: number; date: string }>;
-  setAbsoluteMaxWeightData: React.Dispatch<
-    React.SetStateAction<Record<string, { weight: number; reps: number; date: string }>>
+  setAbsoluteMaxWeightData: Dispatch<
+    SetStateAction<Record<string, { weight: number; reps: number; date: string }>>
   >;
   lastExerciseValues: Record<string, Record<number, { weight: string; reps: string }>>;
-  setLastExerciseValues: React.Dispatch<
-    React.SetStateAction<Record<string, Record<number, { weight: string; reps: string }>>>
+  setLastExerciseValues: Dispatch<
+    SetStateAction<Record<string, Record<number, { weight: string; reps: string }>>>
   >;
   cycleWeekInfo: {
     weekNumber: number;
@@ -27,8 +30,8 @@ export interface UseWorkoutDataReturn {
     weightAdjustmentPercentage: number;
     repsAdjustmentPercentage: number;
   } | null;
-  setCycleWeekInfo: React.Dispatch<
-    React.SetStateAction<{
+  setCycleWeekInfo: Dispatch<
+    SetStateAction<{
       weekNumber: number;
       weekName: string;
       weightAdjustmentPercentage: number;
@@ -44,7 +47,7 @@ export interface UseWorkoutDataReturn {
   preFillWithSuggestedValues: (
     recommendations: Record<string, RecommendationData>,
     exerciseSets: Record<string, ExerciseSet[]>,
-    setExerciseSets: React.Dispatch<React.SetStateAction<Record<string, ExerciseSet[]>>>,
+    setExerciseSets: Dispatch<SetStateAction<Record<string, ExerciseSet[]>>>,
     exerciseCustomized: Record<string, boolean>,
     isResumingPausedWorkout: boolean,
     exerciseSetsLocked?: boolean,
@@ -52,7 +55,8 @@ export interface UseWorkoutDataReturn {
 }
 
 export const useWorkoutData = (params: UseWorkoutDataParams): UseWorkoutDataReturn => {
-  const { user, exercises, cycleWeek } = params;
+  const { user, exercises, cycleWeek, externalLastExerciseValues, isResumingPausedWorkout } =
+    params;
 
   // State for max weight graph data
   const [maxWeightData, setMaxWeightData] = useState<Record<string, MaxWeightDataPoint[]>>({});
@@ -61,7 +65,7 @@ export const useWorkoutData = (params: UseWorkoutDataParams): UseWorkoutDataRetu
   >({});
   const [lastExerciseValues, setLastExerciseValues] = useState<
     Record<string, Record<number, { weight: string; reps: string }>>
-  >({});
+  >(externalLastExerciseValues || {});
   const [cycleWeekInfo, setCycleWeekInfo] = useState<{
     weekNumber: number;
     weekName: string;
@@ -69,10 +73,28 @@ export const useWorkoutData = (params: UseWorkoutDataParams): UseWorkoutDataRetu
     repsAdjustmentPercentage: number;
   } | null>(null);
 
+  // Effect to sync external lastExerciseValues during resume
+  useEffect(() => {
+    if (externalLastExerciseValues && Object.keys(externalLastExerciseValues).length > 0) {
+      console.log('RESUME: Syncing external lastExerciseValues:', externalLastExerciseValues);
+      setLastExerciseValues(externalLastExerciseValues);
+    }
+  }, [externalLastExerciseValues]);
+
   // Function to fetch last exercise records for all exercises
   const fetchLastExerciseRecords = useCallback(async () => {
     if (!user) return;
     if (exercises.length === 0) {
+      return;
+    }
+
+    // Don't fetch if we're resuming and already have external values
+    if (
+      isResumingPausedWorkout &&
+      externalLastExerciseValues &&
+      Object.keys(externalLastExerciseValues).length > 0
+    ) {
+      console.log('RESUME: Skipping fetchLastExerciseRecords - using external values');
       return;
     }
 
@@ -86,7 +108,7 @@ export const useWorkoutData = (params: UseWorkoutDataParams): UseWorkoutDataRetu
     } catch {
       // Error in fetchLastExerciseRecords
     }
-  }, [user?.id, exercises]);
+  }, [user?.id, exercises, isResumingPausedWorkout, externalLastExerciseValues]);
 
   // Function to fetch max weight data for all exercises
   const fetchMaxWeightDataForAllExercises = useCallback(async () => {
@@ -191,7 +213,7 @@ export const useWorkoutData = (params: UseWorkoutDataParams): UseWorkoutDataRetu
     (
       recommendations: Record<string, RecommendationData>,
       exerciseSets: Record<string, ExerciseSet[]>,
-      setExerciseSets: React.Dispatch<React.SetStateAction<Record<string, ExerciseSet[]>>>,
+      setExerciseSets: Dispatch<SetStateAction<Record<string, ExerciseSet[]>>>,
       exerciseCustomized: Record<string, boolean>,
       isResumingPausedWorkout: boolean,
       exerciseSetsLocked?: boolean,

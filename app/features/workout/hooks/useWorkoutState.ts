@@ -520,32 +520,20 @@ export const useWorkoutState = ({
     // Clear the paused workout since we're resuming it now
     workoutPlanService.clearPausedWorkout(user?.id || '', planId, workoutDay);
 
-    // Verify state restoration and clear resuming flag
-    setTimeout(() => {
-      console.log('RESUME: Verifying state after restoration...');
-      // Add verification logic here if needed
-    }, 100);
-
-    // Add verification to check if exercise sets match what was saved
-    setTimeout(() => {
-      console.log('RESUME: Final verification - checking exercise sets...');
-
-      // Force a verification callback to check the current state
-      const verifyRestoredState = () => {
-        console.log('RESUME: Final state verification triggered');
-        // This will be filled in with actual verification logic if needed
-      };
-
-      verifyRestoredState();
-    }, 200);
-
+    // Clear the resuming flag much sooner to show last exercise values immediately
+    // The key data (exercises, sets, recommendations, lastExerciseValues) is already set
     setTimeout(() => {
       setIsResumingPausedWorkout(false);
-      setExerciseSetsLocked(false); // Unlock exercise sets after restoration is complete
       console.log(
-        'RESUME: Cleared isResumingPausedWorkout flag and unlocked exercise sets - effects can now run normally',
+        'RESUME: Cleared isResumingPausedWorkout flag - last exercise values should now be visible',
       );
-    }, 10000); // Extended to 10 seconds to prevent useWorkoutInitialization from overriding fetched data
+    }, 100); // Very short delay to ensure state is settled
+
+    // Keep exercise sets locked a bit longer to prevent regeneration
+    setTimeout(() => {
+      setExerciseSetsLocked(false);
+      console.log('RESUME: Unlocked exercise sets - effects can now run normally');
+    }, 2000); // Shorter delay but still protective
   }, [user, planId, workoutDay]);
 
   // Function to resume a paused workout
@@ -597,69 +585,87 @@ export const useWorkoutState = ({
         startWorkoutTimer();
         if (onWorkoutStarted) onWorkoutStarted();
 
-        // IMPORTANT: Fetch recommendations and last exercise values for resumed workout
-        // This ensures weight suggestions work properly
+        // IMPORTANT: Immediately fetch last exercise values and recommendations
+        // This ensures weight suggestions and "Last x weight/reps" text appear instantly
         if (workout.exercises && workout.exercises.length > 0) {
-          try {
-            console.log('RESUME: Fetching recommendations for resumed workout...');
+          // Convert restored exercises to proper format
+          const restoredExercises = workout.exercises as unknown as ExerciseData[];
 
-            // Convert restored exercises to proper format
-            const restoredExercises = workout.exercises as unknown as ExerciseData[];
+          // Start both operations in parallel for faster loading
+          const fetchRecommendations = async () => {
+            try {
+              console.log('RESUME: Fetching recommendations for resumed workout...');
+              const recommendationsForRestoredExercises: Record<string, RecommendationData> = {};
 
-            // Fetch recommendations specifically for the restored exercises (not original plan)
-            const recommendationsForRestoredExercises: Record<string, RecommendationData> = {};
+              for (const exercise of restoredExercises) {
+                try {
+                  // Fetch recommendation for each individual exercise
+                  const recommendation = await workoutCycleService.getExerciseRecommendations(
+                    user.id,
+                    exercise.exercise_id,
+                    cycleWeek,
+                  );
 
-            for (const exercise of restoredExercises) {
-              try {
-                // Fetch recommendation for each individual exercise
-                const recommendation = await workoutCycleService.getExerciseRecommendations(
-                  user.id,
-                  exercise.exercise_id,
-                  cycleWeek,
-                );
-
-                if (recommendation) {
-                  // Map ExerciseRecommendation fields to RecommendationData format
-                  const mappedRecommendation: RecommendationData = {
-                    recommended_weight: recommendation.recommendedWeight ?? undefined,
-                    recommended_reps: recommendation.recommendedReps ?? undefined,
-                  };
-                  recommendationsForRestoredExercises[exercise.id] = mappedRecommendation;
-                  console.log(
-                    `RESUME: Got recommendation for ${exercise.name}:`,
-                    mappedRecommendation,
+                  if (recommendation) {
+                    // Map ExerciseRecommendation fields to RecommendationData format
+                    const mappedRecommendation: RecommendationData = {
+                      recommended_weight: recommendation.recommendedWeight ?? undefined,
+                      recommended_reps: recommendation.recommendedReps ?? undefined,
+                    };
+                    recommendationsForRestoredExercises[exercise.id] = mappedRecommendation;
+                    console.log(
+                      `RESUME: Got recommendation for ${exercise.name}:`,
+                      mappedRecommendation,
+                    );
+                  }
+                } catch (error) {
+                  console.error(
+                    `RESUME: Error fetching recommendation for ${exercise.name}:`,
+                    error,
                   );
                 }
-              } catch (error) {
-                console.error(`RESUME: Error fetching recommendation for ${exercise.name}:`, error);
               }
-            }
 
-            if (Object.keys(recommendationsForRestoredExercises).length > 0) {
-              console.log(
-                'RESUME: Setting recommendations for restored exercises:',
-                recommendationsForRestoredExercises,
+              if (Object.keys(recommendationsForRestoredExercises).length > 0) {
+                console.log(
+                  'RESUME: Setting recommendations for restored exercises:',
+                  recommendationsForRestoredExercises,
+                );
+                setRecommendations(recommendationsForRestoredExercises);
+              }
+            } catch (error) {
+              console.error('RESUME: Error fetching recommendations:', error);
+            }
+          };
+
+          const fetchLastValues = async () => {
+            try {
+              // Fetch last exercise values for weight suggestions - this is critical for "Last x weight/reps" text
+              console.log('RESUME: Fetching last exercise values immediately...');
+              const lastValues = await workoutPlanService.fetchLastExerciseRecords(
+                user.id,
+                restoredExercises,
               );
-              setRecommendations(recommendationsForRestoredExercises);
-            }
 
-            // Fetch last exercise values for weight suggestions
-            console.log('RESUME: Fetching last exercise values...');
-            const lastValues = await workoutPlanService.fetchLastExerciseRecords(
-              user.id,
-              restoredExercises,
-            );
-
-            if (Object.keys(lastValues).length > 0) {
-              console.log('RESUME: Setting last exercise values:', lastValues);
-              setLastExerciseValues(lastValues);
+              if (Object.keys(lastValues).length > 0) {
+                console.log('RESUME: Setting last exercise values immediately:', lastValues);
+                setLastExerciseValues(lastValues);
+                console.log(
+                  'RESUME: Last exercise values set - "Last x weight/reps" should be visible',
+                );
+              }
+            } catch (error) {
+              console.error('RESUME: Error fetching last exercise values:', error);
             }
-          } catch (error) {
-            console.error('RESUME: Error fetching recommendations/last values:', error);
-          }
+          };
+
+          // Run both operations in parallel for faster loading
+          Promise.all([fetchRecommendations(), fetchLastValues()]).catch((error) => {
+            console.error('RESUME: Error in parallel fetch operations:', error);
+          });
         }
 
-        // Handle cleanup
+        // Handle cleanup with reduced delay
         handlePostResumeCleanup();
       } catch (error) {
         console.error('Error resuming paused workout:', error);

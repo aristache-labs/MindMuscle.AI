@@ -490,6 +490,8 @@ export default function WorkoutSessionScreen() {
     setExerciseCustomized,
     textInputRefreshKey,
     setTextInputRefreshKey,
+    lastExerciseValues: workoutStateLastExerciseValues,
+    setLastExerciseValues: setWorkoutStateLastExerciseValues,
     // Warmup state
     showWarmup,
     setShowWarmup,
@@ -525,6 +527,8 @@ export default function WorkoutSessionScreen() {
     user,
     exercises: workoutExercises,
     cycleWeek,
+    externalLastExerciseValues: workoutStateLastExerciseValues,
+    isResumingPausedWorkout,
   });
 
   // Use the exercise sets hook
@@ -848,6 +852,13 @@ export default function WorkoutSessionScreen() {
     fetchCycleWeekInfo,
     workoutExercises,
   });
+
+  // Sync lastExerciseValues from workout data hook back to workout state hook
+  React.useEffect(() => {
+    if (lastExerciseValues && Object.keys(lastExerciseValues).length > 0) {
+      setWorkoutStateLastExerciseValues(lastExerciseValues);
+    }
+  }, [lastExerciseValues, setWorkoutStateLastExerciseValues]);
 
   // Use the workout render hook for render-related calculations
   const {

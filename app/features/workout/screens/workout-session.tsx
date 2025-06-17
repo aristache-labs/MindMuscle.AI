@@ -21,7 +21,7 @@ import ExerciseDetailsModal from '../../../components/ExerciseDetailsModal';
 import ExerciseListModal from '../../../components/ExerciseListModal';
 import OptimizedImage from '../../../components/OptimizedImage';
 import { SentryDataCollection, SentryLogger } from '../../../services/sentry';
-import { useAuth } from '../../../store/AuthContext';
+import { useAuth, UserProfile } from '../../../store/AuthContext';
 
 import { BORDER_RADIUS, COLORS, SPACING } from '../../../constants/theme';
 import {
@@ -44,8 +44,380 @@ import {
   useWorkoutRender,
   useWorkoutState,
   useWorkoutTimer,
+  useWorkoutWarmup,
 } from '../hooks';
 import { ExerciseData, ExerciseSet } from '../types';
+
+// Helper function to initialize Sentry for workout session
+function initializeSentryForWorkout(params: {
+  user: UserProfile | null;
+  planId: string;
+  workoutDay: number;
+  cycleWeek: number;
+  weekName: string;
+  forceStart: boolean;
+  forceResume: boolean;
+}) {
+  const { user, planId, workoutDay, cycleWeek, weekName, forceStart, forceResume } = params;
+  try {
+    SentryLogger.info('Workout session screen accessed', {
+      user_id: user?.id,
+      plan_id: planId,
+      workout_day: workoutDay,
+      cycle_week: cycleWeek,
+      week_name: weekName,
+      force_start: forceStart,
+      force_resume: forceResume,
+      timestamp: new Date().toISOString(),
+    });
+
+    SentryDataCollection.addBreadcrumb({
+      message: 'User navigated to workout session screen',
+      category: 'navigation',
+      level: 'info',
+      data: {
+        screen: 'workout-session',
+        plan_id: planId,
+        workout_day: workoutDay,
+        cycle_week: cycleWeek,
+        week_name: weekName,
+        user_authenticated: !!user,
+      },
+    });
+
+    if (user) {
+      SentryDataCollection.setUser({
+        id: user.id,
+        email: user.email,
+      });
+    }
+
+    SentryDataCollection.setContext('workout_session', {
+      plan_id: planId,
+      workout_day: workoutDay,
+      cycle_week: cycleWeek,
+      week_name: weekName,
+      force_start: forceStart,
+      force_resume: forceResume,
+      session_type: forceResume ? 'resume' : forceStart ? 'forced_start' : 'normal_start',
+    });
+
+    SentryDataCollection.setTag('active_workout_plan', planId);
+    SentryDataCollection.setTag('workout_day', workoutDay.toString());
+    SentryDataCollection.setTag('cycle_week', cycleWeek.toString());
+  } catch (error) {
+    SentryDataCollection.captureException(error as Error, {
+      context: 'workout_session_initialization',
+      user_id: user?.id,
+      plan_id: planId,
+      workout_day: workoutDay,
+    });
+  }
+}
+
+// Component for rendering the next exercise preview
+function NextExercisePreview({
+  getNextExerciseContent,
+  shouldShowCompleteWorkout,
+  completeWorkout,
+  handleNextExercisePress,
+  lastExerciseValues,
+}: {
+  getNextExerciseContent: () => {
+    name: string;
+    sets: number;
+    reps: number;
+    imageUrl?: string;
+    requiresWeight?: boolean;
+    exerciseId?: string;
+    primaryMuscle?: string;
+  } | null;
+  shouldShowCompleteWorkout: boolean;
+  completeWorkout: () => void;
+  handleNextExercisePress: () => void;
+  lastExerciseValues: Record<string, Record<number, { weight: string; reps: string }>>;
+}) {
+  const nextExerciseContent = getNextExerciseContent();
+
+  if (shouldShowCompleteWorkout) {
+    return (
+      <TouchableOpacity
+        style={[styles.nextExerciseCard, styles.completeWorkoutCard]}
+        onPress={() => completeWorkout()}
+      >
+        <Text style={styles.completeWorkoutText}>Complete Workout</Text>
+        <Ionicons name="checkmark-circle" size={24} color={COLORS.text} />
+      </TouchableOpacity>
+    );
+  }
+
+  if (!nextExerciseContent) return null;
+
+  return (
+    <TouchableOpacity style={styles.nextExerciseCard} onPress={handleNextExercisePress}>
+      <View style={styles.nextExerciseImageContainer}>
+        {nextExerciseContent.imageUrl ? (
+          <OptimizedImage
+            source={{ uri: nextExerciseContent.imageUrl }}
+            style={styles.nextExerciseImage}
+            fallback={require('../../../../assets/exercises/placeholder.jpg')}
+            resizeMode="cover"
+            cachePolicy="immutable"
+            showLoader={false}
+            priority="normal"
+            debugLabel={`NextExercise-${nextExerciseContent.name}`}
+          />
+        ) : (
+          <View style={styles.nextExercisePlaceholder}>
+            <Ionicons name="barbell-outline" size={24} color={COLORS.text} />
+          </View>
+        )}
+      </View>
+
+      <View style={styles.nextExerciseInfo}>
+        <Text style={styles.nextExerciseName}>{nextExerciseContent.name}</Text>
+        <Text style={styles.nextExerciseDetails}>
+          {nextExerciseContent.sets} sets x {nextExerciseContent.reps} reps
+          {nextExerciseContent.requiresWeight &&
+            nextExerciseContent.exerciseId &&
+            lastExerciseValues[nextExerciseContent.exerciseId]?.[1]?.weight &&
+            ` x ${lastExerciseValues[nextExerciseContent.exerciseId][1].weight} kg`}
+        </Text>
+      </View>
+
+      {/* Display primary muscle as text tag */}
+      {nextExerciseContent.primaryMuscle && (
+        <View style={styles.nextExerciseMuscleTag}>
+          <Text style={styles.nextExerciseMuscleText}>{nextExerciseContent.primaryMuscle}</Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+// Component for workout completion state
+function WorkoutCompletionView({ router }: { router: { replace: (path: string) => void } }) {
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      router.replace('/');
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [router]);
+
+  return (
+    <View style={[styles.container, styles.loadingContainer]}>
+      <ActivityIndicator size="large" color={COLORS.primary} />
+      <Text style={styles.loadingText}>Workout completed! Returning to plan...</Text>
+    </View>
+  );
+}
+
+// Component for loading state
+function LoadingView() {
+  return (
+    <View style={[styles.container, styles.loadingContainer]}>
+      <ActivityIndicator size="large" color={COLORS.primary} />
+      <Text style={styles.loadingText}>Loading workout...</Text>
+    </View>
+  );
+}
+
+// Function to render the appropriate workout view based on current state
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function renderWorkoutView(props: any) {
+  // Early returns for different states
+  if (props.isLoading) return <LoadingView />;
+  if (props.isWorkoutCompleted && props.completedWorkoutData) {
+    return <WorkoutCompletionView router={props.router} />;
+  }
+
+  // Render main workout view
+  return renderMainWorkoutView(props);
+}
+
+// Function to render the main workout interface
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function renderMainWorkoutView(props: any) {
+  return (
+    <View style={styles.container}>
+      <StatusBar style="light" />
+
+      <WorkoutHeader
+        insets={props.insets}
+        currentExerciseIndex={props.currentExerciseIndex}
+        totalExercises={props.workoutExercises.length}
+        cycleWeek={props.cycleWeek}
+        weekName={props.weekName}
+        onBackPress={props.handleBackPress}
+        onExerciseListPress={props.handleExerciseListPress}
+      />
+
+      <WorkoutTimerTabs
+        workoutDuration={props.workoutDuration}
+        totalVolume={props.totalVolume}
+        totalReps={props.totalReps}
+        formatTime={props.formatTime}
+      />
+
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
+        <ScrollView
+          ref={props.scrollViewRef}
+          style={styles.scrollView}
+          contentContainerStyle={[
+            styles.scrollViewContent,
+            { paddingBottom: props.keyboardHeight > 0 ? 50 : 24 },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <WorkoutExerciseCard
+            exercise={props.currentExercise}
+            maxWeightData={props.maxWeightData[props.currentExercise?.exercise_id] || []}
+            absoluteMaxWeight={
+              props.absoluteMaxWeightData[props.currentExercise?.exercise_id] || null
+            }
+            onExerciseNamePress={props.handleExerciseNamePressOverride}
+          />
+
+          <View style={styles.setsContainer}>
+            {props.currentSets.map((set: ExerciseSet, index: number) => {
+              const activeSetIndex = props.calculateActiveSetIndex(props.currentSets);
+              const isActive = index === activeSetIndex;
+              const isCompleted = set.isCompleted;
+
+              return (
+                <WorkoutExerciseSetRow
+                  key={set.id}
+                  set={set}
+                  setIndex={index}
+                  exercise={props.currentExercise}
+                  isActive={isActive}
+                  isCompleted={isCompleted}
+                  focusedInputs={props.focusedInputs}
+                  userEnteredValues={props.userEnteredValues}
+                  exerciseCustomized={props.exerciseCustomized}
+                  lastExerciseValues={props.lastExerciseValues}
+                  currentRecommendation={props.currentRecommendation}
+                  textInputRefreshKey={props.textInputRefreshKey}
+                  onWeightChange={props.handleWeightChange}
+                  onRepsChange={props.handleRepsChange}
+                  onSetComplete={props.handleSetComplete}
+                  onRedoSet={props.handleRedoSet}
+                  onInputFocus={props.handleInputFocus}
+                  onInputBlur={props.handleInputBlur}
+                  getSuggestedValue={props.getSuggestedValue}
+                />
+              );
+            })}
+          </View>
+
+          <Button
+            mode="contained"
+            style={styles.logAllButton}
+            labelStyle={styles.logAllButtonText}
+            onPress={() => props.handleLogAllSets(props.currentExercise.id)}
+          >
+            Log All Sets
+          </Button>
+
+          <TouchableOpacity
+            style={styles.customizeLink}
+            onPress={props.handleCustomizeExercisePress}
+          >
+            <Text style={styles.customizeLinkText}>Customize Exercise</Text>
+          </TouchableOpacity>
+
+          <View style={styles.nextExerciseSection}>
+            <Text style={styles.nextExerciseLabel}>Next Exercise</Text>
+
+            <NextExercisePreview
+              getNextExerciseContent={props.getNextExerciseContent}
+              shouldShowCompleteWorkout={props.shouldShowCompleteWorkout}
+              completeWorkout={props.completeWorkout}
+              handleNextExercisePress={props.handleNextExercisePress}
+              lastExerciseValues={props.lastExerciseValues}
+            />
+
+            <View style={styles.progressBarContainer}>
+              <View style={styles.progressBar}>
+                <View style={[styles.progressBarFill, { width: `${props.progressPercentage}%` }]} />
+              </View>
+            </View>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      <WorkoutWarmupModal
+        visible={props.showWarmup && !props.warmupCompleted}
+        exerciseName={props.currentExercise?.name}
+        onComplete={props.handleWarmupComplete}
+        onSkip={props.skipWarmup}
+      />
+
+      <WorkoutExitModal
+        visible={props.showExitModal}
+        onEndWorkout={props.handleExitWorkout}
+        onPauseWorkout={props.handlePauseWorkout}
+        onReturnToWorkout={props.handleReturnToWorkout}
+        onClose={() => props.handleReturnToWorkout()}
+      />
+
+      {(props.selectedExerciseForDetails || props.currentExercise) && (
+        <ExerciseDetailsModal
+          visible={props.showExerciseDetailsModal}
+          onClose={() => {
+            props.handleExerciseDetailsModalClose();
+            props.setSelectedExerciseForDetails(null);
+          }}
+          exerciseId={(props.selectedExerciseForDetails || props.currentExercise)?.exercise_id}
+          exerciseName={(props.selectedExerciseForDetails || props.currentExercise)?.name}
+          exerciseImage={(props.selectedExerciseForDetails || props.currentExercise)?.image_url}
+          primary_muscles={
+            (props.selectedExerciseForDetails || props.currentExercise)?.primary_muscles
+          }
+          secondary_muscles={[]}
+        />
+      )}
+
+      <CustomizeExerciseModal
+        visible={props.showCustomizeExerciseModal}
+        onClose={props.handleCustomizeExerciseModalClose}
+        exercise={props.workoutExercises[props.currentExerciseIndex]}
+        onSave={props.handleCustomizeExerciseSave}
+        availableExercises={props.workoutExercises}
+        onExerciseChange={props.handleExerciseChange}
+      />
+
+      <ExerciseListModal
+        visible={props.showExerciseListModal}
+        onClose={props.handleExerciseListModalClose}
+        exercises={props.workoutExercises}
+        currentExerciseIndex={props.currentExerciseIndex}
+        onExerciseSelect={props.handleExerciseSelect}
+        onExerciseDetailsPress={props.handleExerciseDetailsPress}
+        onReorderExercises={props.handleReorderExercises}
+        onRemoveExercise={props.handleRemoveExercise}
+        isCustomizeMode={props.isCustomizeMode}
+        onToggleCustomizeMode={props.handleToggleCustomizeMode}
+        onAddExercise={props.handleAddExercise}
+        onAddSuperset={props.handleAddSuperset}
+        onAddCardio={props.handleAddCardio}
+        onApplyChanges={props.handleApplyChanges}
+      />
+
+      <AddExerciseModal
+        visible={props.showAddExerciseModal}
+        onClose={props.handleAddExerciseModalClose}
+        onAddExercises={props.handleAddExercises}
+      />
+    </View>
+  );
+}
 
 export default function WorkoutSessionScreen() {
   const router = useRouter();
@@ -58,72 +430,20 @@ export default function WorkoutSessionScreen() {
   const workoutDay = parseInt(params.workoutDay as string);
   const cycleWeek = parseInt(params.cycleWeek as string) || 1;
   const weekName = (params.weekName as string) || 'Adaptation';
-
-  // Get forceStart and forceResume parameters from URL
   const forceStart = params.forceStart === 'true';
   const forceResume = params.forceResume === 'true';
 
-  // Sentry initialization for workout session
+  // Initialize Sentry for workout session
   useEffect(() => {
-    try {
-      // Log workout session access
-      SentryLogger.info('Workout session screen accessed', {
-        user_id: user?.id,
-        plan_id: planId,
-        workout_day: workoutDay,
-        cycle_week: cycleWeek,
-        week_name: weekName,
-        force_start: forceStart,
-        force_resume: forceResume,
-        timestamp: new Date().toISOString(),
-      });
-
-      // Add breadcrumb for screen navigation
-      SentryDataCollection.addBreadcrumb({
-        message: 'User navigated to workout session screen',
-        category: 'navigation',
-        level: 'info',
-        data: {
-          screen: 'workout-session',
-          plan_id: planId,
-          workout_day: workoutDay,
-          cycle_week: cycleWeek,
-          week_name: weekName,
-          user_authenticated: !!user,
-        },
-      });
-
-      // Set user context for this session
-      if (user) {
-        SentryDataCollection.setUser({
-          id: user.id,
-          email: user.email,
-        });
-      }
-
-      // Set context for workout session analytics
-      SentryDataCollection.setContext('workout_session', {
-        plan_id: planId,
-        workout_day: workoutDay,
-        cycle_week: cycleWeek,
-        week_name: weekName,
-        force_start: forceStart,
-        force_resume: forceResume,
-        session_type: forceResume ? 'resume' : forceStart ? 'forced_start' : 'normal_start',
-      });
-
-      // Set workout-related tags
-      SentryDataCollection.setTag('active_workout_plan', planId);
-      SentryDataCollection.setTag('workout_day', workoutDay.toString());
-      SentryDataCollection.setTag('cycle_week', cycleWeek.toString());
-    } catch (error) {
-      SentryDataCollection.captureException(error as Error, {
-        context: 'workout_session_initialization',
-        user_id: user?.id,
-        plan_id: planId,
-        workout_day: workoutDay,
-      });
-    }
+    initializeSentryForWorkout({
+      user,
+      planId,
+      workoutDay,
+      cycleWeek,
+      weekName,
+      forceStart,
+      forceResume,
+    });
   }, [user, planId, workoutDay, cycleWeek, weekName, forceStart, forceResume]);
 
   // Use the timer hook
@@ -162,7 +482,6 @@ export default function WorkoutSessionScreen() {
     setCompletedWorkoutData,
     originalCycleWeek,
     isResumingPausedWorkout,
-    exerciseSetsLocked,
     focusedInputs,
     setFocusedInputs,
     userEnteredValues,
@@ -202,7 +521,6 @@ export default function WorkoutSessionScreen() {
     fetchLastExerciseRecords,
     fetchMaxWeightDataForAllExercises,
     fetchCycleWeekInfo,
-    preFillWithSuggestedValues,
   } = useWorkoutData({
     user,
     exercises: workoutExercises,
@@ -248,11 +566,11 @@ export default function WorkoutSessionScreen() {
   // Use the exercise selection hook
   const {
     showExerciseDetailsModal,
+    setShowExerciseDetailsModal,
     showExerciseListModal,
     showCustomizeExerciseModal,
     showAddExerciseModal,
     isCustomizeMode,
-    handleExerciseNamePress,
     handleExerciseDetailsModalClose,
     handleExerciseListPress,
     handleExerciseListModalClose,
@@ -287,6 +605,33 @@ export default function WorkoutSessionScreen() {
     setTextInputRefreshKey,
     userId: user?.id,
   });
+
+  // Use the warmup handling hook
+  const { handleWarmupComplete, skipWarmup } = useWorkoutWarmup({
+    onWarmupCompleted: () => {
+      setWarmupCompleted(true);
+      setShowWarmup(false);
+    },
+  });
+
+  // State for tracking which exercise's details to show
+  const [selectedExerciseForDetails, setSelectedExerciseForDetails] =
+    React.useState<ExerciseData | null>(null);
+
+  // Handle exercise details press from exercise list modal
+  const handleExerciseDetailsPress = useCallback(
+    (exercise: ExerciseData) => {
+      // Close the exercise list modal first
+      handleExerciseListModalClose();
+
+      // Set the exercise for the details modal
+      setSelectedExerciseForDetails(exercise);
+
+      // Show the exercise details modal
+      setShowExerciseDetailsModal(true);
+    },
+    [handleExerciseListModalClose, setShowExerciseDetailsModal],
+  );
 
   // Handle exercise reordering
   const handleReorderExercises = useCallback(
@@ -398,61 +743,8 @@ export default function WorkoutSessionScreen() {
     ],
   );
 
-  // Handle applying changes from the exercise list modal
-  const handleApplyChanges = useCallback(
-    (newExercises: ExerciseData[], removedIndices: number[]) => {
-      try {
-        // Store the original state for comparison
-        const originalExercises = [...workoutExercises];
-
-        // First, handle reordering if exercises have changed
-        if (JSON.stringify(newExercises) !== JSON.stringify(originalExercises)) {
-          handleReorderExercises(newExercises);
-        }
-
-        // Then handle removals in reverse order to maintain correct indices
-        if (removedIndices.length > 0) {
-          const sortedIndices = [...removedIndices].sort((a, b) => b - a);
-          sortedIndices.forEach((index) => {
-            if (index >= 0 && index < originalExercises.length) {
-              handleRemoveExercise(index);
-            }
-          });
-        }
-      } catch (error) {
-        console.error('Error applying exercise changes:', error);
-      }
-    },
-    [workoutExercises, handleReorderExercises, handleRemoveExercise],
-  );
-
-  // Handle exercise details press from exercise list modal
-  const handleExerciseDetailsPress = useCallback(() => {
-    // Close the exercise list modal first
-    handleExerciseListModalClose();
-
-    // Set the exercise for the details modal
-    // Since we're reusing the existing exercise details modal, we'll trigger it to show
-    // But first we need to make sure the current exercise data is set correctly
-
-    // For now, just trigger the details modal for the current exercise
-    // This is a temporary solution - ideally we'd want to show details for the selected exercise
-    handleExerciseNamePress();
-  }, [handleExerciseListModalClose, handleExerciseNamePress]);
-
-  // Warmup handlers
-  const handleWarmupComplete = useCallback(() => {
-    setWarmupCompleted(true);
-    setShowWarmup(false);
-    // The first set will automatically become active due to the logic in the render method
-  }, [setWarmupCompleted, setShowWarmup]);
-
-  const skipWarmup = useCallback(() => {
-    handleWarmupComplete();
-  }, [handleWarmupComplete]);
-
   // Use the workout completion hook
-  const { completeWorkout: originalCompleteWorkout } = useWorkoutCompletion({
+  const { completeWorkout } = useWorkoutCompletion({
     user,
     planId,
     workoutDay,
@@ -472,89 +764,7 @@ export default function WorkoutSessionScreen() {
     navigate: router.replace,
   });
 
-  // Wrap completeWorkout with Sentry tracking
-  const completeWorkout = useCallback(async () => {
-    try {
-      // Log workout completion attempt
-      SentryLogger.info('User completing workout session', {
-        user_id: user?.id,
-        plan_id: planId,
-        workout_day: workoutDay,
-        cycle_week: cycleWeek,
-        week_name: weekName,
-        total_exercises: workoutExercises.length,
-        workout_duration: workoutDuration,
-        total_volume: totalVolume,
-        total_reps: totalReps,
-        is_resuming_paused: isResumingPausedWorkout,
-        timestamp: new Date().toISOString(),
-      });
-
-      // Add breadcrumb for workout completion
-      SentryDataCollection.addBreadcrumb({
-        message: 'User completing workout session',
-        category: 'user-action',
-        level: 'info',
-        data: {
-          plan_id: planId,
-          workout_day: workoutDay,
-          cycle_week: cycleWeek,
-          total_exercises: workoutExercises.length,
-          workout_duration: workoutDuration,
-          action_type: 'complete_workout',
-        },
-      });
-
-      // Set workout completion tags
-      SentryDataCollection.setTag('workout_completed', 'true');
-      SentryDataCollection.setTag('workout_completion_method', 'manual');
-
-      await originalCompleteWorkout();
-
-      // Log successful workout completion
-      SentryLogger.info('Workout session completed successfully', {
-        user_id: user?.id,
-        plan_id: planId,
-        workout_day: workoutDay,
-        cycle_week: cycleWeek,
-        completion_status: 'success',
-      });
-    } catch (error) {
-      // Log workout completion error
-      SentryDataCollection.captureException(error as Error, {
-        context: 'workout_completion',
-        user_id: user?.id,
-        plan_id: planId,
-        workout_day: workoutDay,
-        cycle_week: cycleWeek,
-        total_exercises: workoutExercises.length,
-        workout_duration: workoutDuration,
-      });
-
-      SentryLogger.error('Workout completion failed', {
-        error: error,
-        user_id: user?.id,
-        plan_id: planId,
-        workout_day: workoutDay,
-      });
-
-      throw error;
-    }
-  }, [
-    originalCompleteWorkout,
-    user,
-    planId,
-    workoutDay,
-    cycleWeek,
-    weekName,
-    workoutExercises.length,
-    workoutDuration,
-    totalVolume,
-    totalReps,
-    isResumingPausedWorkout,
-  ]);
-
-  // Use the workout navigation hook
+  // Use the workout navigation hook for moveToNextExercise
   const { moveToNextExercise } = useWorkoutNavigation({
     exercises: workoutExercises,
     exerciseSets: workoutExerciseSets,
@@ -589,6 +799,43 @@ export default function WorkoutSessionScreen() {
     focusedInputs,
   });
 
+  // Handle applying changes from the exercise list modal
+  const handleApplyChanges = useCallback(
+    (newExercises: ExerciseData[], removedIndices: number[]) => {
+      try {
+        // Store the original state for comparison
+        const originalExercises = [...workoutExercises];
+
+        // First, handle reordering if exercises have changed
+        if (JSON.stringify(newExercises) !== JSON.stringify(originalExercises)) {
+          handleReorderExercises(newExercises);
+        }
+
+        // Then handle removals in reverse order to maintain correct indices
+        if (removedIndices.length > 0) {
+          const sortedIndices = [...removedIndices].sort((a, b) => b - a);
+          sortedIndices.forEach((index) => {
+            if (index >= 0 && index < originalExercises.length) {
+              handleRemoveExercise(index);
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Error applying exercise changes:', error);
+      }
+    },
+    [workoutExercises, handleReorderExercises, handleRemoveExercise],
+  );
+
+  // Get the current exercise based on the current index
+  const currentExercise = workoutExercises[currentExerciseIndex];
+
+  // Override handleExerciseNamePress to set the current exercise as selected
+  const handleExerciseNamePressOverride = useCallback(() => {
+    setSelectedExerciseForDetails(currentExercise);
+    setShowExerciseDetailsModal(true);
+  }, [currentExercise, setShowExerciseDetailsModal]);
+
   // Use the workout initialization hook to handle all setup effects
   useWorkoutInitialization({
     user,
@@ -601,17 +848,6 @@ export default function WorkoutSessionScreen() {
     fetchCycleWeekInfo,
     workoutExercises,
   });
-
-  // Get the current exercise based on the current index
-  const currentExercise = workoutExercises[currentExerciseIndex];
-
-  // Debug log to track currentExerciseIndex changes
-  useEffect(() => {
-    console.log('WORKOUT SESSION: currentExerciseIndex changed to:', currentExerciseIndex);
-    if (currentExercise) {
-      console.log('WORKOUT SESSION: Current exercise is:', currentExercise.name);
-    }
-  }, [currentExerciseIndex, currentExercise?.name]);
 
   // Use the workout render hook for render-related calculations
   const {
@@ -632,332 +868,83 @@ export default function WorkoutSessionScreen() {
   // Current recommendation for the current exercise
   const currentRecommendation = currentExercise ? workoutRecommendations[currentExercise.id] : null;
 
-  // Effect to update max weight data when sets are completed (for immediate graph updates)
-  useEffect(() => {
-    if (workoutExercises.length > 0 && user && !isLoading && !isResumingPausedWorkout) {
-      // Check if any sets have been completed by looking at the workoutExerciseSets state
-      const hasCompletedSets = Object.values(workoutExerciseSets).some((sets) =>
-        sets.some((set) => set.isCompleted),
-      );
-
-      if (hasCompletedSets) {
-        // Debounce the update to avoid too many API calls
-        const timeoutId = setTimeout(() => {
-          fetchMaxWeightDataForAllExercises();
-        }, 1000);
-
-        return () => clearTimeout(timeoutId);
-      }
-    }
-  }, [
-    workoutExerciseSets,
-    user?.id,
+  // Render the appropriate view based on current state
+  return renderWorkoutView({
     isLoading,
-    isResumingPausedWorkout,
-    fetchMaxWeightDataForAllExercises,
-  ]);
-
-  // Effect to pre-fill sets with recommended values when they become available
-  useEffect(() => {
-    // Only pre-fill if:
-    // 1. We have recommendations
-    // 2. We're not resuming a paused workout
-    // 3. There are no existing customizations (indicating this is a fresh workout)
-    const hasExistingCustomizations =
-      Object.keys(exerciseCustomized).length > 0 || Object.keys(userEnteredValues).length > 0;
-
-    if (
-      Object.keys(workoutRecommendations).length > 0 &&
-      !isResumingPausedWorkout &&
-      !hasExistingCustomizations
-    ) {
-      console.log('PRE-FILL: Running preFillWithSuggestedValues for fresh workout');
-      preFillWithSuggestedValues(
-        workoutRecommendations,
-        workoutExerciseSets,
-        setWorkoutExerciseSets,
-        exerciseCustomized,
-        isResumingPausedWorkout,
-        exerciseSetsLocked,
-      );
-    } else {
-      console.log('PRE-FILL: Skipping preFillWithSuggestedValues:', {
-        hasRecommendations: Object.keys(workoutRecommendations).length > 0,
-        isResuming: isResumingPausedWorkout,
-        hasExistingCustomizations,
-      });
-    }
-  }, [
-    workoutRecommendations,
-    lastExerciseValues,
-    isResumingPausedWorkout,
-    preFillWithSuggestedValues,
-    workoutExerciseSets,
-    setWorkoutExerciseSets,
-    exerciseCustomized,
+    isWorkoutCompleted,
+    completedWorkoutData,
+    router,
+    insets,
+    currentExerciseIndex,
+    workoutExercises,
+    cycleWeek,
+    weekName,
+    handleBackPress,
+    handleExerciseListPress,
+    workoutDuration,
+    totalVolume,
+    totalReps,
+    formatTime,
+    keyboardHeight,
+    scrollViewRef,
+    currentExercise,
+    maxWeightData,
+    absoluteMaxWeightData,
+    handleExerciseNamePressOverride,
+    currentSets,
+    calculateActiveSetIndex,
+    focusedInputs,
     userEnteredValues,
-  ]);
-
-  if (isLoading) {
-    return (
-      <View style={[styles.container, styles.loadingContainer]}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={styles.loadingText}>Loading workout...</Text>
-      </View>
-    );
-  }
-
-  // If workout is completed, navigate back to the plan screen
-  if (isWorkoutCompleted && completedWorkoutData) {
-    // Use setTimeout to ensure the navigation happens after state updates
-    setTimeout(() => {
-      // Navigate back to home screen
-      router.replace('/');
-    }, 100);
-
-    // Show a loading indicator while navigating
-    return (
-      <View style={[styles.container, styles.loadingContainer]}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={styles.loadingText}>Workout completed! Returning to plan...</Text>
-      </View>
-    );
-  }
-
-  // Render next exercise preview
-  const renderNextExercise = () => {
-    const nextExerciseContent = getNextExerciseContent();
-
-    if (shouldShowCompleteWorkout) {
-      return (
-        <TouchableOpacity
-          style={[styles.nextExerciseCard, styles.completeWorkoutCard]}
-          onPress={() => completeWorkout()}
-        >
-          <Text style={styles.completeWorkoutText}>Complete Workout</Text>
-          <Ionicons name="checkmark-circle" size={24} color={COLORS.text} />
-        </TouchableOpacity>
-      );
-    }
-
-    if (!nextExerciseContent) return null;
-
-    return (
-      <TouchableOpacity style={styles.nextExerciseCard} onPress={handleNextExercisePress}>
-        <View style={styles.nextExerciseImageContainer}>
-          {nextExerciseContent.imageUrl ? (
-            <OptimizedImage
-              source={{ uri: nextExerciseContent.imageUrl }}
-              style={styles.nextExerciseImage}
-              fallback={require('../../../../assets/exercises/placeholder.jpg')}
-              resizeMode="cover"
-              cachePolicy="immutable"
-              showLoader={false}
-              priority="normal"
-              debugLabel={`NextExercise-${nextExerciseContent.name}`}
-            />
-          ) : (
-            <View style={styles.nextExercisePlaceholder}>
-              <Ionicons name="barbell-outline" size={24} color={COLORS.text} />
-            </View>
-          )}
-        </View>
-
-        <View style={styles.nextExerciseInfo}>
-          <Text style={styles.nextExerciseName}>{nextExerciseContent.name}</Text>
-          <Text style={styles.nextExerciseDetails}>
-            {nextExerciseContent.sets} sets x {nextExerciseContent.reps} reps
-            {nextExerciseContent.requiresWeight &&
-              nextExerciseContent.exerciseId &&
-              lastExerciseValues[nextExerciseContent.exerciseId]?.[1]?.weight &&
-              ` x ${lastExerciseValues[nextExerciseContent.exerciseId][1].weight} kg`}
-          </Text>
-        </View>
-
-        {/* Display primary muscle as text tag */}
-        {nextExerciseContent.primaryMuscle && (
-          <View style={styles.nextExerciseMuscleTag}>
-            <Text style={styles.nextExerciseMuscleText}>{nextExerciseContent.primaryMuscle}</Text>
-          </View>
-        )}
-      </TouchableOpacity>
-    );
-  };
-
-  return (
-    <View style={styles.container}>
-      <StatusBar style="light" />
-
-      <WorkoutHeader
-        insets={insets}
-        currentExerciseIndex={currentExerciseIndex}
-        totalExercises={workoutExercises.length}
-        cycleWeek={cycleWeek}
-        weekName={weekName}
-        onBackPress={handleBackPress}
-        onExerciseListPress={handleExerciseListPress}
-      />
-
-      <WorkoutTimerTabs
-        workoutDuration={workoutDuration}
-        totalVolume={totalVolume}
-        totalReps={totalReps}
-        formatTime={formatTime}
-      />
-
-      {/* Main Content */}
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-      >
-        <ScrollView
-          ref={scrollViewRef}
-          style={styles.scrollView}
-          contentContainerStyle={[
-            styles.scrollViewContent,
-            { paddingBottom: keyboardHeight > 0 ? 50 : 24 },
-          ]}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <WorkoutExerciseCard
-            exercise={currentExercise}
-            maxWeightData={maxWeightData[currentExercise?.exercise_id] || []}
-            absoluteMaxWeight={absoluteMaxWeightData[currentExercise?.exercise_id] || null}
-            onExerciseNamePress={handleExerciseNamePress}
-          />
-
-          {/* Exercise Sets */}
-          <View style={styles.setsContainer}>
-            {currentSets.map((set: ExerciseSet, index: number) => {
-              const activeSetIndex = calculateActiveSetIndex(currentSets);
-              const isActive = index === activeSetIndex;
-              const isCompleted = set.isCompleted;
-
-              return (
-                <WorkoutExerciseSetRow
-                  key={set.id}
-                  set={set}
-                  setIndex={index}
-                  exercise={currentExercise}
-                  isActive={isActive}
-                  isCompleted={isCompleted}
-                  focusedInputs={focusedInputs}
-                  userEnteredValues={userEnteredValues}
-                  exerciseCustomized={exerciseCustomized}
-                  lastExerciseValues={lastExerciseValues}
-                  currentRecommendation={currentRecommendation}
-                  textInputRefreshKey={textInputRefreshKey}
-                  onWeightChange={handleWeightChange}
-                  onRepsChange={handleRepsChange}
-                  onSetComplete={handleSetComplete}
-                  onRedoSet={handleRedoSet}
-                  onInputFocus={handleInputFocus}
-                  onInputBlur={handleInputBlur}
-                  getSuggestedValue={getSuggestedValue}
-                />
-              );
-            })}
-          </View>
-
-          {/* Log All Sets Button */}
-          <Button
-            mode="contained"
-            style={styles.logAllButton}
-            labelStyle={styles.logAllButtonText}
-            onPress={() => handleLogAllSets(currentExercise.id)}
-          >
-            Log All Sets
-          </Button>
-
-          {/* Customize Exercise Link */}
-          <TouchableOpacity style={styles.customizeLink} onPress={handleCustomizeExercisePress}>
-            <Text style={styles.customizeLinkText}>Customize Exercise</Text>
-          </TouchableOpacity>
-
-          {/* Next Exercise Preview - moved inside ScrollView */}
-          <View style={styles.nextExerciseSection}>
-            <Text style={styles.nextExerciseLabel}>Next Exercise</Text>
-
-            {renderNextExercise()}
-
-            {/* Progress Bar */}
-            <View style={styles.progressBarContainer}>
-              <View style={styles.progressBar}>
-                <View style={[styles.progressBarFill, { width: `${progressPercentage}%` }]} />
-              </View>
-            </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-
-      {/* Warmup Modal */}
-      <WorkoutWarmupModal
-        visible={showWarmup && !warmupCompleted}
-        exerciseName={currentExercise?.name}
-        onComplete={handleWarmupComplete}
-        onSkip={skipWarmup}
-      />
-
-      {/* Exit Workout Modal */}
-      <WorkoutExitModal
-        visible={showExitModal}
-        onEndWorkout={handleExitWorkout}
-        onPauseWorkout={handlePauseWorkout}
-        onReturnToWorkout={handleReturnToWorkout}
-        onClose={() => handleReturnToWorkout()}
-      />
-
-      {/* Exercise Details Modal */}
-      {currentExercise && (
-        <ExerciseDetailsModal
-          visible={showExerciseDetailsModal}
-          onClose={handleExerciseDetailsModalClose}
-          exerciseId={currentExercise.exercise_id}
-          exerciseName={currentExercise.name}
-          exerciseImage={currentExercise.image_url}
-          primary_muscles={currentExercise.primary_muscles}
-          secondary_muscles={[]} // Add secondary muscles if available in your data
-        />
-      )}
-
-      {/* Customize Exercise Modal */}
-      <CustomizeExerciseModal
-        visible={showCustomizeExerciseModal}
-        onClose={handleCustomizeExerciseModalClose}
-        exercise={workoutExercises[currentExerciseIndex]}
-        onSave={handleCustomizeExerciseSave}
-        availableExercises={workoutExercises}
-        onExerciseChange={handleExerciseChange}
-      />
-
-      {/* Exercise List Modal */}
-      <ExerciseListModal
-        visible={showExerciseListModal}
-        onClose={handleExerciseListModalClose}
-        exercises={workoutExercises}
-        currentExerciseIndex={currentExerciseIndex}
-        onExerciseSelect={handleExerciseSelect}
-        onExerciseDetailsPress={handleExerciseDetailsPress}
-        onReorderExercises={handleReorderExercises}
-        onRemoveExercise={handleRemoveExercise}
-        isCustomizeMode={isCustomizeMode}
-        onToggleCustomizeMode={handleToggleCustomizeMode}
-        onAddExercise={handleAddExercise}
-        onAddSuperset={handleAddSuperset}
-        onAddCardio={handleAddCardio}
-        onApplyChanges={handleApplyChanges}
-      />
-
-      {/* Add Exercise Modal */}
-      <AddExerciseModal
-        visible={showAddExerciseModal}
-        onClose={handleAddExerciseModalClose}
-        onAddExercises={handleAddExercises}
-      />
-    </View>
-  );
+    exerciseCustomized,
+    lastExerciseValues,
+    currentRecommendation,
+    textInputRefreshKey,
+    handleWeightChange,
+    handleRepsChange,
+    handleSetComplete,
+    handleRedoSet,
+    handleInputFocus,
+    handleInputBlur,
+    getSuggestedValue,
+    handleLogAllSets,
+    handleCustomizeExercisePress,
+    getNextExerciseContent,
+    shouldShowCompleteWorkout,
+    completeWorkout,
+    handleNextExercisePress,
+    progressPercentage,
+    showWarmup,
+    warmupCompleted,
+    handleWarmupComplete,
+    skipWarmup,
+    showExitModal,
+    handleExitWorkout,
+    handlePauseWorkout,
+    handleReturnToWorkout,
+    selectedExerciseForDetails,
+    showExerciseDetailsModal,
+    handleExerciseDetailsModalClose,
+    setSelectedExerciseForDetails,
+    showCustomizeExerciseModal,
+    handleCustomizeExerciseModalClose,
+    handleCustomizeExerciseSave,
+    handleExerciseChange,
+    showExerciseListModal,
+    handleExerciseListModalClose,
+    handleExerciseSelect,
+    handleExerciseDetailsPress,
+    handleReorderExercises,
+    handleRemoveExercise,
+    isCustomizeMode,
+    handleToggleCustomizeMode,
+    handleAddExercise,
+    handleAddSuperset,
+    handleAddCardio,
+    handleApplyChanges,
+    showAddExerciseModal,
+    handleAddExerciseModalClose,
+    handleAddExercises,
+  });
 }
 
 const styles = StyleSheet.create({

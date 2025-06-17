@@ -597,15 +597,10 @@ export default function WorkoutSessionScreen() {
     setCurrentExerciseIndex,
     exerciseSets: workoutExerciseSets,
     setExerciseSets: setWorkoutExerciseSets,
-    lastExerciseValues,
     setLastExerciseValues,
-    exerciseCustomized,
     setExerciseCustomized,
-    userEnteredValues,
     setUserEnteredValues,
-    focusedInputs,
     setFocusedInputs,
-    textInputRefreshKey,
     setTextInputRefreshKey,
     userId: user?.id,
     onMoveToNextExercise: () => {
@@ -614,8 +609,6 @@ export default function WorkoutSessionScreen() {
     onCompleteWorkout: () => {
       completeWorkout();
     },
-    totalVolume,
-    totalReps,
   });
 
   // Use the warmup handling hook

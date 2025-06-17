@@ -9,17 +9,12 @@ export interface UseExerciseSelectionParams {
   setCurrentExerciseIndex: React.Dispatch<React.SetStateAction<number>>;
   exerciseSets: Record<string, ExerciseSet[]>;
   setExerciseSets: React.Dispatch<React.SetStateAction<Record<string, ExerciseSet[]>>>;
-  lastExerciseValues: Record<string, Record<number, { weight: string; reps: string }>>;
   setLastExerciseValues: React.Dispatch<
     React.SetStateAction<Record<string, Record<number, { weight: string; reps: string }>>>
   >;
-  exerciseCustomized: Record<string, boolean>;
   setExerciseCustomized: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
-  userEnteredValues: Record<string, boolean>;
   setUserEnteredValues: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
-  focusedInputs: Record<string, boolean>;
   setFocusedInputs: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
-  textInputRefreshKey: number;
   setTextInputRefreshKey: React.Dispatch<SetStateAction<number>>;
   userId?: string;
   // Add callbacks for completion logic
@@ -34,15 +29,10 @@ export const useExerciseSelection = ({
   setCurrentExerciseIndex,
   exerciseSets,
   setExerciseSets,
-  lastExerciseValues: _lastExerciseValues,
   setLastExerciseValues,
-  exerciseCustomized: _exerciseCustomized,
   setExerciseCustomized,
-  userEnteredValues: _userEnteredValues,
   setUserEnteredValues,
-  focusedInputs: _focusedInputs,
   setFocusedInputs,
-  textInputRefreshKey: _textInputRefreshKey,
   setTextInputRefreshKey,
   userId,
   onMoveToNextExercise,

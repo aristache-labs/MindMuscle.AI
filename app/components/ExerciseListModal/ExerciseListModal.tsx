@@ -99,6 +99,7 @@ export default function ExerciseListModal({
   useEffect(() => {
     try {
       if (isCustomizeMode) {
+        console.log('ExerciseListModal: Customize mode ENABLED');
         Sentry.addBreadcrumb({
           message: 'Exercise list customize mode enabled',
           category: 'user.interaction',
@@ -109,6 +110,7 @@ export default function ExerciseListModal({
           },
         });
       } else {
+        console.log('ExerciseListModal: Customize mode DISABLED');
         Sentry.addBreadcrumb({
           message: 'Exercise list customize mode disabled',
           category: 'user.interaction',
@@ -132,7 +134,7 @@ export default function ExerciseListModal({
     customizeProgress,
     cardAnimations,
     cleanup: cleanupCustomizeAnimations,
-  } = useCustomizeModeAnimations(isCustomizeMode);
+  } = useCustomizeModeAnimations(isCustomizeMode, visible);
 
   // Bottom actions sliding animation
   const bottomActionsStyle = useAnimatedStyle(() => {
@@ -159,11 +161,14 @@ export default function ExerciseListModal({
 
   // Update local exercises when prop changes and reset change tracking
   React.useEffect(() => {
+    console.log('ExerciseListModal: Exercises prop changed, updating local state');
+    console.log('ExerciseListModal: New exercise count:', exercises.length);
+    console.log('ExerciseListModal: Current customize mode:', isCustomizeMode);
     setLocalExercises(exercises);
     setOriginalExercises(exercises);
     setRemovedIndices([]);
     setHasChanges(false);
-  }, [exercises]);
+  }, [exercises, isCustomizeMode]);
 
   // Check if there are any changes
   React.useEffect(() => {
@@ -175,11 +180,13 @@ export default function ExerciseListModal({
   // Modal entrance animation
   React.useEffect(() => {
     if (visible) {
+      console.log('ExerciseListModal: Modal opening with customize mode:', isCustomizeMode);
       modalAnimation.value = withSpring(1, { damping: 20, stiffness: 300 });
     } else {
+      console.log('ExerciseListModal: Modal closing');
       modalAnimation.value = withTiming(0, { duration: 300 });
     }
-  }, [visible, modalAnimation]);
+  }, [visible, modalAnimation, isCustomizeMode]);
 
   // Cleanup animations on unmount and modal close
   React.useEffect(() => {
@@ -189,17 +196,17 @@ export default function ExerciseListModal({
       setDraggedIndex(-1);
       setDragTargetIndex(-1);
 
-      // Cleanup animations when modal closes
-      try {
-        cleanupCustomizeAnimations();
-      } catch (error) {
-        console.warn('Error cleaning up customize animations:', error);
-      }
+      // Don't cleanup customize animations immediately when modal closes
+      // Let them persist for quick reopens (like add exercise flow)
+      console.log(
+        'ExerciseListModal: Modal closed - NOT cleaning up customize animations to preserve state',
+      );
     }
 
     return () => {
-      // Cleanup all animations when component unmounts
+      // Only cleanup all animations when component actually unmounts
       try {
+        console.log('ExerciseListModal: Component unmounting - cleaning up all animations');
         modalAnimation.value = 0;
         cleanupCustomizeAnimations();
       } catch (error) {

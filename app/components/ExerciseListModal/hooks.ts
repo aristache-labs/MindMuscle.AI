@@ -94,27 +94,64 @@ export function useDragDisplacement(
 }
 
 // Custom hook for customize mode animations
-export function useCustomizeModeAnimations(isCustomizeMode: boolean) {
+export function useCustomizeModeAnimations(isCustomizeMode: boolean, visible: boolean) {
   const customizeProgress = useSharedValue(0);
   const cardAnimations = useSharedValue(0);
 
+  // Track if this is the initial mount
+  const isInitialMount = React.useRef(true);
+
   React.useEffect(() => {
+    console.log('useCustomizeModeAnimations: isCustomizeMode changed to:', isCustomizeMode);
+    console.log('useCustomizeModeAnimations: visible changed to:', visible);
+    console.log(
+      'useCustomizeModeAnimations: Current customizeProgress value:',
+      customizeProgress.value,
+    );
+    console.log('useCustomizeModeAnimations: Current cardAnimations value:', cardAnimations.value);
+    console.log('useCustomizeModeAnimations: Is initial mount:', isInitialMount.current);
+
+    // Only trigger animations when modal is visible
+    if (!visible) {
+      console.log('useCustomizeModeAnimations: Modal not visible, skipping animations');
+      return;
+    }
+
     if (isCustomizeMode) {
-      // Start overall customize progress immediately
-      customizeProgress.value = withSpring(1, { damping: 25, stiffness: 300 });
-      // Start card animations with a slight delay for a polished effect
-      cardAnimations.value = withTiming(1, { duration: 350 });
+      console.log('useCustomizeModeAnimations: Starting customize animations');
+
+      // If this is the initial mount and customize mode is already true,
+      // set values immediately instead of animating (for add exercise flow)
+      if (isInitialMount.current) {
+        console.log(
+          'useCustomizeModeAnimations: Initial mount with customize mode true - setting values immediately',
+        );
+        customizeProgress.value = 1;
+        cardAnimations.value = 1;
+      } else {
+        // Normal animation when toggling customize mode
+        console.log('useCustomizeModeAnimations: Animating to customize mode');
+        customizeProgress.value = withSpring(1, { damping: 25, stiffness: 300 });
+        cardAnimations.value = withTiming(1, { duration: 350 });
+      }
     } else {
-      // Reverse the animation quickly
+      console.log('useCustomizeModeAnimations: Stopping customize animations');
+      // Always animate when turning off customize mode
       customizeProgress.value = withSpring(0, { damping: 25, stiffness: 400 });
       cardAnimations.value = withTiming(0, { duration: 200 });
     }
-  }, [isCustomizeMode, customizeProgress, cardAnimations]);
+
+    // After the first effect run, no longer initial mount
+    isInitialMount.current = false;
+  }, [isCustomizeMode, visible, customizeProgress, cardAnimations]);
 
   // Cleanup function - NOT a worklet, just regular JS
   const cleanup = useCallback(() => {
+    console.log('useCustomizeModeAnimations: Cleanup called - resetting animation values');
     customizeProgress.value = 0;
     cardAnimations.value = 0;
+    // Reset initial mount flag since cleanup means component is unmounting
+    isInitialMount.current = true;
   }, [customizeProgress, cardAnimations]);
 
   return { customizeProgress, cardAnimations, cleanup };

@@ -1785,8 +1785,6 @@ export default function AddExerciseModal({
           },
         });
 
-        console.log('AddExerciseModal: Adding exercises:', exerciseConfigurations);
-
         // Track successful exercise addition
         const duration = Date.now() - startTime;
         Sentry.addBreadcrumb({
@@ -1870,7 +1868,6 @@ export default function AddExerciseModal({
   }, [currentStep, showFavorites, showAllExercises, selectedMuscleGroup, searchState]);
 
   const handleClose = useCallback(() => {
-    console.log('AddExerciseModal: Close button pressed');
     onClose();
   }, [onClose]);
 

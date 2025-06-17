@@ -181,8 +181,6 @@ const handleCachedCategoryExercises = (
   span: Span,
 ): Exercise[] | null => {
   if (cache?.byCategory && cache.byCategory[category]) {
-    console.log(`Using cached exercises data (${category})`);
-
     span.setAttributes({
       data_source: 'cache',
       exercise_count: cache.byCategory[category].length,
@@ -200,7 +198,6 @@ const handleCacheFiltering = (
   span: Span,
 ): Exercise[] | null => {
   if (cache?.all) {
-    console.log(`Categorizing cached exercises for ${category}`);
     const categoryExercises = cache.all.filter((ex: Exercise) => ex.muscle_group === category);
 
     if (categoryExercises.length > 0) {

@@ -111,7 +111,6 @@ export const useExerciseSelection = ({
 
   // Handle add exercise modal
   const handleAddExercisePress = useCallback(() => {
-    console.log('AddExercise: Starting add exercise flow');
     // Preserve the current customize mode state
     setWasInCustomizeModeBeforeAdd(isCustomizeMode);
     // Set flag to indicate we're in an add exercise flow
@@ -120,13 +119,11 @@ export const useExerciseSelection = ({
     setShowExerciseListModal(false);
     // Small delay to ensure the first modal is closed before opening the second
     setTimeout(() => {
-      console.log('AddExercise: Opening AddExerciseModal');
       setShowAddExerciseModal(true);
     }, 100);
   }, [isCustomizeMode]);
 
   const handleAddExerciseModalClose = useCallback(() => {
-    console.log('AddExercise: Closing AddExerciseModal');
     setShowAddExerciseModal(false);
     // Clear the add exercise flow flag
     setIsInAddExerciseFlow(false);
@@ -138,7 +135,6 @@ export const useExerciseSelection = ({
     setWasInCustomizeModeBeforeAdd(false);
     // Reopen the exercise list modal after closing the add exercise modal
     setTimeout(() => {
-      console.log('AddExercise: Reopening ExerciseListModal');
       setShowExerciseListModal(true);
     }, 100);
   }, [wasInCustomizeModeBeforeAdd]);
@@ -156,10 +152,6 @@ export const useExerciseSelection = ({
         requires_weight?: boolean;
       }[],
     ) => {
-      console.log('AddExercise: Starting handleAddExercises');
-      console.log('AddExercise: Current customize mode before restoration:', isCustomizeMode);
-      console.log('AddExercise: Was in customize mode before add:', wasInCustomizeModeBeforeAdd);
-
       // Convert exercise configurations to ExerciseData format
       const newExercises: ExerciseData[] = exerciseConfigurations.map((config, _index) => ({
         id: config.exerciseId,
@@ -208,7 +200,6 @@ export const useExerciseSelection = ({
       // Restore customize mode state if it was active before - do this synchronously
       const shouldRestoreCustomizeMode = wasInCustomizeModeBeforeAdd;
       if (shouldRestoreCustomizeMode) {
-        console.log('AddExercise: Restoring customize mode to true');
         setIsCustomizeMode(true);
       }
 
@@ -217,9 +208,6 @@ export const useExerciseSelection = ({
 
       // Reopen the exercise list modal with a longer delay to ensure all state updates are processed
       setTimeout(() => {
-        console.log('AddExercise: Exercises added successfully, reopening ExerciseListModal');
-        console.log('AddExercise: Should restore customize mode:', shouldRestoreCustomizeMode);
-        console.log('AddExercise: Current customize mode state:', isCustomizeMode);
         setShowExerciseListModal(true);
       }, 200); // Further increased delay for state synchronization
     },

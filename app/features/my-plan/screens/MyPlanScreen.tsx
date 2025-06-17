@@ -43,6 +43,21 @@ import {
 } from '../types';
 import { calculateWorkoutStats } from '../utils';
 import supabase from '../../../services/supabase';
+import { format } from 'date-fns';
+
+// Type definitions for workout completion data
+interface WorkoutHistoryRecord {
+  id: string;
+  workout_duration: string;
+  calories_burned: number;
+  total_volume: number;
+  total_reps: number;
+  completed_at: string;
+  week_name: string;
+  cycle_week: number;
+  workout_day: number;
+  exercises_count: number;
+}
 
 // Loading Screen Component
 const LoadingScreen: React.FC<{ embedded: boolean }> = ({ embedded }) => {
@@ -966,56 +981,255 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
     updateCalendarWorkoutStatus,
   ]);
 
+  // Helper function to refresh cycle progress and handle unlocks
+  const refreshCycleProgressAndHandleUnlocks = async () => {
+    if (!plan?.id || !user?.id) return;
+
+    const updatedProgress = await fetchCycleProgress(plan.id);
+    if (updatedProgress) {
+      setCycleProgress(updatedProgress);
+      console.log('🔄 Cycle progress refreshed on screen focus', {
+        currentWeek: updatedProgress.currentWeek,
+        weekName: updatedProgress.weekName,
+        completedWorkouts: updatedProgress.completedWorkouts,
+      });
+
+      // Handle locked week unlock if needed
+      if (isViewingLockedWeek && lockedWeekInfo) {
+        const wasLocked = lockedWeekInfo.selectedWeek > updatedProgress.currentWeek;
+        if (!wasLocked) {
+          // Week is now unlocked, refresh current selection
+          setTimeout(() => {
+            handleCalendarDateSelect(selectedDate, activeDay, activeDay !== null);
+          }, 50);
+        }
+      }
+    }
+  };
+
+  // Helper function to check if we should refresh today's workout
+  const shouldRefreshTodayWorkout = () => {
+    const today = new Date();
+    const todayStr = format(today, 'yyyy-MM-dd');
+    const currentSelectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+    const shouldRefresh = activeDay !== null && todayStr === currentSelectedDateStr;
+
+    console.log('🤔 Should refresh today workout?', {
+      today: todayStr,
+      selectedDate: currentSelectedDateStr,
+      activeDay,
+      shouldRefresh,
+      isViewingToday: todayStr === currentSelectedDateStr,
+      hasActiveDay: activeDay !== null,
+    });
+
+    return shouldRefresh;
+  };
+
+  // Helper function to get today's cycle week info
+  const getTodayCycleWeekInfo = () => {
+    if (!plan) return null;
+
+    const today = new Date();
+    const todayStr = format(today, 'yyyy-MM-dd');
+
+    const markedDatesObj = workoutPlanService.setupCalendarDatesProgressive(
+      plan.start_date,
+      plan.workoutDays.length,
+      userWorkoutDays,
+      { primary: '#7B69EE' },
+    );
+
+    const todayDateInfo = markedDatesObj[todayStr];
+    return todayDateInfo?.cycleWeek || null;
+  };
+
+  // Helper function to query today's workout completion
+  const queryTodayWorkoutCompletion = async () => {
+    if (!user?.id || !plan?.id || activeDay === null) return null;
+
+    console.log('🔍 Querying workout history with filters:', {
+      user_id: user.id,
+      plan_id: plan.id,
+      workout_day: activeDay,
+    });
+
+    const { data: completedWorkouts, error: completedError } = await supabase
+      .from('user_workout_history')
+      .select(
+        'id, workout_duration, calories_burned, total_volume, total_reps, completed_at, week_name, cycle_week, workout_day, exercises_count',
+      )
+      .eq('user_id', user.id)
+      .eq('plan_id', plan.id)
+      .eq('workout_day', activeDay);
+
+    if (completedError) {
+      console.error('❌ Database query error:', completedError);
+
+      // Try a broader query without workout_day filter as fallback
+      console.log('🔄 Trying broader query without workout_day filter...');
+      const { data: allWorkouts, error: broadError } = await supabase
+        .from('user_workout_history')
+        .select(
+          'id, workout_duration, calories_burned, total_volume, total_reps, completed_at, week_name, cycle_week, workout_day, exercises_count',
+        )
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id)
+        .order('completed_at', { ascending: false })
+        .limit(10);
+
+      if (broadError) {
+        console.error('❌ Broader query also failed:', broadError);
+        return null;
+      }
+
+      console.log('📊 Broader query results:', allWorkouts?.length || 0, allWorkouts);
+      return allWorkouts;
+    }
+
+    if (!completedWorkouts) {
+      console.log('❌ No completed workouts found with filters');
+      return null;
+    }
+
+    return completedWorkouts;
+  };
+
+  // Helper function to find today's matching workout completion
+  const findTodayMatchingCompletion = (
+    completedWorkouts: WorkoutHistoryRecord[],
+    todayCycleWeek: number,
+  ) => {
+    const today = new Date();
+    const todayStr = format(today, 'yyyy-MM-dd');
+
+    // Ensure we use the todayCycleWeek parameter explicitly
+    if (!todayCycleWeek || activeDay === null) {
+      return completedWorkouts.find((w: WorkoutHistoryRecord) => {
+        const completionDate = new Date(w.completed_at);
+        const completionDateStr = format(completionDate, 'yyyy-MM-dd');
+        return completionDateStr === todayStr;
+      });
+    }
+
+    return completedWorkouts.find((w: WorkoutHistoryRecord) => {
+      const completionDate = new Date(w.completed_at);
+      const completionDateStr = format(completionDate, 'yyyy-MM-dd');
+
+      // Check if workout was completed today (by date) OR matches today's cycle week and workout day
+      const isCompletedToday = completionDateStr === todayStr;
+      const matchesTodayWorkout = w.cycle_week === todayCycleWeek && w.workout_day === activeDay;
+
+      return isCompletedToday || matchesTodayWorkout;
+    });
+  };
+
+  // Helper function to update completion state
+  const updateTodayCompletionState = (matchingCompletion: WorkoutHistoryRecord | undefined) => {
+    if (matchingCompletion) {
+      const completedWorkoutData = {
+        completedExercises: matchingCompletion.exercises_count || 0,
+        duration: matchingCompletion.workout_duration || '00:00:00',
+        caloriesBurned: matchingCompletion.calories_burned || 0,
+        totalVolume: matchingCompletion.total_volume || 0,
+        totalReps: matchingCompletion.total_reps || 0,
+        completedAt: matchingCompletion.completed_at,
+        weekName: matchingCompletion.week_name || '',
+        cycleWeek: matchingCompletion.cycle_week || 1,
+      };
+
+      console.log('✅ Found completed workout for today, updating UI state');
+      setIsWorkoutCompleted(true);
+      setCompletedWorkoutData(completedWorkoutData);
+    } else {
+      console.log('❌ No completed workout found for today');
+      setIsWorkoutCompleted(false);
+      setCompletedWorkoutData(null);
+    }
+  };
+
+  // Helper function to refresh today's workout completion status
+  const refreshTodayWorkoutCompletion = async () => {
+    if (!shouldRefreshTodayWorkout()) {
+      console.log('⏭️ Skipping today workout refresh - conditions not met');
+      return;
+    }
+
+    console.log("🔄 Refreshing today's workout completion status");
+    console.log('📊 Current state:', {
+      activeDay,
+      selectedDate: format(selectedDate, 'yyyy-MM-dd'),
+      isWorkoutCompleted,
+      userId: user?.id,
+      planId: plan?.id,
+    });
+
+    try {
+      const todayCycleWeek = getTodayCycleWeekInfo();
+      console.log('📅 Today cycle week info:', todayCycleWeek);
+      if (!todayCycleWeek) {
+        console.log('❌ No cycle week info found, exiting');
+        return;
+      }
+
+      const completedWorkouts = await queryTodayWorkoutCompletion();
+      console.log('💾 Query results:', {
+        completedWorkoutsCount: completedWorkouts?.length || 0,
+        completedWorkouts: completedWorkouts?.map((w) => ({
+          id: w.id,
+          workout_day: w.workout_day,
+          cycle_week: w.cycle_week,
+          completed_at: w.completed_at,
+          week_name: w.week_name,
+        })),
+      });
+
+      if (!completedWorkouts) {
+        console.log('❌ Error or no workout history found for today');
+        setIsWorkoutCompleted(false);
+        setCompletedWorkoutData(null);
+        return;
+      }
+
+      const matchingCompletion = findTodayMatchingCompletion(completedWorkouts, todayCycleWeek);
+      console.log('🎯 Matching completion found:', !!matchingCompletion, matchingCompletion);
+      updateTodayCompletionState(matchingCompletion);
+    } catch (error) {
+      console.error('Error checking today workout completion:', error);
+      setIsWorkoutCompleted(false);
+      setCompletedWorkoutData(null);
+    }
+  };
+
   // Refresh cycle progress when screen comes into focus (e.g., after completing a workout)
   useFocusEffect(
     useCallback(() => {
-      let hasRun = false; // Prevent multiple runs within the same focus event
-
-      const refreshCycleProgress = async () => {
-        if (hasRun || !plan?.id || !user?.id || isLoading) {
+      const refreshDataOnFocus = async () => {
+        if (!plan?.id || !user?.id || isLoading) {
           return;
         }
-        hasRun = true;
 
         try {
-          // Refresh cycle progress to detect any week unlocks from completed workouts
-          const updatedProgress = await fetchCycleProgress(plan.id);
-          if (updatedProgress) {
-            setCycleProgress(updatedProgress);
+          console.log('🔄 Screen focused, refreshing data...');
 
-            console.log('🔄 Cycle progress refreshed on screen focus', {
-              currentWeek: updatedProgress.currentWeek,
-              weekName: updatedProgress.weekName,
-              completedWorkouts: updatedProgress.completedWorkouts,
-            });
+          // 1. Refresh cycle progress and handle unlocks
+          await refreshCycleProgressAndHandleUnlocks();
 
-            // If user is viewing a locked week that might now be unlocked, refresh the date selection
-            if (isViewingLockedWeek && lockedWeekInfo) {
-              const wasLocked = lockedWeekInfo.selectedWeek > updatedProgress.currentWeek;
-              if (!wasLocked) {
-                // Week is now unlocked, refresh current selection
-                const currentActiveDay = activeDay;
-                const currentSelectedDate = selectedDate;
-                setTimeout(() => {
-                  handleCalendarDateSelect(
-                    currentSelectedDate,
-                    currentActiveDay,
-                    currentActiveDay !== null,
-                  );
-                }, 50);
-              }
-            }
-          }
+          // 2. Check today's workout completion status
+          await refreshTodayWorkoutCompletion();
+
+          // 3. Refresh calendar workout status
+          await updateCalendarWorkoutStatus();
         } catch (error) {
-          console.error('Error refreshing cycle progress on focus:', error);
+          console.error('Error refreshing data on focus:', error);
         }
       };
 
-      // Add a small delay to ensure screen is fully focused
-      const timeoutId = setTimeout(refreshCycleProgress, 200);
+      // Run the refresh with a delay to ensure database is updated
+      const timeoutId = setTimeout(refreshDataOnFocus, 500);
 
       return () => clearTimeout(timeoutId);
-    }, [plan?.id, user?.id, isLoading, fetchCycleProgress, setCycleProgress]),
+    }, []), // Empty dependency array to prevent infinite loops
   );
 
   // Load customized exercises when activeDay changes

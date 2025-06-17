@@ -6,7 +6,7 @@ import workoutPlanService from '../../../services/workoutPlanService';
 import { Plan, CycleProgress, CompletedWorkoutData, PausedWorkout, LockedWeekInfo } from '../types';
 
 interface WorkoutHistoryRecord {
-  completed_exercises: number;
+  id: string;
   workout_duration: string;
   calories_burned: number;
   total_volume: number;
@@ -15,6 +15,7 @@ interface WorkoutHistoryRecord {
   week_name: string;
   cycle_week: number;
   workout_day: number;
+  exercises_count: number;
 }
 
 interface UseDateSelectionProps {
@@ -95,7 +96,9 @@ export const useDateSelection = ({
       try {
         const { data: completedWorkouts, error: completedError } = await supabase
           .from('user_workout_history')
-          .select('*')
+          .select(
+            'id, workout_duration, calories_burned, total_volume, total_reps, completed_at, week_name, cycle_week, workout_day, exercises_count',
+          )
           .eq('user_id', user.id)
           .eq('plan_id', plan.id)
           .eq('workout_day', workoutDayIndex);
@@ -118,7 +121,7 @@ export const useDateSelection = ({
 
           if (matchingCompletion) {
             const completedWorkoutData = {
-              completedExercises: matchingCompletion.completed_exercises || 0,
+              completedExercises: matchingCompletion.exercises_count || 0,
               duration: matchingCompletion.workout_duration || '00:00:00',
               caloriesBurned: matchingCompletion.calories_burned || 0,
               totalVolume: matchingCompletion.total_volume || 0,

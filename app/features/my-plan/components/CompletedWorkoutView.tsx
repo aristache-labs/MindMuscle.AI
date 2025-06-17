@@ -36,7 +36,9 @@ const CompletedWorkoutView: React.FC<CompletedWorkoutViewProps> = ({
       {/* Workout Stats */}
       <View style={styles.completionStatsRow}>
         <View style={[styles.completionStatItem, styles.leftStatItem]}>
-          <Text style={styles.completionStatValue}>{workoutDay.total_exercises || 0}</Text>
+          <Text style={styles.completionStatValue}>
+            {completedWorkoutData.completedExercises || 0}
+          </Text>
           <Text style={styles.completionStatLabel}>EXERCISES DONE</Text>
         </View>
 

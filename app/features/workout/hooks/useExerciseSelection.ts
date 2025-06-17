@@ -25,8 +25,6 @@ export interface UseExerciseSelectionParams {
   // Add callbacks for completion logic
   onMoveToNextExercise?: () => void;
   onCompleteWorkout?: () => void;
-  totalVolume?: number;
-  totalReps?: number;
 }
 
 export const useExerciseSelection = ({
@@ -36,21 +34,19 @@ export const useExerciseSelection = ({
   setCurrentExerciseIndex,
   exerciseSets,
   setExerciseSets,
-  lastExerciseValues,
+  lastExerciseValues: _lastExerciseValues,
   setLastExerciseValues,
-  exerciseCustomized,
+  exerciseCustomized: _exerciseCustomized,
   setExerciseCustomized,
-  userEnteredValues,
+  userEnteredValues: _userEnteredValues,
   setUserEnteredValues,
-  focusedInputs,
+  focusedInputs: _focusedInputs,
   setFocusedInputs,
-  textInputRefreshKey,
+  textInputRefreshKey: _textInputRefreshKey,
   setTextInputRefreshKey,
   userId,
   onMoveToNextExercise,
   onCompleteWorkout,
-  totalVolume: _totalVolume,
-  totalReps: _totalReps,
 }: UseExerciseSelectionParams) => {
   // Modal states
   const [showExerciseDetailsModal, setShowExerciseDetailsModal] = useState(false);

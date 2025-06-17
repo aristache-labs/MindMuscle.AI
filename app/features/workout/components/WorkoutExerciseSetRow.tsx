@@ -96,15 +96,14 @@ const usePlaceholderLogic = (
       return '';
     }
 
-    if (lastWeight) {
-      return lastWeight;
-    }
-
+    // Prioritize progressive overload recommendations over last workout values
     let placeholder = '--';
     if (recommendedWeight) {
       placeholder = recommendedWeight;
     } else if (suggestedValue) {
       placeholder = suggestedValue;
+    } else if (lastWeight) {
+      placeholder = lastWeight;
     }
 
     return placeholder;

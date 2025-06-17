@@ -72,7 +72,8 @@ function usePlaceholders({
     const suggestedValue = getSuggestedValue(exercise.exercise_id, setIndex + 1, 'weight');
     const lastWeight = lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight;
 
-    return lastWeight || recommendedWeight || suggestedValue || '--';
+    // Prioritize progressive overload recommendations over last workout values
+    return recommendedWeight || suggestedValue || lastWeight || '--';
   };
 
   const getRepsPlaceholder = () => {

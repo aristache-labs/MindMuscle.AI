@@ -27,6 +27,7 @@ interface UseWorkoutCompletionParams {
   totalVolume: number;
   totalReps: number;
   originalCycleWeek: number | null;
+  forceStart?: boolean;
   setIsWorkoutCompleted: (value: boolean) => void;
   setCompletedWorkoutData: (data: CompletedWorkoutData) => void;
   stopWorkoutTimer: () => void;
@@ -50,6 +51,7 @@ export const useWorkoutCompletion = ({
   totalVolume,
   totalReps,
   originalCycleWeek,
+  forceStart,
   setIsWorkoutCompleted,
   setCompletedWorkoutData,
   stopWorkoutTimer,
@@ -78,7 +80,7 @@ export const useWorkoutCompletion = ({
 
     try {
       // Check if this is a redone workout (look for forceStart query param if needed)
-      const isRedoWorkout = false; // This would come from URL params in the component
+      const isRedoWorkout = forceStart === true;
 
       // Calculate workout duration in minutes for display
       const workoutDurationMinutes = Math.round(finalDuration / 60);
@@ -128,7 +130,6 @@ export const useWorkoutCompletion = ({
       }, 1000); // 1 second delay for database save
 
       // Don't show loading indicator since UI updates immediately
-      const _success = true; // Unused but reflects operation success
     } catch /* istanbul ignore next */ {
       // istanbul ignore next
       // Show error but don't block the UI since we're doing delayed save
@@ -142,11 +143,7 @@ export const useWorkoutCompletion = ({
   /**
    * Complete workout with state sync - used for guaranteeing state consistency
    */
-  const completeWorkoutWithStateSync = async (
-    overrideVolume: number,
-    overrideReps: number,
-    finalExerciseSets: Record<string, ExerciseSet[]>,
-  ) => {
+  const completeWorkoutWithStateSync = async (overrideVolume: number, overrideReps: number) => {
     // Mark workout as completed immediately in UI for responsiveness
     setIsWorkoutCompleted(true);
     setCompletedWorkoutData({
@@ -161,17 +158,13 @@ export const useWorkoutCompletion = ({
     });
 
     // Use the state machine approach for database operations
-    await handleWorkoutCompletion(overrideVolume, overrideReps, finalExerciseSets);
+    await handleWorkoutCompletion(overrideVolume, overrideReps);
   };
 
   /**
    * State machine for workout completion
    */
-  const handleWorkoutCompletion = async (
-    finalVolume: number,
-    finalReps: number,
-    _finalExerciseSets: Record<string, ExerciseSet[]>, // Mark as unused with underscore
-  ) => {
+  const handleWorkoutCompletion = async (finalVolume: number, finalReps: number) => {
     // Prevent multiple completion attempts
     if (workoutState !== 'in_progress') {
       return;
@@ -191,7 +184,7 @@ export const useWorkoutCompletion = ({
         workoutDuration: Math.floor(workoutDuration),
         totalVolume: finalVolume,
         totalReps: finalReps,
-        isRedoWorkout: false, // isRedoWorkout
+        isRedoWorkout: forceStart,
         originalCycleWeek: null, // originalCycleWeek
       });
 

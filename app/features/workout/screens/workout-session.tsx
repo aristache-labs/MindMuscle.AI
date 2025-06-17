@@ -811,6 +811,7 @@ export default function WorkoutSessionScreen() {
     totalVolume,
     totalReps,
     originalCycleWeek,
+    forceStart,
     setIsWorkoutCompleted,
     setCompletedWorkoutData,
     stopWorkoutTimer,

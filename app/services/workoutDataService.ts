@@ -1057,6 +1057,7 @@ const insertWorkoutHistory = async (options: {
   totalReps: number;
   exercises: ExerciseData[];
   exerciseStructure: SavedExerciseStructure[];
+  isRedoWorkout?: boolean;
 }): Promise<string> => {
   const {
     userId,
@@ -1070,6 +1071,7 @@ const insertWorkoutHistory = async (options: {
     totalReps,
     exercises,
     exerciseStructure,
+    isRedoWorkout = false,
   } = options;
 
   const workoutDurationMinutes = Math.round(workoutDuration / 60);
@@ -1120,6 +1122,7 @@ const insertWorkoutHistory = async (options: {
       completed_at: new Date().toISOString(),
       exercises_count: exercises.length,
       exercise_structure: JSON.stringify(exerciseStructure),
+      is_redo_workout: isRedoWorkout,
     })
     .select('id')
     .single();
@@ -1356,6 +1359,7 @@ export const completeWorkout = async (options: CompleteWorkoutOptions): Promise<
       totalReps,
       exercises,
       exerciseStructure,
+      isRedoWorkout,
     });
 
     // Create and insert exercise records

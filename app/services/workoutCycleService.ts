@@ -907,12 +907,13 @@ export const recalculateWeekProgression = async (
     const workoutFrequency =
       (planData.workout_plans as unknown as { workout_frequency: number })?.workout_frequency || 3;
 
-    // Count actual completed workouts from history
+    // Count actual completed workouts from history (excluding redo workouts)
     const { data: historyData, error: historyError } = await supabase
       .from('user_workout_history')
       .select('workout_day, cycle_week')
       .eq('user_id', userId)
-      .eq('plan_id', planId);
+      .eq('plan_id', planId)
+      .eq('is_redo_workout', false); // Only count non-redo workouts for plan progression
 
     if (historyError) {
       SentryLogger.error(

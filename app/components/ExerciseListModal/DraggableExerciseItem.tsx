@@ -212,7 +212,7 @@ export function DraggableExerciseItem({
     }
 
     return Gesture.Pan()
-      .minDistance(5)
+      .minDistance(3) // Reduced min distance for better responsiveness on small drag handle
       .enabled(isCustomizeMode)
       .onStart(() => {
         'worklet';
@@ -288,52 +288,64 @@ export function DraggableExerciseItem({
   ];
 
   return (
-    <GestureDetector gesture={panGesture}>
-      <Animated.View style={containerStyle}>
-        <TouchableOpacity
-          style={itemStyle}
-          onPress={handlePress}
-          activeOpacity={0.8}
-          disabled={isDragging}
-        >
+    <Animated.View style={containerStyle}>
+      <TouchableOpacity
+        style={itemStyle}
+        onPress={handlePress}
+        activeOpacity={0.8}
+        disabled={isDragging}
+      >
+        {/* Exercise image with drag handle only in customize mode */}
+        {isCustomizeMode ? (
+          <GestureDetector gesture={panGesture}>
+            <View style={styles.exerciseImageContainer}>
+              <ExerciseImage
+                exercise={exercise}
+                isCompleted={isCompleted}
+                isCustomizeMode={isCustomizeMode}
+                customizeAnimation={customizeAnimation}
+              />
+            </View>
+          </GestureDetector>
+        ) : (
           <ExerciseImage
             exercise={exercise}
             isCompleted={isCompleted}
             isCustomizeMode={isCustomizeMode}
             customizeAnimation={customizeAnimation}
           />
+        )}
 
-          <View style={styles.exerciseInfo}>
-            <Text style={[styles.exerciseName, isCompleted && styles.completedText]}>
-              {exercise.name}
-            </Text>
-            <Text style={[styles.exerciseDetails, isCompleted && styles.completedText]}>
-              {exercise.sets || 0} sets × {exercise.reps_range} reps
-            </Text>
+        <View style={styles.exerciseInfo}>
+          <Text style={[styles.exerciseName, isCompleted && styles.completedText]}>
+            {exercise.name}
+          </Text>
+          <Text style={[styles.exerciseDetails, isCompleted && styles.completedText]}>
+            {exercise.sets || 0} sets × {exercise.reps_range} reps
+          </Text>
+        </View>
+
+        {/* Active label for current exercise */}
+        {showActiveLabel && isActive && (
+          <View style={styles.activeLabel}>
+            <Text style={styles.activeLabelText}>CURRENT</Text>
           </View>
+        )}
 
-          {/* Active label for current exercise */}
-          {showActiveLabel && isActive && (
-            <View style={styles.activeLabel}>
-              <Text style={styles.activeLabelText}>CURRENT</Text>
-            </View>
-          )}
-
-          {/* Remove button (only in customize mode) */}
-          {isCustomizeMode && onRemoveExercise && (
-            <Animated.View style={removeButtonStyle}>
-              <TouchableOpacity
-                style={styles.customizeButton}
-                onPress={handleRemove}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                disabled={isDragging}
-              >
-                <Ionicons name="trash-outline" size={18} color="#FF4444" />
-              </TouchableOpacity>
-            </Animated.View>
-          )}
-        </TouchableOpacity>
-      </Animated.View>
-    </GestureDetector>
+        {/* Remove button (only in customize mode) */}
+        {isCustomizeMode && onRemoveExercise && (
+          <Animated.View style={removeButtonStyle}>
+            <TouchableOpacity
+              style={styles.customizeButton}
+              onPress={handleRemove}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              disabled={isDragging}
+            >
+              <Ionicons name="trash-outline" size={18} color="#FF4444" />
+            </TouchableOpacity>
+          </Animated.View>
+        )}
+      </TouchableOpacity>
+    </Animated.View>
   );
 }

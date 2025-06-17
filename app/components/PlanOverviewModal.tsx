@@ -29,6 +29,9 @@ interface ExerciseData {
   exercise_id?: string;
   workout_day?: number;
   exercise_name?: string;
+  name?: string; // For customized exercises from getMostRecentCustomizedWorkoutStructure
+  image_url?: string; // For customized exercises
+  primary_muscles?: string[]; // For customized exercises
   rest_time?: number;
   order?: number;
   exercises?: {
@@ -220,13 +223,13 @@ function convertExerciseDataToFormat(exerciseData: ExerciseData[]): Exercise[] {
   return exerciseData.map(
     (item): Exercise => ({
       id: item.exercise_id || item.id || '',
-      name: item.exercise_name || 'Unknown Exercise',
+      name: item.name || item.exercise_name || 'Unknown Exercise',
       sets: item.sets || 3,
       reps: item.reps_range || '8-12',
-      image: item.exercises?.[0]?.image_url,
+      image: item.image_url || item.exercises?.[0]?.image_url,
       equipment: 'Standard',
       kg: 0,
-      primary_muscles: item.exercises?.[0]?.primary_muscles || [],
+      primary_muscles: item.primary_muscles || item.exercises?.[0]?.primary_muscles || [],
       secondary_muscles: item.exercises?.[0]?.secondary_muscles || [],
     }),
   );

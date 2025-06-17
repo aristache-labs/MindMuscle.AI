@@ -1259,7 +1259,7 @@ const useFavoriteLogic = ({
       setShowFavorites(false);
       setCurrentStep(1);
       setSelectedMuscleGroup('');
-      setSelectedExerciseIds(new Set());
+      // Keep selected exercises when exiting favorites mode
     } else {
       // If not showing favorites, turn it on and go to step 2
       setShowFavorites(true);
@@ -1272,7 +1272,7 @@ const useFavoriteLogic = ({
       }
       // Keep the current selectedMuscleGroup if we're on step 2
 
-      setSelectedExerciseIds(new Set());
+      // Keep selected exercises when entering favorites mode
     }
   }, [
     showFavorites,
@@ -1448,7 +1448,7 @@ export default function AddExerciseModal({
     setSelectedMuscleGroup(''); // Clear muscle group selection
     setShowFavorites(false); // Turn off favorites
     setCurrentStep(2);
-    setSelectedExerciseIds(new Set()); // Clear previous selections
+    // Keep selected exercises when searching from step 1
   }, []);
 
   // Search state
@@ -1632,8 +1632,48 @@ export default function AddExerciseModal({
         });
 
         exerciseData = await exerciseService.getFavoriteExercises();
+      } else if (showAllExercises) {
+        // If we're showing all exercises (from search), load all categories
+        Sentry.addBreadcrumb({
+          message: 'Loading All Exercises for Configuration (from search)',
+          category: 'api.request',
+          level: 'info',
+        });
+
+        const allCategories: ExerciseCategory[] = [
+          'Chest',
+          'Biceps',
+          'Triceps',
+          'Abs',
+          'Shoulders',
+          'Lats',
+          'Quads',
+          'Hamstrings',
+          'Glutes',
+          'Calves',
+          'Forearms',
+          'Lower_back',
+          'Traps',
+          'Obliques',
+          'Adductors',
+          'Abductors',
+          'Cardio',
+        ];
+
+        for (const category of allCategories) {
+          try {
+            const categoryExercises = await exerciseService.getExercisesByCategory(category);
+            exerciseData = [...exerciseData, ...categoryExercises];
+          } catch (error) {
+            console.warn(`Failed to load exercises for category ${category}:`, error);
+          }
+        }
       } else {
-        // Load full exercise data for selected muscle group
+        // We need to determine if the selected exercises span multiple muscle groups
+        // If so, load exercises from all categories to ensure we get all selected exercises
+        const selectedIds = Array.from(selectedExerciseIds);
+
+        // First, try loading from the current muscle group
         let categoryKey = selectedMuscleGroup;
         if (selectedMuscleGroup === 'Lower back') {
           categoryKey = 'Lower_back';
@@ -1646,12 +1686,64 @@ export default function AddExerciseModal({
           data: {
             category: categoryKey,
             originalMuscleGroup: selectedMuscleGroup,
+            selectedCount: selectedIds.length,
           },
         });
 
         exerciseData = await exerciseService.getExercisesByCategory(
           categoryKey as ExerciseCategory,
         );
+
+        // Check if all selected exercises are found in the current category
+        const foundExerciseIds = exerciseData.map((ex) => ex.id);
+        const missingExerciseIds = selectedIds.filter((id) => !foundExerciseIds.includes(id));
+
+        // If there are missing exercises, they're from other muscle groups
+        // Load all categories to find them
+        if (missingExerciseIds.length > 0) {
+          Sentry.addBreadcrumb({
+            message: 'Loading exercises from all categories (multi-group selection detected)',
+            category: 'api.request',
+            level: 'info',
+            data: {
+              missingCount: missingExerciseIds.length,
+              totalSelected: selectedIds.length,
+              currentCategory: categoryKey,
+            },
+          });
+
+          const allCategories: ExerciseCategory[] = [
+            'Chest',
+            'Biceps',
+            'Triceps',
+            'Abs',
+            'Shoulders',
+            'Lats',
+            'Quads',
+            'Hamstrings',
+            'Glutes',
+            'Calves',
+            'Forearms',
+            'Lower_back',
+            'Traps',
+            'Obliques',
+            'Adductors',
+            'Abductors',
+            'Cardio',
+          ];
+
+          // Load exercises from all categories (excluding the one we already loaded)
+          for (const category of allCategories) {
+            if (category !== categoryKey) {
+              try {
+                const categoryExercises = await exerciseService.getExercisesByCategory(category);
+                exerciseData = [...exerciseData, ...categoryExercises];
+              } catch (error) {
+                console.warn(`Failed to load exercises for category ${category}:`, error);
+              }
+            }
+          }
+        }
       }
 
       const selected = exerciseData
@@ -1841,7 +1933,7 @@ export default function AddExerciseModal({
       if (showAllExercises) {
         setShowAllExercises(false);
         setCurrentStep(1);
-        setSelectedExerciseIds(new Set());
+        // Keep selected exercises when going back from search
         // Clear search when going back
         searchState.setSearchQuery('');
         searchState.setIsSearchActive(false);
@@ -1854,12 +1946,12 @@ export default function AddExerciseModal({
         setShowFavorites(false);
         setCurrentStep(1);
         setSelectedMuscleGroup('');
-        setSelectedExerciseIds(new Set());
+        // Keep selected exercises when going back from favorites
       } else {
         // Regular back behavior: go to step 1
         setCurrentStep(1);
         setSelectedMuscleGroup('');
-        setSelectedExerciseIds(new Set());
+        // Keep selected exercises when going back to muscle group selection
       }
     } else if (currentStep === 3) {
       setCurrentStep(2);

@@ -300,23 +300,18 @@ export default function ExerciseListModal({
         onApplyChanges(localExercises, removedIndices, addedExercises);
       }
 
-      // Apply individual changes for backward compatibility
+      // Apply individual changes for backward compatibility (only for reordering, not removals)
       if (
         onReorderExercises &&
-        JSON.stringify(localExercises) !== JSON.stringify(originalExercises)
+        JSON.stringify(localExercises) !== JSON.stringify(originalExercises) &&
+        !onApplyChanges // Only if onApplyChanges is not available
       ) {
         onReorderExercises(localExercises);
       }
 
-      // Apply removals for backward compatibility
-      if (onRemoveExercise && removedIndices.length > 0) {
-        // Apply removals in reverse order to maintain correct indices
-        [...removedIndices]
-          .sort((a, b) => b - a)
-          .forEach((index) => {
-            onRemoveExercise(index);
-          });
-      }
+      // Note: Removals are now handled exclusively through onApplyChanges to avoid index conflicts
+      // The individual onRemoveExercise calls were causing issues with multiple deletions
+      // because indices become invalid after the first removal
 
       // Update original state and reset changes
       setOriginalExercises(localExercises);

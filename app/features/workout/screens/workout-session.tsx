@@ -870,25 +870,113 @@ export default function WorkoutSessionScreen() {
           handleApplyPendingExercises();
         }
 
-        // Then handle reordering if exercises have changed
-        if (JSON.stringify(newExercises) !== JSON.stringify(originalExercises)) {
-          handleReorderExercises(newExercises);
-        }
-
-        // Finally handle removals in reverse order to maintain correct indices
+        // Handle removals by using the final exercise list from the modal
+        // This avoids index conflicts that occur when removing exercises one by one
         if (removedIndices.length > 0) {
-          const sortedIndices = [...removedIndices].sort((a, b) => b - a);
-          sortedIndices.forEach((index) => {
-            if (index >= 0 && index < originalExercises.length) {
-              handleRemoveExercise(index);
-            }
+          // Calculate which exercises were removed
+          const exercisesToRemove = removedIndices
+            .map((index) => originalExercises[index])
+            .filter(Boolean);
+
+          // Recalculate totals by subtracting removed exercise volumes
+          let volumeToSubtract = 0;
+          let repsToSubtract = 0;
+
+          exercisesToRemove.forEach((exercise) => {
+            const sets = workoutExerciseSets[exercise.id] || [];
+            sets.forEach((set) => {
+              if (set.isCompleted) {
+                const weight =
+                  exercise?.requires_weight !== false
+                    ? set.weight === '-' || set.weight === ''
+                      ? 0
+                      : parseFloat(set.weight)
+                    : 0;
+                const reps = set.reps === '-' || set.reps === '' ? 0 : parseFloat(set.reps);
+                const setVolume =
+                  exercise?.requires_weight !== false ? parseFloat((weight * reps).toFixed(1)) : 0;
+
+                if (exercise?.requires_weight !== false) {
+                  volumeToSubtract += setVolume;
+                }
+                repsToSubtract += reps;
+              }
+            });
           });
+
+          // Update totals
+          setTotalVolume((prev) => Math.max(0, prev - volumeToSubtract));
+          setTotalReps((prev) => Math.max(0, prev - repsToSubtract));
+
+          // Set the new exercises list directly from the modal
+          setWorkoutExercises(newExercises);
+
+          // Remove associated exercise sets for removed exercises
+          const newExerciseSets = { ...workoutExerciseSets };
+          exercisesToRemove.forEach((exercise) => {
+            delete newExerciseSets[exercise.id];
+          });
+          setWorkoutExerciseSets(newExerciseSets);
+
+          // Remove associated state for removed exercises
+          const newExerciseCustomized = { ...exerciseCustomized };
+          const newUserEnteredValues = { ...userEnteredValues };
+          const newLastExerciseValues = { ...lastExerciseValues };
+
+          exercisesToRemove.forEach((exercise) => {
+            delete newExerciseCustomized[exercise.id];
+            delete newLastExerciseValues[exercise.exercise_id];
+
+            // Remove user entered values that start with the exercise ID
+            Object.keys(newUserEnteredValues).forEach((key) => {
+              if (key.startsWith(exercise.id)) {
+                delete newUserEnteredValues[key];
+              }
+            });
+          });
+
+          setExerciseCustomized(newExerciseCustomized);
+          setUserEnteredValues(newUserEnteredValues);
+          setLastExerciseValues(newLastExerciseValues);
+
+          // Adjust current exercise index if necessary
+          const removedCount = removedIndices.filter(
+            (index) => index < currentExerciseIndex,
+          ).length;
+          if (removedCount > 0) {
+            setCurrentExerciseIndex((prev) => Math.max(0, prev - removedCount));
+          } else if (removedIndices.includes(currentExerciseIndex)) {
+            // Current exercise was removed - stay at same index (move to next) or move to previous if it was the last
+            setCurrentExerciseIndex((prev) => Math.max(0, Math.min(prev, newExercises.length - 1)));
+          }
+        } else {
+          // No removals, just handle reordering if exercises have changed
+          if (JSON.stringify(newExercises) !== JSON.stringify(originalExercises)) {
+            handleReorderExercises(newExercises);
+          }
         }
       } catch (error) {
         console.error('Error applying exercise changes:', error);
       }
     },
-    [workoutExercises, handleReorderExercises, handleRemoveExercise, handleApplyPendingExercises],
+    [
+      workoutExercises,
+      workoutExerciseSets,
+      exerciseCustomized,
+      userEnteredValues,
+      lastExerciseValues,
+      currentExerciseIndex,
+      setWorkoutExercises,
+      setWorkoutExerciseSets,
+      setExerciseCustomized,
+      setUserEnteredValues,
+      setLastExerciseValues,
+      setCurrentExerciseIndex,
+      setTotalVolume,
+      setTotalReps,
+      handleReorderExercises,
+      handleApplyPendingExercises,
+    ],
   );
 
   // Get the current exercise based on the current index

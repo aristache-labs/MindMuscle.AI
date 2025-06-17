@@ -560,7 +560,7 @@ export default function WorkoutSessionScreen() {
     onCompleteWorkoutWithStateSync: (volume: number, reps: number) => {
       setTotalVolume(volume);
       setTotalReps(reps);
-      completeWorkout();
+      completeWorkout(volume, reps);
     },
     onMoveToNextExercise: () => {
       moveToNextExercise();

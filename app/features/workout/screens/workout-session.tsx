@@ -491,7 +491,7 @@ export default function WorkoutSessionScreen() {
     textInputRefreshKey,
     setTextInputRefreshKey,
     lastExerciseValues: workoutStateLastExerciseValues,
-    setLastExerciseValues: setWorkoutStateLastExerciseValues,
+    // Note: setWorkoutStateLastExerciseValues removed - no longer needed after fixing circular sync
     // Warmup state
     showWarmup,
     setShowWarmup,
@@ -698,14 +698,55 @@ export default function WorkoutSessionScreen() {
 
       const exerciseToRemove = workoutExercises[index];
 
+      // Recalculate totals from scratch after removal for accuracy
+      // This prevents issues with subtraction logic and ensures consistency
+
+      // Calculate what the totals should be after removing this exercise
+      const remainingExercises = workoutExercises.filter((_, i) => i !== index);
+      const remainingExerciseSets = { ...workoutExerciseSets };
+      delete remainingExerciseSets[exerciseToRemove.id];
+
+      // Recalculate totals from all remaining exercises
+      let newTotalVolume = 0;
+      let newTotalReps = 0;
+
+      remainingExercises.forEach((exercise) => {
+        const sets = remainingExerciseSets[exercise.id] || [];
+        let exerciseVolume = 0;
+        let exerciseReps = 0;
+
+        sets.forEach((set) => {
+          if (set.isCompleted) {
+            const weight =
+              exercise?.requires_weight !== false
+                ? set.weight === '-' || set.weight === ''
+                  ? 0
+                  : parseFloat(set.weight)
+                : 0;
+            const reps = set.reps === '-' || set.reps === '' ? 0 : parseFloat(set.reps);
+            const setVolume =
+              exercise?.requires_weight !== false ? parseFloat((weight * reps).toFixed(1)) : 0;
+
+            if (exercise?.requires_weight !== false) {
+              exerciseVolume += setVolume;
+            }
+            exerciseReps += reps;
+          }
+        });
+
+        newTotalVolume += exerciseVolume;
+        newTotalReps += exerciseReps;
+      });
+
+      // Update totals with recalculated values (this is more reliable than subtraction)
+      setTotalVolume(newTotalVolume);
+      setTotalReps(newTotalReps);
+
       // Remove the exercise from the exercises array
-      const newExercises = workoutExercises.filter((_, i) => i !== index);
-      setWorkoutExercises(newExercises);
+      setWorkoutExercises(remainingExercises);
 
       // Remove associated exercise sets
-      const newExerciseSets = { ...workoutExerciseSets };
-      delete newExerciseSets[exerciseToRemove.id];
-      setWorkoutExerciseSets(newExerciseSets);
+      setWorkoutExerciseSets(remainingExerciseSets);
 
       // Remove associated state
       const newExerciseCustomized = { ...exerciseCustomized };
@@ -725,11 +766,18 @@ export default function WorkoutSessionScreen() {
       setLastExerciseValues(newLastExerciseValues);
 
       // Adjust current exercise index if necessary
-      if (index <= currentExerciseIndex && currentExerciseIndex > 0) {
+      if (index < currentExerciseIndex) {
+        // If we deleted an exercise before the current one, move current index back by 1
         setCurrentExerciseIndex(currentExerciseIndex - 1);
-      } else if (currentExerciseIndex >= newExercises.length) {
-        setCurrentExerciseIndex(newExercises.length - 1);
+      } else if (index === currentExerciseIndex) {
+        // If we deleted the current exercise, stay at the same index to move to next exercise
+        // But if this was the last exercise, move to the previous one
+        if (currentExerciseIndex >= remainingExercises.length) {
+          setCurrentExerciseIndex(Math.max(0, remainingExercises.length - 1));
+        }
+        // Otherwise, keep the same index (which now points to the next exercise)
       }
+      // If index > currentExerciseIndex, no adjustment needed
     },
     [
       workoutExercises,
@@ -744,6 +792,8 @@ export default function WorkoutSessionScreen() {
       setUserEnteredValues,
       setLastExerciseValues,
       setCurrentExerciseIndex,
+      setTotalVolume,
+      setTotalReps,
     ],
   );
 
@@ -853,12 +903,9 @@ export default function WorkoutSessionScreen() {
     workoutExercises,
   });
 
-  // Sync lastExerciseValues from workout data hook back to workout state hook
-  React.useEffect(() => {
-    if (lastExerciseValues && Object.keys(lastExerciseValues).length > 0) {
-      setWorkoutStateLastExerciseValues(lastExerciseValues);
-    }
-  }, [lastExerciseValues, setWorkoutStateLastExerciseValues]);
+  // REMOVED: Circular sync that was causing infinite loops when deleting exercises
+  // The useWorkoutData hook already manages lastExerciseValues state properly
+  // Syncing it back to workoutState creates circular dependencies
 
   // Use the workout render hook for render-related calculations
   const {

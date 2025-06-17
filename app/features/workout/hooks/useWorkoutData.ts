@@ -75,11 +75,21 @@ export const useWorkoutData = (params: UseWorkoutDataParams): UseWorkoutDataRetu
 
   // Effect to sync external lastExerciseValues during resume
   useEffect(() => {
-    if (externalLastExerciseValues && Object.keys(externalLastExerciseValues).length > 0) {
-      console.log('RESUME: Syncing external lastExerciseValues:', externalLastExerciseValues);
-      setLastExerciseValues(externalLastExerciseValues);
+    // Only sync during initial resume, not during ongoing workout operations
+    if (
+      isResumingPausedWorkout &&
+      externalLastExerciseValues &&
+      Object.keys(externalLastExerciseValues).length > 0
+    ) {
+      // Only sync if the values are actually different to prevent infinite loop
+      const currentValues = JSON.stringify(lastExerciseValues);
+      const newValues = JSON.stringify(externalLastExerciseValues);
+      if (currentValues !== newValues) {
+        console.log('RESUME: Syncing external lastExerciseValues:', externalLastExerciseValues);
+        setLastExerciseValues(externalLastExerciseValues);
+      }
     }
-  }, [externalLastExerciseValues]);
+  }, [externalLastExerciseValues, lastExerciseValues, isResumingPausedWorkout]);
 
   // Function to fetch last exercise records for all exercises
   const fetchLastExerciseRecords = useCallback(async () => {

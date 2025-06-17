@@ -913,34 +913,29 @@ export default function ExerciseListModal({
                         }
                       }
                     }}
-                    style={[
-                      styles.headerButton,
-                      isCustomizeMode && hasChanges && styles.doneButton,
-                    ]}
+                    style={[styles.headerButton]}
                   >
                     {isCustomizeMode ? (
                       <View style={{ position: 'relative', width: 26, height: 26 }}>
                         {/* Background circle */}
                         <Ionicons
                           name="ellipse"
-                          size={26}
-                          color={hasChanges ? COLORS.primary : COLORS.primary}
+                          size={28}
+                          color={COLORS.primary}
                           style={{
                             position: 'absolute',
-                            transform: [{ scale: hasChanges ? 1.1 : 1 }],
-                            opacity: hasChanges ? 1 : 0.9,
+                            opacity: 1,
                           }}
                         />
                         {/* White checkmark on top */}
                         <Ionicons
                           name="checkmark"
-                          size={16}
+                          size={18}
                           color="#FFFFFF"
                           style={{
                             position: 'absolute',
                             top: 5,
                             left: 5,
-                            transform: [{ scale: hasChanges ? 1.1 : 1 }],
                             fontWeight: 'bold',
                           }}
                         />

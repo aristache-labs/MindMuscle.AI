@@ -716,32 +716,62 @@ export default function ChangeExerciseModal({
 
             {/* Header */}
             <View style={styles.header}>
-              <TouchableOpacity
-                onPress={() => {
-                  simpleErrorHandler.addBreadcrumb(
-                    'User cancelled exercise change',
-                    'user_interaction',
-                    {
-                      hadSelection: !!selectedExercise,
-                      selectedExerciseId: selectedExercise?.id,
-                    },
-                  );
-                  onClose();
-                }}
-                style={styles.headerButton}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
+              <View style={styles.headerSide}>
+                <TouchableOpacity
+                  onPress={() => {
+                    simpleErrorHandler.addBreadcrumb(
+                      'User cancelled exercise change',
+                      'user_interaction',
+                      {
+                        hadSelection: !!selectedExercise,
+                        selectedExerciseId: selectedExercise?.id,
+                      },
+                    );
+                    onClose();
+                  }}
+                  style={styles.headerButton}
+                >
+                  <Ionicons name="close" size={26} color={COLORS.text} />
+                </TouchableOpacity>
+              </View>
 
-              <Text style={styles.headerTitle}>CHANGE EXERCISE</Text>
+              <View style={styles.headerCenter}>
+                <Text style={styles.headerTitle}>CHANGE EXERCISE</Text>
+              </View>
 
-              <TouchableOpacity
-                onPress={handleConfirmChange}
-                style={[styles.headerButton, { opacity: selectedExercise ? 1 : 0.5 }]}
-                disabled={!selectedExercise}
-              >
-                <Text style={styles.confirmButtonText}>Confirm</Text>
-              </TouchableOpacity>
+              <View style={styles.headerSide}>
+                <TouchableOpacity
+                  onPress={handleConfirmChange}
+                  style={[styles.headerButton, { opacity: selectedExercise ? 1 : 1 }]}
+                  disabled={!selectedExercise}
+                >
+                  <View style={{ position: 'relative', width: 26, height: 26 }}>
+                    {/* Background circle */}
+                    <Ionicons
+                      name="ellipse"
+                      size={28}
+                      color={COLORS.primary}
+                      style={{
+                        position: 'absolute',
+                        transform: [{ scale: 1 }],
+                      }}
+                    />
+                    {/* White checkmark on top */}
+                    <Ionicons
+                      name="checkmark"
+                      size={18}
+                      color="#FFFFFF"
+                      style={{
+                        position: 'absolute',
+                        top: 5,
+                        left: 5,
+                        transform: [{ scale: 1 }],
+                        fontWeight: 'bold',
+                      }}
+                    />
+                  </View>
+                </TouchableOpacity>
+              </View>
             </View>
 
             {/* Exercise List */}
@@ -832,25 +862,27 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.primary,
     backgroundColor: COLORS.background,
   },
-  headerButton: {
-    paddingVertical: SPACING.xs,
-    paddingHorizontal: SPACING.sm,
+  headerSide: {
+    width: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  cancelButtonText: {
-    color: '#FF5252',
-    fontSize: 16,
-    fontWeight: '600',
+  headerButton: {
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerCenter: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: {
     color: COLORS.text,
     fontSize: 16,
     fontWeight: 'bold',
     letterSpacing: 0.5,
-  },
-  confirmButtonText: {
-    color: COLORS.primary,
-    fontSize: 16,
-    fontWeight: '600',
   },
   currentExerciseItem: {
     borderColor: COLORS.primary,

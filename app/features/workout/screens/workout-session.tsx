@@ -223,41 +223,369 @@ function LoadingView() {
   );
 }
 
+// Component for empty workout state
+function EmptyWorkoutView({ onAddExercise }: { onAddExercise: () => void }) {
+  return (
+    <View style={[styles.container, styles.emptyWorkoutContainer]}>
+      <View style={styles.emptyWorkoutContent}>
+        <Ionicons name="fitness-outline" size={64} color={COLORS.placeholder} />
+        <Text style={styles.emptyWorkoutTitle}>No Exercises in Workout</Text>
+        <Text style={styles.emptyWorkoutSubtitle}>
+          Your workout is empty. Add some exercises to get started.
+        </Text>
+        <TouchableOpacity style={styles.addExerciseButton} onPress={onAddExercise}>
+          <Ionicons name="add-circle" size={24} color={COLORS.background} />
+          <Text style={styles.addExerciseButtonText}>Add Exercises</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 // Function to render the appropriate workout view based on current state
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function renderWorkoutView(props: any) {
+function renderWorkoutView(props: Record<string, unknown>) {
   // Early returns for different states
   if (props.isLoading) return <LoadingView />;
-  if (props.isWorkoutCompleted && props.completedWorkoutData) {
-    return <WorkoutCompletionView router={props.router} />;
+  if (props.isWorkoutCompleted)
+    return <WorkoutCompletionView router={props.router as { replace: (path: string) => void }} />;
+
+  // Check if we have exercises, if not show empty state with header
+  if (!props.workoutExercises || (props.workoutExercises as ExerciseData[]).length === 0) {
+    return (
+      <View style={styles.container}>
+        <StatusBar style="light" />
+
+        <WorkoutHeader
+          insets={props.insets as { top: number; bottom: number; left: number; right: number }}
+          currentExerciseIndex={0}
+          totalExercises={0}
+          cycleWeek={props.cycleWeek as number}
+          weekName={props.weekName as string}
+          onBackPress={props.handleBackPress as () => void}
+          onExerciseListPress={props.handleAddExercise as () => void}
+        />
+
+        <WorkoutTimerTabs
+          workoutDuration={props.workoutDuration as number}
+          totalVolume={0}
+          totalReps={0}
+          formatTime={props.formatTime as (seconds: number) => string}
+        />
+
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <EmptyWorkoutView onAddExercise={props.handleAddExercise as () => void} />
+        </View>
+
+        {renderWorkoutModals(props)}
+      </View>
+    );
   }
 
-  // Render main workout view
   return renderMainWorkoutView(props);
 }
 
+// Helper function to render exercise sets content
+function renderExerciseSetsContent(props: Record<string, unknown>) {
+  if (!props.currentExercise || !props.currentSets) {
+    return null;
+  }
+
+  // Type assertion is safe here because of the null check above
+  const currentExercise = props.currentExercise as ExerciseData;
+
+  return (
+    <>
+      <View style={styles.setsContainer}>
+        {(props.currentSets as ExerciseSet[]).map((set: ExerciseSet, index: number) => {
+          const activeSetIndex = (props.calculateActiveSetIndex as (sets: ExerciseSet[]) => number)(
+            props.currentSets as ExerciseSet[],
+          );
+          const isActive = index === activeSetIndex;
+          const isCompleted = set.isCompleted;
+
+          return (
+            <WorkoutExerciseSetRow
+              key={set.id}
+              set={set}
+              setIndex={index}
+              exercise={currentExercise}
+              isActive={isActive}
+              isCompleted={isCompleted}
+              focusedInputs={props.focusedInputs as Record<string, boolean>}
+              userEnteredValues={props.userEnteredValues as Record<string, boolean>}
+              exerciseCustomized={props.exerciseCustomized as Record<string, boolean>}
+              lastExerciseValues={
+                props.lastExerciseValues as Record<
+                  string,
+                  Record<number, { weight: string; reps: string }>
+                >
+              }
+              currentRecommendation={
+                props.currentRecommendation as { recommended_weight?: number } | null
+              }
+              textInputRefreshKey={props.textInputRefreshKey as number}
+              onWeightChange={
+                props.handleWeightChange as (
+                  exerciseId: string,
+                  setIndex: number,
+                  weight: string,
+                ) => void
+              }
+              onRepsChange={
+                props.handleRepsChange as (
+                  exerciseId: string,
+                  setIndex: number,
+                  reps: string,
+                ) => void
+              }
+              onSetComplete={
+                props.handleSetComplete as (exerciseId: string, setIndex: number) => void
+              }
+              onRedoSet={props.handleRedoSet as (exerciseId: string, setIndex: number) => void}
+              onInputFocus={props.handleInputFocus as (inputId: string) => void}
+              onInputBlur={props.handleInputBlur as (inputId: string) => void}
+              getSuggestedValue={
+                props.getSuggestedValue as (
+                  exerciseId: string,
+                  setNumber: number,
+                  type: 'weight' | 'reps',
+                ) => string | null
+              }
+            />
+          );
+        })}
+      </View>
+
+      <Button
+        mode="contained"
+        style={styles.logAllButton}
+        labelStyle={styles.logAllButtonText}
+        onPress={() => (props.handleLogAllSets as (exerciseId: string) => void)(currentExercise.id)}
+      >
+        Log All Sets
+      </Button>
+
+      <TouchableOpacity
+        style={styles.customizeLink}
+        onPress={props.handleCustomizeExercisePress as () => void}
+      >
+        <Text style={styles.customizeLinkText}>Customize Exercise</Text>
+      </TouchableOpacity>
+    </>
+  );
+}
+
+// Helper function to render workout modals
+function renderWorkoutModals(props: Record<string, unknown>) {
+  return (
+    <>
+      <WorkoutWarmupModal
+        visible={(props.showWarmup as boolean) && !(props.warmupCompleted as boolean)}
+        exerciseName={(props.currentExercise as ExerciseData | null)?.name}
+        onComplete={props.handleWarmupComplete as () => void}
+        onSkip={props.skipWarmup as () => void}
+      />
+
+      <WorkoutExitModal
+        visible={props.showExitModal as boolean}
+        onEndWorkout={props.handleExitWorkout as () => void}
+        onPauseWorkout={props.handlePauseWorkout as () => void}
+        onReturnToWorkout={props.handleReturnToWorkout as () => void}
+        onClose={() => (props.handleReturnToWorkout as () => void)()}
+      />
+
+      {((props.selectedExerciseForDetails as ExerciseData | null) ||
+        (props.currentExercise as ExerciseData | null)) && (
+        <ExerciseDetailsModal
+          visible={props.showExerciseDetailsModal as boolean}
+          onClose={() => {
+            (props.handleExerciseDetailsModalClose as () => void)();
+            (props.setSelectedExerciseForDetails as (exercise: ExerciseData | null) => void)(null);
+          }}
+          exerciseId={
+            (
+              (props.selectedExerciseForDetails as ExerciseData | null) ||
+              (props.currentExercise as ExerciseData | null)
+            )?.exercise_id || ''
+          }
+          exerciseName={
+            (
+              (props.selectedExerciseForDetails as ExerciseData | null) ||
+              (props.currentExercise as ExerciseData | null)
+            )?.name || ''
+          }
+          exerciseImage={
+            (
+              (props.selectedExerciseForDetails as ExerciseData | null) ||
+              (props.currentExercise as ExerciseData | null)
+            )?.image_url
+          }
+          primary_muscles={
+            (
+              (props.selectedExerciseForDetails as ExerciseData | null) ||
+              (props.currentExercise as ExerciseData | null)
+            )?.primary_muscles
+          }
+          secondary_muscles={[]}
+        />
+      )}
+
+      <CustomizeExerciseModal
+        visible={props.showCustomizeExerciseModal as boolean}
+        onClose={props.handleCustomizeExerciseModalClose as () => void}
+        exercise={(props.workoutExercises as ExerciseData[])[props.currentExerciseIndex as number]}
+        onSave={
+          props.handleCustomizeExerciseSave as (updatedExercise: {
+            sets: number;
+            reps_range: string;
+          }) => void
+        }
+        availableExercises={props.workoutExercises as ExerciseData[]}
+        onExerciseChange={props.handleExerciseChange as (newExercise: unknown) => void}
+      />
+
+      <ExerciseListModal
+        visible={props.showExerciseListModal as boolean}
+        onClose={props.handleExerciseListModalClose as () => void}
+        exercises={props.workoutExercises as ExerciseData[]}
+        currentExerciseIndex={props.currentExerciseIndex as number}
+        onExerciseSelect={props.handleExerciseSelect as (index: number) => void}
+        onExerciseDetailsPress={
+          props.handleExerciseDetailsPress as (exercise: ExerciseData) => void
+        }
+        onReorderExercises={props.handleReorderExercises as (newOrder: ExerciseData[]) => void}
+        onRemoveExercise={props.handleRemoveExercise as (index: number) => void}
+        isCustomizeMode={props.isCustomizeMode as boolean}
+        onToggleCustomizeMode={props.handleToggleCustomizeMode as () => void}
+        onAddExercise={props.handleAddExercise as () => void}
+        onAddSuperset={props.handleAddSuperset as () => void}
+        onAddCardio={props.handleAddCardio as () => void}
+        onApplyChanges={
+          props.handleApplyChanges as (
+            exercises: ExerciseData[],
+            removedIndices: number[],
+            addedExercises?: ExerciseData[],
+          ) => void
+        }
+        pendingAddedExercises={props.pendingAddedExercises as ExerciseData[]}
+      />
+
+      <AddExerciseModal
+        visible={props.showAddExerciseModal as boolean}
+        onClose={props.handleAddExerciseModalClose as () => void}
+        onAddExercises={
+          props.handleAddExercises as (
+            exerciseConfigurations: Array<{
+              exerciseId: string;
+              name: string;
+              sets: number;
+              reps_range: string;
+              image_url?: string;
+              muscle_group: string;
+              primary_muscles?: string[];
+              requires_weight?: boolean;
+            }>,
+          ) => void
+        }
+      />
+    </>
+  );
+}
+
+// Helper function to render the main workout content
+function renderWorkoutContent(props: Record<string, unknown>) {
+  return (
+    <ScrollView
+      ref={props.scrollViewRef as React.RefObject<ScrollView>}
+      style={styles.scrollView}
+      contentContainerStyle={[
+        styles.scrollViewContent,
+        { paddingBottom: (props.keyboardHeight as number) > 0 ? 50 : 24 },
+      ]}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+    >
+      {(props.currentExercise as ExerciseData | null) && (
+        <WorkoutExerciseCard
+          exercise={props.currentExercise as ExerciseData}
+          maxWeightData={
+            (props.maxWeightData as Record<string, { date: string; value: number }[]>)[
+              (props.currentExercise as ExerciseData)?.exercise_id
+            ] || []
+          }
+          absoluteMaxWeight={
+            (
+              props.absoluteMaxWeightData as Record<
+                string,
+                { weight: number; reps: number; date: string }
+              >
+            )[(props.currentExercise as ExerciseData)?.exercise_id] || null
+          }
+          onExerciseNamePress={props.handleExerciseNamePressOverride as () => void}
+        />
+      )}
+
+      {renderExerciseSetsContent(props)}
+
+      <View style={styles.nextExerciseSection}>
+        <Text style={styles.nextExerciseLabel}>Next Exercise</Text>
+
+        <NextExercisePreview
+          getNextExerciseContent={
+            props.getNextExerciseContent as () => {
+              name: string;
+              sets: number;
+              reps: number;
+              imageUrl?: string;
+              requiresWeight?: boolean;
+              exerciseId?: string;
+              primaryMuscle?: string;
+            } | null
+          }
+          shouldShowCompleteWorkout={props.shouldShowCompleteWorkout as boolean}
+          completeWorkout={props.completeWorkout as () => void}
+          handleNextExercisePress={props.handleNextExercisePress as () => void}
+          lastExerciseValues={
+            props.lastExerciseValues as Record<
+              string,
+              Record<number, { weight: string; reps: string }>
+            >
+          }
+        />
+
+        <View style={styles.progressBarContainer}>
+          <View style={styles.progressBar}>
+            <View
+              style={[styles.progressBarFill, { width: `${props.progressPercentage as number}%` }]}
+            />
+          </View>
+        </View>
+      </View>
+    </ScrollView>
+  );
+}
+
 // Function to render the main workout interface
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function renderMainWorkoutView(props: any) {
+function renderMainWorkoutView(props: Record<string, unknown>) {
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
 
       <WorkoutHeader
-        insets={props.insets}
-        currentExerciseIndex={props.currentExerciseIndex}
-        totalExercises={props.workoutExercises.length}
-        cycleWeek={props.cycleWeek}
-        weekName={props.weekName}
-        onBackPress={props.handleBackPress}
-        onExerciseListPress={props.handleExerciseListPress}
+        insets={props.insets as { top: number; bottom: number; left: number; right: number }}
+        currentExerciseIndex={props.currentExerciseIndex as number}
+        totalExercises={(props.workoutExercises as ExerciseData[]).length}
+        cycleWeek={props.cycleWeek as number}
+        weekName={props.weekName as string}
+        onBackPress={props.handleBackPress as () => void}
+        onExerciseListPress={props.handleExerciseListPress as () => void}
       />
 
       <WorkoutTimerTabs
-        workoutDuration={props.workoutDuration}
-        totalVolume={props.totalVolume}
-        totalReps={props.totalReps}
-        formatTime={props.formatTime}
+        workoutDuration={props.workoutDuration as number}
+        totalVolume={props.totalVolume as number}
+        totalReps={props.totalReps as number}
+        formatTime={props.formatTime as (seconds: number) => string}
       />
 
       <KeyboardAvoidingView
@@ -265,157 +593,10 @@ function renderMainWorkoutView(props: any) {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
-        <ScrollView
-          ref={props.scrollViewRef}
-          style={styles.scrollView}
-          contentContainerStyle={[
-            styles.scrollViewContent,
-            { paddingBottom: props.keyboardHeight > 0 ? 50 : 24 },
-          ]}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <WorkoutExerciseCard
-            exercise={props.currentExercise}
-            maxWeightData={props.maxWeightData[props.currentExercise?.exercise_id] || []}
-            absoluteMaxWeight={
-              props.absoluteMaxWeightData[props.currentExercise?.exercise_id] || null
-            }
-            onExerciseNamePress={props.handleExerciseNamePressOverride}
-          />
-
-          <View style={styles.setsContainer}>
-            {props.currentSets.map((set: ExerciseSet, index: number) => {
-              const activeSetIndex = props.calculateActiveSetIndex(props.currentSets);
-              const isActive = index === activeSetIndex;
-              const isCompleted = set.isCompleted;
-
-              return (
-                <WorkoutExerciseSetRow
-                  key={set.id}
-                  set={set}
-                  setIndex={index}
-                  exercise={props.currentExercise}
-                  isActive={isActive}
-                  isCompleted={isCompleted}
-                  focusedInputs={props.focusedInputs}
-                  userEnteredValues={props.userEnteredValues}
-                  exerciseCustomized={props.exerciseCustomized}
-                  lastExerciseValues={props.lastExerciseValues}
-                  currentRecommendation={props.currentRecommendation}
-                  textInputRefreshKey={props.textInputRefreshKey}
-                  onWeightChange={props.handleWeightChange}
-                  onRepsChange={props.handleRepsChange}
-                  onSetComplete={props.handleSetComplete}
-                  onRedoSet={props.handleRedoSet}
-                  onInputFocus={props.handleInputFocus}
-                  onInputBlur={props.handleInputBlur}
-                  getSuggestedValue={props.getSuggestedValue}
-                />
-              );
-            })}
-          </View>
-
-          <Button
-            mode="contained"
-            style={styles.logAllButton}
-            labelStyle={styles.logAllButtonText}
-            onPress={() => props.handleLogAllSets(props.currentExercise.id)}
-          >
-            Log All Sets
-          </Button>
-
-          <TouchableOpacity
-            style={styles.customizeLink}
-            onPress={props.handleCustomizeExercisePress}
-          >
-            <Text style={styles.customizeLinkText}>Customize Exercise</Text>
-          </TouchableOpacity>
-
-          <View style={styles.nextExerciseSection}>
-            <Text style={styles.nextExerciseLabel}>Next Exercise</Text>
-
-            <NextExercisePreview
-              getNextExerciseContent={props.getNextExerciseContent}
-              shouldShowCompleteWorkout={props.shouldShowCompleteWorkout}
-              completeWorkout={props.completeWorkout}
-              handleNextExercisePress={props.handleNextExercisePress}
-              lastExerciseValues={props.lastExerciseValues}
-            />
-
-            <View style={styles.progressBarContainer}>
-              <View style={styles.progressBar}>
-                <View style={[styles.progressBarFill, { width: `${props.progressPercentage}%` }]} />
-              </View>
-            </View>
-          </View>
-        </ScrollView>
+        {renderWorkoutContent(props)}
       </KeyboardAvoidingView>
 
-      <WorkoutWarmupModal
-        visible={props.showWarmup && !props.warmupCompleted}
-        exerciseName={props.currentExercise?.name}
-        onComplete={props.handleWarmupComplete}
-        onSkip={props.skipWarmup}
-      />
-
-      <WorkoutExitModal
-        visible={props.showExitModal}
-        onEndWorkout={props.handleExitWorkout}
-        onPauseWorkout={props.handlePauseWorkout}
-        onReturnToWorkout={props.handleReturnToWorkout}
-        onClose={() => props.handleReturnToWorkout()}
-      />
-
-      {(props.selectedExerciseForDetails || props.currentExercise) && (
-        <ExerciseDetailsModal
-          visible={props.showExerciseDetailsModal}
-          onClose={() => {
-            props.handleExerciseDetailsModalClose();
-            props.setSelectedExerciseForDetails(null);
-          }}
-          exerciseId={(props.selectedExerciseForDetails || props.currentExercise)?.exercise_id}
-          exerciseName={(props.selectedExerciseForDetails || props.currentExercise)?.name}
-          exerciseImage={(props.selectedExerciseForDetails || props.currentExercise)?.image_url}
-          primary_muscles={
-            (props.selectedExerciseForDetails || props.currentExercise)?.primary_muscles
-          }
-          secondary_muscles={[]}
-        />
-      )}
-
-      <CustomizeExerciseModal
-        visible={props.showCustomizeExerciseModal}
-        onClose={props.handleCustomizeExerciseModalClose}
-        exercise={props.workoutExercises[props.currentExerciseIndex]}
-        onSave={props.handleCustomizeExerciseSave}
-        availableExercises={props.workoutExercises}
-        onExerciseChange={props.handleExerciseChange}
-      />
-
-      <ExerciseListModal
-        visible={props.showExerciseListModal}
-        onClose={props.handleExerciseListModalClose}
-        exercises={props.workoutExercises}
-        currentExerciseIndex={props.currentExerciseIndex}
-        onExerciseSelect={props.handleExerciseSelect}
-        onExerciseDetailsPress={props.handleExerciseDetailsPress}
-        onReorderExercises={props.handleReorderExercises}
-        onRemoveExercise={props.handleRemoveExercise}
-        isCustomizeMode={props.isCustomizeMode}
-        onToggleCustomizeMode={props.handleToggleCustomizeMode}
-        onAddExercise={props.handleAddExercise}
-        onAddSuperset={props.handleAddSuperset}
-        onAddCardio={props.handleAddCardio}
-        onApplyChanges={props.handleApplyChanges}
-        pendingAddedExercises={props.pendingAddedExercises}
-      />
-
-      <AddExerciseModal
-        visible={props.showAddExerciseModal}
-        onClose={props.handleAddExerciseModalClose}
-        onAddExercises={props.handleAddExercises}
-      />
+      {renderWorkoutModals(props)}
     </View>
   );
 }
@@ -1236,5 +1417,43 @@ const styles = StyleSheet.create({
   customizeLinkText: {
     color: COLORS.primary,
     fontSize: 14,
+  },
+  emptyWorkoutContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.xl,
+  },
+  emptyWorkoutContent: {
+    alignItems: 'center',
+    maxWidth: 300,
+  },
+  emptyWorkoutTitle: {
+    color: COLORS.text,
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginTop: SPACING.lg,
+    marginBottom: SPACING.sm,
+  },
+  emptyWorkoutSubtitle: {
+    color: COLORS.placeholder,
+    fontSize: 16,
+    lineHeight: 22,
+    textAlign: 'center',
+    marginBottom: SPACING.xl,
+  },
+  addExerciseButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    borderRadius: BORDER_RADIUS.lg,
+    gap: SPACING.sm,
+  },
+  addExerciseButtonText: {
+    color: COLORS.background,
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

@@ -29,6 +29,241 @@ import { ExerciseListModalProps } from './types';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
+// Helper function to render empty state
+function renderEmptyState(isCustomizeMode: boolean, onToggleCustomizeMode?: () => void) {
+  return (
+    <View style={styles.emptyState}>
+      <Ionicons name="fitness-outline" size={64} color={COLORS.placeholder} />
+      <Text style={styles.emptyStateTitle}>No Exercises in Workout</Text>
+      <Text style={styles.emptyStateSubtitle}>
+        {isCustomizeMode
+          ? 'Add exercises using the buttons below to build your workout'
+          : "This workout doesn't contain any exercises yet"}
+      </Text>
+      {!isCustomizeMode && (
+        <TouchableOpacity
+          style={styles.emptyStateButton}
+          onPress={() => {
+            try {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            } catch {
+              // Haptics might not be available
+            }
+            onToggleCustomizeMode?.();
+          }}
+        >
+          <Ionicons name="add-circle" size={24} color={COLORS.background} />
+          <Text style={styles.emptyStateButtonText}>Add Exercises</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
+// Helper function to render customize mode content
+function renderCustomizeMode(options: {
+  completedExercises: ExerciseData[];
+  remainingExercises: ExerciseData[];
+  currentExerciseIndex: number;
+  localExercises: ExerciseData[];
+  onExerciseSelect: (index: number) => void;
+  onExerciseDetailsPress: ((exercise: ExerciseData) => void) | undefined;
+  handleDragStart: (index: number) => void;
+  handleDragEnd: (fromIndex: number, toIndex: number) => void;
+  handleDragUpdate: (draggedIndex: number, currentY: number) => void;
+  isDragging: boolean;
+  draggedIndex: number;
+  dragTargetIndex: number;
+  isCustomizeMode: boolean;
+  handleRemoveExercise: (index: number) => void;
+  cardAnimations: Animated.SharedValue<number>;
+}) {
+  const {
+    completedExercises,
+    remainingExercises,
+    currentExerciseIndex,
+    localExercises,
+    onExerciseSelect,
+    onExerciseDetailsPress,
+    handleDragStart,
+    handleDragEnd,
+    handleDragUpdate,
+    isDragging,
+    draggedIndex,
+    dragTargetIndex,
+    isCustomizeMode,
+    handleRemoveExercise,
+    cardAnimations,
+  } = options;
+
+  return (
+    <>
+      {/* Customize Mode: Completed Exercises Section (Non-draggable) */}
+      {completedExercises.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>COMPLETED EXERCISES ({completedExercises.length})</Text>
+          <View style={styles.completedExercisesNote}>
+            <Ionicons name="checkmark-circle" size={16} color={COLORS.primary} />
+            <Text style={styles.completedExercisesNoteText}>
+              Completed exercises cannot be reordered or removed
+            </Text>
+          </View>
+          {completedExercises.map((exercise, index) => (
+            <DraggableExerciseItem
+              key={`completed-${exercise.id}-${index}`}
+              exercise={exercise}
+              index={index}
+              currentExerciseIndex={currentExerciseIndex}
+              onExerciseSelect={onExerciseSelect}
+              onExerciseDetailsPress={onExerciseDetailsPress}
+              onDragStart={() => {}} // No drag for completed exercises
+              onDragEnd={() => {}} // No drag for completed exercises
+              onDragUpdate={() => {}} // No drag for completed exercises
+              isDragging={false}
+              draggedIndex={-1}
+              dragTargetIndex={-1}
+              totalExercises={localExercises.length}
+              isCustomizeMode={false} // Treat as non-customizable
+              onRemoveExercise={undefined} // No removal for completed exercises
+              showActiveLabel={false}
+              customizeAnimation={cardAnimations}
+            />
+          ))}
+        </View>
+      )}
+
+      {/* Customize Mode: Remaining Exercises Section (Draggable) */}
+      {remainingExercises.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>REMAINING EXERCISES ({remainingExercises.length})</Text>
+          {remainingExercises.map((exercise, remainingIndex) => {
+            const actualIndex = currentExerciseIndex + remainingIndex;
+            return (
+              <DraggableExerciseItem
+                key={`remaining-${exercise.id}-${actualIndex}`}
+                exercise={exercise}
+                index={actualIndex}
+                currentExerciseIndex={currentExerciseIndex}
+                onExerciseSelect={onExerciseSelect}
+                onExerciseDetailsPress={onExerciseDetailsPress}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onDragUpdate={handleDragUpdate}
+                isDragging={isDragging}
+                draggedIndex={draggedIndex}
+                dragTargetIndex={dragTargetIndex}
+                totalExercises={remainingExercises.length}
+                isCustomizeMode={isCustomizeMode}
+                onRemoveExercise={handleRemoveExercise}
+                showActiveLabel={actualIndex === currentExerciseIndex}
+                customizeAnimation={cardAnimations}
+              />
+            );
+          })}
+        </View>
+      )}
+    </>
+  );
+}
+
+// Helper function to render normal mode content
+function renderNormalMode(options: {
+  currentExercise: ExerciseData | undefined;
+  upcomingExercises: ExerciseData[];
+  currentExerciseIndex: number;
+  localExercises: ExerciseData[];
+  onExerciseSelect: (index: number) => void;
+  onExerciseDetailsPress: ((exercise: ExerciseData) => void) | undefined;
+  handleDragStart: (index: number) => void;
+  handleDragEnd: (fromIndex: number, toIndex: number) => void;
+  handleDragUpdate: (draggedIndex: number, currentY: number) => void;
+  isDragging: boolean;
+  draggedIndex: number;
+  dragTargetIndex: number;
+  isCustomizeMode: boolean;
+  handleRemoveExercise: (index: number) => void;
+  cardAnimations: Animated.SharedValue<number>;
+}) {
+  const {
+    currentExercise,
+    upcomingExercises,
+    currentExerciseIndex,
+    localExercises,
+    onExerciseSelect,
+    onExerciseDetailsPress,
+    handleDragStart,
+    handleDragEnd,
+    handleDragUpdate,
+    isDragging,
+    draggedIndex,
+    dragTargetIndex,
+    isCustomizeMode,
+    handleRemoveExercise,
+    cardAnimations,
+  } = options;
+
+  return (
+    <>
+      {/* Normal Mode: Active Exercise Section */}
+      {currentExercise && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>ACTIVE EXERCISE</Text>
+          <DraggableExerciseItem
+            key={`active-${currentExercise.id}-${currentExerciseIndex}`}
+            exercise={currentExercise}
+            index={currentExerciseIndex}
+            currentExerciseIndex={currentExerciseIndex}
+            onExerciseSelect={onExerciseSelect}
+            onExerciseDetailsPress={onExerciseDetailsPress}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onDragUpdate={handleDragUpdate}
+            isDragging={isDragging}
+            draggedIndex={draggedIndex}
+            dragTargetIndex={dragTargetIndex}
+            totalExercises={localExercises.length}
+            isCustomizeMode={isCustomizeMode}
+            onRemoveExercise={handleRemoveExercise}
+            showActiveLabel={false}
+            customizeAnimation={cardAnimations}
+          />
+        </View>
+      )}
+
+      {/* Normal Mode: Upcoming Exercises Section */}
+      {upcomingExercises.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>UPCOMING EXERCISES ({upcomingExercises.length})</Text>
+          {upcomingExercises.map((exercise, upcomingIndex) => {
+            const actualIndex = currentExerciseIndex + 1 + upcomingIndex;
+            return (
+              <DraggableExerciseItem
+                key={`upcoming-${exercise.id}-${actualIndex}`}
+                exercise={exercise}
+                index={actualIndex}
+                currentExerciseIndex={currentExerciseIndex}
+                onExerciseSelect={onExerciseSelect}
+                onExerciseDetailsPress={onExerciseDetailsPress}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onDragUpdate={handleDragUpdate}
+                isDragging={isDragging}
+                draggedIndex={draggedIndex}
+                dragTargetIndex={dragTargetIndex}
+                totalExercises={localExercises.length}
+                isCustomizeMode={isCustomizeMode}
+                onRemoveExercise={handleRemoveExercise}
+                showActiveLabel={false}
+                customizeAnimation={cardAnimations}
+              />
+            );
+          })}
+        </View>
+      )}
+    </>
+  );
+}
+
 export default function ExerciseListModal({
   visible,
   onClose,
@@ -702,139 +937,43 @@ export default function ExerciseListModal({
               contentContainerStyle={styles.contentContainer}
               scrollEnabled={!isDragging}
             >
-              {isCustomizeMode ? (
-                <>
-                  {/* Customize Mode: Completed Exercises Section (Non-draggable) */}
-                  {completedExercises.length > 0 && (
-                    <View style={styles.section}>
-                      <Text style={styles.sectionTitle}>
-                        COMPLETED EXERCISES ({completedExercises.length})
-                      </Text>
-                      <View style={styles.completedExercisesNote}>
-                        <Ionicons name="checkmark-circle" size={16} color={COLORS.primary} />
-                        <Text style={styles.completedExercisesNoteText}>
-                          Completed exercises cannot be reordered or removed
-                        </Text>
-                      </View>
-                      {completedExercises.map((exercise, index) => (
-                        <DraggableExerciseItem
-                          key={`completed-${exercise.id}-${index}`}
-                          exercise={exercise}
-                          index={index}
-                          currentExerciseIndex={currentExerciseIndex}
-                          onExerciseSelect={onExerciseSelect}
-                          onExerciseDetailsPress={onExerciseDetailsPress}
-                          onDragStart={() => {}} // No drag for completed exercises
-                          onDragEnd={() => {}} // No drag for completed exercises
-                          onDragUpdate={() => {}} // No drag for completed exercises
-                          isDragging={false}
-                          draggedIndex={-1}
-                          dragTargetIndex={-1}
-                          totalExercises={localExercises.length}
-                          isCustomizeMode={false} // Treat as non-customizable
-                          onRemoveExercise={undefined} // No removal for completed exercises
-                          showActiveLabel={false}
-                          customizeAnimation={cardAnimations}
-                        />
-                      ))}
-                    </View>
-                  )}
-
-                  {/* Customize Mode: Remaining Exercises Section (Draggable) */}
-                  {remainingExercises.length > 0 && (
-                    <View style={styles.section}>
-                      <Text style={styles.sectionTitle}>
-                        REMAINING EXERCISES ({remainingExercises.length})
-                      </Text>
-                      {remainingExercises.map((exercise, remainingIndex) => {
-                        const actualIndex = currentExerciseIndex + remainingIndex;
-                        return (
-                          <DraggableExerciseItem
-                            key={`remaining-${exercise.id}-${actualIndex}`}
-                            exercise={exercise}
-                            index={actualIndex}
-                            currentExerciseIndex={currentExerciseIndex}
-                            onExerciseSelect={onExerciseSelect}
-                            onExerciseDetailsPress={onExerciseDetailsPress}
-                            onDragStart={handleDragStart}
-                            onDragEnd={handleDragEnd}
-                            onDragUpdate={handleDragUpdate}
-                            isDragging={isDragging}
-                            draggedIndex={draggedIndex}
-                            dragTargetIndex={dragTargetIndex}
-                            totalExercises={remainingExercises.length}
-                            isCustomizeMode={isCustomizeMode}
-                            onRemoveExercise={handleRemoveExercise}
-                            showActiveLabel={actualIndex === currentExerciseIndex}
-                            customizeAnimation={cardAnimations}
-                          />
-                        );
-                      })}
-                    </View>
-                  )}
-                </>
-              ) : (
-                <>
-                  {/* Normal Mode: Active Exercise Section */}
-                  {currentExercise && (
-                    <View style={styles.section}>
-                      <Text style={styles.sectionTitle}>ACTIVE EXERCISE</Text>
-                      <DraggableExerciseItem
-                        key={`active-${currentExercise.id}-${currentExerciseIndex}`}
-                        exercise={currentExercise}
-                        index={currentExerciseIndex}
-                        currentExerciseIndex={currentExerciseIndex}
-                        onExerciseSelect={onExerciseSelect}
-                        onExerciseDetailsPress={onExerciseDetailsPress}
-                        onDragStart={handleDragStart}
-                        onDragEnd={handleDragEnd}
-                        onDragUpdate={handleDragUpdate}
-                        isDragging={isDragging}
-                        draggedIndex={draggedIndex}
-                        dragTargetIndex={dragTargetIndex}
-                        totalExercises={localExercises.length}
-                        isCustomizeMode={isCustomizeMode}
-                        onRemoveExercise={handleRemoveExercise}
-                        showActiveLabel={false}
-                        customizeAnimation={cardAnimations}
-                      />
-                    </View>
-                  )}
-
-                  {/* Normal Mode: Upcoming Exercises Section */}
-                  {upcomingExercises.length > 0 && (
-                    <View style={styles.section}>
-                      <Text style={styles.sectionTitle}>
-                        UPCOMING EXERCISES ({upcomingExercises.length})
-                      </Text>
-                      {upcomingExercises.map((exercise, upcomingIndex) => {
-                        const actualIndex = currentExerciseIndex + 1 + upcomingIndex;
-                        return (
-                          <DraggableExerciseItem
-                            key={`upcoming-${exercise.id}-${actualIndex}`}
-                            exercise={exercise}
-                            index={actualIndex}
-                            currentExerciseIndex={currentExerciseIndex}
-                            onExerciseSelect={onExerciseSelect}
-                            onExerciseDetailsPress={onExerciseDetailsPress}
-                            onDragStart={handleDragStart}
-                            onDragEnd={handleDragEnd}
-                            onDragUpdate={handleDragUpdate}
-                            isDragging={isDragging}
-                            draggedIndex={draggedIndex}
-                            dragTargetIndex={dragTargetIndex}
-                            totalExercises={localExercises.length}
-                            isCustomizeMode={isCustomizeMode}
-                            onRemoveExercise={handleRemoveExercise}
-                            showActiveLabel={false}
-                            customizeAnimation={cardAnimations}
-                          />
-                        );
-                      })}
-                    </View>
-                  )}
-                </>
-              )}
+              {localExercises.length === 0
+                ? renderEmptyState(isCustomizeMode, onToggleCustomizeMode)
+                : isCustomizeMode
+                  ? renderCustomizeMode({
+                      completedExercises,
+                      remainingExercises,
+                      currentExerciseIndex,
+                      localExercises,
+                      onExerciseSelect,
+                      onExerciseDetailsPress,
+                      handleDragStart,
+                      handleDragEnd,
+                      handleDragUpdate,
+                      isDragging,
+                      draggedIndex,
+                      dragTargetIndex,
+                      isCustomizeMode,
+                      handleRemoveExercise,
+                      cardAnimations,
+                    })
+                  : renderNormalMode({
+                      currentExercise,
+                      upcomingExercises,
+                      currentExerciseIndex,
+                      localExercises,
+                      onExerciseSelect,
+                      onExerciseDetailsPress,
+                      handleDragStart,
+                      handleDragEnd,
+                      handleDragUpdate,
+                      isDragging,
+                      draggedIndex,
+                      dragTargetIndex,
+                      isCustomizeMode,
+                      handleRemoveExercise,
+                      cardAnimations,
+                    })}
             </ScrollView>
 
             {/* Bottom Action Buttons - Only show in customize mode */}

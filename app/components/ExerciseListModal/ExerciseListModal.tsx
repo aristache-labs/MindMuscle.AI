@@ -850,7 +850,7 @@ export default function ExerciseListModal({
             <View style={styles.header}>
               <View style={styles.headerSide}>
                 <TouchableOpacity onPress={handleClose} style={styles.headerButton}>
-                  <Ionicons name="close" size={20} color={COLORS.text} />
+                  <Ionicons name="close" size={26} color={COLORS.text} />
                 </TouchableOpacity>
               </View>
 
@@ -918,13 +918,44 @@ export default function ExerciseListModal({
                       isCustomizeMode && hasChanges && styles.doneButton,
                     ]}
                   >
-                    <Ionicons
-                      name={isCustomizeMode ? 'checkmark' : 'settings-outline'}
-                      size={20}
-                      color={
-                        isCustomizeMode ? (hasChanges ? '#FFFFFF' : COLORS.primary) : COLORS.text
-                      }
-                    />
+                    {isCustomizeMode ? (
+                      <View style={{ position: 'relative', width: 26, height: 26 }}>
+                        {/* Background circle */}
+                        <Ionicons
+                          name="ellipse"
+                          size={26}
+                          color={hasChanges ? COLORS.primary : COLORS.primary}
+                          style={{
+                            position: 'absolute',
+                            transform: [{ scale: hasChanges ? 1.1 : 1 }],
+                            opacity: hasChanges ? 1 : 0.9,
+                          }}
+                        />
+                        {/* White checkmark on top */}
+                        <Ionicons
+                          name="checkmark"
+                          size={16}
+                          color="#FFFFFF"
+                          style={{
+                            position: 'absolute',
+                            top: 5,
+                            left: 5,
+                            transform: [{ scale: hasChanges ? 1.1 : 1 }],
+                            fontWeight: 'bold',
+                          }}
+                        />
+                      </View>
+                    ) : (
+                      <Ionicons
+                        name="settings-sharp"
+                        size={26}
+                        color={COLORS.text}
+                        style={{
+                          transform: [{ scale: 1 }],
+                          opacity: 0.9,
+                        }}
+                      />
+                    )}
                   </TouchableOpacity>
                 </Animated.View>
               </View>

@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert } from 'react-native';
 import workoutPlanService from '../../../services/workoutPlanService';
+import * as workoutCycleService from '../../../services/workoutCycleService';
 import type { UserProfile } from '../../../store/AuthContext';
 import { ExerciseData, ExerciseSet } from '../types';
 import type { RecommendationData } from './useExerciseSets';
@@ -447,13 +448,27 @@ export const useWorkoutState = ({
         return newSets;
       });
 
-      // SIMPLIFIED: No need to restore customization tracking
-      // Exercises already contain their customized values
+      // CRITICAL: Restore user input state that tracks entered values
+      if (workout.exerciseCustomized) {
+        console.log('RESUME: Restoring exerciseCustomized:', workout.exerciseCustomized);
+        setExerciseCustomized(workout.exerciseCustomized);
+      }
+
+      if (workout.userEnteredValues) {
+        console.log('RESUME: Restoring userEnteredValues:', workout.userEnteredValues);
+        setUserEnteredValues(workout.userEnteredValues);
+      }
+
+      if (workout.focusedInputs) {
+        console.log('RESUME: Restoring focusedInputs:', workout.focusedInputs);
+        setFocusedInputs(workout.focusedInputs);
+      }
+
       console.log(
-        'RESUME: Using simplified approach - exercises contain their customized sets/reps directly',
+        'RESUME: Restored all user input state - weight/reps values should now be preserved',
       );
     },
-    [],
+    [setExerciseCustomized, setUserEnteredValues, setFocusedInputs],
   );
 
   // Helper function to restore numeric values
@@ -530,7 +545,7 @@ export const useWorkoutState = ({
       console.log(
         'RESUME: Cleared isResumingPausedWorkout flag and unlocked exercise sets - effects can now run normally',
       );
-    }, 5000); // Extended from 3 to 5 seconds to ensure all restoration is complete
+    }, 10000); // Extended to 10 seconds to prevent useWorkoutInitialization from overriding fetched data
   }, [user, planId, workoutDay]);
 
   // Function to resume a paused workout
@@ -582,6 +597,68 @@ export const useWorkoutState = ({
         startWorkoutTimer();
         if (onWorkoutStarted) onWorkoutStarted();
 
+        // IMPORTANT: Fetch recommendations and last exercise values for resumed workout
+        // This ensures weight suggestions work properly
+        if (workout.exercises && workout.exercises.length > 0) {
+          try {
+            console.log('RESUME: Fetching recommendations for resumed workout...');
+
+            // Convert restored exercises to proper format
+            const restoredExercises = workout.exercises as unknown as ExerciseData[];
+
+            // Fetch recommendations specifically for the restored exercises (not original plan)
+            const recommendationsForRestoredExercises: Record<string, RecommendationData> = {};
+
+            for (const exercise of restoredExercises) {
+              try {
+                // Fetch recommendation for each individual exercise
+                const recommendation = await workoutCycleService.getExerciseRecommendations(
+                  user.id,
+                  exercise.exercise_id,
+                  cycleWeek,
+                );
+
+                if (recommendation) {
+                  // Map ExerciseRecommendation fields to RecommendationData format
+                  const mappedRecommendation: RecommendationData = {
+                    recommended_weight: recommendation.recommendedWeight ?? undefined,
+                    recommended_reps: recommendation.recommendedReps ?? undefined,
+                  };
+                  recommendationsForRestoredExercises[exercise.id] = mappedRecommendation;
+                  console.log(
+                    `RESUME: Got recommendation for ${exercise.name}:`,
+                    mappedRecommendation,
+                  );
+                }
+              } catch (error) {
+                console.error(`RESUME: Error fetching recommendation for ${exercise.name}:`, error);
+              }
+            }
+
+            if (Object.keys(recommendationsForRestoredExercises).length > 0) {
+              console.log(
+                'RESUME: Setting recommendations for restored exercises:',
+                recommendationsForRestoredExercises,
+              );
+              setRecommendations(recommendationsForRestoredExercises);
+            }
+
+            // Fetch last exercise values for weight suggestions
+            console.log('RESUME: Fetching last exercise values...');
+            const lastValues = await workoutPlanService.fetchLastExerciseRecords(
+              user.id,
+              restoredExercises,
+            );
+
+            if (Object.keys(lastValues).length > 0) {
+              console.log('RESUME: Setting last exercise values:', lastValues);
+              setLastExerciseValues(lastValues);
+            }
+          } catch (error) {
+            console.error('RESUME: Error fetching recommendations/last values:', error);
+          }
+        }
+
         // Handle cleanup
         handlePostResumeCleanup();
       } catch (error) {
@@ -598,6 +675,7 @@ export const useWorkoutState = ({
       user,
       planId,
       workoutDay,
+      cycleWeek,
       setWorkoutStartTime,
       startWorkoutTimer,
       fetchWorkoutData,
@@ -605,6 +683,8 @@ export const useWorkoutState = ({
       restoreWorkoutState,
       restoreNumericValues,
       handlePostResumeCleanup,
+      setRecommendations,
+      setLastExerciseValues,
     ],
   );
 

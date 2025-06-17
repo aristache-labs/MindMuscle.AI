@@ -22,6 +22,11 @@ export interface UseExerciseSelectionParams {
   textInputRefreshKey: number;
   setTextInputRefreshKey: React.Dispatch<SetStateAction<number>>;
   userId?: string;
+  // Add callbacks for completion logic
+  onMoveToNextExercise?: () => void;
+  onCompleteWorkout?: () => void;
+  totalVolume?: number;
+  totalReps?: number;
 }
 
 export const useExerciseSelection = ({
@@ -42,6 +47,10 @@ export const useExerciseSelection = ({
   textInputRefreshKey: _textInputRefreshKey,
   setTextInputRefreshKey,
   userId,
+  onMoveToNextExercise,
+  onCompleteWorkout,
+  totalVolume,
+  totalReps,
 }: UseExerciseSelectionParams) => {
   // Modal states
   const [showExerciseDetailsModal, setShowExerciseDetailsModal] = useState(false);
@@ -291,6 +300,40 @@ export const useExerciseSelection = ({
           updatedSets = updatedSets.slice(0, newSetsCount);
         }
 
+        // Check if exercise is complete after customization
+        setTimeout(() => {
+          const customizedSets = updatedSets.slice(0, newSetsCount);
+          const isExerciseComplete = customizedSets.every((set) => set.isCompleted);
+
+          if (isExerciseComplete) {
+            console.log('Exercise completed after customization, moving to next exercise');
+            // Check if it's the last exercise
+            if (currentExerciseIndex === exercises.length - 1) {
+              // Check if all exercises are complete for workout completion
+              setExerciseSets((currentState) => {
+                const allExercisesCompleted = exercises.every((exercise) => {
+                  if (exercise.id === exerciseToUpdate.id) return true; // Current exercise is now complete
+                  const exSets = currentState[exercise.id] || [];
+                  return exSets.length > 0 && exSets.every((s) => s.isCompleted);
+                });
+
+                if (allExercisesCompleted && onCompleteWorkout) {
+                  setTimeout(() => {
+                    onCompleteWorkout();
+                  }, 100);
+                }
+                return currentState; // Don't actually update state
+              });
+            } else {
+              if (onMoveToNextExercise) {
+                setTimeout(() => {
+                  onMoveToNextExercise();
+                }, 100);
+              }
+            }
+          }
+        }, 100);
+
         return {
           ...prev,
           [exerciseToUpdate.id]: updatedSets,
@@ -318,6 +361,8 @@ export const useExerciseSelection = ({
       setExerciseCustomized,
       setUserEnteredValues,
       setTextInputRefreshKey,
+      onMoveToNextExercise,
+      onCompleteWorkout,
     ],
   );
 

@@ -608,6 +608,14 @@ export default function WorkoutSessionScreen() {
     textInputRefreshKey,
     setTextInputRefreshKey,
     userId: user?.id,
+    onMoveToNextExercise: () => {
+      moveToNextExercise();
+    },
+    onCompleteWorkout: () => {
+      completeWorkout();
+    },
+    totalVolume,
+    totalReps,
   });
 
   // Use the warmup handling hook

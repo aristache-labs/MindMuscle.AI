@@ -760,6 +760,39 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
           exerciseId,
         );
 
+        // Check if exercise is now complete after customization and trigger completion logic
+        setTimeout(() => {
+          const customizedSets = updatedSets.slice(0, updatedExercise.sets);
+          const isExerciseComplete = customizedSets.every((set) => set.isCompleted);
+
+          if (isExerciseComplete) {
+            console.log('Exercise completed after customization, moving to next exercise');
+            // Check if it's the last exercise
+            if (currentExerciseIndex === exercises.length - 1) {
+              // Check if all exercises are complete for workout completion
+              // We need to get the current state for other exercises
+              setExerciseSets((currentState) => {
+                const allExercisesCompleted = exercises.every((exercise) => {
+                  if (exercise.id === exerciseId) return true; // Current exercise is now complete
+                  const exSets = currentState[exercise.id] || [];
+                  return exSets.length > 0 && exSets.every((s) => s.isCompleted);
+                });
+
+                if (allExercisesCompleted) {
+                  setTimeout(() => {
+                    onCompleteWorkoutWithStateSync?.(totalVolume, totalReps, currentState);
+                  }, 100);
+                }
+                return currentState; // Don't actually update state
+              });
+            } else {
+              setTimeout(() => {
+                onMoveToNextExercise?.();
+              }, 100);
+            }
+          }
+        }, 100);
+
         return {
           ...prev,
           [exerciseId]: updatedSets,
@@ -772,12 +805,17 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
     [
       exerciseSets,
       exercises,
+      currentExerciseIndex,
+      totalVolume,
+      totalReps,
       setExerciseCustomized,
       setUserEnteredValues,
       setExerciseSets,
       setTotalVolume,
       setTotalReps,
       setTextInputRefreshKey,
+      onMoveToNextExercise,
+      onCompleteWorkoutWithStateSync,
     ],
   );
 

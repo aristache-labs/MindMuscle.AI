@@ -24,6 +24,8 @@ interface ExerciseCardProps {
   onToggleFavorite: (exerciseId: string) => void;
   useOptimizedImage?: boolean;
   hideFavoriteButton?: boolean;
+  disabled?: boolean;
+  disabledReason?: string;
 }
 
 const { width } = Dimensions.get('window');
@@ -56,6 +58,8 @@ const arePropsEqual = (prevProps: ExerciseCardProps, nextProps: ExerciseCardProp
     prevProps.name === nextProps.name &&
     prevProps.isFavorite === nextProps.isFavorite &&
     prevProps.hideFavoriteButton === nextProps.hideFavoriteButton &&
+    prevProps.disabled === nextProps.disabled &&
+    prevProps.disabledReason === nextProps.disabledReason &&
     imageEquals
   );
 };
@@ -70,6 +74,8 @@ const ExerciseCard = memo(
     onToggleFavorite,
     useOptimizedImage = true,
     hideFavoriteButton = false,
+    disabled = false,
+    disabledReason = '',
   }: ExerciseCardProps) => {
     // Track component lifecycle with Sentry
     useEffect(() => {
@@ -108,6 +114,11 @@ const ExerciseCard = memo(
     }, [id, name, isFavorite, hideFavoriteButton, useOptimizedImage]);
 
     const handlePress = useCallback(() => {
+      // Don't handle press if disabled
+      if (disabled) {
+        return;
+      }
+
       try {
         Sentry.addBreadcrumb({
           message: 'Exercise card pressed',
@@ -134,9 +145,14 @@ const ExerciseCard = memo(
         });
         console.error('Error in ExerciseCard handlePress:', error);
       }
-    }, [id, onPress, name]);
+    }, [id, onPress, name, disabled]);
 
     const handleToggleFavorite = useCallback(() => {
+      // Don't handle favorite toggle if disabled
+      if (disabled) {
+        return;
+      }
+
       try {
         Sentry.addBreadcrumb({
           message: 'Exercise favorite toggled',
@@ -166,7 +182,7 @@ const ExerciseCard = memo(
         });
         console.error('Error in ExerciseCard handleToggleFavorite:', error);
       }
-    }, [id, onToggleFavorite, name, isFavorite]);
+    }, [id, onToggleFavorite, name, isFavorite, disabled]);
 
     // Determine the image source
     const imageSource = (() => {
@@ -200,14 +216,19 @@ const ExerciseCard = memo(
     })();
 
     return (
-      <Surface style={styles.card} elevation={2}>
+      <Surface style={[styles.card, disabled && styles.disabledCard]} elevation={2}>
         <View style={styles.cardContentWrapper}>
-          <TouchableOpacity style={styles.cardContent} onPress={handlePress} activeOpacity={0.7}>
+          <TouchableOpacity
+            style={styles.cardContent}
+            onPress={handlePress}
+            activeOpacity={disabled ? 1 : 0.7}
+            disabled={disabled}
+          >
             <View style={styles.imageContainer}>
               {useOptimizedImage ? (
                 <OptimizedImage
                   source={imageSource}
-                  style={styles.exerciseImage}
+                  style={[styles.exerciseImage, disabled && styles.disabledImage]}
                   fallback={require('../../assets/exercises/placeholder.jpg')}
                   resizeMode="cover"
                   cachePolicy="immutable"
@@ -216,11 +237,23 @@ const ExerciseCard = memo(
                   showLoader={false}
                 />
               ) : (
-                <Image source={imageSource} style={styles.exerciseImage} resizeMode="cover" />
+                <Image
+                  source={imageSource}
+                  style={[styles.exerciseImage, disabled && styles.disabledImage]}
+                  resizeMode="cover"
+                />
+              )}
+
+              {/* Disabled overlay */}
+              {disabled && (
+                <View style={styles.disabledOverlay}>
+                  <MaterialIcons name="check-circle" size={32} color="rgba(124, 58, 237, 0.9)" />
+                  <Text style={styles.disabledText}>{disabledReason || 'Already Added'}</Text>
+                </View>
               )}
 
               {/* Favorite button overlay */}
-              {!hideFavoriteButton && (
+              {!hideFavoriteButton && !disabled && (
                 <TouchableOpacity
                   style={styles.favoriteButton}
                   onPress={handleToggleFavorite}
@@ -236,7 +269,11 @@ const ExerciseCard = memo(
             </View>
 
             <View style={styles.textContainer}>
-              <Text style={styles.exerciseName} numberOfLines={2} ellipsizeMode="tail">
+              <Text
+                style={[styles.exerciseName, disabled && styles.disabledExerciseName]}
+                numberOfLines={2}
+                ellipsizeMode="tail"
+              >
                 {name}
               </Text>
             </View>
@@ -257,6 +294,11 @@ interface Styles {
   favoriteButton: ViewStyle;
   textContainer: ViewStyle;
   exerciseName: TextStyle;
+  disabledCard: ViewStyle;
+  disabledImage: ImageStyle;
+  disabledOverlay: ViewStyle;
+  disabledText: TextStyle;
+  disabledExerciseName: TextStyle;
 }
 
 const styles = StyleSheet.create<Styles>({
@@ -306,6 +348,33 @@ const styles = StyleSheet.create<Styles>({
     fontWeight: '600',
     textAlign: 'center',
     lineHeight: 18,
+  },
+  disabledCard: {
+    opacity: 0.6,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  disabledImage: {
+    opacity: 0.4,
+  },
+  disabledOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  disabledText: {
+    color: 'rgba(124, 58, 237, 0.9)',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  disabledExerciseName: {
+    opacity: 0.5,
   },
 });
 

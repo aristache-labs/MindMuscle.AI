@@ -22,6 +22,7 @@ export interface AddExerciseModalProps {
   visible: boolean;
   onClose: () => void;
   onAddExercises: (exercises: ExerciseConfiguration[]) => void;
+  currentWorkoutExercises?: Array<{ id: string; exercise_id?: string; name: string }>;
 }
 
 export interface MuscleGroup {

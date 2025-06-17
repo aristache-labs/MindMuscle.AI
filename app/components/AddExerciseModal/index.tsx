@@ -599,11 +599,13 @@ const StepAllExercises = ({
   onExerciseToggle,
   onNext,
   searchState,
+  isExerciseAlreadyAdded,
 }: {
   selectedExercises: Set<string>;
   onExerciseToggle: (exerciseId: string) => void;
   onNext: () => void;
   searchState: ReturnType<typeof useSearchState>;
+  isExerciseAlreadyAdded?: (exerciseId: string) => boolean;
 }) => {
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState(true);
@@ -753,6 +755,8 @@ const StepAllExercises = ({
                               onToggleFavorite={() => {}}
                               useOptimizedImage={true}
                               hideFavoriteButton={true}
+                              disabled={isExerciseAlreadyAdded?.(exercise.id) || false}
+                              disabledReason="Already in workout"
                             />
                             {selectedExercises.has(exercise.id) && (
                               <View style={styles.selectedOverlay}>
@@ -796,12 +800,14 @@ const Step2ExerciseSelection = ({
   onExerciseToggle,
   onNext,
   searchState,
+  isExerciseAlreadyAdded,
 }: {
   selectedMuscleGroup: string;
   selectedExercises: Set<string>;
   onExerciseToggle: (exerciseId: string) => void;
   onNext: () => void;
   searchState: ReturnType<typeof useSearchState>;
+  isExerciseAlreadyAdded?: (exerciseId: string) => boolean;
 }) => {
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState(true);
@@ -918,6 +924,8 @@ const Step2ExerciseSelection = ({
                               onToggleFavorite={() => {}}
                               useOptimizedImage={true}
                               hideFavoriteButton={true}
+                              disabled={isExerciseAlreadyAdded?.(exercise.id) || false}
+                              disabledReason="Already in workout"
                             />
                             {selectedExercises.has(exercise.id) && (
                               <View style={styles.selectedOverlay}>
@@ -961,12 +969,14 @@ const StepFavorites = ({
   onNext,
   selectedMuscleGroup,
   searchState,
+  isExerciseAlreadyAdded,
 }: {
   selectedExercises: Set<string>;
   onExerciseToggle: (exerciseId: string) => void;
   onNext: () => void;
   selectedMuscleGroup?: string;
   searchState: ReturnType<typeof useSearchState>;
+  isExerciseAlreadyAdded?: (exerciseId: string) => boolean;
 }) => {
   const [favoriteExercises, setFavoriteExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1066,6 +1076,8 @@ const StepFavorites = ({
                               onToggleFavorite={() => {}}
                               useOptimizedImage={true}
                               hideFavoriteButton={true}
+                              disabled={isExerciseAlreadyAdded?.(exercise.id) || false}
+                              disabledReason="Already in workout"
                             />
                             {selectedExercises.has(exercise.id) && (
                               <View style={styles.selectedOverlay}>
@@ -1303,6 +1315,7 @@ const renderStepContent = ({
   searchState,
   selectedExercises,
   handleAddAll,
+  isExerciseAlreadyAdded,
 }: {
   currentStep: number;
   showFavorites: boolean;
@@ -1318,6 +1331,7 @@ const renderStepContent = ({
   searchState: ReturnType<typeof useSearchState>;
   selectedExercises: SelectedExercise[];
   handleAddAll: (exercises: SelectedExercise[]) => void;
+  isExerciseAlreadyAdded?: (exerciseId: string) => boolean;
 }) => {
   if (currentStep === 1) {
     return (
@@ -1340,6 +1354,7 @@ const renderStepContent = ({
           onExerciseToggle={handleExerciseToggle}
           onNext={handleStep2Next}
           searchState={searchState}
+          isExerciseAlreadyAdded={isExerciseAlreadyAdded}
         />
       );
     }
@@ -1351,6 +1366,7 @@ const renderStepContent = ({
         onExerciseToggle={handleExerciseToggle}
         onNext={handleStep2Next}
         searchState={searchState}
+        isExerciseAlreadyAdded={isExerciseAlreadyAdded}
       />
     );
   }
@@ -1363,6 +1379,7 @@ const renderStepContent = ({
         onNext={handleStep2Next}
         selectedMuscleGroup={selectedMuscleGroup}
         searchState={searchState}
+        isExerciseAlreadyAdded={isExerciseAlreadyAdded}
       />
     );
   }
@@ -1378,8 +1395,29 @@ export default function AddExerciseModal({
   visible,
   onClose,
   onAddExercises,
+  currentWorkoutExercises = [],
 }: AddExerciseModalProps) {
   const insets = useSafeAreaInsets();
+
+  // Create a set of existing exercise IDs for quick lookup
+  const existingExerciseIds = useMemo(() => {
+    const idSet = new Set<string>();
+    currentWorkoutExercises.forEach((exercise) => {
+      // Check both id and exercise_id fields to handle different exercise formats
+      if (exercise.id) idSet.add(exercise.id);
+      if (exercise.exercise_id) idSet.add(exercise.exercise_id);
+    });
+    return idSet;
+  }, [currentWorkoutExercises]);
+
+  // Helper function to check if an exercise is already in the workout
+  const isExerciseAlreadyAdded = useCallback(
+    (exerciseId: string) => {
+      return existingExerciseIds.has(exerciseId);
+    },
+    [existingExerciseIds],
+  );
+
   const [currentStep, setCurrentStep] = useState(1);
   const [currentView, setCurrentView] = useState<'front' | 'back'>('front');
   const [selectedMuscleGroup, setSelectedMuscleGroup] = useState<string>('');
@@ -1565,6 +1603,20 @@ export default function AddExerciseModal({
   const handleExerciseToggle = useCallback(
     (exerciseId: string) => {
       try {
+        // Don't allow selecting exercises that are already in the workout
+        if (isExerciseAlreadyAdded(exerciseId)) {
+          Sentry.addBreadcrumb({
+            message: 'Attempted to select already added exercise',
+            category: 'user.interaction',
+            level: 'info',
+            data: {
+              exerciseId,
+              action: 'exercise_already_added',
+            },
+          });
+          return;
+        }
+
         setSelectedExerciseIds((prev) => {
           const newSet = new Set(prev);
           const wasSelected = newSet.has(exerciseId);
@@ -1599,7 +1651,7 @@ export default function AddExerciseModal({
         );
       }
     },
-    [selectedMuscleGroup, currentStep],
+    [selectedMuscleGroup, currentStep, isExerciseAlreadyAdded],
   );
 
   const handleStep2Next = useCallback(async () => {
@@ -2079,6 +2131,7 @@ export default function AddExerciseModal({
                     searchState,
                     selectedExercises,
                     handleAddAll,
+                    isExerciseAlreadyAdded,
                   })}
                 </Animated.View>
               </View>

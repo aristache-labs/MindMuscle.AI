@@ -487,6 +487,7 @@ function renderWorkoutModals(props: Record<string, unknown>) {
             }>,
           ) => void
         }
+        currentWorkoutExercises={props.workoutExercises as ExerciseData[]}
       />
     </>
   );

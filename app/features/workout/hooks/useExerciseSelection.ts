@@ -1,6 +1,7 @@
 import React, { SetStateAction, useCallback, useState } from 'react';
 import workoutPlanService from '../../../services/workoutPlanService';
 import type { ExerciseData, ExerciseSet } from '../types';
+import { fetchLastExerciseRecords } from '../../../services/workoutDataService';
 
 export interface UseExerciseSelectionParams {
   exercises: ExerciseData[];
@@ -148,7 +149,7 @@ export const useExerciseSelection = ({
   }, [wasInCustomizeModeBeforeAdd]);
 
   const handleAddExercises = useCallback(
-    (
+    async (
       exerciseConfigurations: {
         exerciseId: string;
         name: string;
@@ -179,6 +180,17 @@ export const useExerciseSelection = ({
         isChangedExercise: true, // Mark as added exercise for proper database handling
       }));
 
+      // Fetch historical data for the new exercises if user is available
+      let exerciseHistory: Record<string, Record<number, { weight: string; reps: string }>> = {};
+      if (userId) {
+        try {
+          exerciseHistory = await fetchLastExerciseRecords(userId, newExercises);
+        } catch (error) {
+          console.warn('Failed to fetch exercise history for new exercises:', error);
+          // Continue without historical data
+        }
+      }
+
       // Only add new exercises to the current exercise list if not in customize mode
       // In customize mode, exercises should be stored as pending until "Done" is pressed
       if (!isCustomizeMode) {
@@ -194,17 +206,33 @@ export const useExerciseSelection = ({
           const newSets = { ...prev };
           newExercises.forEach((exercise) => {
             if (!newSets[exercise.id]) {
-              newSets[exercise.id] = Array.from({ length: exercise.sets }, (_, index) => ({
-                id: `${exercise.id}-set-${index + 1}`,
-                setNumber: index + 1,
-                weight: '',
-                reps: exercise.reps_range,
-                isCompleted: false,
-              }));
+              const historyData = exerciseHistory[exercise.exercise_id] || {};
+
+              newSets[exercise.id] = Array.from({ length: exercise.sets }, (_, index) => {
+                const setNumber = index + 1;
+                const lastWeight = historyData[setNumber]?.weight || '';
+                const lastReps = historyData[setNumber]?.reps || exercise.reps_range;
+
+                return {
+                  id: `${exercise.id}-set-${index + 1}`,
+                  setNumber: setNumber,
+                  weight: exercise.requires_weight !== false ? lastWeight : '',
+                  reps: lastReps,
+                  isCompleted: false,
+                };
+              });
             }
           });
           return newSets;
         });
+
+        // Update last exercise values for recommendation system
+        if (Object.keys(exerciseHistory).length > 0) {
+          setLastExerciseValues((prev) => ({
+            ...prev,
+            ...exerciseHistory,
+          }));
+        }
       }
 
       // Close the add exercise modal first
@@ -227,12 +255,31 @@ export const useExerciseSelection = ({
         setShowExerciseListModal(true);
       }, 200); // Further increased delay for state synchronization
     },
-    [exercises, setExercises, setExerciseSets, wasInCustomizeModeBeforeAdd, isCustomizeMode],
+    [
+      exercises,
+      setExercises,
+      setExerciseSets,
+      wasInCustomizeModeBeforeAdd,
+      isCustomizeMode,
+      userId,
+      setLastExerciseValues,
+    ],
   );
 
   // Handle applying pending added exercises when "Done" is pressed in customize mode
-  const handleApplyPendingExercises = useCallback(() => {
+  const handleApplyPendingExercises = useCallback(async () => {
     if (pendingAddedExercises.length > 0) {
+      // Fetch historical data for the pending exercises if user is available
+      let exerciseHistory: Record<string, Record<number, { weight: string; reps: string }>> = {};
+      if (userId) {
+        try {
+          exerciseHistory = await fetchLastExerciseRecords(userId, pendingAddedExercises);
+        } catch (error) {
+          console.warn('Failed to fetch exercise history for pending exercises:', error);
+          // Continue without historical data
+        }
+      }
+
       // Add pending exercises to the main exercise list
       setExercises((prev) => [...prev, ...pendingAddedExercises]);
 
@@ -241,22 +288,42 @@ export const useExerciseSelection = ({
         const newSets = { ...prev };
         pendingAddedExercises.forEach((exercise) => {
           if (!newSets[exercise.id]) {
-            newSets[exercise.id] = Array.from({ length: exercise.sets }, (_, index) => ({
-              id: `${exercise.id}-set-${index + 1}`,
-              setNumber: index + 1,
-              weight: '',
-              reps: exercise.reps_range,
-              isCompleted: false,
-            }));
+            const historyData = exerciseHistory[exercise.exercise_id] || {};
+
+            newSets[exercise.id] = Array.from({ length: exercise.sets }, (_, index) => {
+              const setNumber = index + 1;
+              const lastWeight = historyData[setNumber]?.weight || '';
+              const lastReps = historyData[setNumber]?.reps || exercise.reps_range;
+
+              return {
+                id: `${exercise.id}-set-${index + 1}`,
+                setNumber: setNumber,
+                weight: exercise.requires_weight !== false ? lastWeight : '',
+                reps: lastReps,
+                isCompleted: false,
+              };
+            });
           }
         });
         return newSets;
       });
 
+      // Update last exercise values for recommendation system
+      if (Object.keys(exerciseHistory).length > 0) {
+        setLastExerciseValues((prev) => ({
+          ...prev,
+          ...exerciseHistory,
+        }));
+      }
+
       // Clear pending exercises
       setPendingAddedExercises([]);
+
+      // Return the exercises that were processed for external use
+      return pendingAddedExercises;
     }
-  }, [pendingAddedExercises, setExercises, setExerciseSets]);
+    return [];
+  }, [pendingAddedExercises, setExercises, setExerciseSets, userId, setLastExerciseValues]);
 
   // Handle action buttons (legacy for compatibility)
   const handleAddExercise = useCallback(() => {

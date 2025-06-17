@@ -1041,14 +1041,93 @@ export default function WorkoutSessionScreen() {
 
   // Handle applying changes from the exercise list modal
   const handleApplyChanges = useCallback(
-    (newExercises: ExerciseData[], removedIndices: number[], addedExercises?: ExerciseData[]) => {
+    async (
+      newExercises: ExerciseData[],
+      removedIndices: number[],
+      addedExercises?: ExerciseData[],
+    ) => {
       try {
         // Store the original state for comparison
         const originalExercises = [...workoutExercises];
 
         // First, apply pending added exercises if any
         if (addedExercises && addedExercises.length > 0) {
-          handleApplyPendingExercises();
+          // Apply the pending exercises from useExerciseSelection hook
+          await handleApplyPendingExercises();
+
+          // Always initialize sets for all added exercises as a safety net
+          // This ensures that even if handleApplyPendingExercises didn't process them
+          // or there were timing issues with state updates, the sets will still be created
+          const addedExercisesToInitialize = addedExercises;
+
+          console.log(
+            'handleApplyChanges: Added exercises:',
+            addedExercises.map((e) => ({ id: e.id, name: e.name, sets: e.sets })),
+          );
+          console.log(
+            'handleApplyChanges: Exercises needing initialization:',
+            addedExercisesToInitialize.map((e) => ({ id: e.id, name: e.name, sets: e.sets })),
+          );
+
+          if (addedExercisesToInitialize.length > 0) {
+            // Fetch historical data for the added exercises if user is available
+            let exerciseHistory: Record<
+              string,
+              Record<number, { weight: string; reps: string }>
+            > = {};
+            if (user?.id) {
+              try {
+                const { fetchLastExerciseRecords } = await import(
+                  '../../../services/workoutDataService'
+                );
+                exerciseHistory = await fetchLastExerciseRecords(
+                  user.id,
+                  addedExercisesToInitialize,
+                );
+              } catch (error) {
+                console.warn('Failed to fetch exercise history for added exercises:', error);
+                // Continue without historical data
+              }
+            }
+
+            // Initialize exercise sets for newly added exercises that don't have sets yet
+            setWorkoutExerciseSets((prev) => {
+              const newSets = { ...prev };
+              addedExercisesToInitialize.forEach((exercise) => {
+                if (!newSets[exercise.id]) {
+                  const historyData = exerciseHistory[exercise.exercise_id] || {};
+
+                  const sets = Array.from({ length: exercise.sets }, (_, index) => {
+                    const setNumber = index + 1;
+                    const lastWeight = historyData[setNumber]?.weight || '';
+                    const lastReps = historyData[setNumber]?.reps || exercise.reps_range;
+
+                    return {
+                      id: `${exercise.id}-set-${index + 1}`,
+                      setNumber: setNumber,
+                      weight: exercise.requires_weight !== false ? lastWeight : '',
+                      reps: lastReps,
+                      isCompleted: false,
+                    };
+                  });
+
+                  newSets[exercise.id] = sets;
+                  console.log(
+                    `handleApplyChanges: Initialized ${sets.length} sets for exercise ${exercise.name} (${exercise.id})`,
+                  );
+                }
+              });
+              return newSets;
+            });
+
+            // Update last exercise values for recommendation system
+            if (Object.keys(exerciseHistory).length > 0) {
+              setLastExerciseValues((prev) => ({
+                ...prev,
+                ...exerciseHistory,
+              }));
+            }
+          }
         }
 
         // Handle removals by using the final exercise list from the modal
@@ -1132,7 +1211,10 @@ export default function WorkoutSessionScreen() {
           }
         } else {
           // No removals, just handle reordering if exercises have changed
-          if (JSON.stringify(newExercises) !== JSON.stringify(originalExercises)) {
+          if (newExercises.length !== originalExercises.length) {
+            setWorkoutExercises(newExercises);
+          } else if (JSON.stringify(newExercises) !== JSON.stringify(originalExercises)) {
+            // Pure re-order with the same length – use the dedicated handler
             handleReorderExercises(newExercises);
           }
         }
@@ -1147,6 +1229,7 @@ export default function WorkoutSessionScreen() {
       userEnteredValues,
       lastExerciseValues,
       currentExerciseIndex,
+      user,
       setWorkoutExercises,
       setWorkoutExerciseSets,
       setExerciseCustomized,

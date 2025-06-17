@@ -537,7 +537,7 @@ export const ExerciseRecordSchema = z.object({
   id: IdSchema.optional(),
   workout_history_id: IdSchema,
   exercise_id: IdSchema,
-  workout_plan_exercise_id: IdSchema,
+  workout_plan_exercise_id: IdSchema.nullable(),
   set_number: PositiveNumberSchema,
   weight: NonNegativeNumberSchema,
   reps: NonNegativeNumberSchema,

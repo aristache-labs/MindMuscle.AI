@@ -1143,7 +1143,7 @@ const createExerciseRecords = (
 ): Array<{
   workout_history_id: string;
   exercise_id: string;
-  workout_plan_exercise_id: string;
+  workout_plan_exercise_id: string | null;
   set_number: number;
   weight: number;
   reps: number;
@@ -1159,10 +1159,18 @@ const createExerciseRecords = (
         const weight = set.weight === '-' || set.weight === '' ? '0' : set.weight;
         const reps = set.reps === '-' || set.reps === '' ? '0' : set.reps;
 
+        // Determine if this is an original plan exercise or a customized/added exercise
+        const isChangedExercise =
+          (exercise as ExerciseData & { isChangedExercise?: boolean }).isChangedExercise || false;
+
+        // For changed/added exercises, workout_plan_exercise_id should be null
+        // For original plan exercises, use the exercise.id which should be the workout_plan_exercise_id
+        const workoutPlanExerciseId = isChangedExercise ? null : exercise.id;
+
         const record = {
           workout_history_id: workoutHistoryId,
           exercise_id: exercise.exercise_id,
-          workout_plan_exercise_id: exercise.id,
+          workout_plan_exercise_id: workoutPlanExerciseId,
           set_number: set.setNumber,
           weight: weight ? parseFloat(weight) : 0,
           reps: reps ? parseInt(reps) : 0,

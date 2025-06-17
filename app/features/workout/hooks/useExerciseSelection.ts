@@ -162,6 +162,7 @@ export const useExerciseSelection = ({
         difficulty: '', // Default empty difficulty
         order: exercises.length + _index, // Add required order field
         workout_day: 1, // Add required workout_day field (default to 1)
+        isChangedExercise: true, // Mark as added exercise for proper database handling
       }));
 
       // Add new exercises to the current exercise list

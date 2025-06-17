@@ -403,7 +403,40 @@ export const fetchWorkoutData = async (
       }
     }
 
-    const exercises = await fetchExercisesFromDatabase(planId, workoutDay);
+    // First try to get the most recent customized workout structure from any previous week
+    let exercises = await getMostRecentCustomizedWorkoutStructure(userId, planId, workoutDay);
+
+    // If no previous customizations found, load the original plan exercises
+    if (!exercises) {
+      exercises = await fetchExercisesFromDatabase(planId, workoutDay);
+
+      SentryLogger.info(
+        'Loading original plan exercises (no previous customizations found)',
+        {
+          plan_id: planId,
+          workout_day: workoutDay,
+          user_id: userId,
+          cycle_week: cycleWeek,
+          exercises_count: exercises.length,
+          operation: 'fetch_workout_data',
+        },
+        { feature: 'workout_data', action: 'original_exercises_loaded' },
+      );
+    } else {
+      SentryLogger.info(
+        'Loading customized exercises from previous week',
+        {
+          plan_id: planId,
+          workout_day: workoutDay,
+          user_id: userId,
+          cycle_week: cycleWeek,
+          exercises_count: exercises.length,
+          operation: 'fetch_workout_data',
+        },
+        { feature: 'workout_data', action: 'customized_exercises_loaded' },
+      );
+    }
+
     const { exerciseSets, recommendations } = await initializeExerciseSetsAndRecommendations(
       exercises,
       userId,
@@ -1396,6 +1429,84 @@ export const completeWorkout = async (options: CompleteWorkoutOptions): Promise<
     return false;
   }
 };
+
+// Export function to get most recent customized workout structure from any week
+export const getMostRecentCustomizedWorkoutStructure = async (
+  userId: string,
+  planId: string,
+  workoutDay: number,
+): Promise<ExerciseData[] | null> => {
+  // Validate input parameters
+  const validationData = { userId, planId, workoutDay };
+  const validationResult =
+    await validationService.validateGetMostRecentCustomizedWorkoutStructure(validationData);
+
+  if (!validationResult.success) {
+    const errorMessage = `Get most recent customized workout structure validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`;
+    logger.error(
+      'Get most recent customized workout structure validation failed',
+      new Error(errorMessage),
+      {
+        context: { validationData, errors: validationResult.errors },
+      },
+    );
+    throw new Error(errorMessage);
+  }
+
+  try {
+    // Look for the most recent completed workout for this workout day across all weeks
+    const { data, error } = await supabase
+      .from('user_workout_history')
+      .select('exercise_structure, cycle_week, week_name, completed_at')
+      .eq('user_id', userId)
+      .eq('plan_id', planId)
+      .eq('workout_day', workoutDay)
+      .eq('is_redo_workout', false) // Only consider actual progressions, not redo workouts
+      .order('completed_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error || !data?.exercise_structure) {
+      return null;
+    }
+
+    const { SavedExerciseStructureSchema } = await import('../validation/schemas');
+    const exerciseStructureArray = validationService.safeParseJson(
+      data.exercise_structure,
+      z.array(SavedExerciseStructureSchema),
+      'most_recent_customized_exercise_structure',
+      [],
+    );
+
+    if (!exerciseStructureArray || exerciseStructureArray.length === 0) {
+      return null;
+    }
+
+    // Convert back to ExerciseData format
+    const exercises: ExerciseData[] = exerciseStructureArray.map((ex) => ({
+      id: ex.id,
+      exercise_id: ex.exercise_id,
+      name: ex.name,
+      sets: ex.sets,
+      reps_range: ex.reps_range,
+      image_url: ex.image_url,
+      primary_muscles: ex.primary_muscles,
+      requires_weight: ex.requires_weight,
+      workout_day: ex.workout_day,
+      order: ex.order,
+      restTime: ex.restTime,
+      isChangedExercise: ex.isChangedExercise,
+    }));
+
+    return exercises;
+  } catch (error) {
+    logger.error('Error fetching most recent customized workout structure', error as Error, {
+      context: { userId, planId, workoutDay },
+    });
+    return null;
+  }
+};
+
 export default function disablewarn() {
   return null;
 }

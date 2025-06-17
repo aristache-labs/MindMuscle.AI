@@ -655,6 +655,23 @@ class ValidationService {
     );
   }
 
+  async validateGetMostRecentCustomizedWorkoutStructure(
+    data: unknown,
+  ): Promise<ValidationResult<unknown>> {
+    return this.trackAsyncValidationPerformance(
+      'validateGetMostRecentCustomizedWorkoutStructure',
+      async () => {
+        const schemas = await import('../validation/schemas');
+        return safeValidate(
+          schemas.GetMostRecentCustomizedWorkoutStructureSchema,
+          data,
+          'get most recent customized workout structure',
+        );
+      },
+      'workout_data',
+    );
+  }
+
   // Add exercise form validation
   async validateAddExerciseForm(data: unknown): Promise<ValidationResult<unknown>> {
     return this.trackAsyncValidationPerformance(

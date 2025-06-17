@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, ScrollView, View } from 'react-native';
 import { Appbar, Button, FAB, IconButton } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,6 +10,7 @@ import PlanOverviewModal from '../../../components/PlanOverviewModal';
 import { COLORS, SPACING } from '../../../constants/theme';
 import { SentryDataCollection, SentryLogger } from '../../../services/sentry';
 import workoutPlanService from '../../../services/workoutPlanService';
+import * as workoutDataService from '../../../services/workoutDataService';
 import { useAuth } from '../../../store/AuthContext';
 import {
   CompletedWorkoutView,
@@ -86,15 +87,27 @@ const isPausedWorkoutActive = (
   return hasPausedWorkout && pausedWorkout !== null && pausedWorkout.workoutDay === activeDay;
 };
 
-// Helper function to get exercises to display
+// Helper function to get exercises to display (now with customization support)
 const getExercisesToDisplay = (
   hasPausedWorkout: boolean,
   pausedWorkout: PausedWorkout | null,
   activeDay: number | null,
   workoutDay: WorkoutDay | null,
+  customizedExercises: Record<number, Exercise[]>,
 ): Exercise[] => {
   const isPausedActive = isPausedWorkoutActive(hasPausedWorkout, pausedWorkout, activeDay);
-  return isPausedActive ? pausedWorkout!.exercises : workoutDay?.exercises || [];
+
+  if (isPausedActive) {
+    return pausedWorkout!.exercises;
+  }
+
+  // Check for customized exercises first
+  if (activeDay !== null && customizedExercises[activeDay]) {
+    return customizedExercises[activeDay];
+  }
+
+  // Fall back to default plan exercises
+  return workoutDay?.exercises || [];
 };
 
 // Helper function to get workout stats to display
@@ -103,6 +116,7 @@ const getWorkoutStatsToDisplay = (
   pausedWorkout: PausedWorkout | null,
   activeDay: number | null,
   workoutDay: WorkoutDay | null,
+  customizedExercises: Record<number, Exercise[]>,
 ) => {
   const isPausedActive = isPausedWorkoutActive(hasPausedWorkout, pausedWorkout, activeDay);
 
@@ -115,6 +129,17 @@ const getWorkoutStatsToDisplay = (
     };
   }
 
+  // Check for customized exercises first and recalculate stats
+  if (activeDay !== null && customizedExercises[activeDay]) {
+    const customizedStats = calculateWorkoutStats(customizedExercises[activeDay]);
+    return {
+      exercises: customizedStats.exerciseCount,
+      duration: customizedStats.duration,
+      calories: customizedStats.calories,
+    };
+  }
+
+  // Fall back to default plan stats
   return {
     exercises: workoutDay?.total_exercises || 0,
     duration: workoutDay?.estimated_duration || 0,
@@ -136,6 +161,7 @@ const ActiveWorkoutDayView: React.FC<{
   onEditPlanPress: () => void;
   hasPausedWorkout: boolean;
   pausedWorkout: PausedWorkout | null;
+  customizedExercises: Record<number, Exercise[]>;
   renderExerciseItem: ({ item, index }: { item: Exercise; index: number }) => React.ReactElement;
 }> = ({
   activeDay,
@@ -150,6 +176,7 @@ const ActiveWorkoutDayView: React.FC<{
   onEditPlanPress,
   hasPausedWorkout,
   pausedWorkout,
+  customizedExercises,
   renderExerciseItem,
 }) => {
   const workoutDay = getWorkoutDayByNumber(activeDay);
@@ -169,6 +196,7 @@ const ActiveWorkoutDayView: React.FC<{
     pausedWorkout,
     activeDay,
     workoutDay,
+    customizedExercises,
   );
 
   const statsToDisplay = getWorkoutStatsToDisplay(
@@ -176,6 +204,7 @@ const ActiveWorkoutDayView: React.FC<{
     pausedWorkout,
     activeDay,
     workoutDay,
+    customizedExercises,
   );
 
   return (
@@ -220,6 +249,7 @@ const WorkoutContent: React.FC<{
   selectedDate: Date;
   plan: Plan;
   cycleProgress: CycleProgress | null;
+  customizedExercises: Record<number, Exercise[]>;
   renderExerciseItem: ({ item, index }: { item: Exercise; index: number }) => React.ReactElement;
   onBackToCurrentWeek: () => void;
   onRedoWorkout: () => void;
@@ -238,6 +268,7 @@ const WorkoutContent: React.FC<{
   selectedDate,
   plan,
   cycleProgress,
+  customizedExercises,
   renderExerciseItem,
   onBackToCurrentWeek,
   onRedoWorkout,
@@ -276,6 +307,7 @@ const WorkoutContent: React.FC<{
         onEditPlanPress={onEditPlanPress}
         hasPausedWorkout={hasPausedWorkout}
         pausedWorkout={pausedWorkout}
+        customizedExercises={customizedExercises}
         renderExerciseItem={renderExerciseItem}
       />
     );
@@ -351,6 +383,10 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
   const router = useRouter();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
+
+  // State for customized exercises
+  const [customizedExercises, setCustomizedExercises] = useState<Record<number, Exercise[]>>({});
+  const [loadingCustomizations, setLoadingCustomizations] = useState<Record<number, boolean>>({});
 
   // Sentry initialization for My Plan screen
   useEffect(() => {
@@ -496,6 +532,61 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
     setPausedWorkoutInfo,
     setHasAppliedCustomizations,
   });
+
+  // Function to load customized exercises for a workout day
+  const loadCustomizedExercises = useCallback(
+    async (workoutDay: number) => {
+      if (!user?.id || !plan?.id) {
+        return;
+      }
+
+      // Check if already loading for this workout day
+      if (loadingCustomizations[workoutDay]) {
+        return;
+      }
+
+      try {
+        setLoadingCustomizations((prev) => ({ ...prev, [workoutDay]: true }));
+
+        const customizedStructure =
+          await workoutDataService.getMostRecentCustomizedWorkoutStructure(
+            user.id,
+            plan.id,
+            workoutDay,
+          );
+
+        if (customizedStructure && customizedStructure.length > 0) {
+          // Convert ExerciseData to Exercise format for MyPlan display
+          const exercises: Exercise[] = customizedStructure.map((ex) => ({
+            id: ex.id,
+            name: ex.name,
+            sets: ex.sets,
+            reps_range: ex.reps_range,
+            image_url: ex.image_url,
+            primary_muscles: ex.primary_muscles || [],
+            exercise_id: ex.exercise_id,
+            workout_day: ex.workout_day,
+          }));
+
+          setCustomizedExercises((prev) => ({
+            ...prev,
+            [workoutDay]: exercises,
+          }));
+        }
+      } catch (error) {
+        console.error(`Error loading customized exercises for day ${workoutDay}:`, error);
+        SentryDataCollection.captureException(error as Error, {
+          context: 'load_customized_exercises',
+          user_id: user?.id,
+          plan_id: plan?.id,
+          workout_day: workoutDay,
+        });
+      } finally {
+        setLoadingCustomizations((prev) => ({ ...prev, [workoutDay]: false }));
+      }
+    },
+    [user?.id, plan?.id], // Removed loadingCustomizations from dependencies to prevent infinite loop
+  );
 
   // Wrap workout actions with Sentry tracking
   const handleStartWorkout = useCallback(async () => {
@@ -927,6 +1018,25 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
     }, [plan?.id, user?.id, isLoading, fetchCycleProgress, setCycleProgress]),
   );
 
+  // Load customized exercises when activeDay changes
+  useEffect(() => {
+    if (activeDay !== null && plan?.id && user?.id && !isLoading) {
+      loadCustomizedExercises(activeDay);
+    }
+  }, [activeDay, plan?.id, user?.id, isLoading]); // Removed loadCustomizedExercises from dependencies to prevent infinite loop
+
+  // Preload customized exercises for all workout days when plan loads
+  useEffect(() => {
+    if (plan?.workoutDays && user?.id && plan?.id && !isLoading) {
+      // Load customized exercises for all workout days
+      plan.workoutDays.forEach((workoutDay) => {
+        if (workoutDay.day) {
+          loadCustomizedExercises(workoutDay.day);
+        }
+      });
+    }
+  }, [plan?.workoutDays, plan?.id, user?.id, isLoading]);
+
   // Main render
   if (isLoading) {
     return <LoadingScreen embedded={embedded} />;
@@ -986,6 +1096,7 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
           selectedDate={selectedDate}
           plan={plan}
           cycleProgress={cycleProgress}
+          customizedExercises={customizedExercises}
           renderExerciseItem={renderExerciseItem}
           onBackToCurrentWeek={handleBackToCurrentWeek}
           onRedoWorkout={handleRedoWorkout}

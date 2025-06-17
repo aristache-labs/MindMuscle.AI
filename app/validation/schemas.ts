@@ -728,6 +728,12 @@ export const CheckWorkoutCompletionForCycleWeekSchema = z.object({
   cycleWeek: PositiveNumberSchema,
 });
 
+export const GetMostRecentCustomizedWorkoutStructureSchema = z.object({
+  userId: IdSchema,
+  planId: IdSchema,
+  workoutDay: PositiveNumberSchema,
+});
+
 // Add Exercise Modal validation schemas
 export const AddExerciseFormSchema = z.object({
   exercises: z.array(ExerciseConfigurationSchema).min(1, 'At least one exercise must be selected'),
@@ -1103,6 +1109,9 @@ export type GetLastCompletedWorkoutStructure = z.infer<
 >;
 export type CheckWorkoutCompletionForCycleWeek = z.infer<
   typeof CheckWorkoutCompletionForCycleWeekSchema
+>;
+export type GetMostRecentCustomizedWorkoutStructure = z.infer<
+  typeof GetMostRecentCustomizedWorkoutStructureSchema
 >;
 
 // Default export to satisfy Expo Router (this file should not be a route)

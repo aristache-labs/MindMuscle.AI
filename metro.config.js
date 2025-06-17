@@ -87,13 +87,6 @@ config.server = {
         return;
       }
 
-      // Log requests for debugging
-      if (process.env.NODE_ENV === 'development') {
-        console.log(
-          `[Metro] ${req.method} ${req.url} from ${req.headers['x-forwarded-for'] || req.connection.remoteAddress}`,
-        );
-      }
-
       return middleware(req, res, next);
     };
   },

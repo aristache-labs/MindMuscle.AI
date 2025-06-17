@@ -1,5 +1,5 @@
 # MindMuscle.AI
-
+Project started on 17 April 2025
 ![Logo](assets/icon.png)
 
 [![Build](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/MindMuscleAI/MindMuscle.AI/actions)

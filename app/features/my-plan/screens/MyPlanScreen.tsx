@@ -40,7 +40,7 @@ import {
   Plan,
   WorkoutDay,
 } from '../types';
-import { calculateWorkoutStats, updatePausedWorkoutWithCustomizations } from '../utils';
+import { calculateWorkoutStats } from '../utils';
 import supabase from '../../../services/supabase';
 
 // Loading Screen Component
@@ -482,15 +482,6 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
     setIsManualDateSelection,
   });
 
-  // Function to update paused workout with current exercise customizations
-  const updatePausedWorkoutWithCustomizationsCallback = useCallback(
-    async (pausedWorkoutData: PausedWorkout) => {
-      // SIMPLIFIED: No longer needs user, plan, or workoutPlanService parameters
-      return await updatePausedWorkoutWithCustomizations(pausedWorkoutData);
-    },
-    [], // No dependencies needed anymore
-  );
-
   // Use the workout actions hook
   const {
     handleStartWorkout: originalHandleStartWorkout,
@@ -501,13 +492,9 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
     activeDay,
     selectedDate,
     userWorkoutDays,
-    pausedWorkout,
-    hasPausedWorkout,
-    setPausedWorkout,
     setShowPausedWorkoutModal,
     setPausedWorkoutInfo,
     setHasAppliedCustomizations,
-    updatePausedWorkoutWithCustomizations: updatePausedWorkoutWithCustomizationsCallback,
   });
 
   // Wrap workout actions with Sentry tracking

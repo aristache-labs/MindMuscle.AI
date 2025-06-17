@@ -86,7 +86,6 @@ const usePlaceholderLogic = (
     const inputId = `${exercise.id}-${setIndex}-weight`;
     const isFocused = state.focusedInputs[inputId] || false;
     const hasCompletedSet = set.isCompleted || false;
-    const _hasValue = set.weight && set.weight !== '' && set.weight !== '-';
 
     const recommendedWeight = currentRecommendation?.recommended_weight?.toString();
     const suggestedValue = getSuggestedValue(exercise.exercise_id, setIndex + 1, 'weight');
@@ -113,12 +112,10 @@ const usePlaceholderLogic = (
     const inputId = `${exercise.id}-${setIndex}-reps`;
     const isFocused = state.focusedInputs[inputId] || false;
     const hasCompletedSet = set.isCompleted || false;
-    const _hasValue = set.reps && set.reps !== '' && set.reps !== '-';
 
     const recommendedReps = currentRecommendation?.recommended_reps?.toString();
     const lastReps = state.lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.reps;
     const exerciseRepsRange = exercise.reps_range;
-    const _isCustomized = state.exerciseCustomized[exercise.id];
 
     if (isFocused || hasCompletedSet) {
       return '';

@@ -5,22 +5,16 @@ import { format } from 'date-fns';
 import { useAuth } from '../../../store/AuthContext';
 import supabase from '../../../services/supabase';
 import workoutPlanService from '../../../services/workoutPlanService';
-import { Plan, PausedWorkout, PausedWorkoutInfo } from '../types';
+import { Plan, PausedWorkoutInfo } from '../types';
 
 interface UseWorkoutActionsProps {
   plan: Plan | null;
   activeDay: number | null;
   selectedDate: Date;
   userWorkoutDays: number[];
-  pausedWorkout: PausedWorkout | null;
-  hasPausedWorkout: boolean;
-  setPausedWorkout: (workout: PausedWorkout | null) => void;
   setShowPausedWorkoutModal: (show: boolean) => void;
   setPausedWorkoutInfo: (info: PausedWorkoutInfo) => void;
   setHasAppliedCustomizations: (applied: boolean) => void;
-  updatePausedWorkoutWithCustomizations: (
-    pausedWorkoutData: PausedWorkout,
-  ) => Promise<PausedWorkout>;
 }
 
 export const useWorkoutActions = ({
@@ -28,13 +22,9 @@ export const useWorkoutActions = ({
   activeDay,
   selectedDate,
   userWorkoutDays,
-  pausedWorkout,
-  hasPausedWorkout,
-  setPausedWorkout,
   setShowPausedWorkoutModal,
   setPausedWorkoutInfo,
   setHasAppliedCustomizations,
-  updatePausedWorkoutWithCustomizations,
 }: UseWorkoutActionsProps) => {
   const router = useRouter();
   const { user } = useAuth();
@@ -140,59 +130,56 @@ export const useWorkoutActions = ({
 
   // Handle resuming a paused workout
   const handleResumeWorkout = useCallback(async () => {
-    if (!user || !plan || !hasPausedWorkout || !pausedWorkout || activeDay === null) {
-      Alert.alert('Error', 'No paused workout found for this day');
+    if (!user || !plan) {
+      Alert.alert('Error', 'User or plan not available');
       return;
     }
 
     try {
-      // SIMPLIFIED: No need to update paused workout - just use it as-is
-      console.log('RESUME: Using paused workout data exactly as saved');
-      const updatedPausedWorkout = pausedWorkout;
+      // Fetch the most recent paused workout directly from database to avoid UI state issues
+      const { data, error } = await supabase
+        .from('user_paused_workouts')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('plan_id', plan.id)
+        .order('paused_at', { ascending: false })
+        .limit(1);
+
+      if (error) {
+        console.error('Error fetching paused workout:', error);
+        Alert.alert('Error', 'Failed to fetch paused workout');
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        Alert.alert('Error', 'No paused workout found');
+        return;
+      }
+
+      const pausedWorkoutData = data[0];
+      console.log('RESUME: Fetched paused workout data directly from database');
       setHasAppliedCustomizations(true);
 
-      // SIMPLIFIED: Just navigate directly since paused workout is already saved correctly
+      // Use the paused workout's cycle information directly
+      const pausedCycleWeek = pausedWorkoutData.cycle_week || 1;
+      const pausedWeekName = pausedWorkoutData.week_name || 'Adaptation';
 
-      // Get the cycle week from the selected date
-      const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
-      const markedDatesObj = workoutPlanService.setupCalendarDatesProgressive(
-        plan.start_date,
-        plan.workoutDays.length,
-        userWorkoutDays,
-        { primary: '#7B69EE' },
-      );
-
-      const selectedDateInfo = markedDatesObj[selectedDateStr];
-      const selectedCycleWeek = selectedDateInfo?.cycleWeek || 1;
-      const selectedWeekName = selectedDateInfo?.weekName || 'Adaptation';
-
-      // Navigate to workout session
+      // Navigate to workout session with the paused workout's data
       router.push({
         pathname: '/(stack)/workout-session',
         params: {
           planId: plan.id,
-          workoutDay: updatedPausedWorkout.workoutDay || activeDay,
-          cycleWeek: selectedCycleWeek,
-          weekName: selectedWeekName,
+          workoutDay: pausedWorkoutData.workout_day,
+          cycleWeek: pausedCycleWeek,
+          weekName: pausedWeekName,
           forceResume: 'true',
         },
       });
-    } catch {
+    } catch (error) {
+      console.error('Error in handleResumeWorkout:', error);
       Alert.alert('Error', 'Failed to resume workout');
     }
-  }, [
-    user,
-    plan,
-    hasPausedWorkout,
-    pausedWorkout,
-    activeDay,
-    updatePausedWorkoutWithCustomizations,
-    setHasAppliedCustomizations,
-    setPausedWorkout,
-    selectedDate,
-    userWorkoutDays,
-    router,
-  ]);
+  }, [user, plan, setHasAppliedCustomizations, router]);
 
   // Handle redoing a workout
   const handleRedoWorkout = useCallback(async () => {

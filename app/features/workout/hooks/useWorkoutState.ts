@@ -671,12 +671,8 @@ export const useWorkoutState = ({
         try {
           setIsLoading(true);
 
-          // Try to get the paused workout
-          const pausedWorkout = await workoutPlanService.getPausedWorkout(
-            user?.id || '',
-            planId,
-            workoutDay,
-          );
+          // Try to get the paused workout (don't filter by workoutDay when resuming)
+          const pausedWorkout = await workoutPlanService.getPausedWorkout(user?.id || '', planId);
 
           if (pausedWorkout) {
             // Directly resume the paused workout

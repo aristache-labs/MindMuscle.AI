@@ -212,6 +212,7 @@ export const styles = StyleSheet.create({
     paddingTop: SPACING.md,
   },
   exerciseCardsContainer: {
+    paddingTop: SPACING.xs,
     paddingBottom: SPACING.xs,
     paddingHorizontal: SPACING.xs,
   },

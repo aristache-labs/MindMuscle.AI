@@ -247,20 +247,6 @@ export default function AddExerciseModal({
   const handleExerciseToggle = useCallback(
     (exerciseId: string) => {
       try {
-        // Don't allow selecting exercises that are already in the workout
-        if (isExerciseAlreadyAdded(exerciseId)) {
-          Sentry.addBreadcrumb({
-            message: 'Attempted to select already added exercise',
-            category: 'user.interaction',
-            level: 'info',
-            data: {
-              exerciseId,
-              action: 'exercise_already_added',
-            },
-          });
-          return;
-        }
-
         setSelectedExerciseIds((prev) => {
           const newSet = new Set(prev);
           const wasSelected = newSet.has(exerciseId);
@@ -295,7 +281,7 @@ export default function AddExerciseModal({
         );
       }
     },
-    [selectedMuscleGroup, currentStep, isExerciseAlreadyAdded],
+    [selectedMuscleGroup, currentStep],
   );
 
   const handleStep2Next = useCallback(async () => {

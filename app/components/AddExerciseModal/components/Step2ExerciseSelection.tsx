@@ -104,6 +104,11 @@ export const Step2ExerciseSelection = ({
 
   const { filteredExercises } = useExerciseFiltering(exercises, searchState.searchQuery);
 
+  // Filter out exercises that are already added to the workout
+  const availableExercises = filteredExercises.filter(
+    (exercise) => !isExerciseAlreadyAdded?.(exercise.id),
+  );
+
   const emptyComponent = () => (
     <View style={styles.emptyContainer}>
       <MaterialIcons name="search-off" size={48} color="rgba(255,255,255,0.5)" />
@@ -125,12 +130,12 @@ export const Step2ExerciseSelection = ({
       ) : (
         <ScrollView style={styles.exerciseGrid} showsVerticalScrollIndicator={false}>
           <View style={styles.exerciseCardsContainer}>
-            {filteredExercises.length === 0
+            {availableExercises.length === 0
               ? emptyComponent()
-              : Array.from({ length: Math.ceil(filteredExercises.length / 2) }).map(
+              : Array.from({ length: Math.ceil(availableExercises.length / 2) }).map(
                   (_, rowIndex) => {
                     const startIdx = rowIndex * 2;
-                    const rowItems = filteredExercises.slice(startIdx, startIdx + 2);
+                    const rowItems = availableExercises.slice(startIdx, startIdx + 2);
 
                     return (
                       <View key={`row-${rowIndex}`} style={styles.exerciseRow}>
@@ -145,19 +150,19 @@ export const Step2ExerciseSelection = ({
                                   : FALLBACK_IMAGE_OBJECT
                               }
                               isFavorite={favoriteExerciseIds.has(exercise.id)}
-                              onPress={() => onExerciseToggle(exercise.id)}
-                              onToggleFavorite={() => {}}
+                              onPress={() => {
+                                // Simple toggle - no need for checks since we've filtered out unavailable exercises
+                                onExerciseToggle(exercise.id);
+                              }}
+                              onToggleFavorite={() => {}} // No-op function as requested
                               useOptimizedImage={true}
-                              disabled={isExerciseAlreadyAdded?.(exercise.id) || false}
-                              disabledReason="Already in workout"
+                              showWrapper={false}
                             />
                             {selectedExercises.has(exercise.id) && (
-                              <View style={styles.selectedOverlay}>
-                                <Ionicons
-                                  name="checkmark-circle"
-                                  size={24}
-                                  color={COLORS.primary}
-                                />
+                              <View style={styles.selectedOverlay} pointerEvents="none">
+                                <View style={styles.selectedOverlayIcon}>
+                                  <Ionicons name="checkmark" size={20} color={COLORS.primary} />
+                                </View>
                               </View>
                             )}
                           </View>

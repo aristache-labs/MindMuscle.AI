@@ -7,6 +7,7 @@ import ExerciseCard from '../../ExerciseCard';
 import { FALLBACK_IMAGE_OBJECT } from '../constants';
 import { useExerciseFiltering, useSearchState } from '../hooks';
 import { styles } from '../styles';
+import { MaterialIcons } from '@expo/vector-icons';
 
 export const StepFavorites = ({
   selectedExercises,
@@ -59,31 +60,21 @@ export const StepFavorites = ({
 
   const { filteredExercises } = useExerciseFiltering(favoriteExercises, searchState.searchQuery);
 
-  const getEmptyStateText = () => {
-    if (searchState.searchQuery.trim()) {
-      return 'No favorite exercises match your search';
-    }
-    if (selectedMuscleGroup) {
-      return `No favorite ${selectedMuscleGroup.toLowerCase()} exercises found`;
-    }
-    return 'No favorite exercises found';
-  };
-
-  const getEmptyStateSubtext = () => {
-    if (searchState.searchQuery.trim()) {
-      return 'Try adjusting your search terms';
-    }
-    if (selectedMuscleGroup) {
-      return `Mark ${selectedMuscleGroup.toLowerCase()} exercises as favorites to see them here`;
-    }
-    return 'Mark exercises as favorites to see them here';
-  };
+  // Filter out exercises that are already added to the workout
+  const availableExercises = filteredExercises.filter(
+    (exercise) => !isExerciseAlreadyAdded?.(exercise.id),
+  );
 
   const emptyComponent = () => (
-    <View style={styles.emptyFavoritesContainer}>
-      <Ionicons name="star-outline" size={64} color={COLORS.placeholder} />
-      <Text style={styles.emptyFavoritesTitle}>{getEmptyStateText()}</Text>
-      <Text style={styles.emptyFavoritesText}>{getEmptyStateSubtext()}</Text>
+    <View style={styles.emptyContainer}>
+      <MaterialIcons name="search-off" size={48} color="rgba(255,255,255,0.5)" />
+      <Text style={styles.emptyText}>
+        {searchState.searchQuery.trim()
+          ? 'No favorite exercises match your search'
+          : selectedMuscleGroup
+            ? `No favorite ${selectedMuscleGroup.toLowerCase()} exercises`
+            : 'No favorite exercises'}
+      </Text>
     </View>
   );
 
@@ -97,12 +88,12 @@ export const StepFavorites = ({
       ) : (
         <ScrollView style={styles.exerciseGrid} showsVerticalScrollIndicator={false}>
           <View style={styles.exerciseCardsContainer}>
-            {filteredExercises.length === 0
+            {availableExercises.length === 0
               ? emptyComponent()
-              : Array.from({ length: Math.ceil(filteredExercises.length / 2) }).map(
+              : Array.from({ length: Math.ceil(availableExercises.length / 2) }).map(
                   (_, rowIndex) => {
                     const startIdx = rowIndex * 2;
-                    const rowItems = filteredExercises.slice(startIdx, startIdx + 2);
+                    const rowItems = availableExercises.slice(startIdx, startIdx + 2);
 
                     return (
                       <View key={`row-${rowIndex}`} style={styles.exerciseRow}>
@@ -117,19 +108,19 @@ export const StepFavorites = ({
                                   : FALLBACK_IMAGE_OBJECT
                               }
                               isFavorite={true}
-                              onPress={() => onExerciseToggle(exercise.id)}
-                              onToggleFavorite={() => {}}
+                              onPress={() => {
+                                // Simple toggle - no need for checks since we've filtered out unavailable exercises
+                                onExerciseToggle(exercise.id);
+                              }}
+                              onToggleFavorite={() => {}} // No-op function as requested
                               useOptimizedImage={true}
-                              disabled={isExerciseAlreadyAdded?.(exercise.id) || false}
-                              disabledReason="Already in workout"
+                              showWrapper={false}
                             />
                             {selectedExercises.has(exercise.id) && (
-                              <View style={styles.selectedOverlay}>
-                                <Ionicons
-                                  name="checkmark-circle"
-                                  size={24}
-                                  color={COLORS.primary}
-                                />
+                              <View style={styles.selectedOverlay} pointerEvents="none">
+                                <View style={styles.selectedOverlayIcon}>
+                                  <Ionicons name="checkmark" size={20} color={COLORS.primary} />
+                                </View>
                               </View>
                             )}
                           </View>

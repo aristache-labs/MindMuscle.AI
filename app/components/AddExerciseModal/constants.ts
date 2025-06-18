@@ -1,5 +1,28 @@
 import { MuscleGroup } from './types';
 
+export const MUSCLE_GROUP_ALIASES: Record<string, string[]> = {
+  Chest: ['pecs', 'pectorals', 'chest muscles'],
+  Biceps: ['bis', 'guns', 'arms'],
+  Triceps: ['tris', 'back of arms'],
+  Abs: ['abdominals', 'six pack', 'core', 'stomach', 'midsection'],
+  Shoulders: ['delts', 'deltoids'],
+  Lats: ['latissimus dorsi', 'wings', 'back'],
+  Quads: ['quadriceps', 'front thighs'],
+  Hamstrings: ['hammies', 'back thighs'],
+  Glutes: ['gluteus maximus', 'butt', 'buttocks'],
+  Calves: ['calf muscles', 'lower legs'],
+  Forearms: ['lower arms'],
+  Lower_back: [
+    'lower back',
+    'erectorspinae',
+    'erector-spinae',
+    'erector',
+    'lower_back',
+    'lowerback',
+  ],
+  Traps: ['trapezius', 'upper back'],
+};
+
 export const muscleGroups: MuscleGroup[] = [
   // Front view muscles
   {

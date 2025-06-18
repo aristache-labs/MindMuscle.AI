@@ -15,6 +15,75 @@ import * as Sentry from '@sentry/react-native';
 import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import OptimizedImage from './OptimizedImage';
 
+// Helper functions to reduce component complexity
+const logSentryBreadcrumb = (message: string, category: string, data: Record<string, unknown>) => {
+  try {
+    Sentry.addBreadcrumb({
+      message,
+      category,
+      level: 'info',
+      data,
+    });
+  } catch (error) {
+    console.warn('Failed to log Sentry breadcrumb:', error);
+  }
+};
+
+const captureSentryException = (
+  error: unknown,
+  tags: Record<string, string>,
+  extra: Record<string, unknown>,
+) => {
+  Sentry.captureException(error, { tags, extra });
+  console.error('Error in ExerciseCard:', error);
+};
+
+const determineImageSource = (
+  image: ExerciseCardProps['image'],
+  exerciseId: string,
+  exerciseName: string,
+) => {
+  try {
+    if (typeof image === 'number') {
+      return image;
+    }
+    if (image && typeof image === 'object' && 'uri' in image && image.uri) {
+      return { uri: image.uri };
+    }
+    return require('../../assets/exercises/placeholder.jpg');
+  } catch (error) {
+    captureSentryException(
+      error,
+      { component: 'ExerciseCard', action: 'imageSource' },
+      { exerciseId, exerciseName, imageType: typeof image, image: JSON.stringify(image) },
+    );
+    return require('../../assets/exercises/placeholder.jpg');
+  }
+};
+
+const FavoriteButton = ({
+  isFavorite,
+  favoriteReadOnly,
+  onToggleFavorite,
+}: {
+  isFavorite: boolean;
+  favoriteReadOnly: boolean;
+  onToggleFavorite: () => void;
+}) => {
+  const iconName = isFavorite ? 'star' : 'star-outline';
+  const iconColor = isFavorite ? '#FFD700' : 'rgba(255,255,255,0.8)';
+
+  return favoriteReadOnly ? (
+    <View style={styles.favoriteButton}>
+      <MaterialIcons name={iconName} size={26} color={iconColor} />
+    </View>
+  ) : (
+    <TouchableOpacity style={styles.favoriteButton} onPress={onToggleFavorite} activeOpacity={0.7}>
+      <MaterialIcons name={iconName} size={26} color={iconColor} />
+    </TouchableOpacity>
+  );
+};
+
 interface ExerciseCardProps {
   id: string;
   name: string;
@@ -24,6 +93,7 @@ interface ExerciseCardProps {
   onToggleFavorite: (exerciseId: string) => void;
   useOptimizedImage?: boolean;
   hideFavoriteButton?: boolean;
+  favoriteReadOnly?: boolean;
   disabled?: boolean;
   disabledReason?: string;
   showWrapper?: boolean;
@@ -59,6 +129,7 @@ const arePropsEqual = (prevProps: ExerciseCardProps, nextProps: ExerciseCardProp
     prevProps.name === nextProps.name &&
     prevProps.isFavorite === nextProps.isFavorite &&
     prevProps.hideFavoriteButton === nextProps.hideFavoriteButton &&
+    prevProps.favoriteReadOnly === nextProps.favoriteReadOnly &&
     prevProps.disabled === nextProps.disabled &&
     prevProps.disabledReason === nextProps.disabledReason &&
     imageEquals
@@ -75,147 +146,71 @@ const ExerciseCard = memo(
     onToggleFavorite,
     useOptimizedImage = true,
     hideFavoriteButton = false,
+    favoriteReadOnly = false,
     disabled = false,
     disabledReason = '',
     showWrapper = true,
   }: ExerciseCardProps) => {
     // Track component lifecycle with Sentry
     useEffect(() => {
-      try {
-        Sentry.addBreadcrumb({
-          message: 'ExerciseCard mounted',
-          category: 'component',
-          level: 'info',
-          data: {
-            exerciseId: id,
-            exerciseName: name,
-            isFavorite,
-            hideFavoriteButton,
-            useOptimizedImage,
-          },
-        });
-      } catch (error) {
-        console.warn('Failed to log Sentry breadcrumb for ExerciseCard mount:', error);
-      }
+      logSentryBreadcrumb('ExerciseCard mounted', 'component', {
+        exerciseId: id,
+        exerciseName: name,
+        isFavorite,
+        hideFavoriteButton,
+        useOptimizedImage,
+      });
 
       return () => {
-        try {
-          Sentry.addBreadcrumb({
-            message: 'ExerciseCard unmounted',
-            category: 'component',
-            level: 'info',
-            data: {
-              exerciseId: id,
-              exerciseName: name,
-            },
-          });
-        } catch (error) {
-          console.warn('Failed to log Sentry breadcrumb for ExerciseCard unmount:', error);
-        }
+        logSentryBreadcrumb('ExerciseCard unmounted', 'component', {
+          exerciseId: id,
+          exerciseName: name,
+        });
       };
     }, [id, name, isFavorite, hideFavoriteButton, useOptimizedImage]);
 
     const handlePress = useCallback(() => {
-      // Don't handle press if disabled
-      if (disabled) {
-        return;
-      }
+      if (disabled) return;
 
       try {
-        Sentry.addBreadcrumb({
-          message: 'Exercise card pressed',
-          category: 'user.interaction',
-          level: 'info',
-          data: {
-            exerciseId: id,
-            exerciseName: name,
-            action: 'card_press',
-          },
+        logSentryBreadcrumb('Exercise card pressed', 'user.interaction', {
+          exerciseId: id,
+          exerciseName: name,
+          action: 'card_press',
         });
-
         onPress(id);
       } catch (error) {
-        Sentry.captureException(error, {
-          tags: {
-            component: 'ExerciseCard',
-            action: 'handlePress',
-          },
-          extra: {
-            exerciseId: id,
-            exerciseName: name,
-          },
-        });
-        console.error('Error in ExerciseCard handlePress:', error);
+        captureSentryException(
+          error,
+          { component: 'ExerciseCard', action: 'handlePress' },
+          { exerciseId: id, exerciseName: name },
+        );
       }
     }, [id, onPress, name, disabled]);
 
     const handleToggleFavorite = useCallback(() => {
-      // Don't handle favorite toggle if disabled
-      if (disabled) {
-        return;
-      }
+      if (disabled) return;
 
       try {
-        Sentry.addBreadcrumb({
-          message: 'Exercise favorite toggled',
-          category: 'user.interaction',
-          level: 'info',
-          data: {
-            exerciseId: id,
-            exerciseName: name,
-            action: 'toggle_favorite',
-            wasAlreadyFavorite: isFavorite,
-            newFavoriteState: !isFavorite,
-          },
+        logSentryBreadcrumb('Exercise favorite toggled', 'user.interaction', {
+          exerciseId: id,
+          exerciseName: name,
+          action: 'toggle_favorite',
+          wasAlreadyFavorite: isFavorite,
+          newFavoriteState: !isFavorite,
         });
-
         onToggleFavorite(id);
       } catch (error) {
-        Sentry.captureException(error, {
-          tags: {
-            component: 'ExerciseCard',
-            action: 'handleToggleFavorite',
-          },
-          extra: {
-            exerciseId: id,
-            exerciseName: name,
-            isFavorite,
-          },
-        });
-        console.error('Error in ExerciseCard handleToggleFavorite:', error);
+        captureSentryException(
+          error,
+          { component: 'ExerciseCard', action: 'handleToggleFavorite' },
+          { exerciseId: id, exerciseName: name, isFavorite },
+        );
       }
     }, [id, onToggleFavorite, name, isFavorite, disabled]);
 
     // Determine the image source
-    const imageSource = (() => {
-      try {
-        // Handle number (local require)
-        if (typeof image === 'number') {
-          return image;
-        }
-        // Handle object with uri property
-        if (image && typeof image === 'object' && 'uri' in image && image.uri) {
-          return { uri: image.uri };
-        }
-        // Default fallback
-        return require('../../assets/exercises/placeholder.jpg');
-      } catch (error) {
-        Sentry.captureException(error, {
-          tags: {
-            component: 'ExerciseCard',
-            action: 'imageSource',
-          },
-          extra: {
-            exerciseId: id,
-            exerciseName: name,
-            imageType: typeof image,
-            image: JSON.stringify(image),
-          },
-        });
-        console.error('Error determining image source in ExerciseCard:', error);
-        return require('../../assets/exercises/placeholder.jpg');
-      }
-    })();
+    const imageSource = determineImageSource(image, id, name);
 
     const cardContent = (
       <Surface style={[styles.card, disabled && styles.disabledCard]} elevation={2}>
@@ -256,17 +251,11 @@ const ExerciseCard = memo(
 
               {/* Favorite button overlay */}
               {!hideFavoriteButton && !disabled && (
-                <TouchableOpacity
-                  style={styles.favoriteButton}
-                  onPress={handleToggleFavorite}
-                  activeOpacity={0.7}
-                >
-                  <MaterialIcons
-                    name={isFavorite ? 'star' : 'star-outline'}
-                    size={26}
-                    color={isFavorite ? '#FFD700' : 'rgba(255,255,255,0.8)'}
-                  />
-                </TouchableOpacity>
+                <FavoriteButton
+                  isFavorite={isFavorite}
+                  favoriteReadOnly={favoriteReadOnly}
+                  onToggleFavorite={handleToggleFavorite}
+                />
               )}
             </View>
 

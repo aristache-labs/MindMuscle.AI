@@ -198,6 +198,7 @@ export const StepAllExercises = ({
                                 onExerciseToggle(exercise.id);
                               }}
                               onToggleFavorite={() => {}} // No-op function as requested
+                              favoriteReadOnly={true}
                               useOptimizedImage={true}
                               showWrapper={false}
                             />

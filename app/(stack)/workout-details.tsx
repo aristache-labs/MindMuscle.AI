@@ -10,6 +10,11 @@ import {
   Dimensions,
   Easing,
 } from 'react-native';
+import {
+  PanGestureHandler,
+  State,
+  PanGestureHandlerGestureEvent,
+} from 'react-native-gesture-handler';
 import { Surface, IconButton, Divider } from 'react-native-paper';
 import { Stack, useLocalSearchParams, router } from 'expo-router';
 import { format, startOfWeek, addDays, parseISO } from 'date-fns';
@@ -48,19 +53,30 @@ export default function WorkoutDetailsScreen() {
   const [selectedWeekDate, setSelectedWeekDate] = useState<Date>(
     selectedDate ? parseISO(selectedDate) : new Date(),
   );
+  const [currentSelectedDate, setCurrentSelectedDate] = useState<string>(selectedDate);
   const [workoutDetails, setWorkoutDetails] = useState<WorkoutDetails[]>([]);
+  const [workoutDates, setWorkoutDates] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Animation values
   const slideAnim = useRef(new Animated.Value(screenWidth)).current; // Start from right side
   const opacityAnim = useRef(new Animated.Value(0)).current; // Start transparent
+  const weekCalendarOpacity = useRef(new Animated.Value(1)).current; // Week calendar fade animation
 
+  // Load workout details only when selected date changes
   useEffect(() => {
-    if (selectedDate && user?.id) {
+    if (currentSelectedDate && user?.id) {
       loadWorkoutDetails();
     }
-  }, [selectedDate, user?.id]);
+  }, [currentSelectedDate, user?.id]);
+
+  // Load workout dates for calendar when week changes
+  useEffect(() => {
+    if (user?.id) {
+      loadWorkoutDatesForWeek();
+    }
+  }, [selectedWeekDate, user?.id]);
 
   // Slide-in animation when component mounts
   useEffect(() => {
@@ -98,8 +114,9 @@ export default function WorkoutDetailsScreen() {
     };
   }, [slideAnim, opacityAnim]);
 
-  const loadWorkoutDetails = async () => {
-    if (!user?.id || !selectedDate) return;
+  const loadWorkoutDetails = async (dateToLoad?: string) => {
+    const targetDate = dateToLoad || currentSelectedDate;
+    if (!user?.id || !targetDate) return;
 
     try {
       setLoading(true);
@@ -111,7 +128,7 @@ export default function WorkoutDetailsScreen() {
         data: {
           component: 'WorkoutDetailsScreen',
           user_id: user.id,
-          selected_date: selectedDate,
+          selected_date: targetDate,
         },
       });
 
@@ -120,18 +137,18 @@ export default function WorkoutDetailsScreen() {
         .from('user_workout_history')
         .select(
           `
-          id,
-          workout_day,
-          completed_at,
-          workout_duration,
-          total_volume,
-          calories_burned,
-          week_name
-        `,
+            id,
+            workout_day,
+            completed_at,
+            workout_duration,
+            total_volume,
+            calories_burned,
+            week_name
+          `,
         )
         .eq('user_id', user.id)
-        .gte('completed_at', `${selectedDate}T00:00:00.000Z`)
-        .lt('completed_at', `${selectedDate}T23:59:59.999Z`)
+        .gte('completed_at', `${targetDate}T00:00:00.000Z`)
+        .lt('completed_at', `${targetDate}T23:59:59.999Z`)
         .order('completed_at', { ascending: false });
 
       if (historyError) throw historyError;
@@ -217,7 +234,7 @@ export default function WorkoutDetailsScreen() {
       SentryDataCollection.captureException(err as Error, {
         component: 'WorkoutDetailsScreen',
         action: 'load_workout_details_error',
-        selected_date: selectedDate,
+        selected_date: targetDate,
       });
 
       SentryLogger.error('Error loading workout details', {
@@ -226,6 +243,51 @@ export default function WorkoutDetailsScreen() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadWorkoutDatesForWeek = async (weekDate?: Date) => {
+    if (!user?.id) return;
+
+    try {
+      const targetWeekDate = weekDate || selectedWeekDate;
+      const weekStartDate = startOfWeek(targetWeekDate, { weekStartsOn: 1 });
+      const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStartDate, i));
+      const startDate = format(weekDates[0], 'yyyy-MM-dd');
+      const endDate = format(weekDates[6], 'yyyy-MM-dd');
+
+      const { data: workoutHistory, error } = await supabase
+        .from('user_workout_history')
+        .select('completed_at')
+        .eq('user_id', user.id)
+        .gte('completed_at', `${startDate}T00:00:00.000Z`)
+        .lte('completed_at', `${endDate}T23:59:59.999Z`);
+
+      if (error) throw error;
+
+      const workoutDateSet = new Set<string>();
+      workoutHistory?.forEach((workout) => {
+        const workoutDate = format(new Date(workout.completed_at), 'yyyy-MM-dd');
+        workoutDateSet.add(workoutDate);
+      });
+
+      setWorkoutDates(workoutDateSet);
+
+      SentryDataCollection.addBreadcrumb({
+        message: 'Workout dates for week loaded',
+        category: 'data.load',
+        data: {
+          component: 'WorkoutDetailsScreen',
+          week_start: startDate,
+          week_end: endDate,
+          workout_dates_count: workoutDateSet.size,
+        },
+      });
+    } catch (err) {
+      SentryLogger.error('Error loading workout dates for week', {
+        error: err as Error,
+        component: 'WorkoutDetailsScreen',
+      });
     }
   };
 
@@ -272,24 +334,128 @@ export default function WorkoutDetailsScreen() {
 
   const handleDatePress = (date: Date) => {
     const dateString = format(date, 'yyyy-MM-dd');
-    setSelectedWeekDate(date);
 
-    // Navigate to the same screen with new date
-    router.replace({
-      pathname: '/(stack)/workout-details',
-      params: { date: dateString },
+    // Only update the selected week date if it's different
+    if (format(selectedWeekDate, 'yyyy-MM-dd') !== dateString) {
+      setSelectedWeekDate(date);
+    }
+
+    // Update the current selected date (this will trigger workout details loading via useEffect)
+    setCurrentSelectedDate(dateString);
+
+    SentryDataCollection.addBreadcrumb({
+      message: 'Date selected in workout details',
+      category: 'ui.interaction',
+      data: {
+        component: 'WorkoutDetailsScreen',
+        selected_date: dateString,
+        interaction_type: 'date_press',
+      },
     });
+  };
+
+  const animateWeekChange = (callback: () => void) => {
+    Animated.sequence([
+      // Fade out
+      Animated.timing(weekCalendarOpacity, {
+        toValue: 0.3,
+        duration: 150,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }),
+      // Fade back in
+      Animated.timing(weekCalendarOpacity, {
+        toValue: 1,
+        duration: 200,
+        easing: Easing.in(Easing.ease),
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // Execute the callback during the fade-out
+    setTimeout(callback, 75);
   };
 
   const handleTodayPress = () => {
     const today = new Date();
     const todayString = format(today, 'yyyy-MM-dd');
-    setSelectedWeekDate(today);
 
-    router.replace({
-      pathname: '/(stack)/workout-details',
-      params: { date: todayString },
+    // Check if we need to change weeks
+    const currentWeekStart = startOfWeek(selectedWeekDate, { weekStartsOn: 1 });
+    const todayWeekStart = startOfWeek(today, { weekStartsOn: 1 });
+    const needsWeekChange = currentWeekStart.getTime() !== todayWeekStart.getTime();
+
+    if (needsWeekChange) {
+      // Animate week change
+      animateWeekChange(() => {
+        // Update the selected week date to today's week
+        setSelectedWeekDate(today);
+        // Load workout dates for today's week
+        loadWorkoutDatesForWeek(today);
+      });
+    } else {
+      // Just update the selected week date for consistency
+      setSelectedWeekDate(today);
+    }
+
+    // Update the current selected date (this will trigger workout details loading via useEffect)
+    setCurrentSelectedDate(todayString);
+
+    SentryDataCollection.addBreadcrumb({
+      message: 'Today button pressed in workout details',
+      category: 'ui.interaction',
+      data: {
+        component: 'WorkoutDetailsScreen',
+        selected_date: todayString,
+        interaction_type: 'today_button',
+        week_changed: needsWeekChange,
+      },
     });
+  };
+
+  const handleWeekSwipe = (event: PanGestureHandlerGestureEvent) => {
+    const { translationX, state } = event.nativeEvent;
+    const swipeThreshold = 50; // Minimum distance for swipe detection
+
+    if (state === State.END) {
+      if (translationX > swipeThreshold) {
+        // Swipe right - go to previous week
+        const previousWeek = addDays(selectedWeekDate, -7);
+
+        animateWeekChange(() => {
+          setSelectedWeekDate(previousWeek);
+          loadWorkoutDatesForWeek(previousWeek);
+        });
+
+        SentryDataCollection.addBreadcrumb({
+          message: 'Week changed via swipe gesture',
+          category: 'ui.gesture',
+          data: {
+            component: 'WorkoutDetailsScreen',
+            direction: 'previous',
+            gesture_type: 'swipe_right',
+          },
+        });
+      } else if (translationX < -swipeThreshold) {
+        // Swipe left - go to next week
+        const nextWeek = addDays(selectedWeekDate, 7);
+
+        animateWeekChange(() => {
+          setSelectedWeekDate(nextWeek);
+          loadWorkoutDatesForWeek(nextWeek);
+        });
+
+        SentryDataCollection.addBreadcrumb({
+          message: 'Week changed via swipe gesture',
+          category: 'ui.gesture',
+          data: {
+            component: 'WorkoutDetailsScreen',
+            direction: 'next',
+            gesture_type: 'swipe_left',
+          },
+        });
+      }
+    }
   };
 
   const handleBackPress = () => {
@@ -361,50 +527,111 @@ export default function WorkoutDetailsScreen() {
           contentContainerStyle={styles.scrollContent}
         >
           {/* Week Calendar */}
-          <Surface style={styles.weekCalendarContainer} elevation={2}>
-            <View style={styles.weekHeader}>
-              <Text style={styles.weekRange}>
-                {format(weekDates[0], 'MM/dd/yy')} - {format(weekDates[6], 'MM/dd/yy')}
-              </Text>
-              <Pressable onPress={handleTodayPress} style={styles.todayButton}>
-                <Text style={styles.todayButtonText}>Today</Text>
-              </Pressable>
-            </View>
+          <PanGestureHandler
+            onGestureEvent={handleWeekSwipe}
+            onHandlerStateChange={handleWeekSwipe}
+          >
+            <Surface style={styles.weekCalendarContainer} elevation={2}>
+              <View style={styles.weekHeader}>
+                <Pressable
+                  onPress={() => {
+                    const previousWeek = addDays(selectedWeekDate, -7);
 
-            <View style={styles.weekDays}>
-              {weekDates.map((date, index) => {
-                const isSelected = selectedDate === format(date, 'yyyy-MM-dd');
-                const isToday = format(date, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd');
-                const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                    animateWeekChange(() => {
+                      setSelectedWeekDate(previousWeek);
+                      loadWorkoutDatesForWeek(previousWeek);
+                    });
 
-                return (
+                    SentryDataCollection.addBreadcrumb({
+                      message: 'Week changed via arrow button',
+                      category: 'ui.interaction',
+                      data: {
+                        component: 'WorkoutDetailsScreen',
+                        direction: 'previous',
+                        interaction_type: 'arrow_button',
+                      },
+                    });
+                  }}
+                  style={styles.weekNavButton}
+                >
+                  <Text style={styles.weekNavButtonText}>‹</Text>
+                </Pressable>
+
+                <Text style={styles.weekRange}>
+                  {format(weekDates[0], 'MM/dd/yy')} - {format(weekDates[6], 'MM/dd/yy')}
+                </Text>
+
+                <View style={styles.weekHeaderRight}>
                   <Pressable
-                    key={index}
-                    style={[styles.dayContainer, isSelected && styles.selectedDay]}
-                    onPress={() => handleDatePress(date)}
+                    onPress={() => {
+                      const nextWeek = addDays(selectedWeekDate, 7);
+
+                      animateWeekChange(() => {
+                        setSelectedWeekDate(nextWeek);
+                        loadWorkoutDatesForWeek(nextWeek);
+                      });
+
+                      SentryDataCollection.addBreadcrumb({
+                        message: 'Week changed via arrow button',
+                        category: 'ui.interaction',
+                        data: {
+                          component: 'WorkoutDetailsScreen',
+                          direction: 'next',
+                          interaction_type: 'arrow_button',
+                        },
+                      });
+                    }}
+                    style={styles.weekNavButton}
                   >
-                    <Text style={[styles.dayName, isSelected && styles.selectedDayText]}>
-                      {dayNames[date.getDay()]}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.dayNumber,
-                        isToday && styles.todayNumber,
-                        isSelected && styles.selectedDayText,
-                      ]}
-                    >
-                      {format(date, 'd')}
-                    </Text>
+                    <Text style={styles.weekNavButtonText}>›</Text>
                   </Pressable>
-                );
-              })}
-            </View>
-          </Surface>
+
+                  <Pressable onPress={handleTodayPress} style={styles.todayButton}>
+                    <Text style={styles.todayButtonText}>Today</Text>
+                  </Pressable>
+                </View>
+              </View>
+
+              <Animated.View style={[styles.weekDaysContainer, { opacity: weekCalendarOpacity }]}>
+                <View style={styles.weekDays}>
+                  {weekDates.map((date, index) => {
+                    const dateString = format(date, 'yyyy-MM-dd');
+                    const isSelected = currentSelectedDate === dateString;
+                    const isToday = format(date, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd');
+                    const hasWorkout = workoutDates.has(dateString);
+                    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+                    return (
+                      <Pressable
+                        key={index}
+                        style={[styles.dayContainer, isSelected && styles.selectedDay]}
+                        onPress={() => handleDatePress(date)}
+                      >
+                        <Text style={[styles.dayName, isSelected && styles.selectedDayText]}>
+                          {dayNames[date.getDay()]}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.dayNumber,
+                            isToday && !isSelected && !hasWorkout && styles.todayNumber,
+                            isSelected && styles.selectedDayText,
+                            hasWorkout && !isSelected && styles.workoutDayText,
+                          ]}
+                        >
+                          {format(date, 'd')}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </Animated.View>
+            </Surface>
+          </PanGestureHandler>
 
           {/* Selected Date */}
           <View style={styles.selectedDateContainer}>
             <Text style={styles.selectedDateText}>
-              {format(parseISO(selectedDate), 'EEEE, MMMM d, yyyy')}
+              {format(parseISO(currentSelectedDate), 'EEEE, MMMM d, yyyy')}
             </Text>
           </View>
 
@@ -420,69 +647,84 @@ export default function WorkoutDetailsScreen() {
           ) : workoutDetails.length > 0 ? (
             <View style={styles.workoutContent}>
               {workoutDetails.map((workout, workoutIndex) => (
-                <View key={workout.id} style={styles.workoutContainer}>
-                  {/* Workout Header with number if multiple workouts */}
-                  {workoutDetails.length > 1 && (
-                    <Text style={styles.workoutNumber}>
-                      Workout {workoutIndex + 1} of {workoutDetails.length}
-                    </Text>
-                  )}
+                <React.Fragment key={workout.id}>
+                  <Surface style={styles.unifiedWorkoutContainer} elevation={2}>
+                    {/* Workout Header with number if multiple workouts */}
+                    {workoutDetails.length > 1 && (
+                      <Text style={styles.workoutNumber}>
+                        Workout {workoutIndex + 1} of {workoutDetails.length}
+                      </Text>
+                    )}
 
-                  {/* Workout Summary */}
-                  <Surface style={styles.workoutSummary} elevation={2}>
-                    <View style={styles.summaryHeader}>
-                      <Text style={styles.workoutTitle}>{workout.workout_name}</Text>
-                      <View style={styles.workoutHeaderRight}>
-                        <Text style={styles.workoutTime}>
-                          {format(new Date(workout.completed_at), 'HH:mm')}
-                        </Text>
-                        <IconButton
-                          icon="share-variant"
-                          iconColor={COLORS.text}
-                          size={20}
-                          onPress={() => {}}
-                        />
+                    {/* Workout Summary Section */}
+                    <View style={styles.workoutSummarySection}>
+                      <View style={styles.summaryHeader}>
+                        <Text style={styles.workoutTitle}>{workout.workout_name}</Text>
+                        <View style={styles.workoutHeaderRight}>
+                          <Text style={styles.workoutTime}>
+                            {format(new Date(workout.completed_at), 'HH:mm')}
+                          </Text>
+                          <IconButton
+                            icon="share-variant"
+                            iconColor={COLORS.text}
+                            size={20}
+                            onPress={() => {}}
+                          />
+                        </View>
                       </View>
+                      <Text style={styles.workoutStats}>
+                        {formatDuration(workout.workout_duration)} |{' '}
+                        {formatWeight(workout.total_volume)} | {workout.calories_burned || 0} cal
+                      </Text>
                     </View>
-                    <Text style={styles.workoutStats}>
-                      {formatDuration(workout.workout_duration)} |{' '}
-                      {formatWeight(workout.total_volume)} | {workout.calories_burned || 0} cal
-                    </Text>
-                  </Surface>
 
-                  {/* Exercises List */}
-                  {workout.exercises.map((exercise) => (
-                    <Surface key={exercise.id} style={styles.exerciseCard} elevation={1}>
-                      <View style={styles.exerciseHeader}>
-                        <Text style={styles.exerciseName}>{exercise.exercise_name}</Text>
-                        <IconButton
-                          icon="pencil"
-                          iconColor={COLORS.text}
-                          size={16}
-                          onPress={() => {}}
-                        />
-                      </View>
+                    {/* Exercises Section */}
+                    {workout.exercises.length > 0 && (
+                      <View style={styles.exercisesSection}>
+                        <View style={styles.exercisesSectionHeader}>
+                          <Text style={styles.exercisesSectionTitle}>Exercises</Text>
+                        </View>
 
-                      <View style={styles.setsContainer}>
-                        {exercise.sets.map((set, setIndex) => (
-                          <View key={setIndex} style={styles.setItem}>
-                            <Text style={styles.setText}>{formatSet(set, setIndex)}</Text>
+                        {workout.exercises.map((exercise, exerciseIndex) => (
+                          <View key={exercise.id} style={styles.exerciseItem}>
+                            <View style={styles.exerciseHeader}>
+                              <Text style={styles.exerciseName}>{exercise.exercise_name}</Text>
+                              <IconButton
+                                icon="pencil"
+                                iconColor={COLORS.text}
+                                size={16}
+                                onPress={() => {}}
+                              />
+                            </View>
+
+                            <View style={styles.setsContainer}>
+                              {exercise.sets.map((set, setIndex) => (
+                                <View key={setIndex} style={styles.setItem}>
+                                  <Text style={styles.setText}>{formatSet(set, setIndex)}</Text>
+                                </View>
+                              ))}
+                            </View>
+
+                            {/* Add divider between exercises except for the last one */}
+                            {exerciseIndex < workout.exercises.length - 1 && (
+                              <View style={styles.exerciseDivider} />
+                            )}
                           </View>
                         ))}
                       </View>
-                    </Surface>
-                  ))}
+                    )}
+                  </Surface>
 
-                  {/* Add spacing between workouts if multiple */}
+                  {/* Add spacing between workouts if multiple - moved outside Surface */}
                   {workoutDetails.length > 1 && workoutIndex < workoutDetails.length - 1 && (
                     <View style={styles.workoutSeparator} />
                   )}
-                </View>
+                </React.Fragment>
               ))}
             </View>
           ) : (
             <View style={styles.noWorkoutContainer}>
-              <Text style={styles.noWorkoutText}>No workout found for this date</Text>
+              <Text style={styles.noWorkoutText}>No workouts found for this date</Text>
             </View>
           )}
         </ScrollView>
@@ -555,10 +797,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: SPACING.md,
   },
+  weekHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
   weekRange: {
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.text,
+    flex: 1,
+    textAlign: 'center',
+  },
+  weekNavButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(108, 71, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  weekNavButtonText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: COLORS.primary,
   },
   todayButton: {
     paddingHorizontal: 12,
@@ -571,15 +833,22 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: COLORS.primary,
   },
+  weekDaysContainer: {
+    paddingHorizontal: SPACING.sm,
+  },
   weekDays: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'space-around',
+    paddingHorizontal: SPACING.xs,
   },
   dayContainer: {
     alignItems: 'center',
     padding: SPACING.sm,
     borderRadius: 8,
-    minWidth: 40,
+    minWidth: 44,
+    minHeight: 56,
+    justifyContent: 'center',
+    marginHorizontal: SPACING.xs / 2,
   },
   selectedDay: {
     backgroundColor: COLORS.primary,
@@ -599,7 +868,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   selectedDayText: {
-    color: COLORS.background,
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  workoutDayText: {
+    color: COLORS.primary,
+    fontWeight: '600',
   },
   selectedDateContainer: {
     marginHorizontal: SPACING.md,
@@ -645,8 +919,13 @@ const styles = StyleSheet.create({
   workoutContent: {
     marginHorizontal: SPACING.md,
   },
-  workoutContainer: {
+  unifiedWorkoutContainer: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    padding: SPACING.md,
     marginBottom: SPACING.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(108, 71, 255, 0.3)',
   },
   workoutNumber: {
     fontSize: 16,
@@ -655,13 +934,31 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: SPACING.md,
   },
-  workoutSummary: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 12,
-    padding: SPACING.md,
+  workoutSummarySection: {
+    marginBottom: SPACING.lg,
+  },
+  exercisesSection: {
+    marginTop: SPACING.sm,
+  },
+  exercisesSectionHeader: {
     marginBottom: SPACING.md,
-    borderWidth: 1,
-    borderColor: 'rgba(108, 71, 255, 0.3)',
+    paddingBottom: SPACING.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(108, 71, 255, 0.2)',
+  },
+  exercisesSectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.text,
+    textAlign: 'center',
+  },
+  exerciseItem: {
+    paddingVertical: SPACING.sm,
+  },
+  exerciseDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    marginTop: SPACING.md,
   },
   summaryHeader: {
     flexDirection: 'row',
@@ -697,14 +994,7 @@ const styles = StyleSheet.create({
     marginVertical: SPACING.lg,
     borderRadius: 1,
   },
-  exerciseCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 12,
-    padding: SPACING.md,
-    marginBottom: SPACING.sm,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
+
   exerciseHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',

@@ -29,20 +29,13 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../../constants/theme';
 import exerciseService, { Exercise, ExerciseCategory } from '../../services/exerciseService';
-import { validationService } from '../../services/validationService';
-import { logger } from '../../utils/logger';
 import ExerciseCard from '../ExerciseCard';
 import DraggableConfigurationItem from './components/DraggableConfigurationItem';
 import { MuscleGroupRender } from './components/MuscleMarkers';
 import { FALLBACK_IMAGE_OBJECT, muscleGroups } from './constants';
 import { styles } from './styles';
 import { AddExerciseModalProps, ExerciseConfiguration, SelectedExercise } from './types';
-import {
-  captureUIError,
-  captureAPIError,
-  captureValidationError,
-  SentryReactProfiler,
-} from '../../services/sentry';
+import { captureUIError, captureAPIError, SentryReactProfiler } from '../../services/sentry';
 import * as Sentry from '@sentry/react-native';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -1858,28 +1851,6 @@ export default function AddExerciseModal({
       onClose();
     },
     [onAddExercises, onClose, selectedMuscleGroup],
-  );
-
-  // Handle favorite toggle with authentication check
-  const handleToggleFavorite = useCallback(
-    async (exerciseId: string, currentIsFavorite: boolean) => {
-      try {
-        // Toggle the favorite status
-        await exerciseService.toggleFavoriteExercise(exerciseId, !currentIsFavorite);
-
-        // Show success feedback
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      } catch (error) {
-        console.error('Error toggling favorite in AddExerciseModal:', error);
-
-        // Show error feedback
-        if (error instanceof Error && error.message.includes('not authenticated')) {
-          // Could show a toast or alert here for authentication error
-          console.warn('User needs to be authenticated to favorite exercises');
-        }
-      }
-    },
-    [],
   );
 
   const handleBack = useCallback(() => {

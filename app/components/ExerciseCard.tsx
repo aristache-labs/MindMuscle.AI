@@ -313,8 +313,8 @@ interface Styles {
 const styles = StyleSheet.create<Styles>({
   card: {
     width: CARD_WIDTH,
-    paddingHorizontal: 5,
-    paddingVertical: 5,
+    paddingHorizontal: 2,
+    paddingVertical: 2,
     borderRadius: BORDER_RADIUS.lg,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
     // Multi-layered shadow system for depth

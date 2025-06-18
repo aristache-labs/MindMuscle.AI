@@ -6,6 +6,9 @@ import { format, addMonths } from 'date-fns';
 import { COLORS } from '../../constants/theme';
 import * as Sentry from '@sentry/react-native';
 import { captureUIError, SentryReactProfiler } from '../../services/sentry';
+import { useAuth } from '../../store/AuthContext';
+import { useWorkoutCalendarData } from '../../hooks/useWorkoutCalendarData';
+import { AnimatedWorkoutDot } from './AnimatedWorkoutDot';
 
 interface WorkoutCalendarProps {
   calendarDate: Date;
@@ -20,6 +23,8 @@ const WorkoutCalendarComponent: React.FC<WorkoutCalendarProps> = ({
   onMonthChange,
   onTodayPress,
 }) => {
+  const { user } = useAuth();
+  const { workoutDates, loading, error } = useWorkoutCalendarData(calendarDate, user?.id);
   const today = new Date();
   const minDate = format(today, 'yyyy-MM-dd');
   const maxDate = format(addMonths(today, 12), 'yyyy-MM-dd');
@@ -37,6 +42,9 @@ const WorkoutCalendarComponent: React.FC<WorkoutCalendarProps> = ({
         minDate,
         maxDate,
         timestamp: new Date().toISOString(),
+        has_user: !!user?.id,
+        workout_data_loading: loading,
+        workout_data_error: !!error,
       },
     });
 
@@ -197,13 +205,6 @@ const WorkoutCalendarComponent: React.FC<WorkoutCalendarProps> = ({
     }
   };
 
-  // Mark dates that have workouts
-  const markedDates = {
-    '2025-04-01': { marked: true, dotColor: COLORS.primary },
-    '2025-04-02': { marked: true, dotColor: COLORS.primary },
-    '2025-04-04': { marked: true, dotColor: COLORS.primary },
-  };
-
   return (
     <Surface style={styles.calendarContainer} elevation={2}>
       <View style={styles.calendarHeader}>
@@ -222,27 +223,36 @@ const WorkoutCalendarComponent: React.FC<WorkoutCalendarProps> = ({
         <View style={{ flex: 1 }} />
       </View>
       <Calendar
-        markingType="custom"
         key={calendarKey}
         current={format(calendarDate, 'yyyy-MM-dd')}
         minDate={minDate}
         maxDate={maxDate}
         onMonthChange={handleMonthChange}
-        markedDates={{
-          ...markedDates,
-          [format(new Date(), 'yyyy-MM-dd')]: {
-            customStyles: {
-              container: {
-                alignItems: 'center',
-                justifyContent: 'center',
-              },
-              text: {
-                fontSize: 20,
-                fontWeight: '700',
-                color: COLORS.primary,
-              },
-            },
-          },
+        dayComponent={({ date, state }) => {
+          if (!date) return null;
+
+          const dateString = date.dateString;
+          const hasWorkout = workoutDates[dateString]?.completed;
+          const isToday = dateString === format(today, 'yyyy-MM-dd');
+          const isDisabled = state === 'disabled';
+
+          return (
+            <View style={styles.dayContainer}>
+              <Text
+                style={[
+                  styles.dayText,
+                  isToday && styles.todayText,
+                  isDisabled && styles.disabledText,
+                  hasWorkout && styles.workoutDayText,
+                ]}
+              >
+                {date.day}
+              </Text>
+              {hasWorkout && (
+                <AnimatedWorkoutDot size={8} color={COLORS.primary} pulseEnabled={true} />
+              )}
+            </View>
+          );
         }}
         enableSwipeMonths={true}
         hideExtraDays={true}
@@ -320,6 +330,30 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.primary,
+  },
+  dayContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 32,
+    height: 32,
+    position: 'relative',
+  },
+  dayText: {
+    fontSize: 16,
+    fontWeight: '400',
+    color: COLORS.text,
+  },
+  todayText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.primary,
+  },
+  disabledText: {
+    color: COLORS.disabled,
+  },
+  workoutDayText: {
+    color: COLORS.primary,
+    fontWeight: '600',
   },
 });
 

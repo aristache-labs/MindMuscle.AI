@@ -1,9 +1,11 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, Platform } from 'react-native';
+import { View, Text, StyleSheet, Platform, ActivityIndicator } from 'react-native';
 import { Surface, Chip } from 'react-native-paper';
 import { COLORS } from '../../constants/theme';
 import * as Sentry from '@sentry/react-native';
 import { captureUIError, SentryReactProfiler } from '../../services/sentry';
+import { useInsightsStats, formatWeight } from '../../hooks/useInsightsStats';
+import { useAuth } from '../../store/AuthContext';
 
 const TIME_FILTERS = [
   { label: '1w', value: '1w' },
@@ -22,6 +24,9 @@ const StatsOverviewComponent: React.FC<StatsOverviewProps> = ({
   selectedFilter,
   onFilterChange,
 }) => {
+  const { user } = useAuth();
+  const { stats, loading, error } = useInsightsStats(selectedFilter, user?.id);
+
   // Track component lifecycle and initial state
   useEffect(() => {
     // Track component mount and filter state
@@ -33,6 +38,9 @@ const StatsOverviewComponent: React.FC<StatsOverviewProps> = ({
         selectedFilter,
         availableFilters: TIME_FILTERS.map((f) => f.value),
         timestamp: new Date().toISOString(),
+        has_user: !!user?.id,
+        loading,
+        error: !!error,
       },
     });
 
@@ -55,10 +63,12 @@ const StatsOverviewComponent: React.FC<StatsOverviewProps> = ({
           newFilter: selectedFilter,
           filterLabel: TIME_FILTERS.find((f) => f.value === selectedFilter)?.label,
           timestamp: new Date().toISOString(),
+          stats_loading: loading,
+          stats_error: !!error,
         },
       });
     }
-  }, [selectedFilter]);
+  }, [selectedFilter, loading, error]);
 
   const handleFilterChange = (filter: string) => {
     try {
@@ -106,6 +116,13 @@ const StatsOverviewComponent: React.FC<StatsOverviewProps> = ({
     }
   };
 
+  // Format stats for display
+  const displayStats = {
+    workouts: stats.numberOfWorkouts.toString(),
+    hours: stats.hoursAtGym.toFixed(1),
+    weight: formatWeight(stats.totalWeightLifted),
+  };
+
   return (
     <Surface style={styles.combinedStatsContainer} elevation={2}>
       {/* Time Filters */}
@@ -134,17 +151,35 @@ const StatsOverviewComponent: React.FC<StatsOverviewProps> = ({
       {/* Stats Overview */}
       <View style={styles.statsOverview}>
         <View style={styles.statItem}>
-          <Text style={styles.statValue}>12</Text>
+          {loading ? (
+            <ActivityIndicator size="small" color={COLORS.primary} />
+          ) : error ? (
+            <Text style={[styles.statValue, { color: COLORS.error }]}>--</Text>
+          ) : (
+            <Text style={styles.statValue}>{displayStats.workouts}</Text>
+          )}
           <Text style={styles.statLabel}>Number of{'\n'}Workouts</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
-          <Text style={styles.statValue}>11</Text>
+          {loading ? (
+            <ActivityIndicator size="small" color={COLORS.primary} />
+          ) : error ? (
+            <Text style={[styles.statValue, { color: COLORS.error }]}>--</Text>
+          ) : (
+            <Text style={styles.statValue}>{displayStats.hours}</Text>
+          )}
           <Text style={styles.statLabel}>Hours at{'\n'}the Gym</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
-          <Text style={styles.statValue}>32.9K</Text>
+          {loading ? (
+            <ActivityIndicator size="small" color={COLORS.primary} />
+          ) : error ? (
+            <Text style={[styles.statValue, { color: COLORS.error }]}>--</Text>
+          ) : (
+            <Text style={styles.statValue}>{displayStats.weight}</Text>
+          )}
           <Text style={styles.statLabel}>Total Weight{'\n'}Lifted (kg)</Text>
         </View>
       </View>

@@ -741,10 +741,13 @@ const exerciseService = {
           let error;
 
           if (isFavorite) {
-            // Add to favorites
+            // Add to favorites - use upsert to handle duplicates gracefully
             const result = await supabase
               .from('user_favorite_exercises')
-              .insert({ user_id: userId, exercise_id: exerciseId });
+              .upsert(
+                { user_id: userId, exercise_id: exerciseId },
+                { onConflict: 'user_id,exercise_id' },
+              );
             error = result.error;
           } else {
             // Remove from favorites

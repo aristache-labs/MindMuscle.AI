@@ -741,7 +741,7 @@ const StepAllExercises = ({
                     return (
                       <View key={`row-${rowIndex}`} style={styles.exerciseRow}>
                         {rowItems.map((exercise) => (
-                          <View key={exercise.id} style={styles.exerciseCardWrapper}>
+                          <View key={exercise.id} style={styles.exerciseCardContainer}>
                             <ExerciseCard
                               id={exercise.id}
                               name={exercise.name}
@@ -910,7 +910,7 @@ const Step2ExerciseSelection = ({
                     return (
                       <View key={`row-${rowIndex}`} style={styles.exerciseRow}>
                         {rowItems.map((exercise) => (
-                          <View key={exercise.id} style={styles.exerciseCardWrapper}>
+                          <View key={exercise.id} style={styles.exerciseCardContainer}>
                             <ExerciseCard
                               id={exercise.id}
                               name={exercise.name}
@@ -1062,7 +1062,7 @@ const StepFavorites = ({
                     return (
                       <View key={`row-${rowIndex}`} style={styles.exerciseRow}>
                         {rowItems.map((exercise) => (
-                          <View key={exercise.id} style={styles.exerciseCardWrapper}>
+                          <View key={exercise.id} style={styles.exerciseCardContainer}>
                             <ExerciseCard
                               id={exercise.id}
                               name={exercise.name}
@@ -1841,142 +1841,45 @@ export default function AddExerciseModal({
   }, [selectedMuscleGroup, selectedExerciseIds, showFavorites, showAllExercises]);
 
   const handleAddAll = useCallback(
-    async (exercisesToAdd: SelectedExercise[]) => {
-      const startTime = Date.now();
+    (exercisesToAdd: SelectedExercise[]) => {
+      // Transform SelectedExercise to ExerciseConfiguration
+      const exerciseConfigurations: ExerciseConfiguration[] = exercisesToAdd.map((exercise) => ({
+        exerciseId: exercise.id,
+        name: exercise.name,
+        sets: exercise.sets,
+        reps_range: exercise.reps_range,
+        image_url: exercise.image_url,
+        muscle_group: exercise.muscle_group || selectedMuscleGroup,
+        primary_muscles: exercise.primary_muscles,
+        requires_weight: exercise.requires_weight,
+      }));
 
+      onAddExercises(exerciseConfigurations);
+      onClose();
+    },
+    [onAddExercises, onClose, selectedMuscleGroup],
+  );
+
+  // Handle favorite toggle with authentication check
+  const handleToggleFavorite = useCallback(
+    async (exerciseId: string, currentIsFavorite: boolean) => {
       try {
-        // Track add all exercises attempt
-        Sentry.addBreadcrumb({
-          message: 'Adding All Configured Exercises',
-          category: 'user.action',
-          level: 'info',
-          data: {
-            exerciseCount: exercisesToAdd.length,
-            muscleGroup: selectedMuscleGroup,
-            exercises: exercisesToAdd.map((ex) => ({
-              id: ex.id,
-              name: ex.name,
-              sets: ex.sets,
-              reps: ex.reps_range,
-            })),
-          },
-        });
+        // Toggle the favorite status
+        await exerciseService.toggleFavoriteExercise(exerciseId, !currentIsFavorite);
 
-        const exerciseConfigurations: ExerciseConfiguration[] = exercisesToAdd.map((exercise) => ({
-          exerciseId: exercise.id,
-          name: exercise.name,
-          sets: exercise.sets,
-          reps_range: exercise.reps_range,
-          image_url: exercise.image_url,
-          muscle_group: exercise.muscle_group || selectedMuscleGroup,
-          primary_muscles: exercise.primary_muscles,
-          requires_weight: exercise.requires_weight,
-        }));
-
-        // Track validation start
-        Sentry.addBreadcrumb({
-          message: 'Validating Exercise Configurations',
-          category: 'validation.start',
-          level: 'info',
-          data: {
-            configurationsCount: exerciseConfigurations.length,
-          },
-        });
-
-        // Validate the exercise configurations before adding
-        const validationData = { exercises: exerciseConfigurations };
-        const validationResult = await validationService.validateAddExerciseForm(validationData);
-
-        if (!validationResult.success) {
-          const errorMessage = `Add exercise form validation failed: ${validationResult.errors.map((e: { message: string }) => e.message).join(', ')}`;
-
-          // Capture validation error with detailed context
-          captureValidationError(
-            new Error(errorMessage),
-            'exerciseConfigurations',
-            exerciseConfigurations,
-          );
-
-          logger.error('AddExerciseModal validation failed', undefined, {
-            context: {
-              errors: validationResult.errors,
-              exerciseConfigurations,
-            },
-          });
-
-          Sentry.addBreadcrumb({
-            message: 'Exercise Configuration Validation Failed',
-            category: 'validation.error',
-            level: 'error',
-            data: {
-              errors: validationResult.errors,
-              exerciseCount: exerciseConfigurations.length,
-            },
-          });
-
-          // Show error to user (you might want to add a state for this)
-          console.error('Validation failed:', errorMessage);
-          return;
-        }
-
-        // Track successful validation
-        Sentry.addBreadcrumb({
-          message: 'Exercise Configuration Validation Successful',
-          category: 'validation.success',
-          level: 'info',
-          data: {
-            exerciseCount: exerciseConfigurations.length,
-          },
-        });
-
-        // Track successful exercise addition
-        const duration = Date.now() - startTime;
-        Sentry.addBreadcrumb({
-          message: 'Exercises Added Successfully',
-          category: 'user.success',
-          level: 'info',
-          data: {
-            exerciseCount: exerciseConfigurations.length,
-            muscleGroup: selectedMuscleGroup,
-            totalDuration: duration,
-            addedExercises: exerciseConfigurations.map((ex) => ({
-              name: ex.name,
-              sets: ex.sets,
-              reps: ex.reps_range,
-            })),
-          },
-        });
-
-        onAddExercises(exerciseConfigurations);
-        onClose();
+        // Show success feedback
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       } catch (error) {
-        // Capture comprehensive error context
-        captureUIError(error as Error, 'AddExerciseModal.handleAddAll', 'add-exercise-modal');
+        console.error('Error toggling favorite in AddExerciseModal:', error);
 
-        logger.error(
-          'AddExerciseModal: Error adding exercises',
-          error instanceof Error ? error : undefined,
-          {
-            context: { exercisesToAdd },
-          },
-        );
-
-        Sentry.addBreadcrumb({
-          message: 'Failed to Add Exercises',
-          category: 'user.error',
-          level: 'error',
-          data: {
-            error: (error as Error).message,
-            exerciseCount: exercisesToAdd.length,
-            muscleGroup: selectedMuscleGroup,
-            duration: Date.now() - startTime,
-          },
-        });
-
-        console.error('Error adding exercises:', error);
+        // Show error feedback
+        if (error instanceof Error && error.message.includes('not authenticated')) {
+          // Could show a toast or alert here for authentication error
+          console.warn('User needs to be authenticated to favorite exercises');
+        }
       }
     },
-    [selectedMuscleGroup, onAddExercises, onClose],
+    [],
   );
 
   const handleBack = useCallback(() => {

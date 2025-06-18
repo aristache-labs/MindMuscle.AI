@@ -26,10 +26,11 @@ interface ExerciseCardProps {
   hideFavoriteButton?: boolean;
   disabled?: boolean;
   disabledReason?: string;
+  showWrapper?: boolean;
 }
 
 const { width } = Dimensions.get('window');
-const CARD_WIDTH = (width - 32) / 2; // Two cards per row with 16px padding on each side
+const CARD_WIDTH = (width - 30) / 2; // Two cards per row with 16px padding on each side
 
 // Create a proper comparison function for memo
 const arePropsEqual = (prevProps: ExerciseCardProps, nextProps: ExerciseCardProps) => {
@@ -76,6 +77,7 @@ const ExerciseCard = memo(
     hideFavoriteButton = false,
     disabled = false,
     disabledReason = '',
+    showWrapper = true,
   }: ExerciseCardProps) => {
     // Track component lifecycle with Sentry
     useEffect(() => {
@@ -215,7 +217,7 @@ const ExerciseCard = memo(
       }
     })();
 
-    return (
+    const cardContent = (
       <Surface style={[styles.card, disabled && styles.disabledCard]} elevation={2}>
         <View style={styles.cardContentWrapper}>
           <TouchableOpacity
@@ -261,7 +263,7 @@ const ExerciseCard = memo(
                 >
                   <MaterialIcons
                     name={isFavorite ? 'star' : 'star-outline'}
-                    size={20}
+                    size={16}
                     color={isFavorite ? '#FFD700' : 'rgba(255,255,255,0.8)'}
                   />
                 </TouchableOpacity>
@@ -281,6 +283,12 @@ const ExerciseCard = memo(
         </View>
       </Surface>
     );
+
+    return showWrapper ? (
+      <View style={styles.exerciseCardWrapper}>{cardContent}</View>
+    ) : (
+      cardContent
+    );
   },
   arePropsEqual,
 );
@@ -299,15 +307,32 @@ interface Styles {
   disabledOverlay: ViewStyle;
   disabledText: TextStyle;
   disabledExerciseName: TextStyle;
+  exerciseCardWrapper: ViewStyle;
 }
 
 const styles = StyleSheet.create<Styles>({
   card: {
     width: CARD_WIDTH,
-    marginHorizontal: 4,
-    marginVertical: 6,
-    borderRadius: BORDER_RADIUS.md,
-    backgroundColor: COLORS.surface,
+    paddingHorizontal: 5,
+    paddingVertical: 5,
+    borderRadius: BORDER_RADIUS.lg,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    // Multi-layered shadow system for depth
+    shadowColor: '#000000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 10,
+    // Sophisticated border with gradient-like effect
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    minHeight: 120,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'visible',
   },
   cardContentWrapper: {
     flex: 1,
@@ -319,7 +344,7 @@ const styles = StyleSheet.create<Styles>({
   },
   imageContainer: {
     position: 'relative',
-    height: 120,
+    height: 100,
   },
   exerciseImage: {
     width: '100%',
@@ -328,26 +353,27 @@ const styles = StyleSheet.create<Styles>({
   },
   favoriteButton: {
     position: 'absolute',
-    top: 8,
-    right: 8,
+    top: 6,
+    right: 6,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 15,
-    width: 30,
-    height: 30,
+    borderRadius: 12,
+    width: 24,
+    height: 24,
     justifyContent: 'center',
     alignItems: 'center',
   },
   textContainer: {
-    padding: SPACING.sm,
-    minHeight: 50,
+    padding: SPACING.xs,
+    minHeight: 40,
+    minWidth: '100%',
     justifyContent: 'center',
   },
   exerciseName: {
     color: COLORS.text,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: 16,
   },
   disabledCard: {
     opacity: 0.6,
@@ -375,6 +401,13 @@ const styles = StyleSheet.create<Styles>({
   },
   disabledExerciseName: {
     opacity: 0.5,
+  },
+  exerciseCardWrapper: {
+    width: CARD_WIDTH,
+    marginHorizontal: 4,
+    marginVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

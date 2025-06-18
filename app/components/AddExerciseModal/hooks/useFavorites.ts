@@ -26,10 +26,20 @@ export const useFavoriteLogic = ({
     }
 
     if (showFavorites) {
-      // If currently showing favorites, turn it off and go back to step 1
+      // If currently showing favorites, turn it off
       setShowFavorites(false);
-      setCurrentStep(1);
-      setSelectedMuscleGroup('');
+
+      // If we have a selected muscle group (step 2), stay on step 2 and keep the muscle group
+      // If we don't have a selected muscle group (came from step 1 favorites), go back to step 1
+      if (selectedMuscleGroup) {
+        // Stay on step 2 with the same muscle group - this will show normal muscle group exercises
+        setCurrentStep(2);
+        // Keep the selectedMuscleGroup as is
+      } else {
+        // No muscle group selected, so we came from step 1 favorites - go back to step 1
+        setCurrentStep(1);
+      }
+
       // Keep selected exercises when exiting favorites mode
     } else {
       // If not showing favorites, turn it on and go to step 2

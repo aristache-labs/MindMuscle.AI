@@ -747,7 +747,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: SPACING.md,
     paddingTop: SPACING.xxl * 1.5,
-    paddingBottom: SPACING.md,
+    paddingBottom: SPACING.xs,
     backgroundColor: COLORS.background,
   },
   headerLeft: {

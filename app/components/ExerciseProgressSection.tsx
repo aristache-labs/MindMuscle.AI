@@ -93,16 +93,16 @@ const InteractiveExerciseGraph: React.FC<InteractiveGraphProps> = ({
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values);
   const valueRange = maxValue - minValue || 1;
-  const paddedMin = Math.max(0, minValue - valueRange * 0.1);
-  const paddedMax = maxValue + valueRange * 0.1;
+  const paddedMin = Math.max(0, minValue - valueRange * 0.2);
+  const paddedMax = maxValue + valueRange * 0.2;
   const paddedRange = paddedMax - paddedMin;
 
   const points = data.map((point, index) => {
-    const startX = chartWidth * 0.15;
-    const usableWidth = chartWidth * 0.7;
+    const startX = chartWidth * 0.05;
+    const usableWidth = chartWidth * 0.90;
     const x = startX + (index / (data.length - 1)) * usableWidth;
     const normalizedValue = (point.value - paddedMin) / paddedRange;
-    const y = padding + (chartHeight - padding * 2) * (1 - normalizedValue);
+    const y = padding + (chartHeight - padding * 1.5) * (1 - normalizedValue);
     return { x, y, value: point.value, dataPoint: point };
   });
 
@@ -136,12 +136,12 @@ const InteractiveExerciseGraph: React.FC<InteractiveGraphProps> = ({
       <Svg width={chartWidth} height={chartHeight} style={styles.svg}>
         <Defs>
           <SvgLinearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-            <Stop offset="0%" stopColor="#FFD700" stopOpacity="0.8" />
-            <Stop offset="100%" stopColor="#FFA500" stopOpacity="1" />
+            <Stop offset="0%" stopColor="#8B5CF6" stopOpacity="0.8" />
+            <Stop offset="100%" stopColor="#A855F7" stopOpacity="1" />
           </SvgLinearGradient>
           <SvgLinearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-            <Stop offset="0%" stopColor="#FFD700" stopOpacity="0.3" />
-            <Stop offset="100%" stopColor="#FFA500" stopOpacity="0.1" />
+            <Stop offset="0%" stopColor="#8B5CF6" stopOpacity="0.3" />
+            <Stop offset="100%" stopColor="#A855F7" stopOpacity="0.1" />
           </SvgLinearGradient>
         </Defs>
 
@@ -167,7 +167,7 @@ const InteractiveExerciseGraph: React.FC<InteractiveGraphProps> = ({
               cx={point.x}
               cy={point.y}
               r={isSelected ? '6' : '4'}
-              fill={isSelected ? '#FFD700' : '#FFA500'}
+              fill={isSelected ? '#8B5CF6' : '#A855F7'}
               stroke="#FFF"
               strokeWidth="2"
               onPress={() => onPointClick(point.dataPoint)}
@@ -518,7 +518,7 @@ export default function ExerciseProgressSection({
     if (!loading) {
       // For bodyweight exercises, show smaller height (just history)
       // For weighted exercises, show full height with graph
-      const height = requiresWeight && maxWeightData.length > 0 ? 510 : 310;
+      const height = requiresWeight && maxWeightData.length > 0 ? 520 : 310;
       sectionHeight.value = height;
     }
   }, [loading, maxWeightData.length, requiresWeight, sectionHeight]);
@@ -548,15 +548,17 @@ export default function ExerciseProgressSection({
         {requiresWeight && (
           <>
             <View style={styles.header}>
-              <Text style={styles.title}>Max Weight Lifted</Text>
-              {displayInfo && (
-                <View style={styles.statsContainer}>
-                  <Text style={styles.maxWeightText}>{displayInfo.weight} kg</Text>
-                  <Text style={styles.maxDetailsText}>
-                    {displayInfo.date}, {displayInfo.reps} reps
-                  </Text>
-                </View>
-              )}
+              <View style={styles.leftContainer}>
+                <Text style={styles.title}>Max Weight Lifted</Text>
+                {displayInfo && (
+                  <View style={styles.statsContainer}>
+                    <Text style={styles.maxWeightText}>{displayInfo.weight} kg</Text>
+                    <Text style={styles.maxDetailsText}>
+                      {displayInfo.date}, {displayInfo.reps} reps
+                    </Text>
+                  </View>
+                )}
+              </View>
             </View>
 
             {/* Interactive Graph */}
@@ -577,10 +579,10 @@ export default function ExerciseProgressSection({
         {/* Exercise History Section */}
         <View style={styles.historySection}>
           <Text style={styles.historyTitle}>Exercise History</Text>
-          <ExerciseHistoryList 
-            history={exerciseHistory} 
-            loading={historyLoading} 
-            requiresWeight={requiresWeight} 
+          <ExerciseHistoryList
+            history={exerciseHistory}
+            loading={historyLoading}
+            requiresWeight={requiresWeight}
           />
         </View>
       </Surface>
@@ -604,14 +606,18 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: SPACING.sm,
   },
+  leftContainer: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+  },
   title: {
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.text,
-    flex: 1,
+    marginBottom: SPACING.xs,
   },
   statsContainer: {
-    alignItems: 'flex-end',
+    alignItems: 'flex-start',
   },
   maxWeightText: {
     fontSize: 24,

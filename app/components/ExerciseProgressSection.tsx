@@ -98,8 +98,8 @@ const InteractiveExerciseGraph: React.FC<InteractiveGraphProps> = ({
   const paddedRange = paddedMax - paddedMin;
 
   const points = data.map((point, index) => {
-    const startX = chartWidth * 0.05;
-    const usableWidth = chartWidth * 0.93;
+    const startX = chartWidth * 0.03;
+    const usableWidth = chartWidth * 0.9;
     const x = startX + (index / (data.length - 1)) * usableWidth;
     const normalizedValue = (point.value - paddedMin) / paddedRange;
     const y = padding + (chartHeight - padding * 1.5) * (1 - normalizedValue);
@@ -107,29 +107,74 @@ const InteractiveExerciseGraph: React.FC<InteractiveGraphProps> = ({
   });
 
   // Create paths
-  const createLinePath = (points: Array<{ x: number; y: number }>) => {
+  const createSmoothLinePath = (points: Array<{ x: number; y: number }>) => {
     if (points.length < 2) return '';
+
     let path = `M ${points[0].x} ${points[0].y}`;
+
     for (let i = 1; i < points.length; i++) {
-      path += ` L ${points[i].x} ${points[i].y}`;
+      const currentPoint = points[i];
+      const previousPoint = points[i - 1];
+
+      if (i === 1) {
+        // First curve - start smooth
+        const controlX = previousPoint.x + (currentPoint.x - previousPoint.x) * 0.5;
+        path += ` Q ${controlX} ${previousPoint.y} ${currentPoint.x} ${currentPoint.y}`;
+      } else {
+        // Subsequent curves
+        const prevPrevPoint = points[i - 2];
+        const controlX1 = previousPoint.x + (currentPoint.x - prevPrevPoint.x) * 0.2;
+        const controlX2 = currentPoint.x - (currentPoint.x - previousPoint.x) * 0.2;
+        path += ` C ${controlX1} ${previousPoint.y} ${controlX2} ${currentPoint.y} ${currentPoint.x} ${currentPoint.y}`;
+      }
     }
+
     return path;
   };
 
   const createAreaPath = (points: Array<{ x: number; y: number }>) => {
     if (points.length < 2) return '';
     const bottomY = chartHeight - padding;
+
+    // Start from bottom left
     let path = `M ${points[0].x} ${bottomY}`;
+    // Go to first point
     path += ` L ${points[0].x} ${points[0].y}`;
+
+    // Follow the same curve as the line
     for (let i = 1; i < points.length; i++) {
-      path += ` L ${points[i].x} ${points[i].y}`;
+      const currentPoint = points[i];
+      const previousPoint = points[i - 1];
+
+      if (i === 1) {
+        // First curve - start smooth
+        const controlX = previousPoint.x + (currentPoint.x - previousPoint.x) * 0.5;
+        path += ` Q ${controlX} ${previousPoint.y} ${currentPoint.x} ${currentPoint.y}`;
+      } else {
+        // Subsequent curves
+        const prevPrevPoint = points[i - 2];
+        const controlX1 = previousPoint.x + (currentPoint.x - prevPrevPoint.x) * 0.2;
+        const controlX2 = currentPoint.x - (currentPoint.x - previousPoint.x) * 0.2;
+        path += ` C ${controlX1} ${previousPoint.y} ${controlX2} ${currentPoint.y} ${currentPoint.x} ${currentPoint.y}`;
+      }
     }
+
+    // Close the area by going to bottom right and back to start
     path += ` L ${points[points.length - 1].x} ${bottomY} Z`;
     return path;
   };
 
-  const linePath = createLinePath(points);
+  const linePath = createSmoothLinePath(points);
   const areaPath = createAreaPath(points);
+
+  // Calculate Y-axis labels
+  const yAxisLabels = [];
+  const numLabels = 4;
+  for (let i = 0; i < numLabels; i++) {
+    const value = paddedMax - (i * (paddedMax - paddedMin)) / (numLabels - 1);
+    const y = padding + (i * (chartHeight - padding * 2)) / (numLabels - 1);
+    yAxisLabels.push({ value: Math.round(value), y });
+  }
 
   return (
     <View style={styles.chartArea}>
@@ -141,7 +186,7 @@ const InteractiveExerciseGraph: React.FC<InteractiveGraphProps> = ({
           </SvgLinearGradient>
           <SvgLinearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
             <Stop offset="0%" stopColor="#8B5CF6" stopOpacity="0.3" />
-            <Stop offset="100%" stopColor="#A855F7" stopOpacity="0.1" />
+            <Stop offset="100%" stopColor="#A855F7" stopOpacity="0.2" />
           </SvgLinearGradient>
         </Defs>
 
@@ -152,10 +197,36 @@ const InteractiveExerciseGraph: React.FC<InteractiveGraphProps> = ({
         <Path
           d={linePath}
           stroke="url(#lineGradient)"
-          strokeWidth="2"
+          strokeWidth="1.5"
           fill="none"
           strokeLinecap="round"
           strokeLinejoin="round"
+        />
+
+        {/* Interactive line - invisible wider line for easier touch */}
+        <Path
+          d={linePath}
+          stroke="transparent"
+          strokeWidth="20"
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          onPress={(event) => {
+            // Find closest point to touch
+            const touchX = event.nativeEvent.locationX;
+            let closestPoint = points[0];
+            let minDistance = Math.abs(touchX - points[0].x);
+
+            points.forEach((point) => {
+              const distance = Math.abs(touchX - point.x);
+              if (distance < minDistance) {
+                minDistance = distance;
+                closestPoint = point;
+              }
+            });
+
+            onPointClick(closestPoint.dataPoint);
+          }}
         />
 
         {/* Clickable data points */}
@@ -168,13 +239,20 @@ const InteractiveExerciseGraph: React.FC<InteractiveGraphProps> = ({
               cy={point.y}
               r={isSelected ? '6' : '4'}
               fill={isSelected ? '#8B5CF6' : '#A855F7'}
-              stroke="#FFF"
-              strokeWidth="2"
               onPress={() => onPointClick(point.dataPoint)}
             />
           );
         })}
       </Svg>
+
+      {/* Y-axis labels on the right */}
+      <View style={styles.yAxisLabels}>
+        {yAxisLabels.map((label, index) => (
+          <Text key={index} style={[styles.yAxisLabel, { top: label.y - 8 }]}>
+            {label.value}
+          </Text>
+        ))}
+      </View>
 
       {/* Month labels at bottom */}
       <View style={styles.monthLabels}>
@@ -639,6 +717,21 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     left: 0,
+  },
+  yAxisLabels: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    height: 120,
+  },
+  yAxisLabel: {
+    position: 'absolute',
+    fontSize: 10,
+    color: COLORS.secondary,
+    opacity: 0.7,
+    textAlign: 'right',
+    width: 30,
+    right: 0,
   },
   monthLabels: {
     position: 'absolute',

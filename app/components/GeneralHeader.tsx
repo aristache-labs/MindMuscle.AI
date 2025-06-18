@@ -7,12 +7,19 @@ import * as Sentry from '@sentry/react-native';
 interface GeneralHeaderProps {
   title: string;
   icon?: React.ReactNode;
+  leftElement?: React.ReactNode;
   onSettingsPress?: () => void;
   rightElement?: React.ReactNode;
   style?: ViewStyle;
 }
 
-export function GeneralHeader({ title, icon, rightElement, style }: GeneralHeaderProps) {
+export function GeneralHeader({
+  title,
+  icon,
+  leftElement,
+  rightElement,
+  style,
+}: GeneralHeaderProps) {
   // Track component lifecycle
   React.useEffect(() => {
     Sentry.addBreadcrumb({
@@ -22,6 +29,7 @@ export function GeneralHeader({ title, icon, rightElement, style }: GeneralHeade
       data: {
         title,
         hasIcon: !!icon,
+        hasLeftElement: !!leftElement,
         hasRightElement: !!rightElement,
         hasCustomStyle: !!style,
       },
@@ -35,7 +43,7 @@ export function GeneralHeader({ title, icon, rightElement, style }: GeneralHeade
         data: { title },
       });
     };
-  }, [title, icon, rightElement, style]);
+  }, [title, icon, leftElement, rightElement, style]);
 
   // Track title changes
   React.useEffect(() => {
@@ -53,8 +61,17 @@ export function GeneralHeader({ title, icon, rightElement, style }: GeneralHeade
     <View style={[styles.headerContainer, style]}>
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          {icon && <View style={styles.headerIcon}>{icon}</View>}
-          <Text style={styles.headerTitle}>{title}</Text>
+          {leftElement ? (
+            <>
+              {leftElement}
+              <Text style={styles.headerTitleWithLeft}>{title}</Text>
+            </>
+          ) : (
+            <>
+              {icon && <View style={styles.headerIcon}>{icon}</View>}
+              <Text style={styles.headerTitle}>{title}</Text>
+            </>
+          )}
         </View>
         <View style={styles.headerRight}>{rightElement}</View>
       </View>
@@ -93,6 +110,12 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   headerTitle: {
+    marginLeft: SPACING.sm,
+    fontWeight: '600',
+    color: COLORS.text,
+    fontSize: 20,
+  },
+  headerTitleWithLeft: {
     marginLeft: SPACING.sm,
     fontWeight: '600',
     color: COLORS.text,

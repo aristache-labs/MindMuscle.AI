@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
 import { Surface } from 'react-native-paper';
 import { Calendar } from 'react-native-calendars';
 import { format, addMonths } from 'date-fns';
+import { router } from 'expo-router';
 import { COLORS } from '../../constants/theme';
 import * as Sentry from '@sentry/react-native';
 import { captureUIError, SentryReactProfiler } from '../../services/sentry';
@@ -177,14 +178,45 @@ const WorkoutCalendarComponent: React.FC<WorkoutCalendarProps> = ({
         },
       });
 
-      // Currently no action taken on day press, but tracking for future features
+      // Check if this date has a completed workout
+      const hasWorkout = workoutDates[day.dateString]?.completed;
+
+      console.log(
+        'Day pressed:',
+        day.dateString,
+        'hasWorkout:',
+        hasWorkout,
+        'workoutDates:',
+        workoutDates,
+      );
+
+      if (hasWorkout) {
+        console.log('Navigating to workout details for date:', day.dateString);
+        // Navigate to workout details page
+        router.push({
+          pathname: '/(stack)/workout-details',
+          params: { date: day.dateString },
+        });
+
+        Sentry.addBreadcrumb({
+          message: 'Navigating to workout details',
+          category: 'navigation',
+          level: 'info',
+          data: {
+            selectedDate: day.dateString,
+            hasWorkout: true,
+          },
+        });
+      }
+
       Sentry.addBreadcrumb({
         message: 'Day Press Handled',
         category: 'user.success',
         level: 'info',
         data: {
           selectedDate: day.dateString,
-          action: 'day_press_tracked',
+          action: hasWorkout ? 'navigate_to_workout_details' : 'day_press_tracked',
+          hasWorkout,
         },
       });
     } catch (error) {
@@ -237,7 +269,7 @@ const WorkoutCalendarComponent: React.FC<WorkoutCalendarProps> = ({
           const isDisabled = state === 'disabled';
 
           return (
-            <View style={styles.dayContainer}>
+            <Pressable style={styles.dayContainer} onPress={() => handleDayPress({ dateString })}>
               <Text
                 style={[
                   styles.dayText,
@@ -251,12 +283,11 @@ const WorkoutCalendarComponent: React.FC<WorkoutCalendarProps> = ({
               {hasWorkout && (
                 <AnimatedWorkoutDot size={8} color={COLORS.primary} pulseEnabled={true} />
               )}
-            </View>
+            </Pressable>
           );
         }}
         enableSwipeMonths={true}
         hideExtraDays={true}
-        onDayPress={handleDayPress}
         theme={{
           backgroundColor: 'transparent',
           calendarBackground: 'transparent',

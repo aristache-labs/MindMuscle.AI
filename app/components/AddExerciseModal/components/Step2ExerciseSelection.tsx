@@ -30,6 +30,7 @@ export const Step2ExerciseSelection = ({
   isExerciseAlreadyAdded?: (exerciseId: string) => boolean;
 }) => {
   const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [favoriteExerciseIds, setFavoriteExerciseIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -55,11 +56,14 @@ export const Step2ExerciseSelection = ({
           categoryKey = 'Lower_back';
         }
 
-        const exerciseData = await exerciseService.getExercisesByCategory(
-          categoryKey as ExerciseCategory,
-        );
+        // Load exercises and favorites in parallel
+        const [exerciseData, favoriteExercises] = await Promise.all([
+          exerciseService.getExercisesByCategory(categoryKey as ExerciseCategory),
+          exerciseService.getFavoriteExercises().catch(() => []), // Fallback to empty array if favorites fail
+        ]);
 
         setExercises(exerciseData);
+        setFavoriteExerciseIds(new Set(favoriteExercises.map((ex) => ex.id)));
 
         // Track successful loading
         const duration = Date.now() - startTime;
@@ -70,6 +74,7 @@ export const Step2ExerciseSelection = ({
           data: {
             muscleGroup: selectedMuscleGroup,
             exerciseCount: exerciseData.length,
+            favoriteCount: favoriteExercises.length,
             loadDuration: duration,
           },
         });
@@ -139,11 +144,10 @@ export const Step2ExerciseSelection = ({
                                   ? { uri: exercise.image_url }
                                   : FALLBACK_IMAGE_OBJECT
                               }
-                              isFavorite={false}
+                              isFavorite={favoriteExerciseIds.has(exercise.id)}
                               onPress={() => onExerciseToggle(exercise.id)}
                               onToggleFavorite={() => {}}
                               useOptimizedImage={true}
-                              hideFavoriteButton={true}
                               disabled={isExerciseAlreadyAdded?.(exercise.id) || false}
                               disabledReason="Already in workout"
                             />

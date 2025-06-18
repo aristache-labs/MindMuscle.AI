@@ -29,6 +29,7 @@ export const StepAllExercises = ({
   isExerciseAlreadyAdded?: (exerciseId: string) => boolean;
 }) => {
   const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [favoriteExerciseIds, setFavoriteExerciseIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
   // Auto-activate search when component mounts from step 1 navigation
@@ -78,20 +79,34 @@ export const StepAllExercises = ({
         const allExercises: Exercise[] = [];
         const failedCategories: string[] = [];
 
-        for (const category of allCategories) {
-          try {
-            const categoryExercises = await exerciseService.getExercisesByCategory(category);
-            allExercises.push(...categoryExercises);
-          } catch (error) {
-            console.warn(`Failed to load exercises for category ${category}:`, error);
+        // Load exercises and favorites in parallel
+        const [exerciseResults, favoriteExercises] = await Promise.all([
+          Promise.allSettled(
+            allCategories.map((category) => exerciseService.getExercisesByCategory(category)),
+          ),
+          exerciseService.getFavoriteExercises().catch(() => []), // Fallback to empty array if favorites fail
+        ]);
+
+        // Process exercise results
+        exerciseResults.forEach((result, index) => {
+          if (result.status === 'fulfilled') {
+            allExercises.push(...result.value);
+          } else {
+            const category = allCategories[index];
+            console.warn(`Failed to load exercises for category ${category}:`, result.reason);
             failedCategories.push(category);
 
             // Track individual category failures
-            captureAPIError(error as Error, `category-${category}-loading`, 'StepAllExercises');
+            captureAPIError(
+              result.reason as Error,
+              `category-${category}-loading`,
+              'StepAllExercises',
+            );
           }
-        }
+        });
 
         setExercises(allExercises);
+        setFavoriteExerciseIds(new Set(favoriteExercises.map((ex) => ex.id)));
 
         // Track successful loading
         const duration = Date.now() - startTime;
@@ -103,6 +118,7 @@ export const StepAllExercises = ({
             totalExercises: allExercises.length,
             categoriesLoaded: allCategories.length - failedCategories.length,
             failedCategories,
+            favoriteCount: favoriteExercises.length,
             loadDuration: duration,
           },
         });
@@ -171,11 +187,10 @@ export const StepAllExercises = ({
                                   ? { uri: exercise.image_url }
                                   : FALLBACK_IMAGE_OBJECT
                               }
-                              isFavorite={false}
+                              isFavorite={favoriteExerciseIds.has(exercise.id)}
                               onPress={() => onExerciseToggle(exercise.id)}
                               onToggleFavorite={() => {}}
                               useOptimizedImage={true}
-                              hideFavoriteButton={true}
                               disabled={isExerciseAlreadyAdded?.(exercise.id) || false}
                               disabledReason="Already in workout"
                             />

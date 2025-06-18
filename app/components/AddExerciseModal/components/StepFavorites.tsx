@@ -120,7 +120,6 @@ export const StepFavorites = ({
                               onPress={() => onExerciseToggle(exercise.id)}
                               onToggleFavorite={() => {}}
                               useOptimizedImage={true}
-                              hideFavoriteButton={true}
                               disabled={isExerciseAlreadyAdded?.(exercise.id) || false}
                               disabledReason="Already in workout"
                             />

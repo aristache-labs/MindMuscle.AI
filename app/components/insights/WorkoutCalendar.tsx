@@ -240,7 +240,7 @@ const WorkoutCalendarComponent: React.FC<WorkoutCalendarProps> = ({
   return (
     <Surface style={styles.calendarContainer} elevation={2}>
       <View style={styles.calendarHeader}>
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, alignItems: 'flex-start' }}>
           <Pressable
             onPress={handleTodayPress}
             style={({ pressed }) => [
@@ -251,7 +251,7 @@ const WorkoutCalendarComponent: React.FC<WorkoutCalendarProps> = ({
             <Text style={styles.todayButton}>Today</Text>
           </Pressable>
         </View>
-        <Text style={[styles.sectionTitle, { flex: 1, paddingRight: '20%' }]}>YOUR WORKOUTS</Text>
+        <Text style={[styles.sectionTitle, { flex: 1 }]}>YOUR WORKOUTS</Text>
         <View style={{ flex: 1 }} />
       </View>
       <Calendar

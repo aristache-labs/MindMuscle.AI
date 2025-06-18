@@ -6,15 +6,19 @@
  * - Workout days (blue dots)
  * - Completed workouts (green checkmarks)
  * - Paused workouts (orange pause icons)
- * - Swipe gestures for week navigation (left/right)
+ * - Button navigation (chevron left/right) with fade effect
  *
  * Used by: my-plan.tsx
  */
 
 import { addDays, format, getDay, isSameDay, startOfWeek } from 'date-fns';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
-import { Gesture, GestureDetector, GestureType } from 'react-native-gesture-handler';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  PanGestureHandler,
+  State,
+  PanGestureHandlerGestureEvent,
+} from 'react-native-gesture-handler';
 import { Icon } from 'react-native-paper';
 import Animated, {
   runOnJS,
@@ -26,24 +30,7 @@ import * as Sentry from '@sentry/react-native';
 import { BORDER_RADIUS, COLORS, SPACING } from '../constants/theme';
 import workoutPlanService from '../services/workoutPlanService';
 
-// Wrapper component to isolate gesture handling from StrictMode warnings
-// This prevents third-party library deprecation warnings while keeping StrictMode active
-const GestureWrapper = ({
-  gesture,
-  children,
-  style,
-}: {
-  gesture: GestureType;
-  children: React.ReactNode;
-  style?: ViewStyle | ViewStyle[];
-}) => {
-  // Create a temporary React root without StrictMode for gesture handling
-  return (
-    <GestureDetector gesture={gesture}>
-      <Animated.View style={style}>{children}</Animated.View>
-    </GestureDetector>
-  );
-};
+// Removed GestureWrapper component since we're not using swipe gestures anymore
 
 // Define proper types for the plan and marked dates
 interface Exercise {
@@ -146,14 +133,8 @@ export default function MyPlanCalendar({
     }
   }, [plan?.id]);
 
-  // Animated values for swipe gestures
-  const translateX = useSharedValue(0);
-  const isGestureActive = useSharedValue(false);
+  // Animated values for fade effect only (remove translateX and gesture values)
   const weekOpacity = useSharedValue(1);
-
-  // Swipe gesture configuration
-  const SWIPE_THRESHOLD = 50; // Minimum distance to trigger week change
-  const SWIPE_VELOCITY_THRESHOLD = 500; // Minimum velocity to trigger week change
 
   // Use actual completion data from parent component
   const finalCompletedDays = completedWorkoutDays;
@@ -359,53 +340,10 @@ export default function MyPlanCalendar({
     });
   }, [weekOpacity, updateToNextWeek]);
 
-  // Pan gesture for swipe navigation
-  const panGesture = Gesture.Pan()
-    .onStart(() => {
-      'worklet';
-      isGestureActive.value = true;
-    })
-    .onUpdate((event) => {
-      'worklet';
-      // Only allow horizontal movement with reduced sensitivity
-      translateX.value = event.translationX * 0.3; // Reduce movement for smoother feel
-    })
-    .onEnd((event) => {
-      'worklet';
-      const { translationX, velocityX } = event;
-
-      // Determine if swipe should trigger navigation
-      const shouldNavigate =
-        Math.abs(translationX) > SWIPE_THRESHOLD || Math.abs(velocityX) > SWIPE_VELOCITY_THRESHOLD;
-
-      // Reset animation first
-      translateX.value = withSpring(0, {
-        damping: 15,
-        stiffness: 150,
-      });
-      isGestureActive.value = false;
-
-      // Then trigger navigation if needed
-      if (shouldNavigate) {
-        if (translationX > 0) {
-          // Swipe right - go to previous week
-          runOnJS(goToPreviousWeek)();
-        } else {
-          // Swipe left - go to next week
-          runOnJS(goToNextWeek)();
-        }
-      }
-    });
-
   // Animated style for the week days row only
   const weekDaysAnimatedStyle = useAnimatedStyle(() => {
     return {
-      transform: [
-        {
-          translateX: translateX.value,
-        },
-      ],
-      opacity: weekOpacity.value * (isGestureActive.value ? 0.7 : 1),
+      opacity: weekOpacity.value,
     };
   });
 
@@ -432,6 +370,47 @@ export default function MyPlanCalendar({
       },
     });
   }, [weekOpacity, handleDateSelect]);
+
+  // Gesture handler for swipe gestures (fade only, no scroll animation)
+  const handleWeekSwipe = useCallback(
+    (event: PanGestureHandlerGestureEvent) => {
+      const { translationX, state } = event.nativeEvent;
+      const swipeThreshold = 50; // Minimum distance for swipe detection
+
+      if (state === State.END) {
+        if (translationX > swipeThreshold) {
+          // Swipe right - go to previous week
+          goToPreviousWeek();
+
+          Sentry.addBreadcrumb({
+            message: 'Week changed via swipe gesture',
+            category: 'ui.gesture',
+            data: {
+              component: 'MyPlanCalendar',
+              direction: 'previous',
+              gesture_type: 'swipe_right',
+              translationX,
+            },
+          });
+        } else if (translationX < -swipeThreshold) {
+          // Swipe left - go to next week
+          goToNextWeek();
+
+          Sentry.addBreadcrumb({
+            message: 'Week changed via swipe gesture',
+            category: 'ui.gesture',
+            data: {
+              component: 'MyPlanCalendar',
+              direction: 'next',
+              gesture_type: 'swipe_left',
+              translationX,
+            },
+          });
+        }
+      }
+    },
+    [goToPreviousWeek, goToNextWeek],
+  );
 
   // Function to find next workout day
   const findNextWorkoutDay = () => {
@@ -609,73 +588,75 @@ export default function MyPlanCalendar({
         </View>
       )}
 
-      {/* Calendar Days */}
-      <GestureWrapper gesture={panGesture} style={[styles.weekDaysRow, weekDaysAnimatedStyle]}>
-        {weekDays.map((day, index) => {
-          const dayStr = format(day, 'yyyy-MM-dd');
-          const hasWorkout = markedDates[dayStr]?.marked;
-          const isCompleted = finalCompletedDays.includes(dayStr);
-          const isPaused = finalPausedDays.includes(dayStr);
-          const isSelectedDay = isSelected(day);
+      {/* Calendar Days with Swipe Gesture */}
+      <PanGestureHandler onGestureEvent={handleWeekSwipe} onHandlerStateChange={handleWeekSwipe}>
+        <Animated.View style={[styles.weekDaysRow, weekDaysAnimatedStyle]}>
+          {weekDays.map((day, index) => {
+            const dayStr = format(day, 'yyyy-MM-dd');
+            const hasWorkout = markedDates[dayStr]?.marked;
+            const isCompleted = finalCompletedDays.includes(dayStr);
+            const isPaused = finalPausedDays.includes(dayStr);
+            const isSelectedDay = isSelected(day);
 
-          // Determine the icon to show (priority: completed > paused > workout indicator)
-          // Only show workout indicator if it's NOT completed or paused
-          let iconType = 'none';
-          if (hasWorkout) {
-            if (isCompleted) {
-              iconType = 'completed';
-            } else if (isPaused) {
-              iconType = 'paused';
-            } else {
-              // Only show workout indicator if not completed and not paused
-              iconType = 'workout';
+            // Determine the icon to show (priority: completed > paused > workout indicator)
+            // Only show workout indicator if it's NOT completed or paused
+            let iconType = 'none';
+            if (hasWorkout) {
+              if (isCompleted) {
+                iconType = 'completed';
+              } else if (isPaused) {
+                iconType = 'paused';
+              } else {
+                // Only show workout indicator if not completed and not paused
+                iconType = 'workout';
+              }
             }
-          }
 
-          return (
-            <TouchableOpacity
-              key={index}
-              style={[styles.weekDay, isSelectedDay && styles.selectedWeekDay]}
-              onPress={() => handleWeekDayPress(day)}
-            >
-              <View style={styles.weekDayContent}>
-                <Text style={[styles.weekDayText, isSelectedDay && styles.selectedWeekDayText]}>
-                  {getDayAbbreviation(day)}
-                </Text>
-                <Text style={[styles.weekDayNumber, isSelectedDay && styles.selectedWeekDayText]}>
-                  {format(day, 'd')}
-                </Text>
+            return (
+              <TouchableOpacity
+                key={index}
+                style={[styles.weekDay, isSelectedDay && styles.selectedWeekDay]}
+                onPress={() => handleWeekDayPress(day)}
+              >
+                <View style={styles.weekDayContent}>
+                  <Text style={[styles.weekDayText, isSelectedDay && styles.selectedWeekDayText]}>
+                    {getDayAbbreviation(day)}
+                  </Text>
+                  <Text style={[styles.weekDayNumber, isSelectedDay && styles.selectedWeekDayText]}>
+                    {format(day, 'd')}
+                  </Text>
 
-                {/* Render only ONE indicator based on workout state priority */}
-                {iconType !== 'none' && (
-                  <View style={styles.indicatorContainer}>
-                    {iconType === 'completed' && (
-                      <View style={styles.completedIconBackground}>
-                        <Icon source="check" size={12} color="#FFFFFF" />
-                      </View>
-                    )}
+                  {/* Render only ONE indicator based on workout state priority */}
+                  {iconType !== 'none' && (
+                    <View style={styles.indicatorContainer}>
+                      {iconType === 'completed' && (
+                        <View style={styles.completedIconBackground}>
+                          <Icon source="check" size={12} color="#FFFFFF" />
+                        </View>
+                      )}
 
-                    {iconType === 'paused' && (
-                      <View style={styles.pausedIconBackground}>
-                        <Icon source="pause" size={12} color="#FFFFFF" />
-                      </View>
-                    )}
+                      {iconType === 'paused' && (
+                        <View style={styles.pausedIconBackground}>
+                          <Icon source="pause" size={12} color="#FFFFFF" />
+                        </View>
+                      )}
 
-                    {iconType === 'workout' && (
-                      <View
-                        style={[
-                          styles.workoutIndicator,
-                          isSelectedDay && styles.selectedWorkoutIndicator,
-                        ]}
-                      />
-                    )}
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-      </GestureWrapper>
+                      {iconType === 'workout' && (
+                        <View
+                          style={[
+                            styles.workoutIndicator,
+                            isSelectedDay && styles.selectedWorkoutIndicator,
+                          ]}
+                        />
+                      )}
+                    </View>
+                  )}
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </Animated.View>
+      </PanGestureHandler>
     </View>
   );
 }

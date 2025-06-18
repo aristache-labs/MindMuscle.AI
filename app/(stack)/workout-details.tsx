@@ -354,7 +354,10 @@ export default function WorkoutDetailsScreen() {
     });
   };
 
-  const animateWeekChange = (callback: () => void) => {
+  const animateWeekChange = (newWeekDate: Date) => {
+    // Start loading workout dates immediately (don't wait for animation delay)
+    loadWorkoutDatesForWeek(newWeekDate);
+
     Animated.sequence([
       // Fade out
       Animated.timing(weekCalendarOpacity, {
@@ -372,8 +375,10 @@ export default function WorkoutDetailsScreen() {
       }),
     ]).start();
 
-    // Execute the callback during the fade-out
-    setTimeout(callback, 75);
+    // Update the selected week date during the fade-out
+    setTimeout(() => {
+      setSelectedWeekDate(newWeekDate);
+    }, 75);
   };
 
   const handleTodayPress = () => {
@@ -387,12 +392,7 @@ export default function WorkoutDetailsScreen() {
 
     if (needsWeekChange) {
       // Animate week change
-      animateWeekChange(() => {
-        // Update the selected week date to today's week
-        setSelectedWeekDate(today);
-        // Load workout dates for today's week
-        loadWorkoutDatesForWeek(today);
-      });
+      animateWeekChange(today);
     } else {
       // Just update the selected week date for consistency
       setSelectedWeekDate(today);
@@ -422,10 +422,7 @@ export default function WorkoutDetailsScreen() {
         // Swipe right - go to previous week
         const previousWeek = addDays(selectedWeekDate, -7);
 
-        animateWeekChange(() => {
-          setSelectedWeekDate(previousWeek);
-          loadWorkoutDatesForWeek(previousWeek);
-        });
+        animateWeekChange(previousWeek);
 
         SentryDataCollection.addBreadcrumb({
           message: 'Week changed via swipe gesture',
@@ -440,10 +437,7 @@ export default function WorkoutDetailsScreen() {
         // Swipe left - go to next week
         const nextWeek = addDays(selectedWeekDate, 7);
 
-        animateWeekChange(() => {
-          setSelectedWeekDate(nextWeek);
-          loadWorkoutDatesForWeek(nextWeek);
-        });
+        animateWeekChange(nextWeek);
 
         SentryDataCollection.addBreadcrumb({
           message: 'Week changed via swipe gesture',
@@ -537,10 +531,7 @@ export default function WorkoutDetailsScreen() {
                   onPress={() => {
                     const previousWeek = addDays(selectedWeekDate, -7);
 
-                    animateWeekChange(() => {
-                      setSelectedWeekDate(previousWeek);
-                      loadWorkoutDatesForWeek(previousWeek);
-                    });
+                    animateWeekChange(previousWeek);
 
                     SentryDataCollection.addBreadcrumb({
                       message: 'Week changed via arrow button',
@@ -566,10 +557,7 @@ export default function WorkoutDetailsScreen() {
                     onPress={() => {
                       const nextWeek = addDays(selectedWeekDate, 7);
 
-                      animateWeekChange(() => {
-                        setSelectedWeekDate(nextWeek);
-                        loadWorkoutDatesForWeek(nextWeek);
-                      });
+                      animateWeekChange(nextWeek);
 
                       SentryDataCollection.addBreadcrumb({
                         message: 'Week changed via arrow button',

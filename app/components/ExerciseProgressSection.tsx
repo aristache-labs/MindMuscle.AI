@@ -99,7 +99,7 @@ const InteractiveExerciseGraph: React.FC<InteractiveGraphProps> = ({
 
   const points = data.map((point, index) => {
     const startX = chartWidth * 0.05;
-    const usableWidth = chartWidth * 0.90;
+    const usableWidth = chartWidth * 0.93;
     const x = startX + (index / (data.length - 1)) * usableWidth;
     const normalizedValue = (point.value - paddedMin) / paddedRange;
     const y = padding + (chartHeight - padding * 1.5) * (1 - normalizedValue);

@@ -42,7 +42,9 @@ import {
   captureMessage,
   captureUIError,
 } from '../services/sentry/simpleErrorHandler';
+import { useAuth } from '../store/AuthContext';
 import ExerciseInstructions from './ExerciseInstructions';
+import ExerciseProgressSection from './ExerciseProgressSection';
 import MuscleDiagram from './MuscleDiagram';
 import MuscleTags from './MuscleTags';
 import OptimizedImage from './OptimizedImage';
@@ -832,6 +834,9 @@ export default function ExerciseDetailsModal({
   primary_muscles,
   secondary_muscles,
 }: ExerciseDetailsModalProps) {
+  // Get user context for progress data
+  const { user } = useAuth();
+
   // Track component lifecycle
   useEffect(() => {
     if (visible) {
@@ -841,6 +846,7 @@ export default function ExerciseDetailsModal({
         hasImage: !!exerciseImage,
         primaryMuscleCount: primary_muscles?.length || 0,
         secondaryMuscleCount: secondary_muscles?.length || 0,
+        hasUser: !!user,
       });
     }
 
@@ -851,7 +857,7 @@ export default function ExerciseDetailsModal({
         });
       }
     };
-  }, [visible, exerciseId, exerciseName, exerciseImage, primary_muscles, secondary_muscles]);
+  }, [visible, exerciseId, exerciseName, exerciseImage, primary_muscles, secondary_muscles, user]);
 
   const { internalVisible, handleClose, animatedModalStyle, isClosing } = useModalAnimation(
     visible,
@@ -972,6 +978,14 @@ export default function ExerciseDetailsModal({
                       overScrollMode="never"
                     >
                       <ExerciseMedia exerciseImage={exerciseImage} />
+
+                      {/* Exercise Progress and History Section */}
+                      <ExerciseProgressSection
+                        exerciseId={exerciseId}
+                        userId={user?.id}
+                        visible={visible}
+                      />
+
                       <TabNavigation
                         activeSection={activeSection}
                         onChangeSection={changeSection}
@@ -1208,7 +1222,7 @@ const styles = StyleSheet.create({
   },
   sectionsContainer: {
     flexDirection: 'row',
-    width: width - SPACING.md * 2,
+    width: width - SPACING.md,
   },
   sectionContent: {
     padding: SPACING.md,

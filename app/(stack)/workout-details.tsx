@@ -132,7 +132,19 @@ export default function WorkoutDetailsScreen() {
         },
       });
 
-      // Get workout history for the selected date
+      // FIXED: Expand date range to account for timezone differences
+      // Instead of using exact UTC boundaries, we'll query a wider range
+      // and then filter by date in JavaScript using local date comparison
+      const targetDateTime = parseISO(targetDate);
+      const startDateTime = new Date(targetDateTime);
+      startDateTime.setHours(0, 0, 0, 0);
+      startDateTime.setDate(startDateTime.getDate() - 1); // Start from previous day
+
+      const endDateTime = new Date(targetDateTime);
+      endDateTime.setHours(23, 59, 59, 999);
+      endDateTime.setDate(endDateTime.getDate() + 1); // End at next day
+
+      // Get workout history for a wider date range to account for timezone differences
       const { data: workoutHistory, error: historyError } = await supabase
         .from('user_workout_history')
         .select(
@@ -147,8 +159,8 @@ export default function WorkoutDetailsScreen() {
           `,
         )
         .eq('user_id', user.id)
-        .gte('completed_at', `${targetDate}T00:00:00.000Z`)
-        .lt('completed_at', `${targetDate}T23:59:59.999Z`)
+        .gte('completed_at', startDateTime.toISOString())
+        .lte('completed_at', endDateTime.toISOString())
         .order('completed_at', { ascending: false });
 
       if (historyError) throw historyError;
@@ -158,10 +170,22 @@ export default function WorkoutDetailsScreen() {
         return;
       }
 
+      // FIXED: Filter workouts by comparing local dates instead of UTC timestamps
+      const filteredWorkouts = workoutHistory.filter((workout) => {
+        const completedDate = new Date(workout.completed_at);
+        const completedDateLocal = format(completedDate, 'yyyy-MM-dd');
+        return completedDateLocal === targetDate;
+      });
+
+      if (filteredWorkouts.length === 0) {
+        setWorkoutDetails([]);
+        return;
+      }
+
       // Process each workout for the day
       const allWorkoutDetails: WorkoutDetails[] = [];
 
-      for (const workout of workoutHistory) {
+      for (const workout of filteredWorkouts) {
         // Get exercise records for this workout
         const { data: exerciseRecords, error: exerciseError } = await supabase
           .from('user_exercise_records')
@@ -223,7 +247,9 @@ export default function WorkoutDetailsScreen() {
         category: 'data.process',
         data: {
           component: 'WorkoutDetailsScreen',
-          workouts_count: allWorkoutDetails.length,
+          workouts_found_in_range: workoutHistory.length,
+          workouts_after_local_filtering: filteredWorkouts.length,
+          final_workouts_count: allWorkoutDetails.length,
           total_exercises: allWorkoutDetails.reduce((sum, w) => sum + w.exercises.length, 0),
         },
       });
@@ -256,19 +282,32 @@ export default function WorkoutDetailsScreen() {
       const startDate = format(weekDates[0], 'yyyy-MM-dd');
       const endDate = format(weekDates[6], 'yyyy-MM-dd');
 
+      // FIXED: Expand date range to account for timezone differences
+      const startDateTime = new Date(weekDates[0]);
+      startDateTime.setHours(0, 0, 0, 0);
+      startDateTime.setDate(startDateTime.getDate() - 1); // Start from previous day
+
+      const endDateTime = new Date(weekDates[6]);
+      endDateTime.setHours(23, 59, 59, 999);
+      endDateTime.setDate(endDateTime.getDate() + 1); // End at next day
+
       const { data: workoutHistory, error } = await supabase
         .from('user_workout_history')
         .select('completed_at')
         .eq('user_id', user.id)
-        .gte('completed_at', `${startDate}T00:00:00.000Z`)
-        .lte('completed_at', `${endDate}T23:59:59.999Z`);
+        .gte('completed_at', startDateTime.toISOString())
+        .lte('completed_at', endDateTime.toISOString());
 
       if (error) throw error;
 
       const workoutDateSet = new Set<string>();
       workoutHistory?.forEach((workout) => {
+        // FIXED: Use local date comparison instead of UTC
         const workoutDate = format(new Date(workout.completed_at), 'yyyy-MM-dd');
-        workoutDateSet.add(workoutDate);
+        // Only include dates that fall within the week range
+        if (workoutDate >= startDate && workoutDate <= endDate) {
+          workoutDateSet.add(workoutDate);
+        }
       });
 
       setWorkoutDates(workoutDateSet);
@@ -280,6 +319,7 @@ export default function WorkoutDetailsScreen() {
           component: 'WorkoutDetailsScreen',
           week_start: startDate,
           week_end: endDate,
+          workouts_found_in_range: workoutHistory?.length || 0,
           workout_dates_count: workoutDateSet.size,
         },
       });

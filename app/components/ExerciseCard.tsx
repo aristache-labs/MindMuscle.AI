@@ -263,7 +263,7 @@ const ExerciseCard = memo(
                 >
                   <MaterialIcons
                     name={isFavorite ? 'star' : 'star-outline'}
-                    size={16}
+                    size={26}
                     color={isFavorite ? '#FFD700' : 'rgba(255,255,255,0.8)'}
                   />
                 </TouchableOpacity>
@@ -357,8 +357,8 @@ const styles = StyleSheet.create<Styles>({
     right: 6,
     backgroundColor: 'rgba(0,0,0,0.5)',
     borderRadius: 12,
-    width: 24,
-    height: 24,
+    width: 26,
+    height: 26,
     justifyContent: 'center',
     alignItems: 'center',
   },

@@ -4,7 +4,7 @@
     "name": "MindMuscle.AI",
     "slug": "mindmuscle-ai",
     "owner": "pateutz",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -79,7 +79,7 @@
           }
         ]
       },
-      "buildNumber": "4"
+      "buildNumber": "5"
     },
     "android": {
       "adaptiveIcon": {

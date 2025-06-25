@@ -338,6 +338,20 @@ function renderExerciseSetsContent(props: Record<string, unknown>) {
                   reps: string,
                 ) => void
               }
+              onDurationMinutesChange={
+                props.handleDurationMinutesChange as (
+                  exerciseId: string,
+                  setIndex: number,
+                  minutes: string,
+                ) => void
+              }
+              onDurationSecondsChange={
+                props.handleDurationSecondsChange as (
+                  exerciseId: string,
+                  setIndex: number,
+                  seconds: string,
+                ) => void
+              }
               onSetComplete={
                 props.handleSetComplete as (exerciseId: string, setIndex: number) => void
               }
@@ -721,6 +735,8 @@ export default function WorkoutSessionScreen() {
     handleLogAllSets,
     handleWeightChange,
     handleRepsChange,
+    handleDurationMinutesChange,
+    handleDurationSecondsChange,
     getSuggestedValue,
   } = useExerciseSets({
     exercises: workoutExercises,
@@ -1322,6 +1338,8 @@ export default function WorkoutSessionScreen() {
     textInputRefreshKey,
     handleWeightChange,
     handleRepsChange,
+    handleDurationMinutesChange,
+    handleDurationSecondsChange,
     handleSetComplete,
     handleRedoSet,
     handleInputFocus,

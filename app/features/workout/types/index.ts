@@ -8,6 +8,7 @@ export interface ExerciseData {
   image_url?: string;
   primary_muscles?: string[];
   requires_weight?: boolean;
+  muscle_group?: string;
   restTime?: number;
   order: number;
   workout_day: number;
@@ -19,6 +20,8 @@ export interface ExerciseSet {
   setNumber: number;
   weight: string;
   reps: string;
+  duration_minutes?: string;
+  duration_seconds?: string;
   isCompleted: boolean;
 }
 
@@ -31,7 +34,7 @@ export interface ExerciseDataItem {
   exercise_name?: string;
   rest_time?: number;
   order: number;
-  exercises?: any;
+  exercises?: ExerciseData[];
 }
 
 export interface MaxWeightDataPoint {

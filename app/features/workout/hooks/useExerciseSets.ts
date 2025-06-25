@@ -65,6 +65,8 @@ export interface UseExerciseSetsReturn {
   // Input handling
   handleWeightChange: (exerciseId: string, setIndex: number, value: string) => void;
   handleRepsChange: (exerciseId: string, setIndex: number, value: string) => void;
+  handleDurationMinutesChange: (exerciseId: string, setIndex: number, value: string) => void;
+  handleDurationSecondsChange: (exerciseId: string, setIndex: number, value: string) => void;
 
   // Auto-fill logic
   autoFillNextIncompleteSetWithValues: (
@@ -652,6 +654,78 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
     });
   }, []);
 
+  const handleDurationMinutesChange = useCallback(
+    (exerciseId: string, setIndex: number, value: string) => {
+      // Validate and transform the input value for minutes (0-999)
+      let processedValue = value;
+
+      // Remove non-numeric characters except empty string
+      if (processedValue !== '') {
+        processedValue = processedValue.replace(/[^0-9]/g, '');
+
+        // Limit to 999 minutes maximum
+        if (processedValue !== '' && parseInt(processedValue) > 999) {
+          processedValue = '999';
+        }
+
+        // Remove leading zeros
+        processedValue = processedValue.replace(/^0+(?=\d)/, '');
+      }
+
+      // Mark this input as user-entered
+      const inputKey = `${exerciseId}-${setIndex}-duration-minutes`;
+      setUserEnteredValues((prev) => ({
+        ...prev,
+        [inputKey]: true,
+      }));
+
+      setExerciseSets((prev) => {
+        const updatedSets = { ...prev };
+        if (updatedSets[exerciseId]) {
+          updatedSets[exerciseId][setIndex].duration_minutes = processedValue;
+        }
+        return updatedSets;
+      });
+    },
+    [],
+  );
+
+  const handleDurationSecondsChange = useCallback(
+    (exerciseId: string, setIndex: number, value: string) => {
+      // Validate and transform the input value for seconds (0-59)
+      let processedValue = value;
+
+      // Remove non-numeric characters except empty string
+      if (processedValue !== '') {
+        processedValue = processedValue.replace(/[^0-9]/g, '');
+
+        // Limit to 59 seconds maximum
+        if (processedValue !== '' && parseInt(processedValue) > 59) {
+          processedValue = '59';
+        }
+
+        // Remove leading zeros
+        processedValue = processedValue.replace(/^0+(?=\d)/, '');
+      }
+
+      // Mark this input as user-entered
+      const inputKey = `${exerciseId}-${setIndex}-duration-seconds`;
+      setUserEnteredValues((prev) => ({
+        ...prev,
+        [inputKey]: true,
+      }));
+
+      setExerciseSets((prev) => {
+        const updatedSets = { ...prev };
+        if (updatedSets[exerciseId]) {
+          updatedSets[exerciseId][setIndex].duration_seconds = processedValue;
+        }
+        return updatedSets;
+      });
+    },
+    [],
+  );
+
   // Auto-fill functions for legacy support
   const autoFillNextSetWithValues = useCallback(
     (exerciseId: string, currentSetIndex: number, weightValue: string, repsValue: string) => {
@@ -796,6 +870,8 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
     // Input handling
     handleWeightChange,
     handleRepsChange,
+    handleDurationMinutesChange,
+    handleDurationSecondsChange,
 
     // Auto-fill logic
     autoFillNextIncompleteSetWithValues,

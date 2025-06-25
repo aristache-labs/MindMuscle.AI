@@ -18,6 +18,7 @@ interface Exercise {
   reps_range: string;
   image_url?: string;
   primary_muscles?: string[];
+  muscle_group?: string;
   order: number;
   workout_day: number;
   requires_weight?: boolean;
@@ -93,8 +94,18 @@ export default function CustomizeExerciseModal({
     const range = exercise.reps_range.split('-');
     return parseInt(range[1]) || parseInt(range[0]) || 10;
   });
+  const [cardioMinutes, setCardioMinutes] = useState(() => {
+    if (!exercise?.reps_range) return 15;
+    const range = exercise.reps_range.split('-');
+    return parseInt(range[0]) || 15;
+  });
   const [showChangeExerciseModal, setShowChangeExerciseModal] = useState(false);
   const [validationError, setValidationError] = useState<string>('');
+
+  // Helper function to determine if exercise is cardio
+  const isCardioExercise = (exerciseData: Exercise | null): boolean => {
+    return exerciseData?.muscle_group === 'Cardio';
+  };
 
   // Track component lifecycle
   React.useEffect(() => {
@@ -119,9 +130,15 @@ export default function CustomizeExerciseModal({
       });
 
       setSets(exercise.sets);
-      const range = exercise.reps_range.split('-');
-      setRepsMin(parseInt(range[0]) || 8);
-      setRepsMax(parseInt(range[1]) || parseInt(range[0]) || 10);
+
+      if (isCardioExercise(exercise)) {
+        const range = exercise.reps_range.split('-');
+        setCardioMinutes(parseInt(range[0]) || 15);
+      } else {
+        const range = exercise.reps_range.split('-');
+        setRepsMin(parseInt(range[0]) || 8);
+        setRepsMax(parseInt(range[1]) || parseInt(range[0]) || 10);
+      }
       setValidationError(''); // Clear validation error when exercise changes
     }
   }, [exercise]);
@@ -133,7 +150,12 @@ export default function CustomizeExerciseModal({
       return false;
     }
 
-    const reps_range = repsMin === repsMax ? repsMin.toString() : `${repsMin}-${repsMax}`;
+    let reps_range: string;
+    if (isCardioExercise(exercise)) {
+      reps_range = cardioMinutes.toString();
+    } else {
+      reps_range = repsMin === repsMax ? repsMin.toString() : `${repsMin}-${repsMax}`;
+    }
 
     const formData = {
       exerciseId: exercise.id,
@@ -146,6 +168,7 @@ export default function CustomizeExerciseModal({
       exerciseId: exercise.id,
       sets,
       repsRange: reps_range,
+      isCardio: isCardioExercise(exercise),
     });
 
     const validationResult = validationService.validateCustomizeExerciseForm(formData);
@@ -170,6 +193,7 @@ export default function CustomizeExerciseModal({
       exerciseId: exercise.id,
       sets,
       repsRange: reps_range,
+      isCardio: isCardioExercise(exercise),
     });
 
     setValidationError('');
@@ -182,71 +206,50 @@ export default function CustomizeExerciseModal({
       exerciseName: exercise?.name,
       hadChanges: exercise
         ? sets !== exercise.sets ||
-          repsMin !== parseInt(exercise.reps_range.split('-')[0]) ||
-          repsMax !==
-            parseInt(exercise.reps_range.split('-')[1] || exercise.reps_range.split('-')[0])
+          (isCardioExercise(exercise)
+            ? cardioMinutes !== parseInt(exercise.reps_range.split('-')[0])
+            : repsMin !== parseInt(exercise.reps_range.split('-')[0]) ||
+              repsMax !==
+                parseInt(exercise.reps_range.split('-')[1] || exercise.reps_range.split('-')[0]))
         : false,
     });
 
     // Reset to original values
     if (exercise) {
       setSets(exercise.sets);
-      const range = exercise.reps_range.split('-');
-      setRepsMin(parseInt(range[0]) || 8);
-      setRepsMax(parseInt(range[1]) || parseInt(range[0]) || 10);
+      if (isCardioExercise(exercise)) {
+        const range = exercise.reps_range.split('-');
+        setCardioMinutes(parseInt(range[0]) || 15);
+      } else {
+        const range = exercise.reps_range.split('-');
+        setRepsMin(parseInt(range[0]) || 8);
+        setRepsMax(parseInt(range[1]) || parseInt(range[0]) || 10);
+      }
     }
     setValidationError('');
     onClose();
   };
 
   const handleSave = () => {
-    simpleErrorHandler.addBreadcrumb(
-      'User attempted to save exercise customization',
-      'user_interaction',
-      {
-        exerciseId: exercise?.exercise_id || exercise?.id,
-        exerciseName: exercise?.name,
-        newSets: sets,
-        newRepsRange: repsMin === repsMax ? repsMin.toString() : `${repsMin}-${repsMax}`,
-      },
-    );
+    if (!validateForm()) return;
 
-    if (!validateForm()) {
-      return; // Don't save if validation fails
+    let reps_range: string;
+    if (isCardioExercise(exercise)) {
+      reps_range = cardioMinutes.toString();
+    } else {
+      reps_range = repsMin === repsMax ? repsMin.toString() : `${repsMin}-${repsMax}`;
     }
 
-    const reps_range = repsMin === repsMax ? repsMin.toString() : `${repsMin}-${repsMax}`;
+    simpleErrorHandler.addBreadcrumb('User saved exercise customization', 'user_interaction', {
+      exerciseId: exercise?.exercise_id || exercise?.id,
+      exerciseName: exercise?.name,
+      newSets: sets,
+      newRepsRange: reps_range,
+      isCardio: isCardioExercise(exercise),
+    });
 
-    try {
-      simpleErrorHandler.addBreadcrumb('Saving exercise customization', 'data', {
-        exerciseId: exercise?.exercise_id || exercise?.id,
-        sets,
-        reps_range,
-      });
-
-      onSave({ sets, reps_range });
-
-      simpleErrorHandler.addBreadcrumb('Exercise customization saved successfully', 'data', {
-        exerciseId: exercise?.exercise_id || exercise?.id,
-        sets,
-        reps_range,
-      });
-
-      logger.info('Exercise customization saved successfully', {
-        context: { exerciseId: exercise?.id, sets, reps_range },
-      });
-      onClose();
-    } catch (error) {
-      simpleErrorHandler.captureException(error as Error, {
-        component: 'CustomizeExerciseModal',
-        category: 'ui_error',
-      });
-
-      logger.error('Failed to save exercise customization', error as Error, {
-        context: { exerciseId: exercise?.id, sets, reps_range },
-      });
-      setValidationError('Failed to save changes. Please try again.');
-    }
+    onSave({ sets, reps_range });
+    onClose();
   };
 
   const handleChangeExercise = () => {
@@ -343,10 +346,12 @@ export default function CustomizeExerciseModal({
   const adjustSets = (increment: boolean) => {
     setSets((prev) => {
       const newValue = increment ? prev + 1 : prev - 1;
-      const clampedValue = Math.max(1, Math.min(20, newValue)); // Limit between 1-20 to match validation
 
-      // Clear validation error when user makes changes
-      if (validationError) {
+      // Clamp between 1 and 10 sets
+      const clampedValue = Math.max(1, Math.min(10, newValue));
+
+      // Clear validation error when making valid changes
+      if (clampedValue !== prev) {
         setValidationError('');
       }
 
@@ -415,6 +420,22 @@ export default function CustomizeExerciseModal({
         setRepsMax(closestRange.max);
       }
     }
+  };
+
+  // Adjust cardio minutes (5 to 60 in increments of 5)
+  const adjustCardioMinutes = (increment: boolean) => {
+    setCardioMinutes((prev) => {
+      const newValue = increment ? prev + 5 : prev - 5;
+      // Clamp between 5 and 60 minutes
+      const clampedValue = Math.max(5, Math.min(60, newValue));
+
+      // Clear validation error when making valid changes
+      if (clampedValue !== prev) {
+        setValidationError('');
+      }
+
+      return clampedValue;
+    });
   };
 
   if (!exercise) return null;
@@ -508,9 +529,16 @@ export default function CustomizeExerciseModal({
               </View>
             </View>
 
+            {/* Validation Error Display */}
+            {validationError ? (
+              <View style={styles.errorContainer}>
+                <Text style={styles.errorText}>{validationError}</Text>
+              </View>
+            ) : null}
+
             {/* Customization Controls */}
             <View style={styles.controlsSection}>
-              {/* Controls Row - Sets and Reps side by side */}
+              {/* Controls Row - Sets and Reps/Minutes side by side */}
               <View style={styles.controlsRow}>
                 {/* Sets Control */}
                 <View style={styles.controlColumn}>
@@ -533,27 +561,40 @@ export default function CustomizeExerciseModal({
                   <Text style={styles.controlLabel}>sets</Text>
                 </View>
 
-                {/* Reps Control */}
+                {/* Reps/Minutes Control */}
                 <View style={styles.controlColumn}>
                   <View style={styles.controlContainer}>
                     <TouchableOpacity
                       style={styles.controlButton}
-                      onPress={() => adjustReps(false)}
+                      onPress={() =>
+                        isCardioExercise(exercise) ? adjustCardioMinutes(false) : adjustReps(false)
+                      }
                     >
                       <Text style={styles.controlButtonText}>−</Text>
                     </TouchableOpacity>
 
                     <View style={styles.valueContainer}>
                       <Text style={styles.valueText}>
-                        {repsMin === repsMax ? repsMin : `${repsMin}-${repsMax}`}
+                        {isCardioExercise(exercise)
+                          ? cardioMinutes
+                          : repsMin === repsMax
+                            ? repsMin
+                            : `${repsMin}-${repsMax}`}
                       </Text>
                     </View>
 
-                    <TouchableOpacity style={styles.controlButton} onPress={() => adjustReps(true)}>
+                    <TouchableOpacity
+                      style={styles.controlButton}
+                      onPress={() =>
+                        isCardioExercise(exercise) ? adjustCardioMinutes(true) : adjustReps(true)
+                      }
+                    >
                       <Text style={styles.controlButtonText}>+</Text>
                     </TouchableOpacity>
                   </View>
-                  <Text style={styles.controlLabel}>reps</Text>
+                  <Text style={styles.controlLabel}>
+                    {isCardioExercise(exercise) ? 'minutes' : 'reps'}
+                  </Text>
                 </View>
               </View>
             </View>
@@ -754,5 +795,20 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 20,
     fontWeight: 'bold',
+  },
+  errorContainer: {
+    backgroundColor: 'rgba(255, 0, 0, 0.1)',
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
+    marginHorizontal: SPACING.lg,
+    marginBottom: SPACING.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 0, 0, 0.3)',
+  },
+  errorText: {
+    color: '#ff6b6b',
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
   },
 });

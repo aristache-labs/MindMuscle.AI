@@ -13,23 +13,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, BORDER_RADIUS } from '../../../constants/theme';
 import type { RecommendationData } from '../hooks/useExerciseSets';
-
-interface ExerciseSet {
-  id: string;
-  setNumber: number;
-  weight: string;
-  reps: string;
-  isCompleted: boolean;
-}
-
-interface ExerciseData {
-  id: string;
-  exercise_id: string;
-  name: string;
-  sets: number;
-  reps_range: string;
-  requires_weight?: boolean;
-}
+import { ExerciseData, ExerciseSet } from '../types';
+import ActiveSetCard from './ActiveSetCard';
+import InactiveOrCompletedSetCard from './InactiveOrCompletedSetCard';
 
 // Define the styles type using React Native style types
 type WorkoutExerciseSetRowStyles = {
@@ -52,6 +38,8 @@ interface WorkoutExerciseSetRowProps {
   // Event handlers
   onWeightChange: (exerciseId: string, setIndex: number, value: string) => void;
   onRepsChange: (exerciseId: string, setIndex: number, value: string) => void;
+  onDurationMinutesChange?: (exerciseId: string, setIndex: number, value: string) => void;
+  onDurationSecondsChange?: (exerciseId: string, setIndex: number, value: string) => void;
   onSetComplete: (exerciseId: string, setIndex: number) => void;
   onRedoSet: (exerciseId: string, setIndex: number) => void;
   onInputFocus: (id: string, event?: NativeSyntheticEvent<TextInputFocusEventData>) => void;
@@ -443,6 +431,8 @@ export default function WorkoutExerciseSetRow({
   textInputRefreshKey,
   onWeightChange,
   onRepsChange,
+  onDurationMinutesChange,
+  onDurationSecondsChange,
   onSetComplete,
   onRedoSet,
   onInputFocus,
@@ -457,6 +447,62 @@ export default function WorkoutExerciseSetRow({
     currentRecommendation,
     getSuggestedValue,
   );
+
+  // Determine if this is a cardio exercise
+  const isCardioExercise = exercise?.muscle_group === 'Cardio';
+
+  // For cardio exercises, use specialized components that handle the CardioTimer
+  if (isCardioExercise) {
+    if (isActive && !isCompleted) {
+      return (
+        <ActiveSetCard
+          set={set}
+          setIndex={setIndex}
+          exercise={exercise}
+          focusedInputs={focusedInputs}
+          userEnteredValues={userEnteredValues}
+          exerciseCustomized={exerciseCustomized}
+          lastExerciseValues={lastExerciseValues}
+          currentRecommendation={currentRecommendation}
+          textInputRefreshKey={textInputRefreshKey}
+          onWeightChange={onWeightChange}
+          onRepsChange={onRepsChange}
+          onDurationMinutesChange={onDurationMinutesChange}
+          onDurationSecondsChange={onDurationSecondsChange}
+          onSetComplete={onSetComplete}
+          onInputFocus={onInputFocus}
+          onInputBlur={onInputBlur}
+          getSuggestedValue={getSuggestedValue}
+          styles={styles}
+        />
+      );
+    } else {
+      return (
+        <InactiveOrCompletedSetCard
+          set={set}
+          setIndex={setIndex}
+          exercise={exercise}
+          isActive={isActive}
+          isCompleted={isCompleted}
+          focusedInputs={focusedInputs}
+          exerciseCustomized={exerciseCustomized}
+          lastExerciseValues={lastExerciseValues}
+          currentRecommendation={currentRecommendation}
+          textInputRefreshKey={textInputRefreshKey}
+          onWeightChange={onWeightChange}
+          onRepsChange={onRepsChange}
+          onDurationMinutesChange={onDurationMinutesChange}
+          onDurationSecondsChange={onDurationSecondsChange}
+          onSetComplete={onSetComplete}
+          onRedoSet={onRedoSet}
+          onInputFocus={onInputFocus}
+          onInputBlur={onInputBlur}
+          getSuggestedValue={getSuggestedValue}
+          styles={styles}
+        />
+      );
+    }
+  }
 
   // Render active set card
   if (isActive && !isCompleted) {
@@ -870,6 +916,32 @@ const styles = StyleSheet.create({
   completeButton: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Cardio-specific styles
+  cardioDisplayText: {
+    color: COLORS.text,
+    fontSize: 24,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    backgroundColor: 'transparent',
+    padding: 8,
+    paddingRight: 0,
+    height: 40,
+    minHeight: 40,
+    minWidth: 60,
+  },
+  completedLabel: {
+    color: 'rgba(255, 255, 255, 0.4)',
+    fontSize: 12,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  inactiveSetCardContainer: {
+    width: '100%',
+    borderRadius: BORDER_RADIUS.md,
+    overflow: 'hidden',
+    backgroundColor: COLORS.surface,
   },
 });
 

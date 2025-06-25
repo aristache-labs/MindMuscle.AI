@@ -320,7 +320,9 @@ export const ExerciseSchema = z.object({
   id: IdSchema,
   name: z.string().min(1, 'Exercise name is required'),
   sets: PositiveNumberSchema,
-  reps_range: z.string().regex(/^\d+-\d+$/, 'Reps range must be in format "min-max"'),
+  reps_range: z
+    .string()
+    .regex(/^(\d+|\d+-\d+)$/, 'Reps range must be a single number or in format "min-max"'),
   image_url: UrlSchema,
   primary_muscles: z.array(z.string()).optional(),
   exercise_name: z.string().optional(),
@@ -458,7 +460,9 @@ export const ExerciseConfigurationSchema = z.object({
   exerciseId: IdSchema,
   name: z.string().min(1, 'Exercise name is required'),
   sets: PositiveNumberSchema,
-  reps_range: z.string().regex(/^\d+-\d+$/, 'Reps range must be in format "min-max"'),
+  reps_range: z
+    .string()
+    .regex(/^(\d+|\d+-\d+)$/, 'Reps range must be a single number or in format "min-max"'),
   image_url: z.string().url('Invalid URL format').optional().or(z.literal('')),
   muscle_group: z.string(),
   primary_muscles: z.array(z.string()).optional(),
@@ -565,7 +569,9 @@ export const SavedExerciseStructureSchema = z.object({
   exercise_id: IdSchema,
   name: z.string().min(1, 'Exercise name is required'),
   sets: PositiveNumberSchema,
-  reps_range: z.string().regex(/^\d+-\d+$/, 'Reps range must be in format "min-max"'),
+  reps_range: z
+    .string()
+    .regex(/^(\d+|\d+-\d+)$/, 'Reps range must be a single number or in format "min-max"'),
   image_url: UrlSchema,
   primary_muscles: z.array(z.string()).optional(),
   requires_weight: z.boolean(),
@@ -676,7 +682,9 @@ export const SaveCompletedWorkoutSchema = z.object({
 export const CustomizeExerciseFormSchema = z.object({
   exerciseId: IdSchema,
   sets: PositiveNumberSchema.min(1).max(20),
-  repsRange: z.string().regex(/^\d+-\d+$/, 'Reps range must be in format "min-max"'),
+  repsRange: z
+    .string()
+    .regex(/^(\d+|\d+-\d+)$/, 'Reps range must be a single number or in format "min-max"'),
   restTime: NonNegativeNumberSchema.max(600), // Max 10 minutes
 });
 

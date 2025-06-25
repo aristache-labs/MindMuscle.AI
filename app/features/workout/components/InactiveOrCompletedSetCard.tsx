@@ -1,11 +1,5 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  NativeSyntheticEvent,
-  TextInputFocusEventData,
-} from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../../constants/theme';
 import { RecommendationData } from '../hooks/useExerciseSets';
@@ -26,9 +20,11 @@ interface InactiveOrCompletedSetCardProps {
   textInputRefreshKey: number;
   onWeightChange: (exerciseId: string, setIndex: number, value: string) => void;
   onRepsChange: (exerciseId: string, setIndex: number, value: string) => void;
+  onDurationMinutesChange?: (exerciseId: string, setIndex: number, value: string) => void;
+  onDurationSecondsChange?: (exerciseId: string, setIndex: number, value: string) => void;
   onSetComplete: (exerciseId: string, setIndex: number) => void;
   onRedoSet: (exerciseId: string, setIndex: number) => void;
-  onInputFocus: (id: string, event?: NativeSyntheticEvent<TextInputFocusEventData>) => void;
+  onInputFocus: (id: string) => void;
   onInputBlur: (id: string) => void;
   getSuggestedValue: (
     exerciseId: string,
@@ -36,105 +32,6 @@ interface InactiveOrCompletedSetCardProps {
     type: 'weight' | 'reps',
   ) => string | null;
   styles: typeof WorkoutExerciseSetRowStylesType;
-}
-
-interface PlaceholderHookParams {
-  exercise: ExerciseData;
-  setIndex: number;
-  focusedInputs: Record<string, boolean>;
-  isCompleted: boolean;
-  currentRecommendation: RecommendationData | null;
-  lastExerciseValues: Record<string, Record<number, { weight: string; reps: string }>>;
-  getSuggestedValue: (
-    exerciseId: string,
-    setNumber: number,
-    type: 'weight' | 'reps',
-  ) => string | null;
-}
-
-// Custom hook to handle placeholder logic
-function usePlaceholders({
-  exercise,
-  setIndex,
-  focusedInputs,
-  isCompleted,
-  currentRecommendation,
-  lastExerciseValues,
-  getSuggestedValue,
-}: PlaceholderHookParams) {
-  const getWeightPlaceholder = () => {
-    const inputId = `${exercise.id}-${setIndex}-weight`;
-    const isFocused = focusedInputs[inputId] || false;
-
-    if (isFocused || isCompleted) return '';
-
-    const recommendedWeight = currentRecommendation?.recommended_weight?.toString();
-    const suggestedValue = getSuggestedValue(exercise.exercise_id, setIndex + 1, 'weight');
-    const lastWeight = lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight;
-
-    // Prioritize progressive overload recommendations over last workout values
-    return recommendedWeight || suggestedValue || lastWeight || '--';
-  };
-
-  const getRepsPlaceholder = () => {
-    const inputId = `${exercise.id}-${setIndex}-reps`;
-    const isFocused = focusedInputs[inputId] || false;
-
-    if (isFocused || isCompleted) return '';
-
-    const recommendedReps = currentRecommendation?.recommended_reps?.toString();
-    const lastReps = lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.reps;
-    const exerciseRepsRange = exercise.reps_range;
-
-    return lastReps || recommendedReps || exerciseRepsRange || '--';
-  };
-
-  return { getWeightPlaceholder, getRepsPlaceholder };
-}
-
-// Component for last values display
-interface LastValuesRowProps {
-  exercise: ExerciseData;
-  setIndex: number;
-  set: ExerciseSet;
-  lastExerciseValues: Record<string, Record<number, { weight: string; reps: string }>>;
-  styles: typeof WorkoutExerciseSetRowStylesType;
-}
-
-function LastValuesRow({
-  exercise,
-  setIndex,
-  set,
-  lastExerciseValues,
-  styles,
-}: LastValuesRowProps) {
-  const hasLastValues =
-    lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight ||
-    lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.reps;
-
-  if (set.isCompleted || !hasLastValues) {
-    return null;
-  }
-
-  const lastWeight = lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight;
-  const lastReps = lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.reps;
-  const requiresWeight = exercise?.requires_weight !== false;
-
-  return (
-    <View style={styles.lastValuesRowInactive}>
-      {requiresWeight && (
-        <View style={styles.lastValueContainerInactive}>
-          {lastWeight && <Text style={styles.activeSetSubValue}>( Last {lastWeight} )</Text>}
-        </View>
-      )}
-
-      {requiresWeight && <View style={styles.lastValueSpacer} />}
-
-      <View style={styles.lastValueContainerInactive}>
-        {lastReps && <Text style={styles.activeSetSubValue}>( Last {lastReps} )</Text>}
-      </View>
-    </View>
-  );
 }
 
 // Component for action button
@@ -178,6 +75,69 @@ function ActionButton({
   );
 }
 
+// Helper function to determine if exercise is cardio
+const isCardioExercise = (exercise: ExerciseData): boolean => {
+  return exercise?.muscle_group === 'Cardio';
+};
+
+// Cardio Set Display Component
+interface CardioSetDisplayProps {
+  exercise: ExerciseData;
+  isCompleted: boolean;
+  styles: typeof WorkoutExerciseSetRowStylesType;
+}
+
+function CardioSetDisplay({ exercise, isCompleted, styles }: CardioSetDisplayProps) {
+  // Get the duration from the exercise's reps_range
+  const getCardioDuration = (): number => {
+    if (!exercise.reps_range) return 15;
+    const range = exercise.reps_range.split('-');
+    return parseInt(range[0]) || 15;
+  };
+
+  return (
+    <View style={styles.inactiveInputRow}>
+      <View style={styles.inputContainer}>
+        <Text style={[styles.suggestedLabelWeight, isCompleted && styles.completedLabel]}>
+          Duration
+        </Text>
+        <View style={styles.inputFieldContainer}>
+          <Text
+            style={[
+              styles.inactiveInputField,
+              styles.cardioDisplayText,
+              isCompleted && styles.completedInputField,
+            ]}
+          >
+            {getCardioDuration()}
+          </Text>
+          <Text style={styles.activeSetValueUnit}>min</Text>
+        </View>
+      </View>
+
+      <View style={styles.inactiveInputDivider} />
+
+      <View style={styles.inputContainer}>
+        {isCompleted && (
+          <Text style={[styles.suggestedLabel, styles.completedLabel]}>Completed</Text>
+        )}
+        <View style={styles.inputFieldContainer}>
+          <Text
+            style={[
+              styles.inactiveInputField,
+              styles.cardioDisplayText,
+              isCompleted && styles.completedInputField,
+            ]}
+          >
+            {isCompleted ? '1' : '1'}
+          </Text>
+          <Text style={styles.activeSetValueUnit}>set</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 export default function InactiveOrCompletedSetCard({
   set,
   setIndex,
@@ -191,6 +151,8 @@ export default function InactiveOrCompletedSetCard({
   textInputRefreshKey,
   onWeightChange,
   onRepsChange,
+  onDurationMinutesChange,
+  onDurationSecondsChange,
   onSetComplete,
   onRedoSet,
   onInputFocus,
@@ -198,59 +160,82 @@ export default function InactiveOrCompletedSetCard({
   getSuggestedValue,
   styles,
 }: InactiveOrCompletedSetCardProps) {
-  const { getWeightPlaceholder, getRepsPlaceholder } = usePlaceholders({
-    exercise,
-    setIndex,
-    focusedInputs,
-    isCompleted,
-    currentRecommendation,
-    lastExerciseValues,
-    getSuggestedValue,
-  });
+  const isCardio = isCardioExercise(exercise);
+
+  // Create wrapper functions that match the expected signature for SetInputFields
+  const getWeightPlaceholderWrapper = () => {
+    const inputId = `${exercise.id}-${setIndex}-weight`;
+    const isFocused = focusedInputs[inputId] || false;
+
+    if (isFocused || isCompleted) return '';
+
+    const recommendedWeight = currentRecommendation?.recommended_weight?.toString();
+    const suggestedValue = getSuggestedValue(exercise.exercise_id, setIndex + 1, 'weight');
+    const lastWeight = lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight;
+
+    return recommendedWeight || suggestedValue || lastWeight || '--';
+  };
+
+  const getRepsPlaceholderWrapper = () => {
+    const inputId = `${exercise.id}-${setIndex}-reps`;
+    const isFocused = focusedInputs[inputId] || false;
+
+    if (isFocused || isCompleted) return '';
+
+    const recommendedReps = currentRecommendation?.recommended_reps?.toString();
+    const lastReps = lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.reps;
+    const exerciseRepsRange = exercise.reps_range;
+
+    return lastReps || recommendedReps || exerciseRepsRange || '--';
+  };
 
   return (
-    <View style={[styles.setCard, styles.inactiveSetCard, isCompleted && styles.completedSetCard]}>
+    <View style={[styles.setCard, isCompleted && styles.completedSetCard]}>
       <View style={styles.setCardContent}>
-        <View style={styles.inactiveSetCardContent}>
-          <View style={styles.inactiveLeftCell}>
-            <SetInputFields
-              set={set}
-              setIndex={setIndex}
-              exercise={exercise}
-              isCompleted={isCompleted}
-              textInputRefreshKey={textInputRefreshKey}
-              exerciseCustomized={exerciseCustomized}
-              onWeightChange={onWeightChange}
-              onRepsChange={onRepsChange}
-              onInputFocus={onInputFocus}
-              onInputBlur={onInputBlur}
-              getWeightPlaceholder={getWeightPlaceholder}
-              getRepsPlaceholder={getRepsPlaceholder}
-              getSuggestedValue={getSuggestedValue}
-              styles={styles}
-            />
+        <View style={styles.inactiveSetCardContainer}>
+          <View style={styles.tableLayout}>
+            {/* Left Column: Set inputs */}
+            <View style={styles.leftColumn}>
+              <View style={styles.weightRepsCell}>
+                {isCardio ? (
+                  <CardioSetDisplay exercise={exercise} isCompleted={isCompleted} styles={styles} />
+                ) : (
+                  <SetInputFields
+                    set={set}
+                    setIndex={setIndex}
+                    exercise={exercise}
+                    isCompleted={isCompleted}
+                    textInputRefreshKey={textInputRefreshKey}
+                    exerciseCustomized={exerciseCustomized}
+                    onWeightChange={onWeightChange}
+                    onRepsChange={onRepsChange}
+                    onDurationMinutesChange={onDurationMinutesChange}
+                    onDurationSecondsChange={onDurationSecondsChange}
+                    onInputFocus={onInputFocus}
+                    onInputBlur={onInputBlur}
+                    getWeightPlaceholder={getWeightPlaceholderWrapper}
+                    getRepsPlaceholder={getRepsPlaceholderWrapper}
+                    getSuggestedValue={getSuggestedValue}
+                    styles={styles}
+                  />
+                )}
+              </View>
+            </View>
 
-            <LastValuesRow
-              exercise={exercise}
-              setIndex={setIndex}
-              set={set}
-              lastExerciseValues={lastExerciseValues}
-              styles={styles}
-            />
-          </View>
-
-          <View style={styles.inactiveVerticalDivider} />
-
-          <View style={styles.inactiveButtonCell}>
-            <ActionButton
-              exercise={exercise}
-              setIndex={setIndex}
-              isActive={isActive}
-              isCompleted={isCompleted}
-              onSetComplete={onSetComplete}
-              onRedoSet={onRedoSet}
-              styles={styles}
-            />
+            {/* Right Column: Action button */}
+            <View style={styles.rightColumn}>
+              <View style={styles.inactiveButtonCell}>
+                <ActionButton
+                  exercise={exercise}
+                  setIndex={setIndex}
+                  isActive={isActive}
+                  isCompleted={isCompleted}
+                  onSetComplete={onSetComplete}
+                  onRedoSet={onRedoSet}
+                  styles={styles}
+                />
+              </View>
+            </View>
           </View>
         </View>
       </View>

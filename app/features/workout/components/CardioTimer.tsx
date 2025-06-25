@@ -10,7 +10,7 @@ interface CardioTimerProps {
   isActive?: boolean;
 }
 
-export default function CardioTimer({
+const CardioTimer = React.memo(function CardioTimer({
   durationMinutes,
   onComplete,
   onCancel,
@@ -19,7 +19,13 @@ export default function CardioTimer({
   const [timeRemaining, setTimeRemaining] = useState(durationMinutes * 60); // Convert to seconds
   const [isRunning, setIsRunning] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onCompleteRef = useRef(onComplete);
+
+  // Keep the callback ref updated
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
 
   // Format time as MM:SS
   const formatTime = (seconds: number): string => {
@@ -33,7 +39,7 @@ export default function CardioTimer({
     if (!hasStarted) {
       setHasStarted(true);
     }
-    setIsRunning(!isRunning);
+    setIsRunning((prev) => !prev);
   };
 
   // Complete the set early
@@ -43,20 +49,21 @@ export default function CardioTimer({
       intervalRef.current = null;
     }
     setIsRunning(false);
-    onComplete();
+    onCompleteRef.current();
   };
 
   // Handle timer countdown
   useEffect(() => {
-    if (isRunning && timeRemaining > 0) {
+    if (isRunning) {
       intervalRef.current = setInterval(() => {
         setTimeRemaining((prev) => {
-          if (prev <= 1) {
+          const newTime = prev - 1;
+          if (newTime <= 0) {
             setIsRunning(false);
-            onComplete();
+            onCompleteRef.current();
             return 0;
           }
-          return prev - 1;
+          return newTime;
         });
       }, 1000);
     } else {
@@ -72,7 +79,7 @@ export default function CardioTimer({
         intervalRef.current = null;
       }
     };
-  }, [isRunning, timeRemaining, onComplete]);
+  }, [isRunning]);
 
   // Reset timer when duration changes
   useEffect(() => {
@@ -124,7 +131,7 @@ export default function CardioTimer({
       )}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {
@@ -201,3 +208,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 });
+
+export default CardioTimer;

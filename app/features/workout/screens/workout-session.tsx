@@ -293,10 +293,8 @@ function renderExerciseSetsContent(props: Record<string, unknown>) {
   // Type assertion is safe here because of the null check above
   const currentExercise = props.currentExercise as ExerciseData;
 
-  // Don't render sets content for cardio exercises (they use the CardioTimer instead)
-  if (currentExercise.muscle_group === 'Cardio') {
-    return null;
-  }
+  // For cardio exercises, still render the sets content (each set gets a CardioTimer)
+  // The WorkoutExerciseCard should not render a CardioTimer for cardio exercises
 
   return (
     <>
@@ -542,8 +540,6 @@ function renderWorkoutContent(props: Record<string, unknown>) {
             )[(props.currentExercise as ExerciseData)?.exercise_id] || null
           }
           onExerciseNamePress={props.handleExerciseNamePressOverride as () => void}
-          onCardioComplete={props.handleCardioComplete as () => void}
-          isCardioActive={true}
         />
       )}
 

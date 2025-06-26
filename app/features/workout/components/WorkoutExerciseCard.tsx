@@ -3,7 +3,6 @@ import { Text, TouchableOpacity, View } from 'react-native';
 import ExerciseMaxWeightGraph from '../../../components/ExerciseMaxWeightGraph';
 import OptimizedImage from '../../../components/OptimizedImage';
 import { BORDER_RADIUS, COLORS, SPACING } from '../../../constants/theme';
-import CardioTimer from './CardioTimer';
 
 interface WorkoutExerciseCardProps {
   exercise: {
@@ -20,9 +19,6 @@ interface WorkoutExerciseCardProps {
   maxWeightData: Array<{ date: string; value: number }>;
   absoluteMaxWeight: { weight: number; reps: number; date: string } | null;
   onExerciseNamePress: () => void;
-  // Cardio-specific props
-  onCardioComplete?: () => void;
-  isCardioActive?: boolean;
 }
 
 export default function WorkoutExerciseCard({
@@ -30,8 +26,6 @@ export default function WorkoutExerciseCard({
   maxWeightData,
   absoluteMaxWeight,
   onExerciseNamePress,
-  onCardioComplete,
-  isCardioActive = false,
 }: WorkoutExerciseCardProps) {
   // Helper function to determine the image source
   const getImageSource = () => {
@@ -52,19 +46,8 @@ export default function WorkoutExerciseCard({
     }
   };
 
-  // Check if this is a cardio exercise
+  // Check if this is a cardio exercise (for conditional rendering)
   const isCardioExercise = exercise?.muscle_group === 'Cardio';
-
-  // Helper function to get cardio duration from reps_range (e.g., "5-10" becomes 5 minutes)
-  const getCardioDuration = (): number => {
-    if (!exercise?.reps_range) return 5; // Default 5 minutes
-
-    const match = exercise.reps_range.match(/^(\d+)/);
-    if (match) {
-      return parseInt(match[1]);
-    }
-    return 5; // Default fallback
-  };
 
   return (
     <>
@@ -98,14 +81,7 @@ export default function WorkoutExerciseCard({
       </View>
 
       {/* Conditional content based on exercise type */}
-      {isCardioExercise ? (
-        // Cardio Timer for cardio exercises
-        <CardioTimer
-          durationMinutes={getCardioDuration()}
-          onComplete={onCardioComplete || (() => {})}
-          isActive={isCardioActive}
-        />
-      ) : (
+      {!isCardioExercise &&
         // Max Weight Progress Graph for weighted exercises (only if requires_weight is not false)
         exercise &&
         exercise.requires_weight !== false && (
@@ -116,8 +92,7 @@ export default function WorkoutExerciseCard({
               absoluteMaxWeight={absoluteMaxWeight || null}
             />
           </View>
-        )
-      )}
+        )}
     </>
   );
 }

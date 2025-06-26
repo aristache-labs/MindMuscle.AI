@@ -111,47 +111,50 @@ const CardioTimer = React.memo(function CardioTimer({
   return (
     <View style={[styles.setCard, isActive ? styles.activeSetCard : styles.inactiveSetCard]}>
       <View style={styles.setCardContent}>
-        {/* 3-Column Layout with Dividers: Timer | Divider | Play/Pause | Divider | Done */}
-        <View style={styles.threeColumnRow}>
-          {/* Column 1: Timer Display */}
-          <View style={styles.timerColumn}>
-            <View style={styles.timerDisplayContainer}>
-              <Text style={styles.timerDisplay}>{formatTime(timeRemaining)}</Text>
-              <Text style={styles.timerUnit}>min</Text>
+        <View style={styles.activeSetCardContainer}>
+          <View style={styles.tableLayout}>
+            {/* Left Column: Timer Display */}
+            <View style={styles.leftColumn}>
+              <View style={styles.timerCell}>
+                <View style={styles.timerDisplayContainer}>
+                  <Text style={styles.timerDisplay}>{formatTime(timeRemaining)}</Text>
+                  <Text style={styles.timerUnit}>min</Text>
+                </View>
+                <Text style={styles.lastTimeText}>(Last {getLastTime()})</Text>
+              </View>
             </View>
-            <Text style={styles.lastTimeText}>(Last {getLastTime()})</Text>
-          </View>
 
-          {/* Divider 1 */}
-          <View style={styles.divider} />
+            {/* Divider 1 */}
+            <View style={styles.divider} />
 
-          {/* Column 2: Play/Pause Button */}
-          <View style={styles.playColumn}>
-            <TouchableOpacity
-              style={[styles.playButtonSet, isRunning && styles.pauseButtonSet]}
-              onPress={toggleTimer}
-            >
-              <Ionicons
-                name={isRunning ? 'pause' : 'play'}
-                size={20}
-                color={COLORS.text}
-                style={!isRunning && styles.playIcon}
-              />
-            </TouchableOpacity>
-          </View>
+            {/* Middle Column: Play/Pause Button */}
+            <View style={styles.middleColumn}>
+              <TouchableOpacity
+                style={[styles.playButtonSet, isRunning && styles.pauseButtonSet]}
+                onPress={toggleTimer}
+              >
+                <Ionicons
+                  name={isRunning ? 'pause' : 'play'}
+                  size={20}
+                  color={COLORS.text}
+                  style={!isRunning && styles.playIcon}
+                />
+              </TouchableOpacity>
+            </View>
 
-          {/* Divider 2 */}
-          <View style={styles.divider} />
+            {/* Divider 2 */}
+            <View style={styles.divider} />
 
-          {/* Column 3: Done Button */}
-          <View style={styles.doneColumn}>
-            <TouchableOpacity
-              style={[styles.doneButton, hasStarted && styles.doneButtonActive]}
-              onPress={handleDone}
-              disabled={!hasStarted}
-            >
-              <Text style={[styles.doneText, hasStarted && styles.doneTextActive]}>Did it</Text>
-            </TouchableOpacity>
+            {/* Right Column: Done Button */}
+            <View style={styles.rightColumn}>
+              <TouchableOpacity
+                style={[styles.doneButton, hasStarted && styles.doneButtonActive]}
+                onPress={handleDone}
+                disabled={!hasStarted}
+              >
+                <Text style={[styles.doneText, hasStarted && styles.doneTextActive]}>Done</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
@@ -172,7 +175,7 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
     marginHorizontal: SPACING.md,
     overflow: 'hidden',
-    minHeight: 100,
+    minHeight: 140,
   },
   activeSetCard: {
     backgroundColor: COLORS.primary,
@@ -183,28 +186,38 @@ const styles = StyleSheet.create({
   setCardContent: {
     flexDirection: 'column',
     flex: 1,
-    paddingVertical: SPACING.md,
-    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    paddingHorizontal: SPACING.xs,
   },
-  threeColumnRow: {
+  activeSetCardContainer: {
+    flex: 1,
+    minHeight: 100,
+  },
+  tableLayout: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 60,
-  },
-  timerColumn: {
     flex: 1,
-    alignItems: 'center',
-    paddingHorizontal: SPACING.sm,
+    minHeight: 100,
   },
-  playColumn: {
-    flex: 1,
-    alignItems: 'center',
-    paddingHorizontal: SPACING.xxl,
+  leftColumn: {
+    flex: 2,
+    paddingRight: SPACING.xs,
   },
-  doneColumn: {
-    flex: 1,
+  middleColumn: {
+    flex: 0.7,
     alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: SPACING.xs,
+  },
+  rightColumn: {
+    flex: 0.9,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    paddingLeft: SPACING.xs,
+  },
+  timerCell: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   suggestedLabel: {
     color: 'rgba(255, 255, 255, 0.61)',
@@ -241,7 +254,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   playButtonSet: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderRadius: 18,
     width: 36,
     height: 36,
@@ -256,13 +269,9 @@ const styles = StyleSheet.create({
   },
   doneButton: {
     backgroundColor: 'rgba(108, 71, 255, 0.3)',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
     borderRadius: BORDER_RADIUS.md,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(108, 71, 255, 0.5)',
-    minWidth: 60,
+    minWidth: 65,
   },
   doneButtonActive: {
     backgroundColor: COLORS.primary,
@@ -286,10 +295,10 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.sm,
   },
   divider: {
-    width: 1,
-    height: 70,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    marginHorizontal: SPACING.sm,
+    width: 0.5,
+    alignSelf: 'stretch',
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    marginHorizontal: SPACING.xs,
   },
 });
 

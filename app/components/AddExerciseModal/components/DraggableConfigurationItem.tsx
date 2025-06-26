@@ -32,6 +32,9 @@ const REP_RANGES = [
   '25-30',
 ];
 
+// Predefined cardio duration options (in minutes)
+const CARDIO_DURATIONS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60];
+
 // Helper functions for rep range cycling
 const getCurrentRepRangeIndex = (currentRange: string): number => {
   const index = REP_RANGES.indexOf(currentRange);
@@ -48,6 +51,25 @@ const getPreviousRepRange = (currentRange: string): string => {
   const currentIndex = getCurrentRepRangeIndex(currentRange);
   const prevIndex = currentIndex === 0 ? REP_RANGES.length - 1 : currentIndex - 1;
   return REP_RANGES[prevIndex];
+};
+
+// Helper functions for cardio duration cycling
+const getCurrentDurationIndex = (currentDuration: string): number => {
+  const duration = parseInt(currentDuration);
+  const index = CARDIO_DURATIONS.indexOf(duration);
+  return index !== -1 ? index : CARDIO_DURATIONS.indexOf(15); // Default to 15 minutes
+};
+
+const getNextDuration = (currentDuration: string): string => {
+  const currentIndex = getCurrentDurationIndex(currentDuration);
+  const nextIndex = (currentIndex + 1) % CARDIO_DURATIONS.length;
+  return CARDIO_DURATIONS[nextIndex].toString();
+};
+
+const getPreviousDuration = (currentDuration: string): string => {
+  const currentIndex = getCurrentDurationIndex(currentDuration);
+  const prevIndex = currentIndex === 0 ? CARDIO_DURATIONS.length - 1 : currentIndex - 1;
+  return CARDIO_DURATIONS[prevIndex].toString();
 };
 
 // Custom hook for drag animations
@@ -406,7 +428,10 @@ export default function DraggableConfigurationItem({
                 {exercise.name}
               </Text>
               <Text style={styles.exerciseCurrentSet}>
-                Current: {exercise.sets} sets × {exercise.reps_range} reps
+                Current: {exercise.sets} sets ×{' '}
+                {exercise.muscle_group === 'Cardio'
+                  ? `${exercise.reps_range} min`
+                  : `${exercise.reps_range} reps`}
               </Text>
             </View>
 
@@ -480,31 +505,49 @@ export default function DraggableConfigurationItem({
                 </View>
               </View>
 
-              {/* Reps Control - Cycles through predefined ranges */}
+              {/* Reps/Duration Control - Cycles through predefined ranges or durations */}
               <View style={styles.controlGroup}>
-                <Text style={styles.controlLabel}>Reps</Text>
+                <Text style={styles.controlLabel}>
+                  {exercise.muscle_group === 'Cardio' ? 'Minutes' : 'Reps'}
+                </Text>
                 <View style={styles.controlRow}>
                   <TouchableOpacity
                     style={styles.controlButton}
                     onPress={() => {
                       try {
-                        const newReps = getPreviousRepRange(exercise.reps_range);
-                        Sentry.addBreadcrumb({
-                          message: 'Exercise Reps Range Decreased',
-                          category: 'user.interaction',
-                          level: 'info',
-                          data: {
-                            exerciseId: exercise.id,
-                            exerciseName: exercise.name,
-                            oldReps: exercise.reps_range,
-                            newReps,
-                          },
-                        });
-                        onConfigurationChange(exercise.id, 'reps_range', newReps);
+                        if (exercise.muscle_group === 'Cardio') {
+                          const newDuration = getPreviousDuration(exercise.reps_range);
+                          Sentry.addBreadcrumb({
+                            message: 'Cardio Duration Decreased',
+                            category: 'user.interaction',
+                            level: 'info',
+                            data: {
+                              exerciseId: exercise.id,
+                              exerciseName: exercise.name,
+                              oldDuration: exercise.reps_range,
+                              newDuration,
+                            },
+                          });
+                          onConfigurationChange(exercise.id, 'reps_range', newDuration);
+                        } else {
+                          const newReps = getPreviousRepRange(exercise.reps_range);
+                          Sentry.addBreadcrumb({
+                            message: 'Exercise Reps Range Decreased',
+                            category: 'user.interaction',
+                            level: 'info',
+                            data: {
+                              exerciseId: exercise.id,
+                              exerciseName: exercise.name,
+                              oldReps: exercise.reps_range,
+                              newReps,
+                            },
+                          });
+                          onConfigurationChange(exercise.id, 'reps_range', newReps);
+                        }
                       } catch (error) {
                         captureUIError(
                           error as Error,
-                          'DraggableConfigurationItem.decreaseReps',
+                          'DraggableConfigurationItem.decreaseRepsOrDuration',
                           'add-exercise-modal',
                         );
                       }
@@ -515,30 +558,48 @@ export default function DraggableConfigurationItem({
                   </TouchableOpacity>
                   <View style={styles.controlValue}>
                     <Text style={styles.controlValueText} numberOfLines={1}>
-                      {exercise.reps_range}
+                      {exercise.muscle_group === 'Cardio'
+                        ? exercise.reps_range
+                        : exercise.reps_range}
                     </Text>
                   </View>
                   <TouchableOpacity
                     style={styles.controlButton}
                     onPress={() => {
                       try {
-                        const newReps = getNextRepRange(exercise.reps_range);
-                        Sentry.addBreadcrumb({
-                          message: 'Exercise Reps Range Increased',
-                          category: 'user.interaction',
-                          level: 'info',
-                          data: {
-                            exerciseId: exercise.id,
-                            exerciseName: exercise.name,
-                            oldReps: exercise.reps_range,
-                            newReps,
-                          },
-                        });
-                        onConfigurationChange(exercise.id, 'reps_range', newReps);
+                        if (exercise.muscle_group === 'Cardio') {
+                          const newDuration = getNextDuration(exercise.reps_range);
+                          Sentry.addBreadcrumb({
+                            message: 'Cardio Duration Increased',
+                            category: 'user.interaction',
+                            level: 'info',
+                            data: {
+                              exerciseId: exercise.id,
+                              exerciseName: exercise.name,
+                              oldDuration: exercise.reps_range,
+                              newDuration,
+                            },
+                          });
+                          onConfigurationChange(exercise.id, 'reps_range', newDuration);
+                        } else {
+                          const newReps = getNextRepRange(exercise.reps_range);
+                          Sentry.addBreadcrumb({
+                            message: 'Exercise Reps Range Increased',
+                            category: 'user.interaction',
+                            level: 'info',
+                            data: {
+                              exerciseId: exercise.id,
+                              exerciseName: exercise.name,
+                              oldReps: exercise.reps_range,
+                              newReps,
+                            },
+                          });
+                          onConfigurationChange(exercise.id, 'reps_range', newReps);
+                        }
                       } catch (error) {
                         captureUIError(
                           error as Error,
-                          'DraggableConfigurationItem.increaseReps',
+                          'DraggableConfigurationItem.increaseRepsOrDuration',
                           'add-exercise-modal',
                         );
                       }

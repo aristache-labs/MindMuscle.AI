@@ -433,7 +433,7 @@ export default function AddExerciseModal({
         .map((ex) => ({
           ...ex,
           sets: 3, // Default sets
-          reps_range: '8-10', // Default reps
+          reps_range: ex.muscle_group === 'Cardio' ? '15' : '8-10', // Default duration for cardio, reps for others
         }));
 
       setSelectedExercises(selected);

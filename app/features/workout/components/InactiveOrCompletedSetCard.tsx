@@ -80,63 +80,33 @@ const isCardioExercise = (exercise: ExerciseData): boolean => {
   return exercise?.muscle_group === 'Cardio';
 };
 
-// Cardio Set Display Component
-interface CardioSetDisplayProps {
+// Simple Cardio Display Component for Inactive/Completed Sets
+interface CardioDisplayProps {
   exercise: ExerciseData;
-  isCompleted: boolean;
   styles: typeof WorkoutExerciseSetRowStylesType;
 }
 
-function CardioSetDisplay({ exercise, isCompleted, styles }: CardioSetDisplayProps) {
+const CardioDisplay: React.FC<CardioDisplayProps> = ({ exercise, styles }) => {
   // Get the duration from the exercise's reps_range
-  const getCardioDuration = (): number => {
-    if (!exercise.reps_range) return 15;
-    const range = exercise.reps_range.split('-');
-    return parseInt(range[0]) || 15;
-  };
+  const duration = exercise.reps_range || '15';
 
   return (
-    <View style={styles.inactiveInputRow}>
-      <View style={styles.inputContainer}>
-        <Text style={[styles.suggestedLabelWeight, isCompleted && styles.completedLabel]}>
-          Duration
-        </Text>
-        <View style={styles.inputFieldContainer}>
-          <Text
-            style={[
-              styles.inactiveInputField,
-              styles.cardioDisplayText,
-              isCompleted && styles.completedInputField,
-            ]}
-          >
-            {getCardioDuration()}
-          </Text>
-          <Text style={styles.activeSetValueUnit}>min</Text>
-        </View>
-      </View>
-
-      <View style={styles.inactiveInputDivider} />
-
-      <View style={styles.inputContainer}>
-        {isCompleted && (
-          <Text style={[styles.suggestedLabel, styles.completedLabel]}>Completed</Text>
-        )}
-        <View style={styles.inputFieldContainer}>
-          <Text
-            style={[
-              styles.inactiveInputField,
-              styles.cardioDisplayText,
-              isCompleted && styles.completedInputField,
-            ]}
-          >
-            {isCompleted ? '1' : '1'}
-          </Text>
-          <Text style={styles.activeSetValueUnit}>set</Text>
+    <View style={[styles.setCard, styles.inactiveSetCard]}>
+      <View style={styles.setCardContent}>
+        <View style={styles.inactiveSetCardContainer}>
+          <View style={styles.inactiveSetCardContent}>
+            <View style={styles.inactiveLeftCell}>
+              <View style={styles.cardioTimerContainer}>
+                <Text style={styles.cardioDisplayText}>{duration}</Text>
+                <Text style={styles.cardioTimerUnit}>min</Text>
+              </View>
+            </View>
+          </View>
         </View>
       </View>
     </View>
   );
-}
+};
 
 export default function InactiveOrCompletedSetCard({
   set,
@@ -162,8 +132,13 @@ export default function InactiveOrCompletedSetCard({
 }: InactiveOrCompletedSetCardProps) {
   const isCardio = isCardioExercise(exercise);
 
-  // Create wrapper functions that match the expected signature for SetInputFields
-  const getWeightPlaceholderWrapper = () => {
+  // For cardio exercises, show a simple duration display
+  if (isCardio) {
+    return <CardioDisplay exercise={exercise} styles={styles} />;
+  }
+
+  // For normal exercises, use the standard input layout
+  const getWeightPlaceholder = () => {
     const inputId = `${exercise.id}-${setIndex}-weight`;
     const isFocused = focusedInputs[inputId] || false;
 
@@ -176,7 +151,7 @@ export default function InactiveOrCompletedSetCard({
     return recommendedWeight || suggestedValue || lastWeight || '--';
   };
 
-  const getRepsPlaceholderWrapper = () => {
+  const getRepsPlaceholder = () => {
     const inputId = `${exercise.id}-${setIndex}-reps`;
     const isFocused = focusedInputs[inputId] || false;
 
@@ -190,51 +165,43 @@ export default function InactiveOrCompletedSetCard({
   };
 
   return (
-    <View style={[styles.setCard, isCompleted && styles.completedSetCard]}>
+    <View style={[styles.setCard, styles.inactiveSetCard, isCompleted && styles.completedSetCard]}>
       <View style={styles.setCardContent}>
         <View style={styles.inactiveSetCardContainer}>
-          <View style={styles.tableLayout}>
-            {/* Left Column: Set inputs */}
-            <View style={styles.leftColumn}>
-              <View style={styles.weightRepsCell}>
-                {isCardio ? (
-                  <CardioSetDisplay exercise={exercise} isCompleted={isCompleted} styles={styles} />
-                ) : (
-                  <SetInputFields
-                    set={set}
-                    setIndex={setIndex}
-                    exercise={exercise}
-                    isCompleted={isCompleted}
-                    textInputRefreshKey={textInputRefreshKey}
-                    exerciseCustomized={exerciseCustomized}
-                    onWeightChange={onWeightChange}
-                    onRepsChange={onRepsChange}
-                    onDurationMinutesChange={onDurationMinutesChange}
-                    onDurationSecondsChange={onDurationSecondsChange}
-                    onInputFocus={onInputFocus}
-                    onInputBlur={onInputBlur}
-                    getWeightPlaceholder={getWeightPlaceholderWrapper}
-                    getRepsPlaceholder={getRepsPlaceholderWrapper}
-                    getSuggestedValue={getSuggestedValue}
-                    styles={styles}
-                  />
-                )}
-              </View>
+          <View style={styles.inactiveSetCardContent}>
+            <View style={styles.inactiveLeftCell}>
+              <SetInputFields
+                set={set}
+                setIndex={setIndex}
+                exercise={exercise}
+                isCompleted={isCompleted}
+                textInputRefreshKey={textInputRefreshKey}
+                exerciseCustomized={exerciseCustomized}
+                onWeightChange={onWeightChange}
+                onRepsChange={onRepsChange}
+                onDurationMinutesChange={onDurationMinutesChange}
+                onDurationSecondsChange={onDurationSecondsChange}
+                onInputFocus={onInputFocus}
+                onInputBlur={onInputBlur}
+                getWeightPlaceholder={getWeightPlaceholder}
+                getRepsPlaceholder={getRepsPlaceholder}
+                getSuggestedValue={getSuggestedValue}
+                styles={styles}
+              />
             </View>
 
-            {/* Right Column: Action button */}
-            <View style={styles.rightColumn}>
-              <View style={styles.inactiveButtonCell}>
-                <ActionButton
-                  exercise={exercise}
-                  setIndex={setIndex}
-                  isActive={isActive}
-                  isCompleted={isCompleted}
-                  onSetComplete={onSetComplete}
-                  onRedoSet={onRedoSet}
-                  styles={styles}
-                />
-              </View>
+            <View style={styles.inactiveVerticalDivider} />
+
+            <View style={styles.inactiveButtonCell}>
+              <ActionButton
+                exercise={exercise}
+                setIndex={setIndex}
+                isActive={isActive}
+                isCompleted={isCompleted}
+                onSetComplete={onSetComplete}
+                onRedoSet={onRedoSet}
+                styles={styles}
+              />
             </View>
           </View>
         </View>

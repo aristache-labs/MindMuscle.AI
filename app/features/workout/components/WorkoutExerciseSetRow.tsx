@@ -451,7 +451,7 @@ export default function WorkoutExerciseSetRow({
   // Determine if this is a cardio exercise
   const isCardioExercise = exercise?.muscle_group === 'Cardio';
 
-  // For cardio exercises, use specialized components that handle the CardioTimer
+  // For cardio exercises, use specialized components that handle timer and duration display
   if (isCardioExercise) {
     if (isActive && !isCompleted) {
       return (
@@ -937,11 +937,165 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 4,
   },
+  cardioTimerContainer: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
+  },
+  cardioTimerDisplay: {
+    color: COLORS.text,
+    fontSize: 32,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
+  },
+  cardioTimerUnit: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginTop: 10,
+    marginLeft: 4,
+    color: 'rgba(255, 255, 255, 0.52)',
+    textAlign: 'center',
+    alignSelf: 'center',
+  },
+  cardioEditContainer: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
+  },
+  cardioEditInput: {
+    color: COLORS.text,
+    fontSize: 32,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.primary,
+    minWidth: 80,
+    paddingHorizontal: 8,
+  },
+  cardioTimerTouchable: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  cardioLastTimeText: {
+    color: COLORS.text,
+    fontSize: 12,
+    opacity: 0.8,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  cardioMiddleColumn: {
+    width: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.xs,
+    marginLeft: -SPACING.sm,
+  },
+  cardioPlayButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardioPauseButton: {
+    backgroundColor: COLORS.warning,
+  },
+  playIcon: {
+    marginLeft: 2, // Slight adjustment for visual centering of play icon
+  },
   inactiveSetCardContainer: {
     width: '100%',
     borderRadius: BORDER_RADIUS.md,
     overflow: 'hidden',
     backgroundColor: COLORS.surface,
+  },
+  timerCell: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+  },
+  timerDisplayContainer: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginBottom: 4,
+  },
+  timerDisplay: {
+    color: COLORS.text,
+    fontSize: 32,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
+  },
+  divider: {
+    width: 0.5,
+    alignSelf: 'stretch',
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+    marginHorizontal: 8,
+  },
+  middleColumn: {
+    flex: 0.6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  pauseButtonSet: {
+    backgroundColor: COLORS.warning,
+  },
+  doneButton: {
+    backgroundColor: 'rgba(108, 71, 255, 0.3)',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 65,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  doneButtonActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  doneText: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  doneTextActive: {
+    color: COLORS.text,
+  },
+  floatingDoneButtonContainer: {
+    position: 'absolute',
+    bottom: 50,
+    right: 20,
+    zIndex: 1000,
+    elevation: 10,
+  },
+  floatingDoneButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 25,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  floatingDoneButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

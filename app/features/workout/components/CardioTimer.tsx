@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
     marginHorizontal: SPACING.md,
     overflow: 'hidden',
-    minHeight: 140,
+    minHeight: 100,
   },
   activeSetCard: {
     backgroundColor: COLORS.primary,
@@ -191,26 +191,26 @@ const styles = StyleSheet.create({
   },
   activeSetCardContainer: {
     flex: 1,
-    minHeight: 100,
+    minHeight: 90,
   },
   tableLayout: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    minHeight: 100,
+    minHeight: 90,
   },
   leftColumn: {
-    flex: 2,
+    flex: 1.8,
     paddingRight: SPACING.xs,
   },
   middleColumn: {
-    flex: 0.7,
+    flex: 0.6,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: SPACING.xs,
   },
   rightColumn: {
-    flex: 0.9,
+    flex: 1,
     alignItems: 'flex-end',
     justifyContent: 'center',
     paddingLeft: SPACING.xs,
@@ -297,7 +297,7 @@ const styles = StyleSheet.create({
   divider: {
     width: 0.5,
     alignSelf: 'stretch',
-    backgroundColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
     marginHorizontal: SPACING.xs,
   },
 });

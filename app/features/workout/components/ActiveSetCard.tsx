@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -6,13 +6,13 @@ import {
   TouchableOpacity,
   NativeSyntheticEvent,
   TextInputFocusEventData,
+  Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../../constants/theme';
 import type { RecommendationData } from '../hooks/useExerciseSets';
 import { ExerciseData, ExerciseSet } from '../types';
 import type { styles as WorkoutExerciseSetRowStylesType } from './WorkoutExerciseSetRow';
-import CardioTimer from './CardioTimer';
 
 interface ActiveSetCardProps {
   set: ExerciseSet;
@@ -95,6 +95,273 @@ const shouldShowLastValues = (
   );
 };
 
+// Enhanced Cardio Timer Component for Active Sets with Edit Functionality
+interface CardioTimerProps {
+  durationMinutes: number;
+  onComplete: () => void;
+  onDurationChange?: (newDuration: number) => void;
+  styles: typeof WorkoutExerciseSetRowStylesType;
+}
+
+const CardioTimer: React.FC<CardioTimerProps> = ({
+  durationMinutes,
+  onComplete,
+  onDurationChange,
+  styles,
+}) => {
+  const [timeRemaining, setTimeRemaining] = useState(durationMinutes * 60); // Convert to seconds
+  const [isRunning, setIsRunning] = useState(false);
+  const [hasStarted, setHasStarted] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(durationMinutes.toString());
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onCompleteRef = useRef(onComplete);
+  const editInputRef = useRef<TextInput>(null);
+
+  // Keep the callback ref updated
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  // Keyboard listeners
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () => {
+      setKeyboardVisible(true);
+    });
+
+    const keyboardDidHideListener = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardVisible(false);
+    });
+
+    return () => {
+      keyboardDidShowListener?.remove();
+      keyboardDidHideListener?.remove();
+    };
+  }, []);
+
+  // Format time as MM:SS
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Get the original duration for "Last" display
+  const getLastTime = (): string => {
+    const originalSeconds = durationMinutes * 60;
+    return formatTime(originalSeconds);
+  };
+
+  // Start/pause timer
+  const toggleTimer = () => {
+    if (!hasStarted) {
+      setHasStarted(true);
+    }
+    setIsRunning((prev) => !prev);
+  };
+
+  // Complete the exercise early
+  const handleDone = () => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    setIsRunning(false);
+    onCompleteRef.current();
+  };
+
+  // Handle edit mode toggle/save
+  const handleEditSave = () => {
+    if (isEditing) {
+      // Save the new duration
+      const newDuration = Math.max(1, Math.min(120, parseInt(editValue) || durationMinutes));
+      setEditValue(newDuration.toString());
+      if (onDurationChange && newDuration !== durationMinutes) {
+        onDurationChange(newDuration);
+      }
+      setIsEditing(false);
+      // Blur the input to dismiss keyboard
+      if (editInputRef.current) {
+        editInputRef.current.blur();
+      }
+    }
+  };
+
+  // Handle edit mode toggle
+  const handleEditToggle = () => {
+    if (hasStarted || isRunning) {
+      return; // Don't allow editing if timer has started
+    }
+
+    if (isEditing) {
+      handleEditSave();
+    } else {
+      // Enter edit mode
+      setEditValue(durationMinutes.toString());
+      setIsEditing(true);
+      // Focus the input
+      setTimeout(() => {
+        if (editInputRef.current) {
+          editInputRef.current.focus();
+        }
+      }, 100);
+    }
+  };
+
+  // Handle input validation during editing
+  const handleEditValueChange = (value: string) => {
+    // Only allow numbers and limit to reasonable range
+    const numericValue = value.replace(/[^0-9]/g, '');
+    if (numericValue === '' || (parseInt(numericValue) >= 1 && parseInt(numericValue) <= 120)) {
+      setEditValue(numericValue);
+    }
+  };
+
+  // Handle timer countdown
+  useEffect(() => {
+    if (isRunning) {
+      intervalRef.current = setInterval(() => {
+        setTimeRemaining((prev) => {
+          const newTime = prev - 1;
+          if (newTime <= 0) {
+            setIsRunning(false);
+            onCompleteRef.current();
+            return 0;
+          }
+          return newTime;
+        });
+      }, 1000);
+    } else {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    }
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [isRunning]);
+
+  // Reset timer when duration changes
+  useEffect(() => {
+    setTimeRemaining(durationMinutes * 60);
+    setIsRunning(false);
+    setHasStarted(false);
+    setIsEditing(false);
+    setEditValue(durationMinutes.toString());
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }, [durationMinutes]);
+
+  // Auto-cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, []);
+
+  return (
+    <>
+      <View style={[styles.setCard, styles.activeSetCard]}>
+        <View style={styles.setCardContent}>
+          <View style={styles.activeSetCardContainer}>
+            <View style={styles.tableLayout}>
+              {/* Left Column: Timer Display */}
+              <View style={styles.leftColumn}>
+                <View style={styles.timerCell}>
+                  {isEditing && !hasStarted ? (
+                    // Edit mode
+                    <View style={styles.cardioEditContainer}>
+                      <TextInput
+                        ref={editInputRef}
+                        style={styles.cardioEditInput}
+                        value={editValue}
+                        onChangeText={handleEditValueChange}
+                        keyboardType="numeric"
+                        selectTextOnFocus={true}
+                        maxLength={3}
+                        onSubmitEditing={handleEditSave}
+                        returnKeyType="done"
+                      />
+                      <Text style={styles.cardioTimerUnit}>min</Text>
+                    </View>
+                  ) : (
+                    // Display mode
+                    <TouchableOpacity
+                      style={styles.cardioTimerTouchable}
+                      onPress={handleEditToggle}
+                      disabled={hasStarted || isRunning}
+                    >
+                      <View style={styles.timerDisplayContainer}>
+                        <Text style={styles.timerDisplay}>{formatTime(timeRemaining)}</Text>
+                        <Text style={styles.cardioTimerUnit}>min</Text>
+                      </View>
+                    </TouchableOpacity>
+                  )}
+                  <Text style={styles.cardioLastTimeText}>(Last {getLastTime()})</Text>
+                </View>
+              </View>
+
+              {/* Divider 1 */}
+              <View style={styles.divider} />
+
+              {/* Middle Column: Play/Pause Button */}
+              <View style={styles.middleColumn}>
+                <TouchableOpacity
+                  style={[styles.playButtonSet, isRunning && styles.pauseButtonSet]}
+                  onPress={toggleTimer}
+                  disabled={isEditing}
+                >
+                  <Ionicons
+                    name={isRunning ? 'pause' : 'play'}
+                    size={20}
+                    color={COLORS.text}
+                    style={!isRunning && styles.playIcon}
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {/* Divider 2 */}
+              <View style={styles.divider} />
+
+              {/* Right Column: Done Button */}
+              <View style={styles.rightColumn}>
+                <TouchableOpacity
+                  style={[styles.doneButton, hasStarted && styles.doneButtonActive]}
+                  onPress={handleDone}
+                  disabled={!hasStarted || isEditing}
+                >
+                  <Text style={[styles.doneText, hasStarted && styles.doneTextActive]}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+      </View>
+
+      {/* Floating Done Button for Edit Mode */}
+      {isEditing && keyboardVisible && (
+        <View style={styles.floatingDoneButtonContainer}>
+          <TouchableOpacity style={styles.floatingDoneButton} onPress={handleEditSave}>
+            <Text style={styles.floatingDoneButtonText}>Done</Text>
+            <Ionicons name="checkmark" size={20} color="#FFFFFF" style={{ marginLeft: 4 }} />
+          </TouchableOpacity>
+        </View>
+      )}
+    </>
+  );
+};
+
 // Main ActiveSetCard Component (now simplified)
 export default function ActiveSetCard({
   set,
@@ -134,17 +401,25 @@ export default function ActiveSetCard({
     onSetComplete(exercise.id, setIndex);
   }, [onSetComplete, exercise.id, setIndex]);
 
+  // Handle cardio duration change
+  const handleCardioDurationChange = useCallback(
+    (newDuration: number) => {
+      if (onDurationMinutesChange) {
+        onDurationMinutesChange(exercise.id, setIndex, newDuration.toString());
+      }
+    },
+    [onDurationMinutesChange, exercise.id, setIndex],
+  );
+
   // For cardio exercises, show the timer interface
   if (isCardio) {
     return (
-      <View style={styles.activeSetCardContainer}>
-        <CardioTimer
-          key={`cardio-timer-${exercise.id}-${setIndex}`}
-          durationMinutes={cardioDuration}
-          onComplete={handleCardioComplete}
-          isActive={true}
-        />
-      </View>
+      <CardioTimer
+        durationMinutes={cardioDuration}
+        onComplete={handleCardioComplete}
+        onDurationChange={handleCardioDurationChange}
+        styles={styles}
+      />
     );
   }
 

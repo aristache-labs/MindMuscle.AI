@@ -293,8 +293,8 @@ function renderExerciseSetsContent(props: Record<string, unknown>) {
   // Type assertion is safe here because of the null check above
   const currentExercise = props.currentExercise as ExerciseData;
 
-  // For cardio exercises, still render the sets content (each set gets a CardioTimer)
-  // The WorkoutExerciseCard should not render a CardioTimer for cardio exercises
+  // For cardio exercises, still render the sets content (each set gets a countdown timer)
+  // The WorkoutExerciseCard should not render special components for cardio exercises
 
   return (
     <>
@@ -1277,7 +1277,7 @@ export default function WorkoutSessionScreen() {
     if (!currentExercise) return;
 
     // For cardio exercises, we move to the next exercise automatically
-    // The CardioTimer handles the timing and completion logic
+    // The cardio sets use countdown timer instead of weight/reps inputs
     if (currentExerciseIndex < workoutExercises.length - 1) {
       // Move to next exercise
       setCurrentExerciseIndex(currentExerciseIndex + 1);

@@ -9,7 +9,8 @@ import {
 } from './sentry/simpleErrorHandler';
 import { validationService } from './validationService';
 import { getCycleWeekInfo } from './workoutCycleService';
-import { ExerciseData, ExerciseSet } from './workoutSessionService';
+import { ExerciseData } from './workoutSessionService';
+import { ExerciseSet } from '../features/workout/types';
 
 // Interface for completed workout data
 export interface CompletedWorkoutData {
@@ -275,14 +276,26 @@ const initializeExerciseSetsAndRecommendations = async (
   for (const exercise of exercises) {
     // Initialize sets
     const sets: ExerciseSet[] = [];
+    const isCardio = exercise.muscle_group === 'Cardio';
+
     for (let i = 1; i <= exercise.sets; i++) {
-      sets.push({
+      const set: ExerciseSet = {
         id: `${exercise.id}-set-${i}`,
         setNumber: i,
         weight: '',
         reps: '',
         isCompleted: false,
-      });
+      };
+
+      // For cardio exercises, initialize duration fields
+      if (isCardio) {
+        // Use the exercise's reps_range as the default duration for all sets
+        const defaultDuration = exercise.reps_range || '15';
+        set.duration_minutes = defaultDuration;
+        set.duration_seconds = '';
+      }
+
+      sets.push(set);
     }
     exerciseSets[exercise.id] = sets;
 
@@ -1186,6 +1199,8 @@ const createExerciseRecords = (
   weight: number;
   reps: number;
   completed: boolean;
+  duration_minutes?: number;
+  duration_seconds?: number;
 }> => {
   const exerciseRecords = [];
 
@@ -1196,6 +1211,14 @@ const createExerciseRecords = (
       if (set.isCompleted) {
         const weight = set.weight === '-' || set.weight === '' ? '0' : set.weight;
         const reps = set.reps === '-' || set.reps === '' ? '0' : set.reps;
+
+        // Handle duration fields for cardio exercises
+        const durationMinutes = set.duration_minutes && set.duration_minutes !== '-' && set.duration_minutes !== '' 
+          ? parseInt(set.duration_minutes) 
+          : undefined;
+        const durationSeconds = set.duration_seconds && set.duration_seconds !== '-' && set.duration_seconds !== '' 
+          ? parseInt(set.duration_seconds) 
+          : undefined;
 
         // Determine if this is an original plan exercise or a customized/added exercise
         const isChangedExercise =
@@ -1213,6 +1236,8 @@ const createExerciseRecords = (
           weight: weight ? parseFloat(weight) : 0,
           reps: reps ? parseInt(reps) : 0,
           completed: set.isCompleted,
+          ...(durationMinutes !== undefined && { duration_minutes: durationMinutes }),
+          ...(durationSeconds !== undefined && { duration_seconds: durationSeconds }),
         };
 
         exerciseRecords.push(record);

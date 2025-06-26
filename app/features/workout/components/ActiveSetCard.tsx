@@ -263,7 +263,7 @@ const CardioTimer = React.memo<CardioTimerProps>(function CardioTimer({
     }
   }, [durationMinutes]);
 
-  // Handle edit value change
+  // Handle edit value change - filter to numbers only
   const handleEditValueChange = useCallback((value: string) => {
     // Allow only numeric input and reasonable ranges
     const numericValue = value.replace(/[^0-9]/g, '');
@@ -347,7 +347,8 @@ const CardioTimer = React.memo<CardioTimerProps>(function CardioTimer({
                         style={[styles.timerDisplay, { minWidth: 50 }]}
                         value={editValue}
                         onChangeText={handleEditValueChange}
-                        keyboardType="numeric"
+                        keyboardType="number-pad"
+                        returnKeyType="done"
                         selectTextOnFocus={true}
                         maxLength={3}
                         placeholder="15"

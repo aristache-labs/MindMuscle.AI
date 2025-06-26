@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, TextInput, Keyboard } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, BORDER_RADIUS, FONT_SIZES } from '../../../constants/theme';
 
@@ -7,6 +7,7 @@ interface CardioTimerProps {
   durationMinutes: number;
   onComplete: () => void;
   onCancel?: () => void;
+  onDurationChange?: (newDurationMinutes: number) => void;
   isActive?: boolean;
 }
 
@@ -14,13 +15,17 @@ const CardioTimer = React.memo(function CardioTimer({
   durationMinutes,
   onComplete,
   onCancel,
+  onDurationChange,
   isActive = false,
 }: CardioTimerProps) {
   const [timeRemaining, setTimeRemaining] = useState(durationMinutes * 60); // Convert to seconds
   const [isRunning, setIsRunning] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(durationMinutes.toString());
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onCompleteRef = useRef(onComplete);
+  const textInputRef = useRef<TextInput>(null);
 
   // Keep the callback ref updated
   useEffect(() => {
@@ -38,6 +43,50 @@ const CardioTimer = React.memo(function CardioTimer({
   const getLastTime = (): string => {
     const originalSeconds = durationMinutes * 60;
     return formatTime(originalSeconds);
+  };
+
+  // Handle timer display tap for editing
+  const handleTimerTap = () => {
+    if (!hasStarted && !isRunning) {
+      setIsEditing(true);
+      setEditValue(Math.floor(timeRemaining / 60).toString());
+      setTimeout(() => {
+        textInputRef.current?.focus();
+      }, 100);
+    }
+  };
+
+  // Handle text input changes (numbers only)
+  const handleTextChange = (text: string) => {
+    // Only allow numeric input
+    const numericText = text.replace(/[^0-9]/g, '');
+    setEditValue(numericText);
+  };
+
+  // Save the edited duration
+  const saveEditedDuration = () => {
+    const newMinutes = parseInt(editValue);
+    if (!isNaN(newMinutes) && newMinutes > 0 && newMinutes <= 120) {
+      const newSeconds = newMinutes * 60;
+      setTimeRemaining(newSeconds);
+      if (onDurationChange) {
+        onDurationChange(newMinutes);
+      }
+    } else {
+      // Reset to current value if invalid
+      setEditValue(Math.floor(timeRemaining / 60).toString());
+    }
+    setIsEditing(false);
+  };
+
+  // Handle edit completion
+  const handleEditComplete = () => {
+    saveEditedDuration();
+  };
+
+  // Handle input blur (touch outside)
+  const handleBlur = () => {
+    saveEditedDuration();
   };
 
   // Start/pause timer
@@ -116,11 +165,44 @@ const CardioTimer = React.memo(function CardioTimer({
             {/* Left Column: Timer Display */}
             <View style={styles.leftColumn}>
               <View style={styles.timerCell}>
-                <View style={styles.timerDisplayContainer}>
-                  <Text style={styles.timerDisplay}>{formatTime(timeRemaining)}</Text>
-                  <Text style={styles.timerUnit}>min</Text>
-                </View>
-                <Text style={styles.lastTimeText}>(Last {getLastTime()})</Text>
+                {isEditing ? (
+                  <View style={styles.editContainer}>
+                    <View style={styles.editInputContainer}>
+                      <TextInput
+                        ref={textInputRef}
+                        style={styles.editInput}
+                        value={editValue}
+                        onChangeText={handleTextChange}
+                        keyboardType="number-pad"
+                        returnKeyType="done"
+                        onSubmitEditing={handleEditComplete}
+                        onBlur={handleBlur}
+                        maxLength={3}
+                        selectTextOnFocus
+                        autoFocus
+                        placeholder="15"
+                        placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                      />
+                      <Text style={styles.editUnit}>min</Text>
+                    </View>
+                    <Text style={styles.editHint}>Enter duration (1-120 min)</Text>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    onPress={handleTimerTap}
+                    disabled={hasStarted || isRunning}
+                    style={styles.timerTouchable}
+                  >
+                    <View style={styles.timerDisplayContainer}>
+                      <Text style={styles.timerDisplay}>{formatTime(timeRemaining)}</Text>
+                      <Text style={styles.timerUnit}>min</Text>
+                    </View>
+                    <Text style={styles.lastTimeText}>(Last {getLastTime()})</Text>
+                    {!hasStarted && !isRunning && (
+                      <Text style={styles.tapToEditText}>Tap to edit</Text>
+                    )}
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
 
@@ -132,6 +214,7 @@ const CardioTimer = React.memo(function CardioTimer({
               <TouchableOpacity
                 style={[styles.playButtonSet, isRunning && styles.pauseButtonSet]}
                 onPress={toggleTimer}
+                disabled={isEditing}
               >
                 <Ionicons
                   name={isRunning ? 'pause' : 'play'}
@@ -150,7 +233,7 @@ const CardioTimer = React.memo(function CardioTimer({
               <TouchableOpacity
                 style={[styles.doneButton, hasStarted && styles.doneButtonActive]}
                 onPress={handleDone}
-                disabled={!hasStarted}
+                disabled={!hasStarted || isEditing}
               >
                 <Text style={[styles.doneText, hasStarted && styles.doneTextActive]}>Done</Text>
               </TouchableOpacity>
@@ -159,7 +242,7 @@ const CardioTimer = React.memo(function CardioTimer({
         </View>
 
         {/* Cancel button for unused exercises */}
-        {onCancel && !hasStarted && (
+        {onCancel && !hasStarted && !isEditing && (
           <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
             <Text style={styles.cancelText}>Cancel</Text>
           </TouchableOpacity>
@@ -219,6 +302,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  timerTouchable: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING.xs,
+  },
   suggestedLabel: {
     color: 'rgba(255, 255, 255, 0.61)',
     fontSize: 14,
@@ -251,6 +339,52 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 12,
     opacity: 0.8,
+    textAlign: 'center',
+  },
+  tapToEditText: {
+    color: COLORS.text,
+    fontSize: 10,
+    opacity: 0.6,
+    textAlign: 'center',
+    marginTop: 2,
+    fontStyle: 'italic',
+  },
+  editContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginBottom: SPACING.xs,
+  },
+  editInput: {
+    color: COLORS.text,
+    fontSize: 24,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: BORDER_RADIUS.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    minWidth: 60,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+  },
+  editUnit: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginTop: 10,
+    marginLeft: 4,
+    color: 'rgba(255, 255, 255, 0.52)',
+    textAlign: 'center',
+    alignSelf: 'center',
+  },
+  editHint: {
+    color: COLORS.text,
+    fontSize: 10,
+    opacity: 0.7,
     textAlign: 'center',
   },
   playButtonSet: {

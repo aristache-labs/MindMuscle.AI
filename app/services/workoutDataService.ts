@@ -194,7 +194,8 @@ const fetchExercisesFromDatabase = async (
         name,
         image_url,
         primary_muscles,
-        requires_weight
+        requires_weight,
+        muscle_group
       )
     `,
     )
@@ -254,6 +255,7 @@ const formatExerciseData = (exercisesData: unknown[]): ExerciseData[] => {
       order: exercise.order as number,
       workout_day: exercise.workout_day as number,
       requires_weight: exerciseDetails ? (exerciseDetails.requires_weight as boolean) : true,
+      muscle_group: exerciseDetails ? (exerciseDetails.muscle_group as string) : undefined,
     };
   });
 };

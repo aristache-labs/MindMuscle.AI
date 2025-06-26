@@ -293,6 +293,11 @@ function renderExerciseSetsContent(props: Record<string, unknown>) {
   // Type assertion is safe here because of the null check above
   const currentExercise = props.currentExercise as ExerciseData;
 
+  // Don't render sets content for cardio exercises (they use the CardioTimer instead)
+  if (currentExercise.muscle_group === 'Cardio') {
+    return null;
+  }
+
   return (
     <>
       <View style={styles.setsContainer}>
@@ -537,6 +542,8 @@ function renderWorkoutContent(props: Record<string, unknown>) {
             )[(props.currentExercise as ExerciseData)?.exercise_id] || null
           }
           onExerciseNamePress={props.handleExerciseNamePressOverride as () => void}
+          onCardioComplete={props.handleCardioComplete as () => void}
+          isCardioActive={true}
         />
       )}
 
@@ -1269,6 +1276,27 @@ export default function WorkoutSessionScreen() {
     setShowExerciseDetailsModal(true);
   }, [currentExercise, setShowExerciseDetailsModal]);
 
+  // Handle cardio exercise completion
+  const handleCardioComplete = useCallback(() => {
+    if (!currentExercise) return;
+
+    // For cardio exercises, we move to the next exercise automatically
+    // The CardioTimer handles the timing and completion logic
+    if (currentExerciseIndex < workoutExercises.length - 1) {
+      // Move to next exercise
+      setCurrentExerciseIndex(currentExerciseIndex + 1);
+    } else {
+      // This is the last exercise, complete the workout
+      completeWorkout();
+    }
+  }, [
+    currentExercise,
+    currentExerciseIndex,
+    workoutExercises.length,
+    setCurrentExerciseIndex,
+    completeWorkout,
+  ]);
+
   // Use the workout initialization hook to handle all setup effects
   useWorkoutInitialization({
     user,
@@ -1328,6 +1356,7 @@ export default function WorkoutSessionScreen() {
     maxWeightData,
     absoluteMaxWeightData,
     handleExerciseNamePressOverride,
+    handleCardioComplete,
     currentSets,
     calculateActiveSetIndex,
     focusedInputs,

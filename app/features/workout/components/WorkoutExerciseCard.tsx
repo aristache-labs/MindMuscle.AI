@@ -3,6 +3,7 @@ import { Text, TouchableOpacity, View } from 'react-native';
 import ExerciseMaxWeightGraph from '../../../components/ExerciseMaxWeightGraph';
 import OptimizedImage from '../../../components/OptimizedImage';
 import { BORDER_RADIUS, COLORS, SPACING } from '../../../constants/theme';
+import CardioTimer from './CardioTimer';
 
 interface WorkoutExerciseCardProps {
   exercise: {
@@ -12,10 +13,16 @@ interface WorkoutExerciseCardProps {
     image_url?: string;
     primary_muscles?: string[];
     requires_weight?: boolean;
+    muscle_group?: string;
+    sets?: number;
+    reps_range?: string;
   };
   maxWeightData: Array<{ date: string; value: number }>;
   absoluteMaxWeight: { weight: number; reps: number; date: string } | null;
   onExerciseNamePress: () => void;
+  // Cardio-specific props
+  onCardioComplete?: () => void;
+  isCardioActive?: boolean;
 }
 
 export default function WorkoutExerciseCard({
@@ -23,6 +30,8 @@ export default function WorkoutExerciseCard({
   maxWeightData,
   absoluteMaxWeight,
   onExerciseNamePress,
+  onCardioComplete,
+  isCardioActive = false,
 }: WorkoutExerciseCardProps) {
   // Helper function to determine the image source
   const getImageSource = () => {
@@ -41,6 +50,20 @@ export default function WorkoutExerciseCard({
       // Use placeholder directly for local assets to prevent any loading attempts
       return require('../../../../assets/exercises/placeholder.jpg');
     }
+  };
+
+  // Check if this is a cardio exercise
+  const isCardioExercise = exercise?.muscle_group === 'Cardio';
+
+  // Helper function to get cardio duration from reps_range (e.g., "5-10" becomes 5 minutes)
+  const getCardioDuration = (): number => {
+    if (!exercise?.reps_range) return 5; // Default 5 minutes
+
+    const match = exercise.reps_range.match(/^(\d+)/);
+    if (match) {
+      return parseInt(match[1]);
+    }
+    return 5; // Default fallback
   };
 
   return (
@@ -74,15 +97,26 @@ export default function WorkoutExerciseCard({
         </View>
       </View>
 
-      {/* Max Weight Progress Graph - separate container with small spacing */}
-      {exercise && exercise.requires_weight !== false && (
-        <View style={styles.maxWeightGraphContainer}>
-          <ExerciseMaxWeightGraph
-            data={maxWeightData || []}
-            exerciseName={exercise.name}
-            absoluteMaxWeight={absoluteMaxWeight || null}
-          />
-        </View>
+      {/* Conditional content based on exercise type */}
+      {isCardioExercise ? (
+        // Cardio Timer for cardio exercises
+        <CardioTimer
+          durationMinutes={getCardioDuration()}
+          onComplete={onCardioComplete || (() => {})}
+          isActive={isCardioActive}
+        />
+      ) : (
+        // Max Weight Progress Graph for weighted exercises (only if requires_weight is not false)
+        exercise &&
+        exercise.requires_weight !== false && (
+          <View style={styles.maxWeightGraphContainer}>
+            <ExerciseMaxWeightGraph
+              data={maxWeightData || []}
+              exerciseName={exercise.name}
+              absoluteMaxWeight={absoluteMaxWeight || null}
+            />
+          </View>
+        )
       )}
     </>
   );

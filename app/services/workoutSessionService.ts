@@ -20,6 +20,7 @@ export interface ExerciseData {
   order: number;
   workout_day: number;
   requires_weight?: boolean;
+  muscle_group?: string;
   isChangedExercise?: boolean;
 }
 

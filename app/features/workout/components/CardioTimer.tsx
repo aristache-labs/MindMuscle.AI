@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, SPACING, BORDER_RADIUS } from '../../../constants/theme';
+import { COLORS, SPACING, BORDER_RADIUS, FONT_SIZES } from '../../../constants/theme';
 
 interface CardioTimerProps {
   durationMinutes: number;
@@ -32,6 +32,12 @@ const CardioTimer = React.memo(function CardioTimer({
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Get the original duration for "Last" display
+  const getLastTime = (): string => {
+    const originalSeconds = durationMinutes * 60;
+    return formatTime(originalSeconds);
   };
 
   // Start/pause timer
@@ -103,109 +109,187 @@ const CardioTimer = React.memo(function CardioTimer({
   }, []);
 
   return (
-    <View style={[styles.container, isActive && styles.activeContainer]}>
-      <View style={styles.timerSection}>
-        <Text style={styles.timerDisplay}>{formatTime(timeRemaining)}</Text>
-        <Text style={styles.timerUnit}>min</Text>
-      </View>
+    <View style={[styles.setCard, isActive ? styles.activeSetCard : styles.inactiveSetCard]}>
+      <View style={styles.setCardContent}>
+        {/* 3-Column Layout with Dividers: Timer | Divider | Play/Pause | Divider | Done */}
+        <View style={styles.threeColumnRow}>
+          {/* Column 1: Timer Display */}
+          <View style={styles.timerColumn}>
+            <View style={styles.timerDisplayContainer}>
+              <Text style={styles.timerDisplay}>{formatTime(timeRemaining)}</Text>
+              <Text style={styles.timerUnit}>min</Text>
+            </View>
+            <Text style={styles.lastTimeText}>(Last {getLastTime()})</Text>
+          </View>
 
-      <View style={styles.controlsSection}>
-        <TouchableOpacity
-          style={[styles.playButton, isRunning && styles.pauseButton]}
-          onPress={toggleTimer}
-        >
-          <Ionicons name={isRunning ? 'pause' : 'play'} size={24} color={COLORS.text} />
-        </TouchableOpacity>
+          {/* Divider 1 */}
+          <View style={styles.divider} />
 
-        {hasStarted && (
-          <TouchableOpacity style={styles.doneButton} onPress={handleDone}>
-            <Text style={styles.doneText}>Done</Text>
+          {/* Column 2: Play/Pause Button */}
+          <View style={styles.playColumn}>
+            <TouchableOpacity
+              style={[styles.playButtonSet, isRunning && styles.pauseButtonSet]}
+              onPress={toggleTimer}
+            >
+              <Ionicons
+                name={isRunning ? 'pause' : 'play'}
+                size={20}
+                color={COLORS.text}
+                style={!isRunning && styles.playIcon}
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* Divider 2 */}
+          <View style={styles.divider} />
+
+          {/* Column 3: Done Button */}
+          <View style={styles.doneColumn}>
+            <TouchableOpacity
+              style={[styles.doneButton, hasStarted && styles.doneButtonActive]}
+              onPress={handleDone}
+              disabled={!hasStarted}
+            >
+              <Text style={[styles.doneText, hasStarted && styles.doneTextActive]}>Did it</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Cancel button for unused exercises */}
+        {onCancel && !hasStarted && (
+          <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
+            <Text style={styles.cancelText}>Cancel</Text>
           </TouchableOpacity>
         )}
       </View>
-
-      {onCancel && !hasStarted && (
-        <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
-          <Text style={styles.cancelText}>Cancel</Text>
-        </TouchableOpacity>
-      )}
     </View>
   );
 });
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: COLORS.surface,
-    borderRadius: BORDER_RADIUS.lg,
-    padding: SPACING.lg,
+  setCard: {
+    borderRadius: BORDER_RADIUS.md,
+    marginBottom: SPACING.md,
     marginHorizontal: SPACING.md,
-    marginVertical: SPACING.sm,
+    overflow: 'hidden',
+    minHeight: 100,
+  },
+  activeSetCard: {
+    backgroundColor: COLORS.primary,
+  },
+  inactiveSetCard: {
+    backgroundColor: COLORS.surface,
+  },
+  setCardContent: {
+    flexDirection: 'column',
+    flex: 1,
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.md,
+  },
+  threeColumnRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    minHeight: 60,
   },
-  activeContainer: {
-    borderColor: COLORS.primary,
-    borderWidth: 2,
+  timerColumn: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: SPACING.sm,
   },
-  timerSection: {
+  playColumn: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: SPACING.xxl,
+  },
+  doneColumn: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: SPACING.xs,
+  },
+  suggestedLabel: {
+    color: 'rgba(255, 255, 255, 0.61)',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  timerDisplayContainer: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    marginBottom: SPACING.lg,
+    marginBottom: SPACING.xs,
   },
   timerDisplay: {
-    fontSize: 48,
-    fontWeight: 'bold',
     color: COLORS.text,
+    fontSize: 24,
+    fontWeight: 'bold',
+    textAlign: 'center',
     fontVariant: ['tabular-nums'],
   },
   timerUnit: {
-    fontSize: 18,
-    color: COLORS.placeholder,
-    marginLeft: SPACING.xs,
-    fontWeight: '500',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginTop: 10,
+    marginLeft: 4,
+    color: 'rgba(255, 255, 255, 0.52)',
+    textAlign: 'center',
+    alignSelf: 'center',
   },
-  controlsSection: {
-    flexDirection: 'row',
+  lastTimeText: {
+    color: COLORS.text,
+    fontSize: 12,
+    opacity: 0.8,
+    textAlign: 'center',
+  },
+  playButtonSet: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 18,
+    width: 36,
+    height: 36,
     alignItems: 'center',
-    gap: SPACING.lg,
-  },
-  playButton: {
-    backgroundColor: '#4CAF50',
-    width: 60,
-    height: 60,
-    borderRadius: 30,
     justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
   },
-  pauseButton: {
-    backgroundColor: '#FF9800',
+  pauseButtonSet: {
+    backgroundColor: COLORS.warning,
+  },
+  playIcon: {
+    marginLeft: 0, // Slight adjustment for visual centering of play icon
   },
   doneButton: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
+    backgroundColor: 'rgba(108, 71, 255, 0.3)',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
     borderRadius: BORDER_RADIUS.md,
-    minWidth: 80,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(108, 71, 255, 0.5)',
+    minWidth: 60,
+  },
+  doneButtonActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
   },
   doneText: {
-    color: COLORS.text,
-    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: FONT_SIZES.sm,
     fontWeight: '600',
+  },
+  doneTextActive: {
+    color: COLORS.text,
   },
   cancelButton: {
     marginTop: SPACING.md,
     paddingVertical: SPACING.sm,
+    alignSelf: 'center',
   },
   cancelText: {
-    color: COLORS.placeholder,
-    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.61)',
+    fontSize: FONT_SIZES.sm,
+  },
+  divider: {
+    width: 1,
+    height: 70,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    marginHorizontal: SPACING.sm,
   },
 });
 

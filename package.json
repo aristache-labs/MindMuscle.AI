@@ -100,6 +100,7 @@
     "expo-web-browser": "~14.1.6",
     "firebase": "^11.7.3",
     "nativewind": "^2.0.11",
+    "ngrok": "^5.0.0-beta.2",
     "node-libs-react-native": "^1.2.1",
     "openai": "^4.46.0",
     "react": "19.0.0",
@@ -167,5 +168,12 @@
     "promise": "8.3.0",
     "fbjs/promise": "8.3.0",
     "**/promise": "8.3.0"
-  }
+  },
+  "description": "Project started on 17 April 2025 ![Logo](assets/icon.png)",
+  "directories": {
+    "doc": "docs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }

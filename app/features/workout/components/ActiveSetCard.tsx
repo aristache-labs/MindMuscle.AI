@@ -185,9 +185,9 @@ const CardioTimer = React.memo<CardioTimerProps>(function CardioTimer({
     }
     setIsRunning(false);
 
-    // Ensure the current duration is saved before completing
-    // This is critical for when the user modifies the timer value and then presses Done
-    if (onDurationChangeRef.current && localDuration !== durationMinutes) {
+    // Always save the current duration before completing
+    // This ensures the duration is preserved for subsequent sets
+    if (onDurationChangeRef.current) {
       console.log('handleDone: Saving current duration before completion:', localDuration);
       onDurationChangeRef.current(localDuration);
 
@@ -198,7 +198,7 @@ const CardioTimer = React.memo<CardioTimerProps>(function CardioTimer({
     } else {
       onCompleteRef.current();
     }
-  }, [localDuration, durationMinutes]);
+  }, [localDuration]);
 
   // Handle edit mode toggle/save
   const handleEditSave = useCallback(() => {
@@ -206,7 +206,12 @@ const CardioTimer = React.memo<CardioTimerProps>(function CardioTimer({
       // Save the edit
       const newDuration = parseInt(editValue) || 1;
       setLocalDuration(newDuration);
-      console.log('handleEditSave: Updating local duration to:', newDuration);
+      console.log(
+        'handleEditSave: Updating local duration to:',
+        newDuration,
+        'from editValue:',
+        editValue,
+      );
 
       if (onDurationChangeRef.current) {
         onDurationChangeRef.current(newDuration);
@@ -228,11 +233,34 @@ const CardioTimer = React.memo<CardioTimerProps>(function CardioTimer({
     }
   }, [isEditing, editValue, localDuration, hasStarted]);
 
+  // Handle keyboard submit editing (Done button on keyboard)
+  const handleSubmitEditing = useCallback(() => {
+    console.log('handleSubmitEditing called with current editValue:', editValue);
+    // Force save with current editValue
+    const newDuration = parseInt(editValue) || 1;
+    setLocalDuration(newDuration);
+    console.log('handleSubmitEditing: Updating local duration to:', newDuration);
+
+    if (onDurationChangeRef.current) {
+      console.log('handleSubmitEditing: Calling onDurationChange with:', newDuration);
+      onDurationChangeRef.current(newDuration);
+    } else {
+      console.log('handleSubmitEditing: onDurationChange is not available');
+    }
+
+    // Update timeRemaining to reflect new duration if timer hasn't started
+    if (!hasStarted) {
+      setTimeRemaining(newDuration * 60);
+    }
+
+    setIsEditing(false);
+  }, [editValue, hasStarted]);
+
   // Handle floating done button (when keyboard is visible)
   const handleFloatingDone = useCallback(() => {
     editInputRef.current?.blur();
-    handleEditSave();
-  }, [handleEditSave]);
+    handleSubmitEditing();
+  }, [handleSubmitEditing]);
 
   // Handle edit toggle (enter/exit edit mode without saving immediately)
   const handleEditToggle = useCallback(() => {
@@ -252,16 +280,32 @@ const CardioTimer = React.memo<CardioTimerProps>(function CardioTimer({
 
   // Reset timer when duration changes from parent
   useEffect(() => {
-    setTimeRemaining(durationMinutes * 60);
-    setLocalDuration(durationMinutes);
-    setEditValue(durationMinutes.toString());
-    setIsRunning(false);
-    setHasStarted(false);
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
+    // Only reset if we're not currently editing to prevent overriding user input
+    if (!isEditing) {
+      console.log(
+        'CardioTimer: Resetting timer - durationMinutes:',
+        durationMinutes,
+        'isEditing:',
+        isEditing,
+      );
+      setTimeRemaining(durationMinutes * 60);
+      setLocalDuration(durationMinutes);
+      setEditValue(durationMinutes.toString());
+      setIsRunning(false);
+      setHasStarted(false);
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    } else {
+      console.log(
+        'CardioTimer: Skipping reset (editing mode) - durationMinutes:',
+        durationMinutes,
+        'isEditing:',
+        isEditing,
+      );
     }
-  }, [durationMinutes]);
+  }, [durationMinutes, isEditing]);
 
   // Handle edit value change - filter to numbers only
   const handleEditValueChange = useCallback((value: string) => {
@@ -280,8 +324,25 @@ const CardioTimer = React.memo<CardioTimerProps>(function CardioTimer({
           const newTime = prev - 1;
           if (newTime <= 0) {
             setIsRunning(false);
-            // Use ref to avoid stale closure
-            onCompleteRef.current();
+
+            // Save the current duration before completing when timer expires naturally
+            const currentDurationMinutes = Math.ceil(localDuration);
+            console.log(
+              'Timer expired - Saving duration before completion:',
+              currentDurationMinutes,
+            );
+
+            if (onDurationChangeRef.current) {
+              onDurationChangeRef.current(currentDurationMinutes);
+
+              // Use timeout to ensure duration is saved before completing
+              setTimeout(() => {
+                onCompleteRef.current();
+              }, 100);
+            } else {
+              onCompleteRef.current();
+            }
+
             return 0;
           }
           return newTime;
@@ -300,7 +361,7 @@ const CardioTimer = React.memo<CardioTimerProps>(function CardioTimer({
         intervalRef.current = null;
       }
     };
-  }, [isRunning]); // Only depend on isRunning
+  }, [isRunning, localDuration]); // Add localDuration as dependency
 
   // Auto-cleanup on unmount
   useEffect(() => {
@@ -353,8 +414,8 @@ const CardioTimer = React.memo<CardioTimerProps>(function CardioTimer({
                         maxLength={3}
                         placeholder="15"
                         placeholderTextColor="rgba(255,255,255,0.5)"
-                        onSubmitEditing={handleEditSave}
-                        onBlur={() => setIsEditing(false)}
+                        onSubmitEditing={handleSubmitEditing}
+                        onBlur={handleSubmitEditing}
                       />
                       <Text style={styles.cardioTimerUnit}>min</Text>
                     </View>
@@ -449,6 +510,15 @@ const ActiveSetCard = React.memo<ActiveSetCardProps>(function ActiveSetCard({
 
   // Memoize cardioDuration calculation to prevent unnecessary re-renders
   const cardioDuration = useMemo(() => {
+    console.log(
+      'cardioDuration calculation - isCardio:',
+      isCardio,
+      'set.duration_minutes:',
+      set.duration_minutes,
+      'exercise.reps_range:',
+      exercise.reps_range,
+    );
+
     if (!isCardio) return 15; // Default fallback
 
     // First check if set has duration_minutes
@@ -493,11 +563,19 @@ const ActiveSetCard = React.memo<ActiveSetCardProps>(function ActiveSetCard({
         // Update the set's duration_minutes with the new value
         console.log('Calling onDurationMinutesChange with:', newDuration.toString());
         onDurationMinutesChange(exercise.id, setIndex, newDuration.toString());
+
+        // Add a timeout to check if the change was applied
+        setTimeout(() => {
+          console.log(
+            'After onDurationMinutesChange - set.duration_minutes:',
+            set.duration_minutes,
+          );
+        }, 100);
       } else {
         console.log('onDurationMinutesChange is not available');
       }
     },
-    [onDurationMinutesChange, exercise.id, setIndex],
+    [onDurationMinutesChange, exercise.id, setIndex, set.duration_minutes],
   );
 
   // Memoized placeholders to prevent recalculation on every render

@@ -294,16 +294,55 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
       const newExerciseSets = { ...exerciseSets };
 
       // Update the specific set with the processed reps value - ENSURE VALUES ARE ACTUALLY STORED
-      newExerciseSets[exerciseId] = newExerciseSets[exerciseId].map((set, index) =>
-        index === setIndex
-          ? {
-              ...set,
-              weight: weightValue, // This now contains the resolved value (not empty)
-              reps: finalDisplayReps, // This preserves the original format for display
-              isCompleted: true,
+      newExerciseSets[exerciseId] = newExerciseSets[exerciseId].map((set, index) => {
+        if (index === setIndex) {
+          const updatedSet = {
+            ...set,
+            weight: weightValue, // This now contains the resolved value (not empty)
+            reps: finalDisplayReps, // This preserves the original format for display
+            isCompleted: true,
+          };
+
+          // For cardio exercises, explicitly preserve duration fields
+          if (currentExercise?.muscle_group === 'Cardio') {
+            // Use the current set's duration if available, or the original set's duration
+            updatedSet.duration_minutes =
+              set.duration_minutes || exerciseSets[exerciseId][setIndex]?.duration_minutes;
+            updatedSet.duration_seconds =
+              set.duration_seconds || exerciseSets[exerciseId][setIndex]?.duration_seconds;
+          }
+
+          return updatedSet;
+        }
+        return set;
+      });
+
+      // FOR CARDIO EXERCISES: Propagate duration from completed set to remaining incomplete sets
+      if (currentExercise?.muscle_group === 'Cardio') {
+        const completedSet = newExerciseSets[exerciseId][setIndex];
+        const durationMinutes = completedSet.duration_minutes;
+        const durationSeconds = completedSet.duration_seconds;
+
+        // If the completed set has a duration, propagate it to all incomplete sets
+        if (durationMinutes) {
+          console.log(
+            'Propagating cardio duration from completed set:',
+            durationMinutes,
+            'minutes',
+          );
+
+          newExerciseSets[exerciseId] = newExerciseSets[exerciseId].map((set, index) => {
+            if (!set.isCompleted && index !== setIndex) {
+              return {
+                ...set,
+                duration_minutes: durationMinutes,
+                duration_seconds: durationSeconds || '',
+              };
             }
-          : set,
-      );
+            return set;
+          });
+        }
+      }
 
       // IMMEDIATELY update the exerciseSets state to show the actual values in the UI
       setExerciseSets(newExerciseSets);
@@ -313,9 +352,13 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
         const parsedWeight = parseFloat(weightValue) || 0;
         const parsedReps = parseInt(finalCalculationReps) || 0;
         const requiresWeight = currentExercise?.requires_weight !== false; // Default to true if not specified
+        const isCardio = currentExercise?.muscle_group === 'Cardio';
+
         const setVolume = requiresWeight ? parseFloat((parsedWeight * parsedReps).toFixed(1)) : 0;
         const updatedVolume = requiresWeight ? totalVolume + setVolume : totalVolume;
-        const updatedReps = totalReps + parsedReps;
+
+        // For cardio exercises, don't add to total reps (reps field is used for sets count, not duration)
+        const updatedReps = isCardio ? totalReps : totalReps + parsedReps;
 
         if (requiresWeight) {
           setTotalVolume(updatedVolume);
@@ -406,6 +449,7 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
         // Get the current exercise to check if it requires weight
         const currentExercise = exercises.find((ex) => ex.id === exerciseId);
         const requiresWeight = currentExercise?.requires_weight !== false; // Default to true if not specified
+        const isCardio = currentExercise?.muscle_group === 'Cardio';
 
         // If the set was completed, subtract its EXACT volume and reps from totals
         if (currentSet.isCompleted) {
@@ -423,7 +467,11 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
           if (requiresWeight) {
             setTotalVolume((prev) => Math.max(0, parseFloat((prev - setVolume).toFixed(1))));
           }
-          setTotalReps((prev) => Math.max(0, prev - reps));
+
+          // For cardio exercises, don't subtract from total reps (reps field is used for sets count, not duration)
+          if (!isCardio) {
+            setTotalReps((prev) => Math.max(0, prev - reps));
+          }
         }
 
         updatedSets[setIndex] = {
@@ -497,11 +545,15 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
         const weight = requiresWeight ? parseFloat(resolvedWeight) || 0 : 0;
         const reps = parseInt(resolvedReps) || 0;
         const setVolume = requiresWeight ? parseFloat((weight * reps).toFixed(1)) : 0;
+        const isCardio = currentExercise?.muscle_group === 'Cardio';
 
         if (requiresWeight) {
           totalVolumeToAdd += setVolume;
         }
-        totalRepsToAdd += reps;
+        // For cardio exercises, don't add to total reps (reps field is used for sets count, not duration)
+        if (!isCardio) {
+          totalRepsToAdd += reps;
+        }
 
         return {
           ...set,
@@ -520,7 +572,10 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
         if (requiresWeight) {
           setTotalVolume((prev) => parseFloat((prev + totalVolumeToAdd).toFixed(1)));
         }
-        setTotalReps((prev) => prev + totalRepsToAdd);
+        // Only update total reps if there are reps to add (excludes cardio exercises)
+        if (totalRepsToAdd > 0) {
+          setTotalReps((prev) => prev + totalRepsToAdd);
+        }
       };
 
       updateSetsAndTotals();

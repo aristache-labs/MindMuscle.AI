@@ -82,13 +82,14 @@ const isCardioExercise = (exercise: ExerciseData): boolean => {
 
 // Simple Cardio Display Component for Inactive/Completed Sets
 interface CardioDisplayProps {
+  set: ExerciseSet;
   exercise: ExerciseData;
   styles: typeof WorkoutExerciseSetRowStylesType;
 }
 
-const CardioDisplay: React.FC<CardioDisplayProps> = ({ exercise, styles }) => {
-  // Get the duration from the exercise's reps_range
-  const duration = exercise.reps_range || '15';
+const CardioDisplay: React.FC<CardioDisplayProps> = ({ set, exercise, styles }) => {
+  // Use the set's duration if available, otherwise fall back to exercise's default
+  const duration = set.duration_minutes || exercise.reps_range || '15';
 
   return (
     <View style={[styles.setCard, styles.inactiveSetCard]}>
@@ -134,7 +135,7 @@ export default function InactiveOrCompletedSetCard({
 
   // For cardio exercises, show a simple duration display
   if (isCardio) {
-    return <CardioDisplay exercise={exercise} styles={styles} />;
+    return <CardioDisplay set={set} exercise={exercise} styles={styles} />;
   }
 
   // For normal exercises, use the standard input layout

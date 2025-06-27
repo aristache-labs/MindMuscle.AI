@@ -1186,6 +1186,87 @@ const insertWorkoutHistory = async (options: {
   return workoutData.id;
 };
 
+// Helper function to normalize weight and reps values
+const normalizeWeightAndReps = (weight: string, reps: string): { weight: number; reps: number } => {
+  const normalizedWeight = weight === '-' || weight === '' ? '0' : weight;
+  const normalizedReps = reps === '-' || reps === '' ? '0' : reps;
+
+  return {
+    weight: normalizedWeight ? parseFloat(normalizedWeight) : 0,
+    reps: normalizedReps ? parseInt(normalizedReps) : 0,
+  };
+};
+
+// Helper function to process duration fields
+const processDurationFields = (
+  set: ExerciseSet,
+): { duration_minutes?: number; duration_seconds?: number } => {
+  const durationMinutes =
+    set.duration_minutes && set.duration_minutes !== '-' && set.duration_minutes !== ''
+      ? parseInt(set.duration_minutes)
+      : undefined;
+  const durationSeconds =
+    set.duration_seconds && set.duration_seconds !== '-' && set.duration_seconds !== ''
+      ? parseInt(set.duration_seconds)
+      : undefined;
+
+  const result: { duration_minutes?: number; duration_seconds?: number } = {};
+
+  if (durationMinutes !== undefined) {
+    result.duration_minutes = durationMinutes;
+  }
+  if (durationSeconds !== undefined) {
+    result.duration_seconds = durationSeconds;
+  }
+
+  return result;
+};
+
+// Helper function to determine workout plan exercise ID
+const getWorkoutPlanExerciseId = (exercise: ExerciseData): string | null => {
+  const isChangedExercise =
+    (exercise as ExerciseData & { isChangedExercise?: boolean }).isChangedExercise || false;
+
+  return isChangedExercise ? null : exercise.id;
+};
+
+// Helper function to create a single exercise record
+const createSingleExerciseRecord = (
+  exercise: ExerciseData,
+  set: ExerciseSet,
+  workoutHistoryId: string,
+): {
+  workout_history_id: string;
+  exercise_id: string;
+  workout_plan_exercise_id: string | null;
+  set_number: number;
+  weight: number;
+  reps: number;
+  completed: boolean;
+  duration_minutes?: number;
+  duration_seconds?: number;
+} => {
+  const isCardio = exercise.muscle_group === 'Cardio';
+
+  // For cardio exercises, set reps to 0 since duration is what matters
+  const { weight, reps: normalizedReps } = normalizeWeightAndReps(set.weight, set.reps);
+  const reps = isCardio ? 0 : normalizedReps;
+
+  const durationFields = processDurationFields(set);
+  const workoutPlanExerciseId = getWorkoutPlanExerciseId(exercise);
+
+  return {
+    workout_history_id: workoutHistoryId,
+    exercise_id: exercise.exercise_id,
+    workout_plan_exercise_id: workoutPlanExerciseId,
+    set_number: set.setNumber,
+    weight,
+    reps,
+    completed: set.isCompleted,
+    ...durationFields,
+  };
+};
+
 // Helper function to create exercise records
 const createExerciseRecords = (
   exercises: ExerciseData[],
@@ -1209,37 +1290,7 @@ const createExerciseRecords = (
 
     for (const set of sets) {
       if (set.isCompleted) {
-        const weight = set.weight === '-' || set.weight === '' ? '0' : set.weight;
-        const reps = set.reps === '-' || set.reps === '' ? '0' : set.reps;
-
-        // Handle duration fields for cardio exercises
-        const durationMinutes = set.duration_minutes && set.duration_minutes !== '-' && set.duration_minutes !== '' 
-          ? parseInt(set.duration_minutes) 
-          : undefined;
-        const durationSeconds = set.duration_seconds && set.duration_seconds !== '-' && set.duration_seconds !== '' 
-          ? parseInt(set.duration_seconds) 
-          : undefined;
-
-        // Determine if this is an original plan exercise or a customized/added exercise
-        const isChangedExercise =
-          (exercise as ExerciseData & { isChangedExercise?: boolean }).isChangedExercise || false;
-
-        // For changed/added exercises, workout_plan_exercise_id should be null
-        // For original plan exercises, use the exercise.id which should be the workout_plan_exercise_id
-        const workoutPlanExerciseId = isChangedExercise ? null : exercise.id;
-
-        const record = {
-          workout_history_id: workoutHistoryId,
-          exercise_id: exercise.exercise_id,
-          workout_plan_exercise_id: workoutPlanExerciseId,
-          set_number: set.setNumber,
-          weight: weight ? parseFloat(weight) : 0,
-          reps: reps ? parseInt(reps) : 0,
-          completed: set.isCompleted,
-          ...(durationMinutes !== undefined && { duration_minutes: durationMinutes }),
-          ...(durationSeconds !== undefined && { duration_seconds: durationSeconds }),
-        };
-
+        const record = createSingleExerciseRecord(exercise, set, workoutHistoryId);
         exerciseRecords.push(record);
       }
     }

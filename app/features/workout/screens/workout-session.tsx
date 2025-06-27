@@ -1121,14 +1121,24 @@ export default function WorkoutSessionScreen() {
                     const setNumber = index + 1;
                     const lastWeight = historyData[setNumber]?.weight || '';
                     const lastReps = historyData[setNumber]?.reps || exercise.reps_range;
+                    const isCardio = exercise.muscle_group === 'Cardio';
 
-                    return {
+                    const set: ExerciseSet = {
                       id: `${exercise.id}-set-${index + 1}`,
                       setNumber: setNumber,
                       weight: exercise.requires_weight !== false ? lastWeight : '',
                       reps: lastReps,
                       isCompleted: false,
                     };
+
+                    // For cardio exercises, initialize duration fields
+                    if (isCardio) {
+                      const defaultDuration = exercise.reps_range || '15';
+                      set.duration_minutes = defaultDuration;
+                      set.duration_seconds = '';
+                    }
+
+                    return set;
                   });
 
                   newSets[exercise.id] = sets;

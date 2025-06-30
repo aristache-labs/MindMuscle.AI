@@ -528,10 +528,15 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
       // Reset user-entered flags for this set when redoing (AFTER calculating subtraction)
       const weightInputKey = `${exerciseId}-${setIndex}-weight`;
       const repsInputKey = `${exerciseId}-${setIndex}-reps`;
+      const durationMinutesInputKey = `${exerciseId}-${setIndex}-duration-minutes`;
+      const durationSecondsInputKey = `${exerciseId}-${setIndex}-duration-seconds`;
+
       setUserEnteredValues((prev) => {
         const updated = { ...prev };
         delete updated[weightInputKey];
         delete updated[repsInputKey];
+        delete updated[durationMinutesInputKey];
+        delete updated[durationSecondsInputKey];
         return updated;
       });
     },

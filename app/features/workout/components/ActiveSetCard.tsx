@@ -100,6 +100,9 @@ interface CardioTimerProps {
   durationMinutes: number;
   onComplete: () => void;
   onDurationChange?: (newDuration: number) => void;
+  exercise: ExerciseData;
+  setIndex: number;
+  lastExerciseValues: Record<string, Record<number, { weight: string; reps: string }>>;
   styles: typeof WorkoutExerciseSetRowStylesType;
 }
 
@@ -107,6 +110,9 @@ const CardioTimer = React.memo<CardioTimerProps>(function CardioTimer({
   durationMinutes,
   onComplete,
   onDurationChange,
+  exercise,
+  setIndex,
+  lastExerciseValues,
   styles,
 }) {
   const [timeRemaining, setTimeRemaining] = useState(durationMinutes * 60); // Convert to seconds
@@ -163,11 +169,27 @@ const CardioTimer = React.memo<CardioTimerProps>(function CardioTimer({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   }, []);
 
-  // Get the original duration for "Last" display
-  const getLastTime = useCallback((): string => {
-    const originalSeconds = durationMinutes * 60;
-    return formatTime(originalSeconds);
-  }, [durationMinutes, formatTime]);
+  // Get the historical duration for "Last" display from actual workout history
+  const getLastTime = useCallback((): string | null => {
+    // Check if there's actual historical data for this exercise and set
+    const exerciseHistory = lastExerciseValues[exercise.exercise_id];
+    const setHistory = exerciseHistory?.[setIndex + 1];
+    
+    if (!setHistory?.reps) {
+      // No historical data available, don't show "Last" value
+      return null;
+    }
+
+    // For cardio exercises, duration is stored in the reps field (in minutes)
+    const lastDurationMinutes = parseInt(setHistory.reps);
+    if (isNaN(lastDurationMinutes) || lastDurationMinutes <= 0) {
+      return null;
+    }
+
+    // Convert minutes to MM:SS format for display
+    const lastDurationSeconds = lastDurationMinutes * 60;
+    return formatTime(lastDurationSeconds);
+  }, [exercise.exercise_id, setIndex, lastExerciseValues, formatTime]);
 
   // Start/pause timer
   const toggleTimer = useCallback(() => {
@@ -397,7 +419,9 @@ const CardioTimer = React.memo<CardioTimerProps>(function CardioTimer({
                         <Text style={styles.cardioTimerUnit}>min</Text>
                       </TouchableOpacity>
                     </View>
-                    <Text style={styles.cardioLastTimeText}>(Last {lastTimeDisplay})</Text>
+                    {lastTimeDisplay && (
+                      <Text style={styles.cardioLastTimeText}>(Last {lastTimeDisplay})</Text>
+                    )}
                   </>
                 ) : (
                   // Edit Mode
@@ -419,9 +443,6 @@ const CardioTimer = React.memo<CardioTimerProps>(function CardioTimer({
                       />
                       <Text style={styles.cardioTimerUnit}>min</Text>
                     </View>
-                    <TouchableOpacity onPress={handleEditSave} style={styles.doneButton}>
-                      <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                    </TouchableOpacity>
                   </View>
                 )}
               </View>
@@ -451,11 +472,10 @@ const CardioTimer = React.memo<CardioTimerProps>(function CardioTimer({
             {/* Right Column: Done Button */}
             <View style={styles.rightColumn}>
               <TouchableOpacity
-                style={[styles.doneButton, hasStarted && styles.doneButtonActive]}
+                style={[styles.doneButton, styles.doneButtonActive]}
                 onPress={handleDone}
-                disabled={!hasStarted}
               >
-                <Text style={[styles.doneText, hasStarted && styles.doneTextActive]}>Done</Text>
+                <Text style={[styles.doneText, styles.doneTextActive]}>Done</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -660,6 +680,9 @@ const ActiveSetCard = React.memo<ActiveSetCardProps>(function ActiveSetCard({
         durationMinutes={cardioDuration}
         onComplete={handleCardioComplete}
         onDurationChange={handleCardioDurationChange}
+        exercise={exercise}
+        setIndex={setIndex}
+        lastExerciseValues={lastExerciseValues}
         styles={styles}
       />
     );

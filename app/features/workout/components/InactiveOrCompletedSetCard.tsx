@@ -84,15 +84,29 @@ const isCardioExercise = (exercise: ExerciseData): boolean => {
 interface CardioDisplayProps {
   set: ExerciseSet;
   exercise: ExerciseData;
+  setIndex: number;
+  isActive: boolean;
+  isCompleted: boolean;
+  onSetComplete: (exerciseId: string, setIndex: number) => void;
+  onRedoSet: (exerciseId: string, setIndex: number) => void;
   styles: typeof WorkoutExerciseSetRowStylesType;
 }
 
-const CardioDisplay: React.FC<CardioDisplayProps> = ({ set, exercise, styles }) => {
+const CardioDisplay: React.FC<CardioDisplayProps> = ({
+  set,
+  exercise,
+  setIndex,
+  isActive,
+  isCompleted,
+  onSetComplete,
+  onRedoSet,
+  styles,
+}) => {
   // Use the set's duration if available, otherwise fall back to exercise's default
   const duration = set.duration_minutes || exercise.reps_range || '15';
 
   return (
-    <View style={[styles.setCard, styles.inactiveSetCard]}>
+    <View style={[styles.setCard, styles.inactiveSetCard, isCompleted && styles.completedSetCard]}>
       <View style={styles.setCardContent}>
         <View style={styles.inactiveSetCardContainer}>
           <View style={styles.inactiveSetCardContent}>
@@ -101,6 +115,20 @@ const CardioDisplay: React.FC<CardioDisplayProps> = ({ set, exercise, styles }) 
                 <Text style={styles.cardioDisplayText}>{duration}</Text>
                 <Text style={styles.cardioTimerUnit}>min</Text>
               </View>
+            </View>
+
+            <View style={styles.inactiveVerticalDivider} />
+
+            <View style={styles.inactiveButtonCell}>
+              <ActionButton
+                exercise={exercise}
+                setIndex={setIndex}
+                isActive={isActive}
+                isCompleted={isCompleted}
+                onSetComplete={onSetComplete}
+                onRedoSet={onRedoSet}
+                styles={styles}
+              />
             </View>
           </View>
         </View>
@@ -135,7 +163,18 @@ export default function InactiveOrCompletedSetCard({
 
   // For cardio exercises, show a simple duration display
   if (isCardio) {
-    return <CardioDisplay set={set} exercise={exercise} styles={styles} />;
+    return (
+      <CardioDisplay
+        set={set}
+        exercise={exercise}
+        setIndex={setIndex}
+        isActive={isActive}
+        isCompleted={isCompleted}
+        onSetComplete={onSetComplete}
+        onRedoSet={onRedoSet}
+        styles={styles}
+      />
+    );
   }
 
   // For normal exercises, use the standard input layout

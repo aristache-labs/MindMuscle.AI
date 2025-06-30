@@ -79,6 +79,7 @@ export interface CustomizationHelpers {
 
 /**
  * Determines the fallback reps value when current set has no reps
+ * IMPORTANT: This logic should match getRepsPlaceholder in UI components exactly
  */
 const determineFallbackReps = (params: {
   currentRecommendation?: RecommendationData | null;
@@ -118,33 +119,24 @@ const determineFallbackReps = (params: {
     areDifferent: suggestedReps !== currentRecommendationReps,
   });
 
-  // Use getSuggestedValue to get the same recommendation source as the UI
-  const recommendedReps = suggestedReps || currentRecommendationReps;
-
-  if (recommendedReps) {
-    console.log('determineFallbackReps: Using recommended reps:', recommendedReps);
-    return recommendedReps;
-  }
-
-  // Use currentExercise?.exercise_id for lastExerciseValues lookup (this is correct)
-  // but use exerciseId for exerciseCustomized lookup (this matches the UI state)
+  // PRIORITY 1: Use lastReps first (same as UI getRepsPlaceholder)
   const lastReps = lastExerciseValues[currentExercise?.exercise_id || '']?.[setIndex + 1]?.reps;
-  const exerciseRepsRange = currentExercise?.reps_range;
-  const isCustomized = exerciseCustomized[exerciseId]; // Use exerciseId here
-
-  console.log('determineFallbackReps: No recommendation, checking other options:', {
-    lastReps,
-    exerciseRepsRange,
-    isCustomized,
-  });
-
-  if (!isCustomized && lastReps && lastReps !== '-' && lastReps !== '0') {
-    console.log('determineFallbackReps: Using last reps:', lastReps);
+  if (lastReps && lastReps !== '-' && lastReps !== '0') {
+    console.log('determineFallbackReps: Using last reps (priority 1):', lastReps);
     return lastReps;
   }
 
+  // PRIORITY 2: Use recommended reps (same as UI getRepsPlaceholder)
+  const recommendedReps = suggestedReps || currentRecommendationReps;
+  if (recommendedReps) {
+    console.log('determineFallbackReps: Using recommended reps (priority 2):', recommendedReps);
+    return recommendedReps;
+  }
+
+  // PRIORITY 3: Use exercise reps range (same as UI getRepsPlaceholder)
+  const exerciseRepsRange = currentExercise?.reps_range;
   if (exerciseRepsRange) {
-    console.log('determineFallbackReps: Using exercise reps range:', exerciseRepsRange);
+    console.log('determineFallbackReps: Using exercise reps range (priority 3):', exerciseRepsRange);
     return exerciseRepsRange;
   }
 
@@ -160,6 +152,19 @@ const convertRepsToCalculationValue = (reps: string): string => {
     const rangeParts = reps.split('-');
     const highestReps = parseInt(rangeParts[1]) || parseInt(rangeParts[0]) || 1;
     return highestReps.toString();
+  }
+  return reps;
+};
+
+/**
+ * Converts reps range to display value (preserves range format or uses specific value)
+ */
+const convertRepsToDisplayValue = (reps: string): string => {
+  // For ranges, preserve the range format for display consistency
+  // Only convert to specific values if we have a specific recommendation
+  if (reps && typeof reps === 'string' && reps.includes('-')) {
+    // If it's a range like "10-13", preserve it as-is for display
+    return reps;
   }
   return reps;
 };
@@ -195,7 +200,9 @@ export const resolveRepsValues = (
     });
   }
 
-  const originalReps = reps;
+  // For display, preserve the original format (including ranges)
+  const originalReps = convertRepsToDisplayValue(reps);
+  // For calculations (volume), use the highest value in ranges
   const calculationReps = convertRepsToCalculationValue(reps);
 
   return { original: originalReps, calculation: String(calculationReps) };
@@ -287,23 +294,19 @@ export const resolveSetValuesForLogAll = (
   }
 
   let repsValue = set.reps;
-  const repsContainsRange = repsValue && typeof repsValue === 'string' && repsValue.includes('-');
 
-  if (repsValue === '' || repsValue === '-' || repsContainsRange) {
-    if (repsContainsRange) {
-      const rangeParts = repsValue.split('-');
-      repsValue = (parseInt(rangeParts[1]) || parseInt(rangeParts[0]) || 0).toString();
-    } else {
-      repsValue = resolveRepsValueForLogAll({
-        currentRecommendation,
-        lastExerciseValues,
-        currentExercise,
-        exerciseCustomized,
-        index,
-      });
-    }
+  if (repsValue === '' || repsValue === '-') {
+    repsValue = resolveRepsValueForLogAll({
+      currentRecommendation,
+      lastExerciseValues,
+      currentExercise,
+      exerciseCustomized,
+      index,
+    });
   }
 
+  // For display consistency, preserve ranges as-is (like "10-13")
+  // The calculation conversion will happen in the calling function when needed
   return { weight: weightValue, reps: repsValue };
 };
 
@@ -331,11 +334,8 @@ const resolveRepsValueForLogAll = (params: {
     (isCustomized ? lastReps : exerciseRepsRange) ||
     '1';
 
-  if (repsValue && typeof repsValue === 'string' && repsValue.includes('-')) {
-    const rangeParts = repsValue.split('-');
-    repsValue = (parseInt(rangeParts[1]) || parseInt(rangeParts[0]) || 1).toString();
-  }
-
+  // Preserve ranges for display consistency (don't convert to highest value)
+  // The calling function will handle calculation conversion when needed for volume
   return repsValue;
 };
 

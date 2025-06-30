@@ -330,7 +330,7 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
 
       const { original: originalRepsValue, calculation: finalCalculationReps } =
         resolveRepsValueHelper();
-      const finalDisplayReps = String(finalCalculationReps);
+      const finalDisplayReps = originalRepsValue; // Use original value for display consistency
 
       // ATOMIC UPDATE: Calculate all state changes before applying any
       const newExerciseSets = { ...exerciseSets };
@@ -584,8 +584,17 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
           index,
         );
 
+        // For volume calculations, convert reps ranges to highest value
+        const repsForCalculation = resolvedReps.includes('-')
+          ? (
+              parseInt(resolvedReps.split('-')[1]) ||
+              parseInt(resolvedReps.split('-')[0]) ||
+              0
+            ).toString()
+          : resolvedReps;
+
         const weight = requiresWeight ? parseFloat(resolvedWeight) || 0 : 0;
-        const reps = parseInt(resolvedReps) || 0;
+        const reps = parseInt(repsForCalculation) || 0; // Use calculation value for volume
         const setVolume = requiresWeight ? parseFloat((weight * reps).toFixed(1)) : 0;
         const isCardio = currentExercise?.muscle_group === 'Cardio';
 
@@ -594,13 +603,13 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
         }
         // For cardio exercises, don't add to total reps (reps field is used for sets count, not duration)
         if (!isCardio) {
-          totalRepsToAdd += reps;
+          totalRepsToAdd += reps; // Use calculation value for total reps
         }
 
         return {
           ...set,
           weight: resolvedWeight,
-          reps: resolvedReps,
+          reps: resolvedReps, // Preserve original format for display (may include ranges)
           isCompleted: true,
         };
       });

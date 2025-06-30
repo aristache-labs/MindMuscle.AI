@@ -8,6 +8,12 @@ export interface ResolveRepsParams {
   lastExerciseValues: Record<string, Record<number, { weight: string; reps: string }>>;
   currentExercise?: ExerciseData;
   exerciseCustomized: Record<string, boolean>;
+  exerciseId: string;
+  getSuggestedValue: (
+    exerciseId: string,
+    setNumber: number,
+    type: 'weight' | 'reps',
+  ) => string | null;
 }
 
 export interface ResolveWeightParams {
@@ -80,6 +86,12 @@ const determineFallbackReps = (params: {
   currentExercise?: ExerciseData;
   exerciseCustomized: Record<string, boolean>;
   setIndex: number;
+  exerciseId: string;
+  getSuggestedValue: (
+    exerciseId: string,
+    setNumber: number,
+    type: 'weight' | 'reps',
+  ) => string | null;
 }): string => {
   const {
     currentRecommendation,
@@ -87,25 +99,56 @@ const determineFallbackReps = (params: {
     currentExercise,
     exerciseCustomized,
     setIndex,
+    exerciseId,
+    getSuggestedValue,
   } = params;
 
-  const recommendedReps = currentRecommendation?.recommended_reps?.toString();
+  // DEBUG: Compare both recommendation sources
+  const suggestedReps = currentExercise?.exercise_id
+    ? getSuggestedValue(currentExercise.exercise_id, setIndex + 1, 'reps')
+    : null;
+  const currentRecommendationReps = currentRecommendation?.recommended_reps?.toString();
+
+  console.log('determineFallbackReps DEBUG:', {
+    exerciseId,
+    exerciseDbId: currentExercise?.exercise_id,
+    setIndex,
+    suggestedReps: suggestedReps,
+    currentRecommendationReps: currentRecommendationReps,
+    areDifferent: suggestedReps !== currentRecommendationReps,
+  });
+
+  // Use getSuggestedValue to get the same recommendation source as the UI
+  const recommendedReps = suggestedReps || currentRecommendationReps;
+
   if (recommendedReps) {
+    console.log('determineFallbackReps: Using recommended reps:', recommendedReps);
     return recommendedReps;
   }
 
+  // Use currentExercise?.exercise_id for lastExerciseValues lookup (this is correct)
+  // but use exerciseId for exerciseCustomized lookup (this matches the UI state)
   const lastReps = lastExerciseValues[currentExercise?.exercise_id || '']?.[setIndex + 1]?.reps;
   const exerciseRepsRange = currentExercise?.reps_range;
-  const isCustomized = exerciseCustomized[currentExercise?.id || ''];
+  const isCustomized = exerciseCustomized[exerciseId]; // Use exerciseId here
+
+  console.log('determineFallbackReps: No recommendation, checking other options:', {
+    lastReps,
+    exerciseRepsRange,
+    isCustomized,
+  });
 
   if (!isCustomized && lastReps && lastReps !== '-' && lastReps !== '0') {
+    console.log('determineFallbackReps: Using last reps:', lastReps);
     return lastReps;
   }
 
   if (exerciseRepsRange) {
+    console.log('determineFallbackReps: Using exercise reps range:', exerciseRepsRange);
     return exerciseRepsRange;
   }
 
+  console.log('determineFallbackReps: Using final fallback: 1');
   return '1'; // Final fallback
 };
 
@@ -134,6 +177,8 @@ export const resolveRepsValues = (
     lastExerciseValues,
     currentExercise,
     exerciseCustomized,
+    exerciseId,
+    getSuggestedValue,
   } = params;
 
   let reps = currentSet.reps;
@@ -145,6 +190,8 @@ export const resolveRepsValues = (
       currentExercise,
       exerciseCustomized,
       setIndex,
+      exerciseId,
+      getSuggestedValue,
     });
   }
 

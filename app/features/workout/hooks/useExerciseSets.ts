@@ -171,19 +171,41 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
     (exerciseId: string, setNumber: number, type: 'weight' | 'reps'): string | null => {
       // Find the exercise by exerciseId to get the recommendation
       const exercise = exercises.find((ex) => ex.exercise_id === exerciseId);
-      if (!exercise) return null;
+      if (!exercise) {
+        console.log('getSuggestedValue: Exercise not found for exerciseId:', exerciseId);
+        return null;
+      }
 
       const recommendation = recommendations[exercise.id];
-      if (!recommendation) return null;
+      if (!recommendation) {
+        console.log('getSuggestedValue: No recommendation found for exercise.id:', exercise.id);
+        return null;
+      }
+
+      console.log('getSuggestedValue DEBUG:', {
+        exerciseId,
+        exerciseWorkoutId: exercise.id,
+        setNumber,
+        type,
+        recommendation: {
+          recommended_weight: recommendation.recommended_weight,
+          recommended_reps: recommendation.recommended_reps,
+        },
+      });
 
       // Return the recommended value based on type
       if (type === 'weight' && recommendation.recommended_weight) {
-        return recommendation.recommended_weight.toString();
+        const result = recommendation.recommended_weight.toString();
+        console.log('getSuggestedValue: Returning weight:', result);
+        return result;
       }
       if (type === 'reps' && recommendation.recommended_reps) {
-        return recommendation.recommended_reps.toString();
+        const result = recommendation.recommended_reps.toString();
+        console.log('getSuggestedValue: Returning reps:', result);
+        return result;
       }
 
+      console.log('getSuggestedValue: No value found for type:', type);
       return null;
     },
     [exercises, recommendations],
@@ -261,6 +283,24 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
       // Get current weight and reps values from the inputs
       const currentSet = exerciseSets[exerciseId][setIndex];
 
+      // DEBUG: Log the current recommendation vs getSuggestedValue
+      console.log('handleSetComplete DEBUG - Recommendation sources:', {
+        exerciseId,
+        setIndex,
+        currentExercise: {
+          id: currentExercise?.id,
+          exercise_id: currentExercise?.exercise_id,
+          name: currentExercise?.name,
+        },
+        currentRecommendation: {
+          recommended_weight: currentRecommendation?.recommended_weight,
+          recommended_reps: currentRecommendation?.recommended_reps,
+        },
+        getSuggestedValueResult: currentExercise?.exercise_id
+          ? getSuggestedValue(currentExercise.exercise_id, setIndex + 1, 'reps')
+          : 'no exercise_id',
+      });
+
       // Helper to resolve weight value
       const resolveWeightValueHelper = (): string => {
         return resolveWeightValue({
@@ -283,6 +323,8 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
           lastExerciseValues,
           currentExercise,
           exerciseCustomized,
+          exerciseId,
+          getSuggestedValue,
         });
       };
 

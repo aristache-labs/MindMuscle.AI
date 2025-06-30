@@ -337,7 +337,6 @@ export const useExerciseSelection = ({
 
   const handleAddCardio = useCallback(() => {
     // TODO: Implement add cardio functionality
-    console.log('Add Cardio pressed');
   }, []);
 
   const handleCustomizeExerciseSave = useCallback(
@@ -418,7 +417,6 @@ export const useExerciseSelection = ({
           const isExerciseComplete = customizedSets.every((set) => set.isCompleted);
 
           if (isExerciseComplete) {
-            console.log('Exercise completed after customization, moving to next exercise');
             // Check if it's the last exercise
             if (currentExerciseIndex === exercises.length - 1) {
               // Check if all exercises are complete for workout completion
@@ -534,6 +532,7 @@ export const useExerciseSelection = ({
                 reps_range: newExercise.reps_range,
                 image_url: newExercise.image_url,
                 primary_muscles: newExercise.primary_muscles,
+                muscle_group: newExercise.muscle_group, // Preserve muscle_group for cardio detection
                 requires_weight: newExercise.requires_weight,
                 isChangedExercise: isChangedExercise,
                 id: exercise.id,

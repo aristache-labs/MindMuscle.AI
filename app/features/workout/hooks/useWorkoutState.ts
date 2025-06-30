@@ -591,6 +591,19 @@ export const useWorkoutState = ({
           // Convert restored exercises to proper format
           const restoredExercises = workout.exercises as unknown as ExerciseData[];
 
+          // Debug log for restored exercises
+          console.log('RESUME: Restored exercises details:');
+          restoredExercises.forEach((exercise, index) => {
+            console.log(`RESUME: Exercise ${index + 1}:`, {
+              id: exercise.id,
+              exercise_id: exercise.exercise_id,
+              name: exercise.name,
+              muscle_group: exercise.muscle_group,
+              hasMusclGroup: !!exercise.muscle_group,
+              isCardio: exercise.muscle_group === 'Cardio',
+            });
+          });
+
           // Start both operations in parallel for faster loading
           const fetchRecommendations = async () => {
             try {

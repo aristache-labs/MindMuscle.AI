@@ -579,6 +579,7 @@ export const SavedExerciseStructureSchema = z.object({
   order: NonNegativeNumberSchema,
   restTime: NonNegativeNumberSchema,
   isChangedExercise: z.boolean().optional(),
+  muscle_group: z.string().optional(),
 });
 
 // Achievement validation schemas

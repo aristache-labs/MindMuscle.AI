@@ -55,6 +55,7 @@ interface SavedExerciseStructure {
   order: number;
   restTime: number;
   isChangedExercise?: boolean;
+  muscle_group?: string;
 }
 
 // Interface for complete workout options
@@ -241,7 +242,7 @@ const formatExerciseData = (exercisesData: unknown[]): ExerciseData[] => {
     const exercise = item as Record<string, unknown>;
     const exerciseDetails = exercise.exercises as Record<string, unknown> | null;
 
-    return {
+    const formattedExercise = {
       id: exercise.id as string,
       exercise_id: exercise.exercise_id as string,
       name:
@@ -258,6 +259,8 @@ const formatExerciseData = (exercisesData: unknown[]): ExerciseData[] => {
       requires_weight: exerciseDetails ? (exerciseDetails.requires_weight as boolean) : true,
       muscle_group: exerciseDetails ? (exerciseDetails.muscle_group as string) : undefined,
     };
+
+    return formattedExercise;
   });
 };
 
@@ -866,22 +869,46 @@ export const getLastCompletedWorkoutStructure = async (
     }
 
     // Convert back to ExerciseData format
-    // Ensure that the mapping correctly aligns with ExerciseData fields
-    const exercises: ExerciseData[] = exerciseStructureArray.map((ex) => ({
-      id: ex.id,
-      exercise_id: ex.exercise_id,
-      name: ex.name,
-      sets: ex.sets,
-      reps_range: ex.reps_range,
-      image_url: ex.image_url,
-      primary_muscles: ex.primary_muscles,
-      requires_weight: ex.requires_weight,
-      workout_day: ex.workout_day, // Ensure this field is present in SavedExerciseStructureSchema or handled if optional
-      order: ex.order, // Ensure this field is present
-      restTime: ex.restTime, // Ensure this field is present
-      isChangedExercise: ex.isChangedExercise, // Ensure this field is present
-      // Add any other fields required by ExerciseData, ensuring they exist on ex (SavedExerciseStructure)
-    }));
+    const exercises: ExerciseData[] = exerciseStructureArray.map((ex) => {
+      const restoredExercise = {
+        id: ex.id,
+        exercise_id: ex.exercise_id,
+        name: ex.name,
+        sets: ex.sets,
+        reps_range: ex.reps_range,
+        image_url: ex.image_url,
+        primary_muscles: ex.primary_muscles,
+        requires_weight: ex.requires_weight,
+        workout_day: ex.workout_day,
+        order: ex.order,
+        restTime: ex.restTime,
+        isChangedExercise: ex.isChangedExercise,
+        muscle_group: ex.muscle_group, // Restore the muscle_group field for cardio detection
+      };
+
+      return restoredExercise;
+    });
+
+    // Fix missing muscle_group fields by fetching from database
+    const exercisesToFix = exercises.filter((ex) => !ex.muscle_group);
+    if (exercisesToFix.length > 0) {
+      const exerciseIds = exercisesToFix.map((ex) => ex.exercise_id);
+      const { data: muscleData } = await supabase
+        .from('exercises')
+        .select('id, muscle_group')
+        .in('id', exerciseIds);
+
+      if (muscleData) {
+        for (const exercise of exercises) {
+          if (!exercise.muscle_group) {
+            const muscleInfo = muscleData.find((m) => m.id === exercise.exercise_id);
+            if (muscleInfo) {
+              exercise.muscle_group = muscleInfo.muscle_group;
+            }
+          }
+        }
+      }
+    }
 
     return exercises;
   } catch (error) {
@@ -1089,6 +1116,7 @@ const createExerciseStructure = (exercises: ExerciseData[]): SavedExerciseStruct
     restTime: exercise.restTime ?? 60,
     isChangedExercise:
       (exercise as ExerciseData & { isChangedExercise?: boolean }).isChangedExercise || false,
+    muscle_group: exercise.muscle_group,
   }));
 };
 
@@ -1561,20 +1589,46 @@ export const getMostRecentCustomizedWorkoutStructure = async (
     }
 
     // Convert back to ExerciseData format
-    const exercises: ExerciseData[] = exerciseStructureArray.map((ex) => ({
-      id: ex.id,
-      exercise_id: ex.exercise_id,
-      name: ex.name,
-      sets: ex.sets,
-      reps_range: ex.reps_range,
-      image_url: ex.image_url,
-      primary_muscles: ex.primary_muscles,
-      requires_weight: ex.requires_weight,
-      workout_day: ex.workout_day,
-      order: ex.order,
-      restTime: ex.restTime,
-      isChangedExercise: ex.isChangedExercise,
-    }));
+    const exercises: ExerciseData[] = exerciseStructureArray.map((ex) => {
+      const restoredExercise = {
+        id: ex.id,
+        exercise_id: ex.exercise_id,
+        name: ex.name,
+        sets: ex.sets,
+        reps_range: ex.reps_range,
+        image_url: ex.image_url,
+        primary_muscles: ex.primary_muscles,
+        requires_weight: ex.requires_weight,
+        workout_day: ex.workout_day,
+        order: ex.order,
+        restTime: ex.restTime,
+        isChangedExercise: ex.isChangedExercise,
+        muscle_group: ex.muscle_group, // Restore the muscle_group field for cardio detection
+      };
+
+      return restoredExercise;
+    });
+
+    // Fix missing muscle_group fields by fetching from database
+    const exercisesToFix = exercises.filter((ex) => !ex.muscle_group);
+    if (exercisesToFix.length > 0) {
+      const exerciseIds = exercisesToFix.map((ex) => ex.exercise_id);
+      const { data: muscleData } = await supabase
+        .from('exercises')
+        .select('id, muscle_group')
+        .in('id', exerciseIds);
+
+      if (muscleData) {
+        for (const exercise of exercises) {
+          if (!exercise.muscle_group) {
+            const muscleInfo = muscleData.find((m) => m.id === exercise.exercise_id);
+            if (muscleInfo) {
+              exercise.muscle_group = muscleInfo.muscle_group;
+            }
+          }
+        }
+      }
+    }
 
     return exercises;
   } catch (error) {

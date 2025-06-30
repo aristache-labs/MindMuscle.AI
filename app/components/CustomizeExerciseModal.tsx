@@ -289,6 +289,7 @@ export default function CustomizeExerciseModal({
           reps_range: selectedExercise.reps_range,
           image_url: selectedExercise.image_url,
           primary_muscles: selectedExercise.primary_muscles,
+          muscle_group: selectedExercise.muscle_group, // Preserve muscle_group for cardio detection
           order: selectedExercise.order,
           workout_day: selectedExercise.workout_day,
           requires_weight: selectedExercise.requires_weight,

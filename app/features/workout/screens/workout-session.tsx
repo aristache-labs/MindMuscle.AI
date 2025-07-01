@@ -782,28 +782,12 @@ export default function WorkoutSessionScreen() {
       void seconds;
       // Get current exercise from the workout session state
       const currentExercise = workoutExercises[currentExerciseIndex];
-      /* console.log('📢 onStartRestTimer called:', {
-        seconds,
-        shouldNavigate,
-        currentExerciseIndex,
-        currentExerciseName: currentExercise?.name,
-        currentExerciseRestTime: currentExercise?.restTime,
-        hasCurrentExercise: !!currentExercise,
-      }); */
       if (currentExercise) {
         if (shouldNavigate) {
-          /* console.log(
-            `🚀 Starting rest timer WITH NAVIGATION for ${currentExercise.name} with ${currentExercise.restTime}s rest time`,
-          ); */
           startExerciseRestTimerWithNavigation(currentExercise);
         } else {
-          /* console.log(
-            `⏳ Starting rest timer WITHOUT NAVIGATION for ${currentExercise.name} with ${currentExercise.restTime}s rest time`,
-          ); */
           startExerciseRestTimer(currentExercise);
         }
-      } else {
-        /* console.log('❌ No current exercise found for rest timer'); */
       }
     },
     onCompleteWorkoutWithStateSync: (volume: number, reps: number) => {
@@ -880,10 +864,6 @@ export default function WorkoutSessionScreen() {
             exercise.id === exerciseId ? { ...exercise, ...updates } : exercise,
           ),
         );
-
-        // Log the update for debugging
-        /* console.log(`Exercise ${exerciseId} updated with:`, updates); */
-
         // The updated exercises will be automatically saved when the workout is paused
         // since the paused workout system saves the entire exercises array
       } catch {
@@ -1175,15 +1155,6 @@ export default function WorkoutSessionScreen() {
           // or there were timing issues with state updates, the sets will still be created
           const addedExercisesToInitialize = addedExercises;
 
-          /* console.log(
-            'handleApplyChanges: Added exercises:',
-            addedExercises.map((e) => ({ id: e.id, name: e.name, sets: e.sets })),
-          ); */
-          console.log(
-            'handleApplyChanges: Exercises needing initialization:',
-            addedExercisesToInitialize.map((e) => ({ id: e.id, name: e.name, sets: e.sets })),
-          );
-
           if (addedExercisesToInitialize.length > 0) {
             // Fetch historical data for the added exercises if user is available
             let exerciseHistory: Record<
@@ -1199,8 +1170,7 @@ export default function WorkoutSessionScreen() {
                   user.id,
                   addedExercisesToInitialize,
                 );
-              } catch (_error) {
-                console.warn('Failed to fetch exercise history for added exercises:', _error);
+              } catch {
                 // Continue without historical data
               }
             }
@@ -1237,9 +1207,6 @@ export default function WorkoutSessionScreen() {
                   });
 
                   newSets[exercise.id] = sets;
-                  /* console.log(
-                    `handleApplyChanges: Initialized ${sets.length} sets for exercise ${exercise.name} (${exercise.id})`,
-                  ); */
                 }
               });
               return newSets;
@@ -1343,8 +1310,8 @@ export default function WorkoutSessionScreen() {
             handleReorderExercises(newExercises);
           }
         }
-      } catch (error) {
-        console.error('Error applying exercise changes:', error);
+      } catch {
+        // Error applying exercise changes is intentionally ignored for user experience
       }
     },
     [

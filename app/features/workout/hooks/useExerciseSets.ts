@@ -31,7 +31,7 @@ export interface UseExerciseSetsParams {
   setTotalReps: (value: number | ((prev: number) => number)) => void;
   onWorkoutComplete?: (volume: number, reps: number, sets: Record<string, ExerciseSet[]>) => void;
   onExerciseComplete?: () => void;
-  onStartRestTimer?: (seconds: number) => void;
+  onStartRestTimer?: (seconds: number, shouldNavigate?: boolean) => void;
   // External state from main component for testing integration
   exerciseSets?: Record<string, ExerciseSet[]>;
   setExerciseSets?: React.Dispatch<React.SetStateAction<Record<string, ExerciseSet[]>>>;
@@ -369,40 +369,80 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
 
       const { updatedVolume, updatedReps } = updateTotals();
 
-      // Helper to handle exercise/workout completion and navigation
-      const handleCompletionAndNavigation = () => {
-        const { isWorkoutComplete, isExerciseComplete } = checkCompletionStatus({
-          exercises,
-          exerciseSets: newExerciseSets,
-          exerciseId,
-          currentExerciseIndex,
-        });
+      // Check completion status to determine if we should start rest timer
+      const { isWorkoutComplete, isExerciseComplete } = checkCompletionStatus({
+        exercises,
+        exerciseSets: newExerciseSets,
+        exerciseId,
+        currentExerciseIndex,
+      });
 
-        if (isWorkoutComplete) {
+      /* console.log('🎯 SET COMPLETION DEBUG:', {
+        exerciseId,
+        setIndex,
+        isWorkoutComplete,
+        isExerciseComplete,
+        exerciseName: currentExercise?.name,
+        totalSets: newExerciseSets[exerciseId]?.length,
+        completedSets: newExerciseSets[exerciseId]?.filter((set) => set.isCompleted).length,
+        hasRestTime: currentExercise?.restTime && currentExercise.restTime > 0,
+        restTime: currentExercise?.restTime,
+      }); */
+
+      // If workout is complete, navigate immediately (no rest timer needed)
+      if (isWorkoutComplete) {
+        /* console.log('🏁 WORKOUT COMPLETE - navigating immediately'); */
+        setTimeout(() => {
+          onCompleteWorkoutWithStateSync?.(updatedVolume, updatedReps, newExerciseSets);
+        }, 100);
+        return;
+      }
+
+      // If exercise is complete, check if we should show rest timer or navigate immediately
+      if (isExerciseComplete) {
+        /* console.log('🏃 EXERCISE COMPLETE - checking navigation strategy'); */
+
+        // If this is the last exercise, complete the workout immediately
+        if (currentExerciseIndex === exercises.length - 1) {
+          /* console.log('🏁 LAST EXERCISE COMPLETE - completing workout immediately'); */
           setTimeout(() => {
             onCompleteWorkoutWithStateSync?.(updatedVolume, updatedReps, newExerciseSets);
           }, 100);
-          return true;
+          return;
         }
 
-        if (isExerciseComplete) {
-          if (currentExerciseIndex === exercises.length - 1) {
-            setTimeout(() => {
-              onCompleteWorkoutWithStateSync?.(updatedVolume, updatedReps, newExerciseSets);
-            }, 100);
-          } else {
-            setTimeout(() => {
-              onMoveToNextExercise?.();
-            }, 500);
-          }
-          return true;
+        // If exercise has rest time, start rest timer before moving to next exercise
+        if (currentExercise && currentExercise.restTime && currentExercise.restTime > 0) {
+          /* console.log(
+            `⏰ EXERCISE COMPLETE WITH REST TIME - Starting rest timer for ${currentExercise.name} with ${currentExercise.restTime}s (will navigate when timer finishes)`,
+          ); */
+          onStartRestTimer?.(0, true); // Rest timer will handle navigation when done
+          return;
+        } else {
+          /* console.log('🚀 EXERCISE COMPLETE NO REST TIME - moving to next exercise immediately'); */
+          // No rest time, move to next exercise immediately
+          setTimeout(() => {
+            onMoveToNextExercise?.();
+          }, 500);
+          return;
         }
+      }
 
-        return false;
-      };
-
-      if (handleCompletionAndNavigation()) {
-        return; // Exit if workout or exercise was completed and navigation handled
+      // Exercise is not complete yet - check if we should start rest timer for the set
+      if (currentExercise && currentExercise.restTime && currentExercise.restTime > 0) {
+        /* console.log(
+          `⏳ SET COMPLETE WITH REST TIME - Starting rest timer for ${currentExercise.name} with ${currentExercise.restTime}s (will NOT navigate - user continues with next set)`,
+        ); */
+        onStartRestTimer?.(0, false); // Rest timer will NOT navigate (user continues with next set)
+      } else {
+        /* console.log('❌ Rest timer NOT started. Conditions:', {
+          isWorkoutComplete,
+          isExerciseComplete,
+          hasCurrentExercise: !!currentExercise,
+          currentExerciseName: currentExercise?.name,
+          restTime: currentExercise?.restTime,
+          hasOnStartRestTimer: !!onStartRestTimer,
+        }); */
       }
 
       // Auto-fill next incomplete set in current exercise
@@ -411,11 +451,6 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
       );
       if (nextIncompleteSetIndex !== -1) {
         autoFillNextIncompleteSetWithValues(exerciseId, setIndex, weightValue, originalRepsValue);
-      }
-
-      // Start rest timer if applicable
-      if (currentExercise && currentExercise.restTime && currentExercise.restTime > 0) {
-        onStartRestTimer?.(currentExercise.restTime);
       }
     },
     [
@@ -594,11 +629,23 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
 
       updateSetsAndTotals();
 
-      // Start rest timer
-      if (currentExercise && currentExercise.restTime) {
-        onStartRestTimer?.(currentExercise.restTime);
-      } else {
-        onStartRestTimer?.(60); // Default rest time if not specified
+      // Check if this action will complete the entire workout
+      const updatedExerciseSets = {
+        ...exerciseSets,
+        [exerciseId]: updatedSetsData,
+      };
+
+      const { isWorkoutComplete } = checkCompletionStatus({
+        exercises,
+        exerciseSets: updatedExerciseSets,
+        exerciseId,
+        currentExerciseIndex,
+      });
+
+      // Start rest timer only if the workout won't be completed by this action
+      if (!isWorkoutComplete) {
+        // Call without specific rest time - let the callback get updated exercise data
+        onStartRestTimer?.(0); // The callback will get the correct exercise and rest time
       }
 
       // Helper to handle completion and navigation after logging all sets
@@ -861,7 +908,7 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
 
   const handleCustomizeExerciseSave = useCallback(
     (exerciseId: string, updatedExercise: { sets: number; reps_range: string }) => {
-      console.log('Exercise customization requested:', exerciseId, updatedExercise);
+      /* console.log('Exercise customization requested:', exerciseId, updatedExercise); */
 
       // Mark this exercise as customized
       setExerciseCustomized((prev) => ({

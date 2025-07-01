@@ -21,7 +21,15 @@ export const useWorkoutNavigation = ({
    * Move to the next exercise in the workout
    */
   const moveToNextExercise = () => {
+    console.log('🏃‍♂️ moveToNextExercise called:', {
+      currentExerciseIndex,
+      totalExercises: exercises.length,
+      currentExerciseName: exercises[currentExerciseIndex]?.name,
+      isLastExercise: currentExerciseIndex >= exercises.length - 1,
+    });
+
     if (currentExerciseIndex < exercises.length - 1) {
+      console.log(`➡️ Moving from exercise ${currentExerciseIndex} to ${currentExerciseIndex + 1}`);
       // Use a function to update state to avoid closure issues
       setCurrentExerciseIndex((prevIndex) => prevIndex + 1);
 

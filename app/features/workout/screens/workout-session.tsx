@@ -31,6 +31,8 @@ import {
   WorkoutHeader,
   WorkoutTimerTabs,
   WorkoutWarmupModal,
+  WorkoutFloatingRestTimer,
+  WorkoutRestTimeEditModal,
 } from '../components';
 import {
   useExerciseSelection,
@@ -42,6 +44,7 @@ import {
   useWorkoutKeyboardHandling,
   useWorkoutNavigation,
   useWorkoutRender,
+  useWorkoutRestTimer,
   useWorkoutState,
   useWorkoutTimer,
   useWorkoutWarmup,
@@ -506,6 +509,23 @@ function renderWorkoutModals(props: Record<string, unknown>) {
         }
         currentWorkoutExercises={props.workoutExercises as ExerciseData[]}
       />
+
+      <WorkoutFloatingRestTimer
+        isVisible={props.isRestTimerVisible as boolean}
+        restTimeSeconds={props.currentRestTime as number}
+        exerciseName={props.currentExerciseName as string}
+        onSkip={props.skipRestTimer as () => void}
+        onEditTime={props.editRestTime as () => void}
+        onTimerComplete={props.completeRestTimer as () => void}
+      />
+
+      <WorkoutRestTimeEditModal
+        isVisible={props.isRestTimeEditModalVisible as boolean}
+        exerciseName={props.currentExerciseName as string}
+        currentRestTime={props.currentRestTime as number}
+        onSave={props.saveRestTime as (newTime: number) => void}
+        onClose={props.closeRestTimeEditModal as () => void}
+      />
     </>
   );
 }
@@ -651,7 +671,6 @@ export default function WorkoutSessionScreen() {
     workoutDuration,
     startWorkoutTimer,
     stopWorkoutTimer,
-    startRestTimer,
     clearAllTimers,
     setWorkoutStartTime,
     setWorkoutDuration,
@@ -758,7 +777,35 @@ export default function WorkoutSessionScreen() {
     setExerciseCustomized,
     textInputRefreshKey,
     setTextInputRefreshKey,
-    onStartRestTimer: startRestTimer,
+    onStartRestTimer: (seconds: number, shouldNavigate?: boolean) => {
+      // Acknowledge seconds parameter to satisfy ESLint
+      void seconds;
+      // Get current exercise from the workout session state
+      const currentExercise = workoutExercises[currentExerciseIndex];
+      console.log('📢 onStartRestTimer called:', {
+        seconds,
+        shouldNavigate,
+        currentExerciseIndex,
+        currentExerciseName: currentExercise?.name,
+        currentExerciseRestTime: currentExercise?.restTime,
+        hasCurrentExercise: !!currentExercise,
+      });
+      if (currentExercise) {
+        if (shouldNavigate) {
+          console.log(
+            `🚀 Starting rest timer WITH NAVIGATION for ${currentExercise.name} with ${currentExercise.restTime}s rest time`,
+          );
+          startExerciseRestTimerWithNavigation(currentExercise);
+        } else {
+          console.log(
+            `⏳ Starting rest timer WITHOUT NAVIGATION for ${currentExercise.name} with ${currentExercise.restTime}s rest time`,
+          );
+          startExerciseRestTimer(currentExercise);
+        }
+      } else {
+        console.log('❌ No current exercise found for rest timer');
+      }
+    },
     onCompleteWorkoutWithStateSync: (volume: number, reps: number) => {
       setTotalVolume(volume);
       setTotalReps(reps);
@@ -820,6 +867,54 @@ export default function WorkoutSessionScreen() {
     onWarmupCompleted: () => {
       setWarmupCompleted(true);
       setShowWarmup(false);
+    },
+  });
+
+  // Handle exercise data updates (including rest time changes)
+  const handleExerciseUpdate = useCallback(
+    (exerciseId: string, updates: Partial<ExerciseData>) => {
+      try {
+        // Update the exercise in the exercises array
+        setWorkoutExercises((prevExercises) =>
+          prevExercises.map((exercise) =>
+            exercise.id === exerciseId ? { ...exercise, ...updates } : exercise,
+          ),
+        );
+
+        // Log the update for debugging
+        console.log(`Exercise ${exerciseId} updated with:`, updates);
+
+        // The updated exercises will be automatically saved when the workout is paused
+        // since the paused workout system saves the entire exercises array
+      } catch (error) {
+        console.error('Error updating exercise:', error);
+      }
+    },
+    [setWorkoutExercises],
+  );
+
+  // Use the rest timer hook
+  const {
+    isRestTimerVisible,
+    currentRestTime,
+    currentExerciseName,
+    isRestTimeEditModalVisible,
+    startRestTimer: startExerciseRestTimer,
+    startRestTimerWithNavigation: startExerciseRestTimerWithNavigation,
+    skipRestTimer,
+    completeRestTimer,
+    editRestTime,
+    saveRestTime,
+    closeRestTimeEditModal,
+  } = useWorkoutRestTimer({
+    onExerciseUpdate: handleExerciseUpdate,
+    exercises: workoutExercises,
+    currentExerciseIndex,
+    onMoveToNextExercise: () => {
+      moveToNextExercise();
+    },
+    onCompleteWorkout: () => {
+      completeWorkout();
     },
   });
 
@@ -1334,6 +1429,7 @@ export default function WorkoutSessionScreen() {
     currentExercise,
     showWarmup,
     warmupCompleted,
+    isRestTimerVisible, // Pass rest timer visibility to prevent active set advancement
   });
 
   // Current recommendation for the current exercise
@@ -1419,6 +1515,16 @@ export default function WorkoutSessionScreen() {
     handleAddExerciseModalClose,
     handleAddExercises,
     pendingAddedExercises,
+    // Rest timer props
+    isRestTimerVisible,
+    currentRestTime,
+    currentExerciseName,
+    isRestTimeEditModalVisible,
+    skipRestTimer,
+    completeRestTimer,
+    editRestTime,
+    saveRestTime,
+    closeRestTimeEditModal,
   });
 }
 

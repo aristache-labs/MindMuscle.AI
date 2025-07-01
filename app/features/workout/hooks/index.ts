@@ -12,6 +12,11 @@ export { useWorkoutWarmup } from './useWorkoutWarmup';
 export { useWorkoutInitialization } from './useWorkoutInitialization';
 export { useWorkoutKeyboardHandling } from './useWorkoutKeyboardHandling';
 export { useWorkoutRender } from './useWorkoutRender';
+export {
+  useWorkoutRestTimer,
+  type UseWorkoutRestTimerReturn,
+  type UseWorkoutRestTimerParams,
+} from './useWorkoutRestTimer';
 
 // Re-export types from hooks
 export * from './useWorkoutTimer';
@@ -27,6 +32,7 @@ export * from './useWorkoutWarmup';
 export * from './useWorkoutInitialization';
 export * from './useWorkoutKeyboardHandling';
 export * from './useWorkoutRender';
+export * from './useWorkoutRestTimer';
 export default function disablewarn() {
   return null;
 }

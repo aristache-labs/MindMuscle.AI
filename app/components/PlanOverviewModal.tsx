@@ -915,7 +915,7 @@ export default function PlanOverviewModal({
                                         <View style={styles.exerciseDetails}>
                                           {exercise.sets && exercise.reps ? (
                                             <Text style={styles.exerciseDetail}>
-                                              {`${exercise.sets} sets x ${exercise.reps} reps`}
+                                              {`${exercise.sets} sets x ${exercise.reps} ${exercise.primary_muscles?.includes('Cardio') ? 'min' : 'reps'}`}
                                             </Text>
                                           ) : exercise.sets ? (
                                             <Text style={styles.exerciseDetail}>
@@ -923,7 +923,7 @@ export default function PlanOverviewModal({
                                             </Text>
                                           ) : exercise.reps ? (
                                             <Text style={styles.exerciseDetail}>
-                                              {`${exercise.reps} reps`}
+                                              {`${exercise.reps} ${exercise.primary_muscles?.includes('Cardio') ? 'min' : 'reps'}`}
                                             </Text>
                                           ) : null}
                                           {exercise.kg && exercise.kg > 0 ? (

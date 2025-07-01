@@ -440,7 +440,8 @@ export default function ChangeExerciseModal({
           <View style={styles.exerciseInfo}>
             <Text style={styles.exerciseName}>{exercise.name}</Text>
             <Text style={styles.exerciseDetails}>
-              {exercise.sets} sets × {exercise.reps_range} reps
+              {exercise.sets} sets × {exercise.reps_range}{' '}
+              {exercise.muscle_group === 'Cardio' ? 'min' : 'reps'}
             </Text>
             <View style={styles.exerciseMetadata}>
               <View style={[styles.muscleTag, { backgroundColor: muscleTagColor }]}>
@@ -606,7 +607,8 @@ export default function ChangeExerciseModal({
               <View style={styles.exerciseInfo}>
                 <Text style={styles.exerciseName}>{item.exercise.name}</Text>
                 <Text style={styles.exerciseDetails}>
-                  {item.exercise.sets} sets × {item.exercise.reps_range} reps
+                  {item.exercise.sets} sets × {item.exercise.reps_range}{' '}
+                  {item.exercise.primary_muscles?.includes('Cardio') ? 'min' : 'reps'}
                 </Text>
                 <View style={styles.exerciseMetadata}>
                   {item.exercise.primary_muscles && item.exercise.primary_muscles.length > 0 && (

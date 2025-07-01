@@ -155,7 +155,8 @@ const ExerciseDetails: React.FC<{
         (exerciseState === 'completed' || exerciseState === 'ongoing') && styles.exerciseTextGreyed,
       ]}
     >
-      {displayData.sets} sets × {displayData.repsRange} reps
+      {displayData.sets} sets × {displayData.repsRange}{' '}
+      {displayData.primaryMuscles?.includes('Cardio') ? 'min' : 'reps'}
     </Text>
   </View>
 );

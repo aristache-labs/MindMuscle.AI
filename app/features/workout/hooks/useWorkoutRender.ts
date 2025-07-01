@@ -27,26 +27,26 @@ export const useWorkoutRender = ({
 
   // Calculate active set index
   const calculateActiveSetIndex = (sets: ExerciseSet[]) => {
-    console.log('🎯 calculateActiveSetIndex called:', {
+    /* console.log('🎯 calculateActiveSetIndex called:', {
       totalSets: sets.length,
       completedSets: sets.filter((s) => s.isCompleted).length,
       isRestTimerVisible,
       showWarmup,
       warmupCompleted,
-    });
+    }); */
 
     // If rest timer is visible, keep current active set (don't advance)
     if (isRestTimerVisible) {
       // Find the last completed set and keep it active during rest timer
       const lastCompletedIndex =
-        sets.findIndex((s: ExerciseSet, index: number) => {
+        sets.findIndex((s: ExerciseSet) => {
           // Find the first incomplete set and return the one before it
           return !s.isCompleted;
         }) - 1;
 
-      console.log('⏳ Rest timer visible - keeping last completed set active:', {
+      /* console.log('⏳ Rest timer visible - keeping last completed set active:', {
         lastCompletedIndex: Math.max(0, lastCompletedIndex),
-      });
+      }); */
 
       return Math.max(0, lastCompletedIndex);
     }
@@ -54,10 +54,10 @@ export const useWorkoutRender = ({
     // Find the first incomplete set to make it active
     let activeSetIndex = sets.findIndex((s: ExerciseSet) => !s.isCompleted);
 
-    console.log('🎲 Normal calculation - first incomplete set:', {
+    /* console.log('🎲 Normal calculation - first incomplete set:', {
       activeSetIndex,
       firstIncompleteSet: activeSetIndex >= 0 ? activeSetIndex : 'none',
-    });
+    }); */
 
     // If all sets are completed, no set should be active
     if (activeSetIndex === -1) activeSetIndex = sets.length;
@@ -72,7 +72,7 @@ export const useWorkoutRender = ({
       activeSetIndex = -1; // No set should be active if index is out of bounds
     }
 
-    console.log('✅ Final activeSetIndex:', activeSetIndex);
+    /* console.log('✅ Final activeSetIndex:', activeSetIndex); */
     return activeSetIndex;
   };
 

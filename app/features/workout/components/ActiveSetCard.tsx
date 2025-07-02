@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../../constants/theme';
 import type { RecommendationData } from '../hooks/useExerciseSets';
 import { ExerciseData, ExerciseSet } from '../types';
+import { hasValidHistoryValue } from '../utils';
 import type { styles as WorkoutExerciseSetRowStylesType } from './WorkoutExerciseSetRow';
 
 interface ActiveSetCardProps {
@@ -87,12 +88,18 @@ const shouldShowLastValues = (
   setIndex: number,
   lastExerciseValues: Record<string, Record<number, { weight: string; reps: string }>>,
 ): boolean => {
-  if (set.isCompleted || isCardio) return false;
+  if (set.isCompleted || isCardio) {
+    return false;
+  }
 
-  return !!(
-    lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight ||
-    lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.reps
-  );
+  const lastWeight = lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight;
+  const lastReps = lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.reps;
+
+  // Only show if we have valid history values (not just placeholders or empty strings)
+  const hasValidWeight = hasValidHistoryValue(lastWeight);
+  const hasValidReps = hasValidHistoryValue(lastReps);
+
+  return hasValidWeight || hasValidReps;
 };
 
 // Enhanced Cardio Timer Component for Active Sets with Edit Functionality
@@ -165,8 +172,9 @@ const CardioTimer = React.memo<CardioTimerProps>(function CardioTimer({
     const exerciseHistory = lastExerciseValues[exercise.exercise_id];
     const setHistory = exerciseHistory?.[setIndex + 1];
 
-    if (!setHistory?.reps) {
-      // No historical data available, don't show "Last" value
+    // Use the same validation logic as other "Last" displays
+    if (!hasValidHistoryValue(setHistory?.reps)) {
+      // No meaningful historical data available, don't show "Last" value
       return null;
     }
 
@@ -705,7 +713,9 @@ const ActiveSetCard = React.memo<ActiveSetCardProps>(function ActiveSetCard({
                     {/* Only show weight last value if exercise requires weight */}
                     {exercise?.requires_weight !== false && (
                       <View style={styles.lastValueContainerActive}>
-                        {lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight && (
+                        {hasValidHistoryValue(
+                          lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight,
+                        ) && (
                           <Text style={styles.activeSetSubValue}>
                             ( Last {lastExerciseValues[exercise.exercise_id][setIndex + 1]?.weight}{' '}
                             )
@@ -717,7 +727,9 @@ const ActiveSetCard = React.memo<ActiveSetCardProps>(function ActiveSetCard({
                     {exercise?.requires_weight !== false && <View style={styles.lastValueSpacer} />}
 
                     <View style={styles.lastValueContainerActive}>
-                      {lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.reps && (
+                      {hasValidHistoryValue(
+                        lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.reps,
+                      ) && (
                         <Text style={styles.activeSetSubValue}>
                           ( Last {lastExerciseValues[exercise.exercise_id][setIndex + 1]?.reps} )
                         </Text>

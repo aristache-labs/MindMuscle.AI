@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, BORDER_RADIUS } from '../../../constants/theme';
 import type { RecommendationData } from '../hooks/useExerciseSets';
 import { ExerciseData, ExerciseSet } from '../types';
+import { hasValidHistoryValue } from '../utils';
 import ActiveSetCard from './ActiveSetCard';
 import InactiveOrCompletedSetCard from './InactiveOrCompletedSetCard';
 
@@ -265,14 +266,18 @@ const LastValuesRow: React.FC<LastValuesRowProps> = ({
 }) => {
   if (set.isCompleted) return null;
 
-  const hasLastValues =
-    lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight ||
-    lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.reps;
-
-  if (!hasLastValues) return null;
-
   const lastWeight = lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.weight;
   const lastReps = lastExerciseValues[exercise.exercise_id]?.[setIndex + 1]?.reps;
+
+  // Only show if we have valid history values (not just placeholders or empty strings)
+  const hasValidWeight = hasValidHistoryValue(lastWeight);
+  const hasValidReps = hasValidHistoryValue(lastReps);
+
+  // If no valid history values, don't show the row at all
+  if (!hasValidWeight && !hasValidReps) {
+    return null;
+  }
+
   const requiresWeight = exercise?.requires_weight !== false;
 
   const rowStyle = isActive ? styles.lastValuesRowActive : styles.lastValuesRowInactive;
@@ -284,14 +289,14 @@ const LastValuesRow: React.FC<LastValuesRowProps> = ({
     <View style={rowStyle}>
       {requiresWeight && (
         <View style={containerStyle}>
-          {lastWeight && <Text style={styles.activeSetSubValue}>( Last {lastWeight} )</Text>}
+          {hasValidWeight && <Text style={styles.activeSetSubValue}>( Last {lastWeight} )</Text>}
         </View>
       )}
 
       {requiresWeight && <View style={styles.lastValueSpacer} />}
 
       <View style={containerStyle}>
-        {lastReps && <Text style={styles.activeSetSubValue}>( Last {lastReps} )</Text>}
+        {hasValidReps && <Text style={styles.activeSetSubValue}>( Last {lastReps} )</Text>}
       </View>
     </View>
   );

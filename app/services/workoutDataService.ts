@@ -528,6 +528,13 @@ export const fetchLastExerciseRecords = async (
 ): Promise<Record<string, Record<number, { weight: string; reps: string }>>> => {
   const startTime = Date.now();
 
+  console.log(
+    '🔍 [fetchLastExerciseRecords] Fetching for user:',
+    userId,
+    'exercises:',
+    exercises.length,
+  );
+
   try {
     addBreadcrumb('Fetching last exercise records', 'workout_data', {
       user_id: userId,
@@ -560,6 +567,7 @@ export const fetchLastExerciseRecords = async (
     }
 
     if (!userId || exercises.length === 0) {
+      console.log('🚫 [fetchLastExerciseRecords] No user ID or exercises, returning empty object');
       SentryLogger.info(
         'No user ID or exercises provided for last records fetch',
         {
@@ -580,18 +588,40 @@ export const fetchLastExerciseRecords = async (
         continue;
       }
 
+      // CRITICAL FIX: Added user_id filter to prevent cross-user data leakage
+      // Previous bug: Was fetching ALL users' records for the exercise, causing
+      // new users to see "Last 129kg" from other users' workout history
       const { data: records, error } = await supabase
         .from('user_exercise_records')
-        .select('*')
+        .select(
+          `
+          *,
+          user_workout_history!inner (
+            user_id
+          )
+        `,
+        )
         .eq('exercise_id', exercise.exercise_id)
+        .eq('user_workout_history.user_id', userId)
         .eq('completed', true)
         .order('created_at', { ascending: false });
 
       if (error) {
+        console.log(
+          '🚫 [fetchLastExerciseRecords] Database error for exercise:',
+          exercise.exercise_id,
+          error,
+        );
         continue;
       }
 
       if (records && records.length > 0) {
+        console.log(
+          '✅ [fetchLastExerciseRecords] Found',
+          records.length,
+          'records for exercise:',
+          exercise.name,
+        );
         // Group records by set_number
         const setRecords: Record<number, { weight: string; reps: string }> = {};
 
@@ -610,10 +640,20 @@ export const fetchLastExerciseRecords = async (
         });
 
         lastValues[exercise.exercise_id] = setRecords;
+      } else {
+        console.log('🚫 [fetchLastExerciseRecords] No records found for exercise:', exercise.name);
       }
     }
 
     const duration = Date.now() - startTime;
+
+    console.log(
+      '✅ [fetchLastExerciseRecords] Found history for',
+      Object.keys(lastValues).length,
+      'out of',
+      exercises.length,
+      'exercises',
+    );
 
     // Monitor for slow exercise records fetching
     if (duration > 2000) {
@@ -640,6 +680,8 @@ export const fetchLastExerciseRecords = async (
   } catch (error) {
     const duration = Date.now() - startTime;
     const errorMessage = error instanceof Error ? error.message : String(error);
+
+    console.log('🚫 [fetchLastExerciseRecords] Error occurred:', errorMessage);
 
     captureDatabaseError(
       error instanceof Error ? error : new Error(errorMessage),

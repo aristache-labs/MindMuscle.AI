@@ -12,7 +12,7 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 import Svg, { Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
-import { COLORS } from '../../../constants/theme';
+import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../../../constants/theme';
 import { SentryDataCollection, SentryAutoInstrumentation } from '../../../services/sentry';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
@@ -28,7 +28,7 @@ interface WorkoutFloatingRestTimerProps {
 
 const WINDOW_WIDTH = Dimensions.get('window').width;
 const CIRCLE_SIZE = WINDOW_WIDTH * 0.45;
-const STROKE_WIDTH = 4;
+const STROKE_WIDTH = 6;
 const RADIUS = (CIRCLE_SIZE - STROKE_WIDTH) / 2;
 const CIRCLE_CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
@@ -261,17 +261,17 @@ export default function WorkoutFloatingRestTimer({
               <Svg width={CIRCLE_SIZE} height={CIRCLE_SIZE}>
                 <Defs>
                   <LinearGradient id="restGrad" x1="0" y1="0" x2="1" y2="0">
-                    <Stop offset="0" stopColor="#FFD700" stopOpacity="1" />
-                    <Stop offset="1" stopColor="#FFA500" stopOpacity="1" />
+                    <Stop offset="0" stopColor={COLORS.gradientStart} stopOpacity="1" />
+                    <Stop offset="1" stopColor={COLORS.gradientEnd} stopOpacity="1" />
                   </LinearGradient>
                 </Defs>
                 <Circle
                   cx={CIRCLE_SIZE / 2}
                   cy={CIRCLE_SIZE / 2}
                   r={RADIUS}
-                  stroke="rgba(255, 215, 0, 0.3)"
+                  stroke={`${COLORS.primary}40`}
                   strokeWidth={STROKE_WIDTH}
-                  fill="rgba(0, 0, 0, 0.8)"
+                  fill={COLORS.surface}
                 />
                 <AnimatedCircle
                   cx={CIRCLE_SIZE / 2}
@@ -290,7 +290,7 @@ export default function WorkoutFloatingRestTimer({
 
             {/* Left Time Button - Inside Circle */}
             <Pressable style={styles.leftTimeButton} onPress={() => handleTimeAdjustment(-15)}>
-              <Text style={styles.timeButtonIcon}>-15</Text>
+              <Text style={styles.timeButtonText}>-15</Text>
             </Pressable>
 
             {/* Top Text Content Inside Circle */}
@@ -306,7 +306,7 @@ export default function WorkoutFloatingRestTimer({
 
             {/* Right Time Button - Inside Circle */}
             <Pressable style={styles.rightTimeButton} onPress={() => handleTimeAdjustment(15)}>
-              <Text style={styles.timeButtonIcon}>+15</Text>
+              <Text style={styles.timeButtonText}>+15</Text>
             </Pressable>
 
             {/* Edit Button - Inside Circle */}
@@ -334,6 +334,7 @@ const styles = StyleSheet.create({
   },
   container: {
     alignItems: 'center',
+    padding: SPACING.lg,
   },
   circleTextContainer: {
     alignItems: 'center',
@@ -341,21 +342,21 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: '100%',
     height: '100%',
-    paddingTop: 30,
+    paddingTop: SPACING.lg,
   },
   tapToSkipText: {
-    color: COLORS.text,
-    fontSize: 12,
+    color: COLORS.placeholder,
+    fontSize: FONT_SIZES.xs,
     fontWeight: '400',
     textAlign: 'center',
-    marginBottom: 2,
+    marginBottom: SPACING.md,
   },
   restText: {
     color: COLORS.text,
-    fontSize: 14,
+    fontSize: FONT_SIZES.sm,
     fontWeight: '500',
     textAlign: 'center',
-    marginBottom: 0,
+    opacity: 0.8,
   },
   timerTextContainer: {
     position: 'absolute',
@@ -377,67 +378,67 @@ const styles = StyleSheet.create({
   },
   leftTimeButton: {
     position: 'absolute',
-    left: 15,
+    left: SPACING.md,
     top: '50%',
-    transform: [{ translateY: -15 }],
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#FFD700',
+    transform: [{ translateY: -18 }],
+    width: 36,
+    height: 36,
+    borderRadius: BORDER_RADIUS.round,
+    backgroundColor: COLORS.primary,
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 4,
-    shadowColor: '#000',
+    shadowColor: COLORS.primary,
     shadowOffset: {
       width: 0,
       height: 2,
     },
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.3,
     shadowRadius: 4,
   },
   rightTimeButton: {
     position: 'absolute',
-    right: 15,
+    right: SPACING.md,
     top: '50%',
-    transform: [{ translateY: -15 }],
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#FFD700',
+    transform: [{ translateY: -18 }],
+    width: 36,
+    height: 36,
+    borderRadius: BORDER_RADIUS.round,
+    backgroundColor: COLORS.primary,
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 4,
-    shadowColor: '#000',
+    shadowColor: COLORS.primary,
     shadowOffset: {
       width: 0,
       height: 2,
     },
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.3,
     shadowRadius: 4,
   },
-  timeButtonIcon: {
-    color: '#000',
-    fontSize: 10,
-    fontWeight: 'bold',
+  timeButtonText: {
+    color: COLORS.text,
+    fontSize: FONT_SIZES.xs,
+    fontWeight: '600',
     textAlign: 'center',
   },
   editButton: {
     position: 'absolute',
-    bottom: 20,
+    bottom: SPACING.lg,
     alignSelf: 'center',
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#FFD700',
+    width: 36,
+    height: 36,
+    borderRadius: BORDER_RADIUS.round,
+    backgroundColor: COLORS.surfaceLight,
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 4,
-    shadowColor: '#000',
+    shadowColor: COLORS.primary,
     shadowOffset: {
       width: 0,
       height: 2,
     },
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.3,
     shadowRadius: 4,
   },
   progressContainer: {
@@ -446,15 +447,12 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   timerText: {
-    color: '#FFD700',
-    fontSize: 40,
+    color: COLORS.primary,
+    fontSize: FONT_SIZES.xxxl + 8,
     fontWeight: 'bold',
     textAlign: 'center',
   },
-
   editButtonIcon: {
-    color: COLORS.primary,
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: FONT_SIZES.sm,
   },
 });

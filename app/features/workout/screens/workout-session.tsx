@@ -303,9 +303,7 @@ function renderExerciseSetsContent(props: Record<string, unknown>) {
     <>
       <View style={styles.setsContainer}>
         {(props.currentSets as ExerciseSet[]).map((set: ExerciseSet, index: number) => {
-          const activeSetIndex = (props.calculateActiveSetIndex as (sets: ExerciseSet[]) => number)(
-            props.currentSets as ExerciseSet[],
-          );
+          const activeSetIndex = props.activeSetIndex as number;
           const isActive = index === activeSetIndex;
           const isCompleted = set.isCompleted;
 
@@ -514,6 +512,8 @@ function renderWorkoutModals(props: Record<string, unknown>) {
         isVisible={props.isRestTimerVisible as boolean}
         restTimeSeconds={props.currentRestTime as number}
         exerciseName={props.currentExerciseName as string}
+        exerciseId={(props.currentExercise as ExerciseData)?.exercise_id}
+        userId={(props.user as UserProfile)?.id}
         onSkip={props.skipRestTimer as () => void}
         onEditTime={props.editRestTime as () => void}
         onTimerComplete={props.completeRestTimer as () => void}
@@ -784,9 +784,15 @@ export default function WorkoutSessionScreen() {
       const currentExercise = workoutExercises[currentExerciseIndex];
       if (currentExercise) {
         if (shouldNavigate) {
-          startExerciseRestTimerWithNavigation(currentExercise);
+          // Use Promise.resolve to handle async function without blocking UI
+          Promise.resolve(startExerciseRestTimerWithNavigation(currentExercise)).catch((error) => {
+            console.error('Error starting rest timer with navigation:', error);
+          });
         } else {
-          startExerciseRestTimer(currentExercise);
+          // Use Promise.resolve to handle async function without blocking UI
+          Promise.resolve(startExerciseRestTimer(currentExercise)).catch((error) => {
+            console.error('Error starting rest timer:', error);
+          });
         }
       }
     },
@@ -890,6 +896,7 @@ export default function WorkoutSessionScreen() {
     onExerciseUpdate: handleExerciseUpdate,
     exercises: workoutExercises,
     currentExerciseIndex,
+    userId: user?.id,
     onMoveToNextExercise: () => {
       moveToNextExercise();
     },
@@ -1385,6 +1392,7 @@ export default function WorkoutSessionScreen() {
   // Use the workout render hook for render-related calculations
   const {
     currentSets,
+    activeSetIndex,
     calculateActiveSetIndex,
     shouldShowCompleteWorkout,
     getNextExerciseContent,
@@ -1427,6 +1435,7 @@ export default function WorkoutSessionScreen() {
     handleExerciseNamePressOverride,
     handleCardioComplete,
     currentSets,
+    activeSetIndex,
     calculateActiveSetIndex,
     focusedInputs,
     userEnteredValues,
@@ -1492,6 +1501,8 @@ export default function WorkoutSessionScreen() {
     editRestTime,
     saveRestTime,
     closeRestTimeEditModal,
+    // User and exercise for saving rest preferences
+    user,
   });
 }
 

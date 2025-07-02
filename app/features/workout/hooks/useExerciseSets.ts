@@ -1,4 +1,4 @@
-import React, { SetStateAction, useCallback, useState } from 'react';
+import React, { SetStateAction, useCallback, useState, useRef } from 'react';
 import { Alert } from 'react-native';
 import type { ExerciseData, ExerciseSet } from '../types';
 import {
@@ -130,6 +130,62 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
     textInputRefreshKey,
     setTextInputRefreshKey,
   } = params;
+
+  // Add debounce mechanism to prevent multiple rapid calls to rest timer
+  const lastRestTimerCall = useRef<{
+    exerciseId: string | null;
+    timestamp: number;
+    type: 'navigation' | 'no-navigation' | 'log-all';
+  }>({
+    exerciseId: null,
+    timestamp: 0,
+    type: 'no-navigation',
+  });
+
+  // Debounced rest timer function to prevent multiple rapid calls
+  const debouncedStartRestTimer = useCallback(
+    (
+      exerciseId: string,
+      seconds: number,
+      shouldNavigate?: boolean,
+      callType: 'navigation' | 'no-navigation' | 'log-all' = 'no-navigation',
+    ) => {
+      const now = Date.now();
+      const DEBOUNCE_MS = 100; // 100ms debounce window
+
+      // Check if this is a duplicate call within the debounce window
+      if (
+        lastRestTimerCall.current.exerciseId === exerciseId &&
+        now - lastRestTimerCall.current.timestamp < DEBOUNCE_MS &&
+        lastRestTimerCall.current.type === callType
+      ) {
+        console.log('🚫 DEBOUNCED duplicate rest timer call:', {
+          exerciseId,
+          callType,
+          timeSinceLastCall: now - lastRestTimerCall.current.timestamp,
+        });
+        return;
+      }
+
+      // Update the last call tracking
+      lastRestTimerCall.current = {
+        exerciseId,
+        timestamp: now,
+        type: callType,
+      };
+
+      console.log('✅ STARTING rest timer after debounce check:', {
+        exerciseId,
+        callType,
+        shouldNavigate,
+        seconds,
+      });
+
+      // Call the actual rest timer function
+      onStartRestTimer?.(seconds, shouldNavigate);
+    },
+    [onStartRestTimer],
+  );
 
   // Use external state if provided, otherwise use internal state
   const [internalExerciseSets, setInternalExerciseSets] = useState<Record<string, ExerciseSet[]>>(
@@ -411,38 +467,29 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
           return;
         }
 
-        // If exercise has rest time, start rest timer before moving to next exercise
-        if (currentExercise && currentExercise.restTime && currentExercise.restTime > 0) {
-          /* console.log(
-            `⏰ EXERCISE COMPLETE WITH REST TIME - Starting rest timer for ${currentExercise.name} with ${currentExercise.restTime}s (will navigate when timer finishes)`,
-          ); */
-          onStartRestTimer?.(0, true); // Rest timer will handle navigation when done
-          return;
-        } else {
-          /* console.log('🚀 EXERCISE COMPLETE NO REST TIME - moving to next exercise immediately'); */
-          // No rest time, move to next exercise immediately
-          setTimeout(() => {
-            onMoveToNextExercise?.();
-          }, 500);
-          return;
-        }
+        // Always start rest timer for exercise completion - let rest timer hook determine actual time
+        console.log(
+          `⏰ EXERCISE COMPLETE - Starting rest timer for ${currentExercise.name} (will navigate when timer finishes)`,
+        );
+
+        // Start rest timer with navigation - rest timer hook will determine appropriate time
+        setTimeout(() => {
+          debouncedStartRestTimer(
+            currentExercise.id,
+            0, // Let rest timer hook determine the actual time
+            true,
+            'navigation',
+          );
+        }, 100);
+        return;
       }
 
-      // Exercise is not complete yet - check if we should start rest timer for the set
-      if (currentExercise && currentExercise.restTime && currentExercise.restTime > 0) {
+      // Exercise is not complete yet - always start rest timer for set completion
+      if (currentExercise) {
         /* console.log(
-          `⏳ SET COMPLETE WITH REST TIME - Starting rest timer for ${currentExercise.name} with ${currentExercise.restTime}s (will NOT navigate - user continues with next set)`,
+          `⏳ SET COMPLETE - Starting rest timer for ${currentExercise.name} (will NOT navigate - user continues with next set)`,
         ); */
-        onStartRestTimer?.(0, false); // Rest timer will NOT navigate (user continues with next set)
-      } else {
-        /* console.log('❌ Rest timer NOT started. Conditions:', {
-          isWorkoutComplete,
-          isExerciseComplete,
-          hasCurrentExercise: !!currentExercise,
-          currentExerciseName: currentExercise?.name,
-          restTime: currentExercise?.restTime,
-          hasOnStartRestTimer: !!onStartRestTimer,
-        }); */
+        debouncedStartRestTimer(currentExercise.id, 0, false, 'no-navigation'); // Rest timer will NOT navigate (user continues with next set)
       }
 
       // Auto-fill next incomplete set in current exercise
@@ -470,7 +517,7 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
       onCompleteWorkoutWithStateSync,
       onMoveToNextExercise,
       autoFillNextIncompleteSetWithValues,
-      onStartRestTimer,
+      debouncedStartRestTimer,
     ],
   );
 
@@ -645,7 +692,7 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
       // Start rest timer only if the workout won't be completed by this action
       if (!isWorkoutComplete) {
         // Call without specific rest time - let the callback get updated exercise data
-        onStartRestTimer?.(0); // The callback will get the correct exercise and rest time
+        debouncedStartRestTimer(exerciseId, 0, false, 'log-all'); // The callback will get the correct exercise and rest time
       }
 
       // Helper to handle completion and navigation after logging all sets
@@ -691,7 +738,7 @@ export const useExerciseSets = (params: UseExerciseSetsParams): UseExerciseSetsR
       setExerciseSets,
       setTotalVolume,
       setTotalReps,
-      onStartRestTimer,
+      debouncedStartRestTimer,
       currentExerciseIndex,
       totalVolume,
       totalReps,

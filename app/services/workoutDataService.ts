@@ -461,6 +461,9 @@ export const fetchWorkoutData = async (
       cycleWeek,
     );
 
+    // Rest time preferences are now handled directly in useWorkoutRestTimer hook
+    // This ensures single source of truth and eliminates redundant database calls
+
     const duration = Date.now() - startTime;
 
     // Monitor for slow workout data fetching

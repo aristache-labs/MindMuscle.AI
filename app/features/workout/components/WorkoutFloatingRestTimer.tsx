@@ -14,6 +14,7 @@ import Animated, {
 import Svg, { Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../../../constants/theme';
 import { SentryDataCollection, SentryAutoInstrumentation } from '../../../services/sentry';
+import ExerciseRestPreferencesService from '../../../services/exerciseRestPreferencesService';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -21,6 +22,8 @@ interface WorkoutFloatingRestTimerProps {
   isVisible: boolean;
   restTimeSeconds: number;
   exerciseName: string;
+  exerciseId?: string;
+  userId?: string;
   onSkip: () => void;
   onEditTime: () => void;
   onTimerComplete: () => void;
@@ -36,6 +39,8 @@ export default function WorkoutFloatingRestTimer({
   isVisible,
   restTimeSeconds,
   exerciseName,
+  exerciseId,
+  userId,
   onSkip,
   onEditTime,
   onTimerComplete,
@@ -238,15 +243,57 @@ export default function WorkoutFloatingRestTimer({
     }
   }, [exerciseName, seconds, originalTime, onEditTime]);
 
-  const handleTimeAdjustment = useCallback((adjustment: number) => {
-    setSeconds((prev) => {
-      const newTime = Math.max(5, Math.min(600, prev + adjustment));
-      /* console.log(
+  const handleTimeAdjustment = useCallback(
+    async (adjustment: number) => {
+      setSeconds((prev) => {
+        const newTime = Math.max(5, Math.min(600, prev + adjustment));
+        /* console.log(
         `⏰ Timer adjustment: ${prev} → ${newTime} (${adjustment > 0 ? '+' : ''}${adjustment}s)`,
       ); */
-      return newTime;
-    });
-  }, []);
+
+        // Save the user's preference to the database when they adjust time
+        if (exerciseId && userId && newTime !== prev) {
+          // Use runOnJS to execute async operation safely from callback
+          runOnJS(async () => {
+            try {
+              const success = await ExerciseRestPreferencesService.saveExerciseRestPreference(
+                userId,
+                exerciseId,
+                newTime,
+              );
+
+              if (success) {
+                SentryDataCollection.addBreadcrumb({
+                  message: 'Rest time preference saved via timer adjustment',
+                  category: 'workout.rest_timer',
+                  level: 'info',
+                  data: {
+                    exercise_id: exerciseId,
+                    exercise_name: exerciseName,
+                    old_time: prev,
+                    new_time: newTime,
+                    adjustment: adjustment,
+                    platform: Platform.OS,
+                  },
+                });
+              }
+            } catch (error) {
+              SentryDataCollection.captureException(error as Error, {
+                component: 'WorkoutFloatingRestTimer',
+                action: 'save_rest_preference',
+                exercise_id: exerciseId,
+                user_id: userId,
+                platform: Platform.OS,
+              });
+            }
+          })();
+        }
+
+        return newTime;
+      });
+    },
+    [exerciseId, userId, exerciseName],
+  );
 
   if (!isVisible) return null;
 

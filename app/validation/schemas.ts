@@ -1016,6 +1016,40 @@ export const resetSchemaMetrics = (): void => {
   });
 };
 
+// Profile completion schemas
+export const UserProfileDetailsSchema = z.object({
+  id: IdSchema,
+  user_id: IdSchema,
+  date_of_birth: z.date().nullable().optional(),
+  gender: z.enum(['male', 'female', 'other']).nullable().optional(),
+  height_cm: PositiveNumberSchema.nullable().optional(),
+  weight_kg: PositiveNumberSchema.nullable().optional(),
+  preferred_weight_unit: z.enum(['KG', 'LB']).default('KG'),
+  preferred_height_unit: z.enum(['CM', 'INCH']).default('CM'),
+  avatar_url: UrlSchema.nullable().optional(),
+  workout_days: z.array(z.number().min(0).max(6)).default([]),
+  exercise_rest_preferences: z.record(z.number()).nullable().optional(),
+  created_at: DateStringSchema,
+  updated_at: DateStringSchema,
+});
+
+export const ProfileCompletionCheckSchema = z.object({
+  user_id: IdSchema,
+  has_profile_details: z.boolean(),
+  has_basic_info: z.boolean(), // name, gender, date_of_birth
+  has_measurements: z.boolean(), // height, weight
+  has_preferences: z.boolean(), // units, workout_days
+  completion_percentage: z.number().min(0).max(100),
+  missing_fields: z.array(z.string()),
+});
+
+export const CreateDefaultProfileDetailsSchema = z.object({
+  user_id: IdSchema,
+  preferred_weight_unit: z.enum(['KG', 'LB']).default('KG'),
+  preferred_height_unit: z.enum(['CM', 'INCH']).default('CM'),
+  workout_days: z.array(z.number().min(0).max(6)).default([]),
+});
+
 // Schema validation registry for tracking
 export const SCHEMA_REGISTRY = {
   // Base schemas
@@ -1035,8 +1069,11 @@ export const SCHEMA_REGISTRY = {
 
   // User schemas
   UserProfileSchema: 'user_profile_schema',
+  UserProfileDetailsSchema: 'user_profile_details_schema',
   ProfileUpdateSchema: 'profile_update_schema',
   UserPreferencesSchema: 'user_preferences_schema',
+  ProfileCompletionCheckSchema: 'profile_completion_check_schema',
+  CreateDefaultProfileDetailsSchema: 'create_default_profile_details_schema',
 
   // Form schemas
   LoginFormSchema: 'login_form_schema',
@@ -1103,6 +1140,9 @@ export type UpdateAchievementProgress = z.infer<typeof UpdateAchievementProgress
 export type ProgressPhotoUpload = z.infer<typeof ProgressPhotoUploadSchema>;
 export type ProgressPhotoRecord = z.infer<typeof ProgressPhotoRecordSchema>;
 export type UserPreferences = z.infer<typeof UserPreferencesSchema>;
+export type UserProfileDetails = z.infer<typeof UserProfileDetailsSchema>;
+export type ProfileCompletionCheck = z.infer<typeof ProfileCompletionCheckSchema>;
+export type CreateDefaultProfileDetails = z.infer<typeof CreateDefaultProfileDetailsSchema>;
 export type WorkoutDaysPreference = z.infer<typeof WorkoutDaysPreferenceSchema>;
 export type NotificationSettings = z.infer<typeof NotificationSettingsSchema>;
 export type ActivePlanData = z.infer<typeof ActivePlanDataSchema>;

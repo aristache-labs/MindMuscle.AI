@@ -1,7 +1,14 @@
 import { User } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { logger } from '../utils/logger';
-import { ProfileUpdateSchema, UserProfileSchema } from '../validation/schemas';
+import {
+  ProfileUpdateSchema,
+  UserProfileSchema,
+  ProfileCompletionCheckSchema,
+  CreateDefaultProfileDetailsSchema,
+  UserProfileDetails,
+  ProfileCompletionCheck,
+} from '../validation/schemas';
 import { apiClient } from './apiClient';
 import { CachePriority } from './enhancedCacheManager';
 import { captureException } from './sentry';
@@ -1097,3 +1104,250 @@ class ProfileService {
 // Export singleton instance
 const profileService = new ProfileService();
 export default profileService;
+
+/**
+ * Checks if a user has completed their profile setup
+ * @param userId - The user's ID
+ * @returns Promise with completion status and missing fields
+ */
+/**
+ * Helper function to get missing profile fields
+ */
+function getMissingProfileFields(profile: UserProfileDetails | null): string[] {
+  const missingFields: string[] = [];
+
+  if (!profile?.date_of_birth) missingFields.push('date_of_birth');
+  if (!profile?.gender) missingFields.push('gender');
+  if (!profile?.height_cm || profile.height_cm <= 0) missingFields.push('height_cm');
+  if (!profile?.weight_kg || profile.weight_kg <= 0) missingFields.push('weight_kg');
+
+  return missingFields;
+}
+
+/**
+ * Helper function to create profile completion result
+ */
+function createProfileCompletionResult(
+  userId: string,
+  profile: UserProfileDetails | null,
+  missingFields: string[],
+  hasProfileRecord: boolean,
+): ProfileCompletionCheck {
+  return {
+    user_id: userId,
+    has_profile_details: hasProfileRecord,
+    has_basic_info: !!(profile?.date_of_birth && profile?.gender),
+    has_measurements: !!(profile?.height_cm && profile?.weight_kg),
+    has_preferences: !!(profile?.preferred_weight_unit && profile?.preferred_height_unit),
+    completion_percentage: Math.round(((4 - missingFields.length) / 4) * 100),
+    missing_fields: missingFields,
+  };
+}
+
+/**
+ * Helper function to handle profile completion errors
+ */
+function handleProfileCompletionError(
+  err: unknown,
+  userId: string,
+): {
+  isComplete: boolean;
+  missingFields: string[];
+  hasProfileRecord: boolean;
+} {
+  let error: Error;
+
+  if (err instanceof Error) {
+    error = err;
+  } else if (err && typeof err === 'object' && 'message' in err) {
+    error = new Error(`Supabase error: ${JSON.stringify(err)}`);
+  } else {
+    error = new Error(String(err));
+  }
+
+  console.error('Error checking profile completion:', error.message);
+  console.error('Full error details:', err);
+
+  SentryDataCollection.captureException(error, {
+    tags: { operation: 'checkProfileCompletion' },
+    extra: { userId, originalError: err },
+  });
+
+  // Validate error result with schema (but don't use the result)
+  try {
+    const errorResult = createProfileCompletionResult(
+      userId,
+      null,
+      ['date_of_birth', 'gender', 'height_cm', 'weight_kg'],
+      false,
+    );
+    ProfileCompletionCheckSchema.parse(errorResult);
+  } catch (validationError) {
+    console.warn('Schema validation failed for error result:', validationError);
+  }
+
+  return {
+    isComplete: false,
+    missingFields: ['date_of_birth', 'gender', 'height_cm', 'weight_kg'],
+    hasProfileRecord: false,
+  };
+}
+
+export async function checkProfileCompletion(userId: string): Promise<{
+  isComplete: boolean;
+  missingFields: string[];
+  hasProfileRecord: boolean;
+}> {
+  try {
+    const { data: profile, error } = await supabase
+      .from('user_profile_details')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      // PGRST116 is "not found" error, which is expected for new users
+      throw error;
+    }
+
+    if (!profile) {
+      // For users without profile record, validate the empty result structure
+      const missingFields = ['date_of_birth', 'gender', 'height_cm', 'weight_kg'];
+      const result = createProfileCompletionResult(userId, null, missingFields, false);
+
+      // Validate the result with the schema (but don't use the result)
+      ProfileCompletionCheckSchema.parse(result);
+
+      return {
+        isComplete: false,
+        missingFields,
+        hasProfileRecord: false,
+      };
+    }
+
+    // Check which required fields are missing
+    const missingFields = getMissingProfileFields(profile);
+
+    const result = createProfileCompletionResult(userId, profile, missingFields, true);
+
+    // Validate the result with the schema (but don't use the result)
+    ProfileCompletionCheckSchema.parse(result);
+
+    return {
+      isComplete: missingFields.length === 0,
+      missingFields,
+      hasProfileRecord: true,
+    };
+  } catch (err: unknown) {
+    return handleProfileCompletionError(err, userId);
+  }
+}
+
+/**
+ * Creates a default profile record for a new user
+ * @param userId - The user's ID
+ * @returns Promise with the created profile data
+ */
+export async function createDefaultProfileRecord(userId: string): Promise<unknown> {
+  try {
+    // First check if profile already exists
+    const { data: existingProfile, error: checkError } = await supabase
+      .from('user_profile_details')
+      .select('id')
+      .eq('user_id', userId)
+      .single();
+
+    if (checkError && checkError.code !== 'PGRST116') {
+      // PGRST116 is "not found" error, which is expected for new users
+      throw checkError;
+    }
+
+    if (existingProfile) {
+      console.log('Profile already exists for user:', userId);
+      return existingProfile;
+    }
+
+    const defaultProfile = {
+      user_id: userId,
+      preferred_weight_unit: 'KG' as const,
+      preferred_height_unit: 'CM' as const,
+      workout_days: [],
+    };
+
+    // Validate the default profile data
+    const validatedProfile = CreateDefaultProfileDetailsSchema.parse(defaultProfile);
+
+    const { data, error } = await supabase
+      .from('user_profile_details')
+      .insert([validatedProfile])
+      .select()
+      .single();
+
+    if (error) {
+      // Handle duplicate key error gracefully - this can happen during race conditions
+      if (error.code === '23505' && error.message.includes('user_profile_details_user_id_key')) {
+        console.log('Profile already exists for user (race condition detected):', userId);
+
+        // Fetch the existing profile that was created by another concurrent call
+        const { data: existingData, error: fetchError } = await supabase
+          .from('user_profile_details')
+          .select('*')
+          .eq('user_id', userId)
+          .single();
+
+        if (fetchError) {
+          throw fetchError;
+        }
+
+        return existingData;
+      }
+
+      throw error;
+    }
+
+    console.log('Created default profile record for user:', userId);
+
+    return data;
+  } catch (err: unknown) {
+    let error: Error;
+
+    if (err instanceof Error) {
+      error = err;
+    } else if (err && typeof err === 'object' && 'message' in err) {
+      // Handle Supabase error objects
+      error = new Error(`Supabase error: ${JSON.stringify(err)}`);
+    } else {
+      error = new Error(String(err));
+    }
+
+    console.error('Error creating default profile record:', error.message);
+    console.error('Full error details:', err);
+
+    SentryDataCollection.captureException(error, {
+      tags: { operation: 'createDefaultProfileRecord' },
+      extra: { userId, originalError: err },
+    });
+
+    throw error;
+  }
+}
+
+/**
+ * Checks if a user is a new user (just registered) based on profile completion
+ * @param userId - The user's ID
+ * @returns Promise<boolean> - true if user is new and needs profile setup
+ */
+export async function isNewUser(userId: string): Promise<boolean> {
+  try {
+    const completionStatus = await checkProfileCompletion(userId);
+    return !completionStatus.hasProfileRecord || !completionStatus.isComplete;
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    console.error('Error checking if user is new:', error);
+    SentryDataCollection.captureException(error, {
+      tags: { operation: 'isNewUser' },
+      extra: { userId },
+    });
+    return true; // Assume new user on error for safety
+  }
+}

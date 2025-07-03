@@ -12,6 +12,7 @@ import { supabaseAnonKey, supabaseUrl } from '../services/supabase';
 import { safeAsyncFireAndForget } from '../utils/asyncErrorHandler';
 import { logger } from '../utils/logger';
 import secureStorage from '../utils/secureStorage';
+import { checkProfileCompletion, createDefaultProfileRecord } from '../services/profileService';
 
 // Keys for secure storage (same as in login.tsx)
 const SAVED_EMAIL_KEY = 'mindmuscle_saved_email';
@@ -43,6 +44,9 @@ interface AuthContextType {
   refreshUser: () => Promise<void>;
   updateUserMetadata: (metadata: Record<string, unknown>) => Promise<void>;
   user: UserProfile | null;
+  isNewUser: boolean;
+  needsProfileSetup: boolean;
+  checkUserProfileStatus: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -79,6 +83,10 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<AuthError | null>(null);
   const [_supabase] = useState(createSupabaseClient(true));
+  const [isNewUser, setIsNewUser] = useState<boolean>(false);
+  const [needsProfileSetup, setNeedsProfileSetup] = useState<boolean>(false);
+  const [isCheckingProfile, setIsCheckingProfile] = useState<boolean>(false);
+  const [lastProfileCheckUserId, setLastProfileCheckUserId] = useState<string | null>(null);
 
   const clearError = () => {
     Sentry.addBreadcrumb({
@@ -187,6 +195,12 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
         logger.info('Auth state changed', { context: { event: _event } });
         setSession(session);
         setLoading(false);
+
+        // Reset profile check state when user changes
+        if (!session?.user?.id || session.user.id !== lastProfileCheckUserId) {
+          setLastProfileCheckUserId(null);
+          setIsCheckingProfile(false);
+        }
       }
     });
 
@@ -196,6 +210,16 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       subscription.unsubscribe();
     };
   }, [_supabase]);
+
+  // Check profile status when session changes
+  useEffect(() => {
+    if (session?.user?.id && !loading && !isCheckingProfile) {
+      checkUserProfileStatus();
+    } else if (!session?.user?.id) {
+      setIsNewUser(false);
+      setNeedsProfileSetup(false);
+    }
+  }, [session?.user?.id, loading, isCheckingProfile]);
 
   const signIn = async (
     email: string,
@@ -720,6 +744,61 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     }
   };
 
+  const checkUserProfileStatus = async () => {
+    if (!session?.user?.id || isCheckingProfile) {
+      return;
+    }
+
+    // Prevent duplicate calls for the same user
+    if (lastProfileCheckUserId === session.user.id) {
+      return;
+    }
+
+    setIsCheckingProfile(true);
+    setLastProfileCheckUserId(session.user.id);
+
+    try {
+      Sentry.addBreadcrumb({
+        message: 'Checking user profile status',
+        category: 'auth.profile',
+        data: { userId: session.user.id },
+        level: 'debug',
+      });
+
+      const completionStatus = await checkProfileCompletion(session.user.id);
+
+      setIsNewUser(!completionStatus.hasProfileRecord);
+      setNeedsProfileSetup(!completionStatus.isComplete);
+
+      // Create default profile record if user doesn't have one
+      if (!completionStatus.hasProfileRecord) {
+        await createDefaultProfileRecord(session.user.id);
+        Sentry.addBreadcrumb({
+          message: 'Created default profile record for new user',
+          category: 'auth.profile',
+          data: { userId: session.user.id },
+          level: 'info',
+        });
+      }
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
+
+      Sentry.captureException(error, {
+        tags: { operation: 'checkUserProfileStatus' },
+        extra: { userId: session.user.id },
+      });
+      logger.error('Error checking user profile status', error, {
+        context: { userId: session.user.id },
+      });
+
+      // Set safe defaults on error
+      setIsNewUser(true);
+      setNeedsProfileSetup(true);
+    } finally {
+      setIsCheckingProfile(false);
+    }
+  };
+
   const value: AuthContextType = {
     supabase: _supabase,
     session,
@@ -740,6 +819,9 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
           user_metadata: session.user.user_metadata,
         }
       : null,
+    isNewUser,
+    needsProfileSetup,
+    checkUserProfileStatus,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -52,7 +52,7 @@ const genderOptions = [
 // Custom hook for form data management
 function useFormData(user: UserProfile | null) {
   const [formData, setFormData] = useState<FormData>({
-    fullName: getUserMetadataValue(user, 'name', ''),
+    fullName: getUserMetadataValue(user, 'full_name', ''),
     email: user?.email || '',
     dateOfBirth: getUserMetadataValue(user, 'dateOfBirth', null)
       ? new Date(getUserMetadataValue(user, 'dateOfBirth', ''))
@@ -397,7 +397,7 @@ async function addWeightMeasurement(
 
 // Custom hook for save functionality
 function useSaveProfile() {
-  const { user, updateUserMetadata, refreshUser } = useAuth();
+  const { user, updateUserMetadata, refreshUser, checkUserProfileStatus } = useAuth();
   const { addMeasurement, refreshMeasurements } = useMeasurements();
   const router = useRouter();
 
@@ -441,6 +441,9 @@ function useSaveProfile() {
       // Refresh data
       await refreshUser();
       await refreshMeasurements();
+
+      // Re-check profile completion status
+      await checkUserProfileStatus();
 
       // Track successful completion
       Sentry.addBreadcrumb({
@@ -862,7 +865,7 @@ function HeightInput({
 export default function EditProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, checkUserProfileStatus } = useAuth();
   const { measurements, refreshMeasurements } = useMeasurements();
   const componentMountTimeRef = useRef(Date.now());
 
@@ -903,13 +906,13 @@ export default function EditProfileScreen() {
         data: {
           screen: 'edit-profile',
           sessionDuration: `${sessionDuration}ms`,
-          hadChanges: formData.fullName !== getUserMetadataValue(user, 'name', ''),
+          hadChanges: formData.fullName !== getUserMetadataValue(user, 'full_name', ''),
         },
       });
     };
   }, [user, formData.fullName]);
 
-  const safeGoBack = () => {
+  const safeGoBack = async () => {
     // Track navigation back to profile
     Sentry.addBreadcrumb({
       message: 'User navigated back from edit profile',
@@ -917,9 +920,12 @@ export default function EditProfileScreen() {
       data: {
         from: 'edit-profile',
         to: 'profile-tab',
-        hadChanges: formData.fullName !== getUserMetadataValue(user, 'name', ''),
+        hadChanges: formData.fullName !== getUserMetadataValue(user, 'full_name', ''),
       },
     });
+
+    // Re-check profile status in case user made changes
+    await checkUserProfileStatus();
 
     router.push('/(tabs)/profile');
   };
@@ -992,10 +998,16 @@ export default function EditProfileScreen() {
         weightUnit,
         heightUnit,
         isLoading,
+        isFirstTimeSetup: false,
       },
     });
 
     handleSave(formData, weightUnit, heightUnit, setIsLoading);
+  };
+
+  const getButtonText = () => {
+    if (isLoading) return 'Saving...';
+    return 'Update Profile';
   };
 
   return (
@@ -1019,7 +1031,7 @@ export default function EditProfileScreen() {
                       action: 'navigate_back',
                       from: 'edit-profile',
                       hadUnsavedChanges:
-                        formData.fullName !== getUserMetadataValue(user, 'name', ''),
+                        formData.fullName !== getUserMetadataValue(user, 'full_name', ''),
                     },
                   });
 
@@ -1256,9 +1268,7 @@ export default function EditProfileScreen() {
               onPress={onSave}
               disabled={isLoading}
             >
-              <Text style={styles.updateButtonText}>
-                {isLoading ? 'Updating...' : 'Update Profile'}
-              </Text>
+              <Text style={styles.updateButtonText}>{getButtonText()}</Text>
             </Pressable>
           </ScrollView>
         </View>

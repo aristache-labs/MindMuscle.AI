@@ -14,7 +14,7 @@ interface AuthGuardProps {
 }
 
 export default function AuthGuard({ children }: AuthGuardProps) {
-  const { session, loading } = useAuth();
+  const { session, loading, needsProfileSetup } = useAuth();
   const pathname = usePathname();
   const [authCheckComplete, setAuthCheckComplete] = useState(false);
 
@@ -24,11 +24,13 @@ export default function AuthGuard({ children }: AuthGuardProps) {
     '/(auth)/register',
     '/(auth)/forgot-password',
     '/(auth)/reset-password',
+    '/(auth)/edit-profile',
     // Add flattened routes without group prefixes for compatibility with Expo Router URL structure
     '/login',
     '/register',
     '/forgot-password',
     '/reset-password',
+    '/edit-profile',
   ];
 
   const isAuthExempt = authExemptPaths.some((path) => pathname.includes(path));
@@ -114,8 +116,19 @@ export default function AuthGuard({ children }: AuthGuardProps) {
       return <Redirect href="/(auth)/login" />;
     }
 
-    // If user is authenticated and on an auth page, redirect to main app
-    if (session && isAuthExempt) {
+    // If user is authenticated and needs profile setup, redirect to edit-profile
+    if (session && needsProfileSetup && !pathname.includes('edit-profile')) {
+      simpleErrorHandler.addBreadcrumb('Redirecting user to complete profile setup', 'navigation', {
+        currentPath: pathname,
+        userId: session.user?.id,
+      });
+
+      logger.info('User needs profile setup, redirecting to edit-profile');
+      return <Redirect href="/(auth)/edit-profile" />;
+    }
+
+    // If user is authenticated and on an auth page (but not edit-profile), redirect to main app
+    if (session && isAuthExempt && !needsProfileSetup && !pathname.includes('edit-profile')) {
       simpleErrorHandler.addBreadcrumb('Redirecting authenticated user to main app', 'navigation', {
         currentPath: pathname,
         userId: session.user?.id,

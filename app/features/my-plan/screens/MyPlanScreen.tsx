@@ -394,7 +394,7 @@ const ActionButton: React.FC<{
   );
 };
 
-const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
+const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false, refreshTrigger = 0 }) => {
   const router = useRouter();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
@@ -1250,6 +1250,17 @@ const MyPlanScreen: React.FC<MyPlanScreenProps> = ({ embedded = false }) => {
       });
     }
   }, [plan?.workoutDays, plan?.id, user?.id, isLoading]);
+
+  // Handle external refresh trigger (e.g., from workout completion)
+  useEffect(() => {
+    if (refreshTrigger > 0 && user?.id && userWorkoutDays.length > 0) {
+      console.log('🔄 MyPlanScreen received refresh trigger:', refreshTrigger);
+      console.log('🔄 Triggering active plan refresh after workout completion');
+
+      // Force refresh the active plan data
+      fetchActivePlan();
+    }
+  }, [refreshTrigger, user?.id, userWorkoutDays.length, fetchActivePlan]);
 
   // Main render
   if (isLoading) {

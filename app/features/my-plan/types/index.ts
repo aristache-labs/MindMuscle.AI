@@ -41,6 +41,7 @@ export interface Plan {
 
 export interface MyPlanScreenProps {
   embedded?: boolean;
+  refreshTrigger?: number;
 }
 
 export interface CompletedWorkoutData {

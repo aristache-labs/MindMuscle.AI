@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Alert } from 'react-native';
 import workoutPlanService from '../../../services/workoutPlanService';
+import supabase from '../../../services/supabase';
 import { ExerciseData, ExerciseSet } from '../types';
 import type { UserProfile } from '../../../store/AuthContext';
 
@@ -138,6 +139,42 @@ export const useWorkoutCompletion = ({
         'Workout completed in app, but there may be an issue saving to server. Data will be retried.',
       );
     }
+
+    // Add navigation after workout completion (after the delay for database save)
+    setTimeout(async () => {
+      try {
+        console.log('🔄 Workout completed - checking plan completion status...');
+
+        // Check if this was the last workout that completed the plan
+        const { data: activePlanData } = await supabase
+          .from('user_active_plans')
+          .select('completed, is_active')
+          .eq('user_id', user.id)
+          .eq('plan_id', planId)
+          .single();
+
+        const isPlanCompleted = activePlanData?.completed === true;
+
+        console.log('📊 Plan completion check result:', {
+          completed: activePlanData?.completed,
+          is_active: activePlanData?.is_active,
+          isPlanCompleted,
+        });
+
+        // Navigate to completion screen with completion status
+        if (isPlanCompleted) {
+          console.log('🎉 Plan completed! Navigating with plan completion flag...');
+          navigate('/(tabs)/?planCompleted=true&refreshMyPlan=true');
+        } else {
+          console.log('🔄 Regular workout completion, navigating with refresh flag...');
+          navigate('/(tabs)/?refreshMyPlan=true');
+        }
+      } catch (error) {
+        console.error('Error checking plan completion status:', error);
+        console.log('🔄 Fallback navigation with refresh flag...');
+        navigate('/(tabs)/?refreshMyPlan=true');
+      }
+    }, 2000); // 2 second delay to ensure database operations complete
   };
 
   /**
@@ -193,9 +230,25 @@ export const useWorkoutCompletion = ({
       // Clear any paused workout data
       await workoutPlanService.clearPausedWorkout(user?.id || '', planId, workoutDay);
 
-      // Navigate to completion screen
+      // Check if this was the last workout that completed the plan
+      const { data: activePlanData } = await supabase
+        .from('user_active_plans')
+        .select('completed, is_active')
+        .eq('user_id', user?.id || '')
+        .eq('plan_id', planId)
+        .single();
+
+      const isPlanCompleted = activePlanData?.completed === true;
+
+      // Navigate to completion screen with completion status
       setTimeout(() => {
-        navigate('/(tabs)/');
+        if (isPlanCompleted) {
+          // Plan was completed - navigate with refresh flag
+          navigate('/(tabs)/?planCompleted=true&refreshMyPlan=true');
+        } else {
+          // Regular workout completion
+          navigate('/(tabs)/?refreshMyPlan=true');
+        }
       }, 1000);
     } catch (error) {
       console.error('❌ WORKOUT COMPLETION FAILED:', error);

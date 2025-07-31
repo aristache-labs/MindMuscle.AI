@@ -1,12 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { Dimensions, ScrollView, StyleSheet, View } from 'react-native';
-import { Button, Text, useTheme } from 'react-native-paper';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { Button, Text } from 'react-native-paper';
 import { MenuHeader } from '../components/MenuHeader';
 import { COLORS, HEADER_HEIGHT } from '../constants/theme';
-import { useSentryAuthTracking } from '../hooks/useSentryDataCollection';
-import { useAuth } from '../store/AuthContext';
 
 // Import content components
 import AiCoachingScreen from '../(stack)/ai-coaching';
@@ -14,14 +12,12 @@ import CustomScreen from '../(stack)/custom';
 import MyPlanScreen from '../(stack)/my-plan';
 import SingleWorkoutScreen from '../(stack)/single-workout';
 
-const { width: _width } = Dimensions.get('window');
-
 export default function HomeScreen() {
-  const { user, isLoading, signOut } = useAuth();
   const [selectedOption, setSelectedOption] = useState('My Plan');
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const params = useLocalSearchParams();
-  const _theme = useTheme();
-  const sentry = useSentryAuthTracking('HomeScreen');
+  const router = useRouter();
+  const processedRefreshRef = useRef<string | null>(null);
 
   // Set My Plan as default option, and handle navigation with params
   useEffect(() => {
@@ -31,31 +27,39 @@ export default function HomeScreen() {
     } else {
       setSelectedOption('My Plan');
     }
-  }, [params]);
 
-  const _fullName = React.useMemo(() => {
-    if (isLoading) return '...';
-    return user?.user_metadata?.name || 'User';
-  }, [user, isLoading]);
+    // Handle refresh trigger from workout completion (only once per trigger)
+    if (params.refreshMyPlan === 'true') {
+      const currentRefreshKey = `${params.refreshMyPlan}-${params.planCompleted}`;
 
-  const _handleLogout = async () => {
-    try {
-      sentry.trackLogout();
-      await signOut();
-      // AuthGuard will handle the redirect automatically when session becomes null
-    } catch (error) {
-      console.error('Logout error:', error);
-      sentry.captureException(error as Error, {
-        context: 'logout',
-      });
+      // Only process if we haven't already processed this exact refresh trigger
+      if (processedRefreshRef.current !== currentRefreshKey) {
+        console.log('🔄 Home screen received refresh trigger from workout completion');
+
+        // Mark this refresh as processed
+        processedRefreshRef.current = currentRefreshKey;
+
+        // Increment refresh trigger to force MyPlanScreen to refresh
+        setRefreshTrigger((prev) => prev + 1);
+
+        // Show completion message if plan was completed
+        if (params.planCompleted === 'true') {
+          console.log('🎉 Plan completion detected - MyPlanScreen will refresh');
+        }
+
+        // Clear the URL parameters to prevent infinite loop
+        setTimeout(() => {
+          router.replace('/(tabs)/');
+        }, 500); // Give enough time for MyPlanScreen to process the refresh
+      }
     }
-  };
+  }, [params, router]);
 
   // Function to render the appropriate content based on the selected option
   const renderContent = () => {
     switch (selectedOption) {
       case 'My Plan':
-        return <MyPlanScreen embedded={true} />;
+        return <MyPlanScreen embedded={true} refreshTrigger={refreshTrigger} />;
       case 'Single Workout':
         return <SingleWorkoutScreen embedded={true} />;
       case 'AI Coaching':

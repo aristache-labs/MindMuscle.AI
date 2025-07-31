@@ -18,8 +18,8 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import * as ImagePicker from 'expo-image-picker';
 import { Stack } from 'expo-router';
-import ExerciseGraphModal from '../components/ExerciseGraphModal';
-import ExerciseGraphs, { ExerciseData } from '../components/ExerciseGraphs';
+import ExerciseGraphs from '../components/ExerciseGraphs';
+import InsightsExerciseTrackingModal from '../components/InsightsExerciseTrackingModal';
 import { GeneralHeader } from '../components/GeneralHeader';
 import HowToMeasureModal from '../components/HowToMeasureModal';
 import { AchievementsSection } from '../components/insights/AchievementsSection';
@@ -30,35 +30,21 @@ import MeasurementModal from '../components/MeasurementModal';
 import MeasurementsGraph from '../components/MeasurementsGraph';
 import { COLORS, HEADER_HEIGHT, SPACING } from '../constants/theme';
 import useImagePreloader from '../hooks/useImagePreloader';
+import { useInsightsExerciseTracking } from '../hooks/useInsightsExerciseTracking';
 import { Achievement, achievementService, UserAchievement } from '../services/achievements';
-import exerciseService from '../services/exerciseService';
+
 import firebaseProgressPhotoService, { ProgressPhoto } from '../services/firebaseProgressPhotos';
 import { MeasurementCategory } from '../services/measurements';
-import supabase from '../services/supabase';
 import { useAuth } from '../store/AuthContext';
 import { useMeasurements } from '../store/MeasurementsContext';
 import { markAsImportantImage } from '../utils/imagePreloader';
+
 import { SentryAutoInstrumentation, SentryDataCollection, SentryLogger } from '../services/sentry';
 
 interface DisplayProgressPhoto {
   id: string;
   url: string;
   date: string;
-}
-
-// Add proper TypeScript interfaces for exercise records
-interface UserExerciseRecord {
-  exercise_id: string;
-  weight: number | null;
-  reps: number | null;
-  created_at: string;
-  user_workout_history:
-    | {
-        completed_at: string;
-      }
-    | Array<{
-        completed_at: string;
-      }>;
 }
 
 // Helper function to convert ProgressPhoto to DisplayProgressPhoto
@@ -73,7 +59,6 @@ const convertProgressPhotoToDisplayPhoto = (
   };
 };
 
-// Helper functions for photo management
 const requestCameraPermissions = async (): Promise<boolean> => {
   try {
     SentryDataCollection.addBreadcrumb({
@@ -220,9 +205,18 @@ export default function InsightsScreen() {
   const [achievementsLoading, setAchievementsLoading] = useState(true);
   const [selectedMeasurement, setSelectedMeasurement] = useState<MeasurementCategory | null>(null);
   const [showHowToMeasure, setShowHowToMeasure] = useState(false);
-  const [exercises, setExercises] = useState<ExerciseData[]>([]);
-  const [selectedExercise, setSelectedExercise] = useState<ExerciseData | undefined>();
-  const [showExerciseModal, setShowExerciseModal] = useState(false);
+  // Exercise tracking logic
+  const {
+    exercises,
+    trackedExerciseIds,
+    showExerciseSelectionModal,
+    setShowExerciseSelectionModal,
+    loadExerciseData,
+    handleAddExercise,
+    handleDeleteExercise,
+    handleExercisesSelected,
+    handleSetGoal,
+  } = useInsightsExerciseTracking(user?.id);
 
   // Animation state for background scale and modal slide
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -470,112 +464,6 @@ export default function InsightsScreen() {
     }
   };
 
-  const loadExerciseData = async () => {
-    if (!user?.id) {
-      SentryLogger.warn('Attempted to load exercise data without user ID', {
-        component: 'InsightsScreen',
-        action: 'load_exercise_data_no_user',
-      });
-      return;
-    }
-
-    try {
-      // Track exercise data loading start
-      SentryDataCollection.addBreadcrumb({
-        message: 'Loading exercise data for InsightsScreen',
-        category: 'data.load',
-        level: 'info',
-        data: {
-          component: 'InsightsScreen',
-          action: 'load_exercise_data_start',
-          user_id: user.id,
-          platform: Platform.OS,
-        },
-      });
-
-      // Get user's exercise records from the database with exercise details
-      const { data: exerciseRecords, error } = await supabase
-        .from('user_exercise_records')
-        .select(
-          `
-          exercise_id,
-          weight,
-          reps,
-          created_at,
-          user_workout_history!inner(
-            completed_at
-          )
-        `,
-        )
-        .eq('user_workout_history.user_id', user.id)
-        .eq('completed', true)
-        .not('weight', 'is', null)
-        .neq('weight', 0)
-        .order('user_workout_history(completed_at)', { ascending: true });
-
-      if (error) {
-        SentryDataCollection.captureException(
-          new Error('Supabase query error for exercise records'),
-          {
-            component: 'InsightsScreen',
-            supabase_error: error,
-          },
-        );
-        setExercises([]);
-        return;
-      }
-
-      if (!exerciseRecords || exerciseRecords.length === 0) {
-        setExercises([]);
-        return;
-      }
-
-      // Get exercise details
-      const exercises = await exerciseService.getAllExercises();
-      const exerciseMap = new Map(exercises.map((ex) => [ex.id, ex.name]));
-
-      // Group records by exercise and transform data
-      const exerciseDataMap = new Map<string, ExerciseData>();
-
-      exerciseRecords.forEach((record: UserExerciseRecord) => {
-        const exerciseId = record.exercise_id;
-        const exerciseName = exerciseMap.get(exerciseId) || 'Unknown Exercise';
-
-        if (!exerciseDataMap.has(exerciseId)) {
-          exerciseDataMap.set(exerciseId, {
-            id: exerciseId,
-            name: exerciseName,
-            unit: 'kg',
-            data: [],
-          });
-        }
-
-        const exerciseData = exerciseDataMap.get(exerciseId)!;
-        const workoutHistory = Array.isArray(record.user_workout_history)
-          ? record.user_workout_history[0]
-          : record.user_workout_history;
-
-        exerciseData.data.push({
-          date: format(new Date(workoutHistory.completed_at), 'dd.MM'),
-          value: record.weight || 0,
-        });
-      });
-
-      // Convert map to array and limit to most recent exercises
-      const exerciseDataArray = Array.from(exerciseDataMap.values())
-        .filter((ex) => ex.data.length > 0)
-        .slice(0, 10); // Limit to 10 exercises for performance
-
-      setExercises(exerciseDataArray);
-    } catch (error) {
-      SentryDataCollection.captureException(error as Error, {
-        component: 'InsightsScreen',
-        action: 'load_exercise_data_error',
-      });
-      setExercises([]);
-    }
-  };
-
   const cleanupAndPickImage = async (type: 'before' | 'after') => {
     if (!user?.id) {
       SentryLogger.warn('Photo access without user ID', { component: 'InsightsScreen' });
@@ -737,153 +625,6 @@ export default function InsightsScreen() {
 
   // Note: All images are already preloaded during splash screen
 
-  const handleAddExercise = () => {
-    // Track add exercise interaction
-    SentryAutoInstrumentation.trackUserInteraction(
-      'add_exercise_press',
-      'button_press',
-      'insights_screen',
-      {
-        component: 'InsightsScreen',
-        action: 'add_exercise',
-        user_id: user?.id,
-        platform: Platform.OS,
-      },
-    );
-
-    SentryDataCollection.addBreadcrumb({
-      message: 'Add exercise button pressed',
-      category: 'ui.interaction',
-      level: 'info',
-      data: {
-        component: 'InsightsScreen',
-        action: 'add_exercise_press',
-        user_id: user?.id,
-        platform: Platform.OS,
-      },
-    });
-
-    setSelectedExercise(undefined);
-    setShowExerciseModal(true);
-  };
-
-  const handleExercisePress = (exerciseId: string) => {
-    // Track exercise press interaction
-    SentryAutoInstrumentation.trackUserInteraction(
-      'exercise_press',
-      'button_press',
-      'insights_screen',
-      {
-        component: 'InsightsScreen',
-        action: 'exercise_press',
-        exercise_id: exerciseId,
-        user_id: user?.id,
-        platform: Platform.OS,
-      },
-    );
-
-    const exercise = exercises.find((e) => e.id === exerciseId);
-
-    SentryDataCollection.addBreadcrumb({
-      message: 'Exercise pressed for editing',
-      category: 'ui.interaction',
-      level: 'info',
-      data: {
-        component: 'InsightsScreen',
-        action: 'exercise_press',
-        exercise_id: exerciseId,
-        exercise_name: exercise?.name,
-        exercise_found: !!exercise,
-        user_id: user?.id,
-        platform: Platform.OS,
-      },
-    });
-
-    if (exercise) {
-      setSelectedExercise(exercise);
-      setShowExerciseModal(true);
-    } else {
-      SentryLogger.warn('Exercise not found when pressed', {
-        component: 'InsightsScreen',
-        exercise_id: exerciseId,
-        available_exercises: exercises.length,
-        user_id: user?.id,
-      });
-    }
-  };
-
-  const handleSaveExercise = (exerciseData: Partial<ExerciseData>) => {
-    try {
-      const isUpdate = !!exerciseData.id;
-
-      SentryAutoInstrumentation.trackUserInteraction(
-        isUpdate ? 'update_exercise' : 'add_exercise',
-        'form_submit',
-        'insights_screen',
-        { exercise_id: exerciseData.id, exercise_name: exerciseData.name },
-      );
-
-      if (exerciseData.id) {
-        setExercises((prev) =>
-          prev.map((e) => (e.id === exerciseData.id ? { ...e, ...exerciseData } : e)),
-        );
-      } else {
-        const newExercise: ExerciseData = {
-          id: Date.now().toString(),
-          name: exerciseData.name!,
-          data: exerciseData.data!,
-          unit: exerciseData.unit,
-        };
-        setExercises((prev) => [...prev, newExercise]);
-      }
-    } catch (error) {
-      SentryDataCollection.captureException(error as Error, {
-        component: 'InsightsScreen',
-        action: 'save_exercise_error',
-      });
-      SentryLogger.error('Error saving exercise', {
-        error: error as Error,
-        component: 'InsightsScreen',
-      });
-    }
-  };
-
-  const handleDeleteExercise = (exerciseId: string) => {
-    try {
-      SentryAutoInstrumentation.trackUserInteraction(
-        'delete_exercise',
-        'button_press',
-        'insights_screen',
-        {
-          exercise_id: exerciseId,
-        },
-      );
-      setExercises((prev) => prev.filter((e) => e.id !== exerciseId));
-    } catch (error) {
-      SentryDataCollection.captureException(error as Error, {
-        component: 'InsightsScreen',
-        action: 'delete_exercise_error',
-      });
-      SentryLogger.error('Error deleting exercise', {
-        error: error as Error,
-        component: 'InsightsScreen',
-      });
-    }
-  };
-
-  const handleSetGoal = (exerciseId: string) => {
-    SentryAutoInstrumentation.trackUserInteraction(
-      'set_exercise_goal',
-      'button_press',
-      'insights_screen',
-      {
-        exercise_id: exerciseId,
-      },
-    );
-    // TODO: Implement goal setting functionality
-    console.log('Set goal for exercise:', exerciseId);
-  };
-
   return (
     <Provider>
       <View style={styles.container}>
@@ -981,7 +722,6 @@ export default function InsightsScreen() {
             <ExerciseGraphs
               exercises={exercises}
               onAddExercise={handleAddExercise}
-              onExercisePress={handleExercisePress}
               onSetGoal={handleSetGoal}
               onDeleteExercise={handleDeleteExercise}
             />
@@ -1082,13 +822,16 @@ export default function InsightsScreen() {
           modalAnim={modalAnim}
         />
 
-        {/* Exercise Graph Modal */}
-        <ExerciseGraphModal
-          visible={showExerciseModal}
-          onClose={() => setShowExerciseModal(false)}
-          onSave={handleSaveExercise}
-          exercise={selectedExercise}
-        />
+        {/* Exercise Tracking Modal */}
+        {user?.id && (
+          <InsightsExerciseTrackingModal
+            visible={showExerciseSelectionModal}
+            onClose={() => setShowExerciseSelectionModal(false)}
+            onExercisesSelected={handleExercisesSelected}
+            userId={user.id}
+            currentTrackedExerciseIds={trackedExerciseIds}
+          />
+        )}
       </View>
     </Provider>
   );

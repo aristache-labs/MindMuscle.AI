@@ -21,6 +21,7 @@ export const Step2ExerciseSelection = ({
   onNext,
   searchState,
   isExerciseAlreadyAdded,
+  buttonText = 'Next',
 }: {
   selectedMuscleGroup: string;
   selectedExercises: Set<string>;
@@ -28,6 +29,7 @@ export const Step2ExerciseSelection = ({
   onNext: () => void;
   searchState: ReturnType<typeof useSearchState>;
   isExerciseAlreadyAdded?: (exerciseId: string) => boolean;
+  buttonText?: string;
 }) => {
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [favoriteExerciseIds, setFavoriteExerciseIds] = useState<Set<string>>(new Set());
@@ -185,7 +187,7 @@ export const Step2ExerciseSelection = ({
           onPress={onNext}
           disabled={selectedExercises.size === 0}
         >
-          <Text style={styles.nextButtonText}>Next</Text>
+          <Text style={styles.nextButtonText}>{buttonText}</Text>
           <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </View>

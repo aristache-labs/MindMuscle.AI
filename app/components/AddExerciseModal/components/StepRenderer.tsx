@@ -26,6 +26,7 @@ export const StepRenderer = ({
   selectedExercises,
   handleAddAll,
   isExerciseAlreadyAdded,
+  buttonText = 'Next',
 }: {
   currentStep: number;
   showFavorites: boolean;
@@ -42,6 +43,7 @@ export const StepRenderer = ({
   selectedExercises: SelectedExercise[];
   handleAddAll: (exercises: SelectedExercise[]) => void;
   isExerciseAlreadyAdded?: (exerciseId: string) => boolean;
+  buttonText?: string;
 }) => {
   if (currentStep === 1) {
     return (
@@ -65,6 +67,7 @@ export const StepRenderer = ({
           onNext={handleStep2Next}
           searchState={searchState}
           isExerciseAlreadyAdded={isExerciseAlreadyAdded}
+          buttonText={buttonText}
         />
       );
     }
@@ -77,6 +80,7 @@ export const StepRenderer = ({
         onNext={handleStep2Next}
         searchState={searchState}
         isExerciseAlreadyAdded={isExerciseAlreadyAdded}
+        buttonText={buttonText}
       />
     );
   }
@@ -90,6 +94,7 @@ export const StepRenderer = ({
         selectedMuscleGroup={selectedMuscleGroup}
         searchState={searchState}
         isExerciseAlreadyAdded={isExerciseAlreadyAdded}
+        buttonText={buttonText}
       />
     );
   }

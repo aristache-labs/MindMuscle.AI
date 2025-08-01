@@ -21,12 +21,14 @@ export const StepAllExercises = ({
   onNext,
   searchState,
   isExerciseAlreadyAdded,
+  buttonText = 'Next',
 }: {
   selectedExercises: Set<string>;
   onExerciseToggle: (exerciseId: string) => void;
   onNext: () => void;
   searchState: ReturnType<typeof useSearchState>;
   isExerciseAlreadyAdded?: (exerciseId: string) => boolean;
+  buttonText?: string;
 }) => {
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [favoriteExerciseIds, setFavoriteExerciseIds] = useState<Set<string>>(new Set());
@@ -228,7 +230,7 @@ export const StepAllExercises = ({
           onPress={onNext}
           disabled={selectedExercises.size === 0}
         >
-          <Text style={styles.nextButtonText}>Next</Text>
+          <Text style={styles.nextButtonText}>{buttonText}</Text>
           <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </View>

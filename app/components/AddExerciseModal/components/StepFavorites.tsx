@@ -16,6 +16,7 @@ export const StepFavorites = ({
   selectedMuscleGroup,
   searchState,
   isExerciseAlreadyAdded,
+  buttonText = 'Next',
 }: {
   selectedExercises: Set<string>;
   onExerciseToggle: (exerciseId: string) => void;
@@ -23,6 +24,7 @@ export const StepFavorites = ({
   selectedMuscleGroup?: string;
   searchState: ReturnType<typeof useSearchState>;
   isExerciseAlreadyAdded?: (exerciseId: string) => boolean;
+  buttonText?: string;
 }) => {
   const [favoriteExercises, setFavoriteExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState(true);
@@ -143,7 +145,7 @@ export const StepFavorites = ({
           onPress={onNext}
           disabled={selectedExercises.size === 0}
         >
-          <Text style={styles.nextButtonText}>Next</Text>
+          <Text style={styles.nextButtonText}>{buttonText}</Text>
           <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </View>

@@ -13,18 +13,16 @@ import {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../constants/theme';
-import exerciseService, { Exercise } from '../services/exerciseService';
-import { captureUIError, SentryReactProfiler } from '../services/sentry';
+import exerciseService, { Exercise, ExerciseCategory } from '../services/exerciseService';
+import { captureUIError, SentryReactProfiler, captureAPIError } from '../services/sentry';
 import * as Sentry from '@sentry/react-native';
 import supabase from '../services/supabase';
 import { SentryDataCollection, SentryLogger } from '../services/sentry';
 import { FloatingSearchUI } from './AddExerciseModal/components/FloatingSearchUI';
-import { Step1MuscleSelection } from './AddExerciseModal/components/Step1MuscleSelection';
-import { Step2ExerciseSelection } from './AddExerciseModal/components/Step2ExerciseSelection';
-import { StepAllExercises } from './AddExerciseModal/components/StepAllExercises';
-import { StepFavorites } from './AddExerciseModal/components/StepFavorites';
+import { StepRenderer } from './AddExerciseModal/components/StepRenderer';
 import { useFavoriteLogic, useSearchState } from './AddExerciseModal/hooks';
-import { styles as addExerciseModalStyles } from './AddExerciseModal/styles';
+import { styles } from './AddExerciseModal/styles';
+import { SelectedExercise } from './AddExerciseModal/types';
 
 interface InsightsExerciseTrackingModalProps {
   visible: boolean;
@@ -62,6 +60,8 @@ export default function InsightsExerciseTrackingModal({
   const [currentView, setCurrentView] = useState<'front' | 'back'>('front');
   const [selectedMuscleGroup, setSelectedMuscleGroup] = useState<string>('');
   const [selectedExerciseIds, setSelectedExerciseIds] = useState<Set<string>>(new Set());
+  const [selectedExercises] = useState<SelectedExercise[]>([]);
+  const [accumulatedExercises, setAccumulatedExercises] = useState<Exercise[]>([]);
 
   const [showFavorites, setShowFavorites] = useState(false);
   const [showAllExercises, setShowAllExercises] = useState(false);
@@ -213,6 +213,7 @@ export default function InsightsExerciseTrackingModal({
       setCurrentView('front');
       setSelectedMuscleGroup('');
       setSelectedExerciseIds(new Set());
+      setAccumulatedExercises([]);
       setShowFavorites(false);
       setShowAllExercises(false);
       searchState.clearSearch();
@@ -236,7 +237,6 @@ export default function InsightsExerciseTrackingModal({
         setCurrentStep(2);
         setShowFavorites(false);
         setShowAllExercises(false);
-        setSelectedExerciseIds(new Set());
         searchState.clearSearch();
 
         // Haptic feedback
@@ -256,47 +256,257 @@ export default function InsightsExerciseTrackingModal({
     [currentStep, searchState],
   );
 
-  const handleExerciseToggle = useCallback((exerciseId: string) => {
-    try {
-      setSelectedExerciseIds((prev) => {
-        const newSet = new Set(prev);
-        if (newSet.has(exerciseId)) {
-          newSet.delete(exerciseId);
-        } else {
-          newSet.add(exerciseId);
+  const handleExerciseToggle = useCallback(
+    (exerciseId: string) => {
+      try {
+        // Haptic feedback
+        try {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        } catch {
+          // Haptics might not be available on all devices
         }
 
-        Sentry.addBreadcrumb({
-          message: 'Exercise Selection Toggled in Insights Modal',
-          category: 'user.interaction',
+        setSelectedExerciseIds((prev) => {
+          const newSet = new Set(prev);
+          const wasSelected = newSet.has(exerciseId);
+
+          if (wasSelected) {
+            newSet.delete(exerciseId);
+          } else {
+            newSet.add(exerciseId);
+          }
+
+          // Track exercise selection/deselection
+          Sentry.addBreadcrumb({
+            message: `Exercise ${wasSelected ? 'Deselected' : 'Selected'}`,
+            category: 'user.interaction',
+            level: 'info',
+            data: {
+              exerciseId,
+              action: wasSelected ? 'deselect' : 'select',
+              totalSelected: newSet.size,
+              muscleGroup: selectedMuscleGroup,
+              step: currentStep,
+            },
+          });
+
+          return newSet;
+        });
+      } catch (error) {
+        captureUIError(
+          error as Error,
+          'InsightsExerciseTrackingModal.handleExerciseToggle',
+          'insights-modal',
+        );
+      }
+    },
+    [selectedMuscleGroup, currentStep],
+  );
+
+  const handleStep2Next = useCallback(async () => {
+    const startTime = Date.now();
+
+    try {
+      // Track progression to save selected exercises immediately
+      Sentry.addBreadcrumb({
+        message: 'Saving Selected Exercises from Insights Modal',
+        category: 'user.navigation',
+        level: 'info',
+        data: {
+          selectedCount: selectedExerciseIds.size,
+          muscleGroup: selectedMuscleGroup,
+          showFavorites,
+          showAllExercises,
+        },
+      });
+
+      if (selectedExerciseIds.size === 0) {
+        return;
+      }
+
+      // Get exercise data for validation
+      let exerciseData: Exercise[] = [];
+
+      if (showFavorites) {
+        exerciseData = await exerciseService.getFavoriteExercises();
+      } else if (showAllExercises) {
+        // Load all categories for all exercises view
+        const allCategories: ExerciseCategory[] = [
+          'Chest',
+          'Biceps',
+          'Triceps',
+          'Abs',
+          'Shoulders',
+          'Lats',
+          'Quads',
+          'Hamstrings',
+          'Glutes',
+          'Calves',
+          'Forearms',
+          'Lower_back',
+          'Traps',
+          'Obliques',
+          'Adductors',
+          'Abductors',
+          'Cardio',
+        ];
+
+        for (const category of allCategories) {
+          try {
+            const categoryExercises = await exerciseService.getExercisesByCategory(category);
+            exerciseData = [...exerciseData, ...categoryExercises];
+          } catch (error) {
+            console.warn(`Failed to load exercises for category ${category}:`, error);
+          }
+        }
+      } else {
+        // Load specific muscle group
+        let categoryKey = selectedMuscleGroup;
+        if (selectedMuscleGroup === 'Lower back') {
+          categoryKey = 'Lower_back';
+        }
+        exerciseData = await exerciseService.getExercisesByCategory(
+          categoryKey as ExerciseCategory,
+        );
+      }
+
+      // Check if we have multi-group selections by testing the initial filter
+      const initialFilteredCount = exerciseData.filter((exercise) =>
+        selectedExerciseIds.has(exercise.id),
+      ).length;
+
+      // If we have selected exercises but the filtered count is less than selected count,
+      // it means we have exercises from multiple muscle groups - load ALL exercises
+      if (initialFilteredCount < selectedExerciseIds.size && selectedExerciseIds.size > 0) {
+        // Load all categories to find exercises from multiple muscle groups
+        const allCategories: ExerciseCategory[] = [
+          'Chest',
+          'Biceps',
+          'Triceps',
+          'Abs',
+          'Shoulders',
+          'Lats',
+          'Quads',
+          'Hamstrings',
+          'Glutes',
+          'Calves',
+          'Forearms',
+          'Lower_back',
+          'Traps',
+          'Obliques',
+          'Adductors',
+          'Abductors',
+          'Cardio',
+        ];
+
+        exerciseData = [];
+        for (const category of allCategories) {
+          try {
+            const categoryExercises = await exerciseService.getExercisesByCategory(category);
+            exerciseData = [...exerciseData, ...categoryExercises];
+          } catch (error) {
+            console.warn(`Failed to load exercises for category ${category}:`, error);
+          }
+        }
+      }
+
+      // Filter to only include selected exercises
+      const selectedExerciseObjects = exerciseData.filter((exercise) =>
+        selectedExerciseIds.has(exercise.id),
+      );
+
+      // Add current selection to accumulated exercises
+      setAccumulatedExercises((prev) => {
+        const existingIds = new Set(prev.map((ex) => ex.id));
+        const newExercises = selectedExerciseObjects.filter(
+          (ex) => !existingIds.has(ex.id) && !isExerciseAlreadyAdded(ex.id),
+        );
+        const updated = [...prev, ...newExercises];
+
+        return updated;
+      });
+
+      // Save all accumulated exercises (including current selection) immediately
+      const existingIds = new Set(accumulatedExercises.map((ex) => ex.id));
+      const newExercises = selectedExerciseObjects.filter(
+        (ex) => !existingIds.has(ex.id) && !isExerciseAlreadyAdded(ex.id),
+      );
+      const allExercisesToSave = [...accumulatedExercises, ...newExercises];
+
+      if (allExercisesToSave.length > 0) {
+        await handleSaveAllAccumulated(allExercisesToSave);
+      }
+    } catch (error) {
+      captureAPIError(error as Error, 'insights-exercise-loading', 'InsightsExerciseTrackingModal');
+      SentryLogger.error('Failed to process selected exercises', {
+        error: error as Error,
+        duration: Date.now() - startTime,
+      });
+    }
+  }, [selectedExerciseIds, selectedMuscleGroup, showFavorites, showAllExercises, searchState]);
+
+  const handleSaveAllAccumulated = useCallback(
+    async (exercisesToSave: Exercise[] = accumulatedExercises) => {
+      if (exercisesToSave.length === 0) {
+        return;
+      }
+
+      try {
+        SentryDataCollection.addBreadcrumb({
+          message: 'Saving all accumulated tracked exercises from insights modal',
+          category: 'data.save',
           level: 'info',
           data: {
-            exerciseId,
-            action: newSet.has(exerciseId) ? 'selected' : 'deselected',
-            totalSelected: newSet.size,
+            userId,
+            selectedCount: exercisesToSave.length,
+            selectedExerciseIds: exercisesToSave.map((ex) => ex.id),
           },
         });
 
-        return newSet;
-      });
+        // Insert all accumulated exercises into user_tracked_exercises table
+        const trackingRecords = exercisesToSave.map((exercise) => ({
+          user_id: userId,
+          exercise_id: exercise.id,
+        }));
 
-      // Haptic feedback
-      try {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      } catch {
-        // Haptics might not be available on all devices
+        const { error } = await supabase.from('user_tracked_exercises').insert(trackingRecords);
+
+        if (error) {
+          throw error;
+        }
+
+        SentryDataCollection.addBreadcrumb({
+          message: 'Successfully saved all accumulated tracked exercises from insights modal',
+          category: 'data.save',
+          level: 'info',
+          data: {
+            userId,
+            savedCount: exercisesToSave.length,
+            exerciseNames: exercisesToSave.map((ex) => ex.name).slice(0, 5),
+          },
+        });
+
+        onExercisesSelected(exercisesToSave);
+        onClose(); // Close modal after successful save
+      } catch (error) {
+        SentryDataCollection.captureException(error as Error, {
+          component: 'InsightsExerciseTrackingModal',
+          action: 'save_accumulated_tracked_exercises',
+          userId,
+          selectedCount: exercisesToSave.length,
+        });
+        SentryLogger.error('Failed to save all accumulated tracked exercises from insights modal', {
+          error: error as Error,
+          userId,
+          selectedCount: exercisesToSave.length,
+        });
       }
-    } catch (error) {
-      captureUIError(
-        error as Error,
-        'InsightsExerciseTrackingModal.handleExerciseToggle',
-        'insights-modal',
-      );
-    }
-  }, []);
+    },
+    [accumulatedExercises, userId, onExercisesSelected, onClose],
+  );
 
-  const handleSaveSelection = async () => {
-    if (selectedExerciseIds.size === 0) {
+  const handleSaveSelection = async (exercises: Exercise[]) => {
+    if (exercises.length === 0) {
       return;
     }
 
@@ -307,16 +517,16 @@ export default function InsightsExerciseTrackingModal({
         level: 'info',
         data: {
           userId,
-          selectedCount: selectedExerciseIds.size,
-          selectedExerciseIds: Array.from(selectedExerciseIds),
+          selectedCount: exercises.length,
+          selectedExerciseIds: exercises.map((ex) => ex.id),
           selectedMuscleGroup,
         },
       });
 
       // Insert selected exercises into user_tracked_exercises table
-      const trackingRecords = Array.from(selectedExerciseIds).map((exerciseId) => ({
+      const trackingRecords = exercises.map((exercise) => ({
         user_id: userId,
-        exercise_id: exerciseId,
+        exercise_id: exercise.id,
       }));
 
       const { error } = await supabase.from('user_tracked_exercises').insert(trackingRecords);
@@ -325,43 +535,51 @@ export default function InsightsExerciseTrackingModal({
         throw error;
       }
 
-      // Get the full exercise objects for the selected exercises
-      const allExercises = await exerciseService.getAllExercises();
-      const selectedExercises = allExercises.filter((exercise) =>
-        selectedExerciseIds.has(exercise.id),
-      );
-
       SentryDataCollection.addBreadcrumb({
         message: 'Successfully saved tracked exercises from insights modal',
         category: 'data.save',
         level: 'info',
         data: {
           userId,
-          savedCount: selectedExercises.length,
-          exerciseNames: selectedExercises.map((ex) => ex.name).slice(0, 5),
+          savedCount: exercises.length,
+          exerciseNames: exercises.map((ex) => ex.name).slice(0, 5),
         },
       });
 
-      onExercisesSelected(selectedExercises);
-      onClose();
+      onExercisesSelected(exercises);
+      onClose(); // Close modal after successful save
     } catch (error) {
       SentryDataCollection.captureException(error as Error, {
         component: 'InsightsExerciseTrackingModal',
         action: 'save_tracked_exercises',
         userId,
-        selectedCount: selectedExerciseIds.size,
+        selectedCount: exercises.length,
       });
       SentryLogger.error('Failed to save tracked exercises from insights modal', {
         error: error as Error,
         userId,
-        selectedCount: selectedExerciseIds.size,
+        selectedCount: exercises.length,
       });
     }
   };
 
-  const handleStep2Next = useCallback(() => {
-    // For insights tracking, we skip configuration and save directly
-    handleSaveSelection();
+  // For insights tracking, we don't need step 3 configuration
+  const handleAddAll = useCallback((exercises: SelectedExercise[]) => {
+    // Convert SelectedExercise to Exercise and save
+    const basicExercises: Exercise[] = exercises.map((ex) => ({
+      id: ex.id,
+      name: ex.name,
+      image_url: ex.image_url || '',
+      muscle_group: ex.muscle_group,
+      primary_muscles: ex.primary_muscles || [],
+      requires_weight: ex.requires_weight || false,
+      description: '',
+      equipment: '',
+      difficulty: 'Beginner',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }));
+    handleSaveSelection(basicExercises);
   }, []);
 
   const handleClose = useCallback(() => {
@@ -381,65 +599,28 @@ export default function InsightsExerciseTrackingModal({
     }
   }, [currentStep, selectedExerciseIds.size, onClose]);
 
+  const handleBackPress = useCallback(() => {
+    if (currentStep > 1 && !showFavorites && !showAllExercises) {
+      setCurrentStep(1);
+      setSelectedMuscleGroup('');
+      // Don't reset selectedExerciseIds here - preserve selections when going back
+      searchState.clearSearch();
+    } else if (showFavorites || showAllExercises) {
+      setShowFavorites(false);
+      setShowAllExercises(false);
+      setCurrentStep(1);
+      searchState.clearSearch();
+    } else {
+      handleClose();
+    }
+  }, [currentStep, showFavorites, showAllExercises, searchState]);
+
   const getStepTitle = () => {
     if (showFavorites) return 'Favorite Exercises';
     if (showAllExercises) return 'All Exercises';
     if (currentStep === 1) return 'Select Muscle Group';
     if (currentStep === 2) return selectedMuscleGroup || 'Select Exercises';
     return 'Track Exercises';
-  };
-
-  const renderStepContent = () => {
-    if (showFavorites) {
-      return (
-        <StepFavorites
-          selectedExercises={selectedExerciseIds}
-          onExerciseToggle={handleExerciseToggle}
-          onNext={handleStep2Next}
-          selectedMuscleGroup={selectedMuscleGroup}
-          searchState={searchState}
-          isExerciseAlreadyAdded={isExerciseAlreadyAdded}
-        />
-      );
-    }
-
-    if (showAllExercises) {
-      return (
-        <StepAllExercises
-          selectedExercises={selectedExerciseIds}
-          onExerciseToggle={handleExerciseToggle}
-          onNext={handleStep2Next}
-          searchState={searchState}
-          isExerciseAlreadyAdded={isExerciseAlreadyAdded}
-        />
-      );
-    }
-
-    switch (currentStep) {
-      case 1:
-        return (
-          <Step1MuscleSelection
-            currentView={currentView}
-            setCurrentView={setCurrentView}
-            onMuscleSelect={handleMuscleSelect}
-            pulseAnim={pulseAnim}
-            searchState={searchState}
-          />
-        );
-      case 2:
-        return (
-          <Step2ExerciseSelection
-            selectedMuscleGroup={selectedMuscleGroup}
-            selectedExercises={selectedExerciseIds}
-            onExerciseToggle={handleExerciseToggle}
-            onNext={handleStep2Next}
-            searchState={searchState}
-            isExerciseAlreadyAdded={isExerciseAlreadyAdded}
-          />
-        );
-      default:
-        return null;
-    }
   };
 
   return (
@@ -451,91 +632,119 @@ export default function InsightsExerciseTrackingModal({
       statusBarTranslucent
     >
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <View style={addExerciseModalStyles.modalContainer}>
+        <View style={{ flex: 1 }}>
           {/* Backdrop */}
-          <Animated.View style={[addExerciseModalStyles.backdrop, animatedBackdropStyle]} />
+          <Animated.View style={[styles.backdrop, animatedBackdropStyle]} />
 
           {/* Modal Content */}
           <Animated.View
             style={[
-              addExerciseModalStyles.modalContainer,
+              {
+                width: '100%',
+                height: '100%',
+                backgroundColor: COLORS.background,
+                paddingTop: insets.top,
+              },
               animatedModalStyle,
-              { paddingTop: insets.top + 20 },
             ]}
           >
-            {/* Header */}
-            <View style={addExerciseModalStyles.header}>
-              <TouchableOpacity
-                onPress={() => {
-                  if (currentStep > 1 && !showFavorites && !showAllExercises) {
-                    setCurrentStep(1);
-                    setSelectedMuscleGroup('');
-                    setSelectedExerciseIds(new Set());
-                    searchState.clearSearch();
-                  } else if (showFavorites || showAllExercises) {
-                    setShowFavorites(false);
-                    setShowAllExercises(false);
-                    setCurrentStep(1);
-                    searchState.clearSearch();
-                  } else {
-                    handleClose();
-                  }
-                }}
-                style={addExerciseModalStyles.headerButton}
-              >
-                <Ionicons
-                  name={
-                    currentStep > 1 || showFavorites || showAllExercises ? 'arrow-back' : 'close'
-                  }
-                  size={24}
-                  color={COLORS.text}
-                />
-              </TouchableOpacity>
+            {/* Main Content */}
+            <View style={styles.container}>
+              {/* Top Glow Effects */}
+              <View style={styles.topGlowLeft} />
+              <View style={styles.topGlowRight} />
+              {/* Header */}
+              <View style={[styles.header, { paddingTop: 10 }]}>
+                <View style={styles.headerLeft}>
+                  <TouchableOpacity onPress={handleBackPress} style={styles.headerButton}>
+                    <Ionicons
+                      name={
+                        currentStep > 1 || showFavorites || showAllExercises
+                          ? 'arrow-back'
+                          : 'close'
+                      }
+                      size={24}
+                      color={COLORS.text}
+                    />
+                  </TouchableOpacity>
+                </View>
 
-              <View style={addExerciseModalStyles.headerCenter}>
-                <Text style={addExerciseModalStyles.headerTitle}>{getStepTitle()}</Text>
-                <Text style={{ color: COLORS.secondary, fontSize: 12, textAlign: 'center' }}>
-                  Select exercises to track their progress
-                </Text>
+                <View style={styles.headerCenter}>
+                  <Text style={styles.headerTitle}>{getStepTitle()}</Text>
+                </View>
+
+                <View style={styles.headerRight}>
+                  {/* Only show favorite button on steps 1 and 2 */}
+                  {currentStep !== 3 && (
+                    <TouchableOpacity
+                      style={styles.headerButton}
+                      onPress={favoriteLogic.handleFavoritePress}
+                    >
+                      <Ionicons
+                        name={showFavorites ? 'star' : 'star-outline'}
+                        size={24}
+                        color={showFavorites ? '#FFD700' : COLORS.text}
+                      />
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
 
-              <View style={addExerciseModalStyles.headerRight}>
-                {currentStep === 1 && (
-                  <TouchableOpacity
-                    onPress={favoriteLogic.handleFavoritePress}
-                    style={addExerciseModalStyles.headerButton}
-                  >
-                    <Ionicons name="heart" size={20} color={COLORS.primary} />
-                  </TouchableOpacity>
-                )}
+              {/* Content */}
+              <View style={styles.content}>
+                <Animated.View
+                  style={[
+                    styles.animatedContentContainer,
+                    {
+                      transform: [
+                        {
+                          translateY: searchState.contentOffsetAnim,
+                        },
+                      ],
+                    },
+                  ]}
+                >
+                  <StepRenderer
+                    currentStep={currentStep}
+                    showFavorites={showFavorites}
+                    showAllExercises={showAllExercises}
+                    currentView={currentView}
+                    setCurrentView={setCurrentView}
+                    handleMuscleSelect={handleMuscleSelect}
+                    pulseAnim={pulseAnim}
+                    selectedMuscleGroup={selectedMuscleGroup}
+                    selectedExerciseIds={selectedExerciseIds}
+                    handleExerciseToggle={handleExerciseToggle}
+                    handleStep2Next={handleStep2Next}
+                    searchState={searchState}
+                    selectedExercises={selectedExercises}
+                    handleAddAll={handleAddAll}
+                    isExerciseAlreadyAdded={isExerciseAlreadyAdded}
+                    buttonText="Add"
+                  />
+                </Animated.View>
               </View>
             </View>
-
-            {/* Floating Search */}
-            <FloatingSearchUI
-              searchState={searchState}
-              stepTitle={getStepTitle()}
-              currentStep={currentStep}
-            />
-
-            {/* Step Content */}
-            <View style={addExerciseModalStyles.content}>{renderStepContent()}</View>
-
-            {/* Save Button (only show when exercises are selected) */}
-            {selectedExerciseIds.size > 0 && (
-              <View style={addExerciseModalStyles.stepActions}>
-                <TouchableOpacity
-                  style={addExerciseModalStyles.nextButton}
-                  onPress={handleSaveSelection}
-                >
-                  <Text style={addExerciseModalStyles.nextButtonText}>
-                    Add {selectedExerciseIds.size} Exercise
-                    {selectedExerciseIds.size !== 1 ? 's' : ''} to Tracking
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
           </Animated.View>
+
+          {/* Floating Search UI - show on steps 1 and 2 */}
+          {(currentStep === 1 || currentStep === 2) && (
+            <View
+              style={{
+                position: 'absolute',
+                top: insets.top - 50,
+                left: 0,
+                right: 0,
+                zIndex: 150,
+              }}
+            >
+              <FloatingSearchUI
+                searchState={searchState}
+                stepTitle={getStepTitle()}
+                currentStep={currentStep}
+              />
+            </View>
+          )}
         </View>
       </GestureHandlerRootView>
     </Modal>

@@ -13,6 +13,7 @@ import {
 
 export const MuscleMarker = ({ muscle, pulseAnim, onPress }: MuscleMarkerProps) => {
   const isCardio = muscle.name === 'Cardio';
+  const isDisabled = isCardio; // Disable Cardio
   const markerStyle = isCardio ? muscle.heartPosition : muscle.dotPosition;
 
   return (
@@ -29,15 +30,17 @@ export const MuscleMarker = ({ muscle, pulseAnim, onPress }: MuscleMarkerProps) 
             }
           : {},
         markerStyle as Record<string, unknown>,
+        isDisabled && { opacity: 0.3 }, // Grey out disabled muscles
       ]}
-      onPress={() => onPress(muscle.name)}
+      onPress={() => !isDisabled && onPress(muscle.name)}
+      disabled={isDisabled}
     >
       {isCardio ? (
         <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
           <MaterialCommunityIcons
             name="heart-pulse"
             size={28}
-            color={COLORS.primary}
+            color={isDisabled ? COLORS.placeholder : COLORS.primary}
             style={{ marginTop: -1 }}
           />
         </Animated.View>
@@ -47,6 +50,7 @@ export const MuscleMarker = ({ muscle, pulseAnim, onPress }: MuscleMarkerProps) 
             styles.markerDot,
             {
               transform: [{ scale: pulseAnim }],
+              backgroundColor: isDisabled ? COLORS.placeholder : COLORS.primary,
             },
           ]}
         />
@@ -61,18 +65,27 @@ export const MuscleText = ({
 }: {
   muscle: MuscleGroup;
   onPress: (muscleName: string) => void;
-}) => (
-  <TouchableOpacity
-    style={[
-      styles.textContainer,
-      muscle.textPosition as Record<string, unknown>,
-      muscle.textPosition.right ? styles.textRight : styles.textLeft,
-    ]}
-    onPress={() => onPress(muscle.name)}
-  >
-    <Text style={styles.markerText}>{muscle.name}</Text>
-  </TouchableOpacity>
-);
+}) => {
+  const isCardio = muscle.name === 'Cardio';
+  const isDisabled = isCardio; // Disable Cardio
+
+  return (
+    <TouchableOpacity
+      style={[
+        styles.textContainer,
+        muscle.textPosition as Record<string, unknown>,
+        muscle.textPosition.right ? styles.textRight : styles.textLeft,
+        isDisabled && { opacity: 0.3 }, // Grey out disabled muscle text
+      ]}
+      onPress={() => !isDisabled && onPress(muscle.name)}
+      disabled={isDisabled}
+    >
+      <Text style={[styles.markerText, isDisabled && { color: COLORS.placeholder }]}>
+        {muscle.name}
+      </Text>
+    </TouchableOpacity>
+  );
+};
 
 export const ClickableZone = ({
   muscle,
@@ -80,22 +93,28 @@ export const ClickableZone = ({
 }: {
   muscle: MuscleGroup;
   onPress: (muscleName: string) => void;
-}) => (
-  <TouchableOpacity
-    style={[
-      styles.clickableZone,
-      {
-        position: 'absolute',
-        width: `${calculateClickableZoneWidth(muscle)}%`,
-        height: '10%',
-        left: `${calculateClickableZoneLeft(muscle)}%`,
-        top: `${parseFloat(muscle.dotPosition.top) - 5}%`,
-        zIndex: 5,
-      } as Record<string, unknown>,
-    ]}
-    onPress={() => onPress(muscle.name)}
-  />
-);
+}) => {
+  const isCardio = muscle.name === 'Cardio';
+  const isDisabled = isCardio; // Disable Cardio
+
+  return (
+    <TouchableOpacity
+      style={[
+        styles.clickableZone,
+        {
+          position: 'absolute',
+          width: `${calculateClickableZoneWidth(muscle)}%`,
+          height: '10%',
+          left: `${calculateClickableZoneLeft(muscle)}%`,
+          top: `${parseFloat(muscle.dotPosition.top) - 5}%`,
+          zIndex: 5,
+        } as Record<string, unknown>,
+      ]}
+      onPress={() => !isDisabled && onPress(muscle.name)}
+      disabled={isDisabled}
+    />
+  );
+};
 
 export const DottedLine = ({ muscle }: { muscle: MuscleGroup }) => (
   <View

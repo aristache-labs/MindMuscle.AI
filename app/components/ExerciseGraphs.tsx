@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { StyleSheet, View, Alert, Platform, ScrollView, Dimensions } from 'react-native';
-import { Text, IconButton, Surface, useTheme, Button } from 'react-native-paper';
+import { Text, IconButton, Surface, Button } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LineChart } from 'react-native-gifted-charts';
 import * as Sentry from '@sentry/react-native';
 import { COLORS } from '../constants/theme';
@@ -28,7 +29,6 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
   onSetGoal,
   onDeleteExercise,
 }) => {
-  const theme = useTheme();
   const screenWidth = Dimensions.get('window').width - 32; // Account for outer container margins
 
   // Track component lifecycle with Sentry
@@ -264,7 +264,14 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
             exercises.map((exercise) => (
               <View key={exercise.id} style={styles.graphCard}>
                 <View style={styles.exerciseHeader}>
-                  <Text style={styles.exerciseName}>{exercise.name}</Text>
+                  <View style={styles.exerciseNameContainer}>
+                    <Text style={styles.exerciseName}>{exercise.name}</Text>
+                    {exercise.data.length > 0 && (
+                      <Text style={styles.dataPointsCount}>
+                        {exercise.data.length} workout{exercise.data.length !== 1 ? 's' : ''}
+                      </Text>
+                    )}
+                  </View>
                   <View style={styles.maxValueContainer}>
                     {exercise.data.length > 0 ? (
                       <>
@@ -289,107 +296,203 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
                   </View>
                 </View>
 
-                <View style={styles.graphContentWrapper}>
-                  {/* Chart Section */}
-                  <View style={styles.chartSection}>
-                    {exercise.data.length > 0 ? (
-                      <LineChart
-                        data={exercise.data.map((d) => ({
-                          value: d.value,
-                          label: new Date(d.date).toLocaleDateString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                          }),
-                          dataPointText: `${d.value}`,
-                        }))}
-                        width={screenWidth - 200}
-                        height={120}
-                        noOfSections={4}
-                        spacing={30}
-                        color={COLORS.primary}
-                        thickness={2}
-                        startFillColor={COLORS.primary}
-                        startOpacity={0.3}
-                        endOpacity={0.1}
-                        initialSpacing={10}
-                        endSpacing={10}
-                        hideDataPoints={false}
-                        dataPointsColor={COLORS.primary}
-                        dataPointsRadius={3}
-                        focusEnabled
-                        showTextOnFocus
-                        textFontSize={10}
-                        textColor={theme.colors.onBackground}
-                        yAxisTextStyle={{ color: theme.colors.onSurface, fontSize: 8 }}
-                        xAxisLabelTextStyle={{ color: theme.colors.onSurface, fontSize: 8 }}
-                        curved
-                      />
-                    ) : (
-                      <View style={styles.noDataContainer}>
-                        <Text style={styles.noDataText}>No workout data yet</Text>
-                        <Text style={styles.noDataSubtext}>
-                          Complete workouts with this exercise to see progress
+                {/* Progress Info Section */}
+                {exercise.data.length > 0 && (
+                  <View style={styles.progressInfoSection}>
+                    <View style={styles.progressItem}>
+                      <Text style={styles.progressValue}>
+                        {(
+                          ((Math.max(...exercise.data.map((d) => d.value)) -
+                            Math.min(...exercise.data.map((d) => d.value))) /
+                            Math.min(...exercise.data.map((d) => d.value))) *
+                          100
+                        ).toFixed(1)}
+                        %
+                      </Text>
+                      <Text style={styles.progressLabel}>Growth</Text>
+                    </View>
+                    <View style={styles.progressItem}>
+                      <View style={styles.progressValueWithIcon}>
+                        {exercise.data.length >= 2 && (
+                          <MaterialCommunityIcons
+                            name={
+                              exercise.data[exercise.data.length - 1].value -
+                                exercise.data[exercise.data.length - 2].value >
+                              0
+                                ? 'trending-up'
+                                : exercise.data[exercise.data.length - 1].value -
+                                      exercise.data[exercise.data.length - 2].value <
+                                    0
+                                  ? 'trending-down'
+                                  : 'trending-neutral'
+                            }
+                            size={14}
+                            color={
+                              exercise.data[exercise.data.length - 1].value -
+                                exercise.data[exercise.data.length - 2].value >
+                              0
+                                ? '#00FF7F'
+                                : exercise.data[exercise.data.length - 1].value -
+                                      exercise.data[exercise.data.length - 2].value <
+                                    0
+                                  ? '#FF6B6B'
+                                  : '#6C47FF'
+                            }
+                            style={styles.trendIcon}
+                          />
+                        )}
+                        <Text style={styles.progressValue}>
+                          {exercise.data.length >= 2
+                            ? `${
+                                exercise.data[exercise.data.length - 1].value -
+                                  exercise.data[exercise.data.length - 2].value >
+                                0
+                                  ? '+'
+                                  : ''
+                              }${
+                                exercise.data[exercise.data.length - 1].value -
+                                exercise.data[exercise.data.length - 2].value
+                              }${exercise.unit}`
+                            : '--'}
                         </Text>
                       </View>
-                    )}
+                      <Text style={styles.progressLabel}>Last Change</Text>
+                    </View>
+                    <View style={styles.progressItem}>
+                      <Text style={styles.progressValue}>
+                        {new Date(exercise.data[0].date).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </Text>
+                      <Text style={styles.progressLabel}>Started</Text>
+                    </View>
                   </View>
+                )}
 
-                  {/* Action Buttons Section */}
-                  <View style={styles.actionsSection}>
-                    <View style={styles.actionButtonGroup}>
-                      <IconButton
-                        icon="flag"
-                        mode="contained"
-                        iconColor={COLORS.text}
-                        size={14}
-                        onPress={() => {
-                          try {
-                            Sentry.addBreadcrumb({
-                              message: 'Set goal button pressed',
-                              category: 'user.interaction',
-                              level: 'info',
-                              data: {
-                                exerciseId: exercise.id,
-                                exerciseName: exercise.name,
-                                currentDataPoints: exercise.data.length,
-                                currentMaxValue: Math.max(...exercise.data.map((d) => d.value)),
-                              },
-                            });
-
-                            onSetGoal?.(exercise.id);
-                          } catch (error) {
-                            Sentry.captureException(error, {
-                              tags: {
-                                component: 'ExerciseGraphs',
-                                action: 'handleSetGoal',
-                              },
-                              extra: {
-                                exerciseId: exercise.id,
-                              },
-                            });
-                            console.error('Error in ExerciseGraphs handleSetGoal:', error);
-
-                            // Still call the original handler
-                            onSetGoal?.(exercise.id);
-                          }
-                        }}
-                        style={styles.compactGoalButton}
-                        containerColor={COLORS.primary}
-                      />
-                      <Text style={styles.compactButtonText}>Set Goal</Text>
+                {/* Chart Section */}
+                <View style={styles.chartSection}>
+                  {exercise.data.length > 0 ? (
+                    <LineChart
+                      data={exercise.data.map((d) => ({
+                        value: d.value,
+                        label: new Date(d.date).toLocaleDateString('en-US', {
+                          month: '2-digit',
+                          day: '2-digit',
+                        }),
+                        dataPointText: `${d.value}`,
+                      }))}
+                      width={screenWidth - 80}
+                      height={160}
+                      noOfSections={3}
+                      spacing={Math.max(
+                        20,
+                        (screenWidth - 120) / Math.max(exercise.data.length, 4),
+                      )}
+                      color="#6C47FF"
+                      thickness={3}
+                      startFillColor="#6C47FF"
+                      startOpacity={0.6}
+                      endFillColor="#6C47FF"
+                      endOpacity={0.05}
+                      initialSpacing={20}
+                      endSpacing={20}
+                      hideDataPoints={false}
+                      dataPointsColor="#FFFFFF"
+                      dataPointsRadius={5}
+                      focusEnabled={true}
+                      showTextOnFocus={true}
+                      textFontSize={12}
+                      textColor="#FFFFFF"
+                      textShiftY={-8}
+                      textShiftX={-10}
+                      yAxisColor="rgba(255,255,255,0.3)"
+                      xAxisColor="rgba(255,255,255,0.3)"
+                      yAxisTextStyle={{
+                        color: 'rgba(255,255,255,0.7)',
+                        fontSize: 10,
+                        fontWeight: '500',
+                      }}
+                      xAxisLabelTextStyle={{
+                        color: 'rgba(255,255,255,0.7)',
+                        fontSize: 9,
+                        fontWeight: '500',
+                        width: 60,
+                        textAlign: 'center',
+                      }}
+                      curved={true}
+                      curvature={0.3}
+                      areaChart={true}
+                      hideAxesAndRules={false}
+                      hideYAxisText={false}
+                      rulesColor="rgba(255,255,255,0.1)"
+                      rulesType="solid"
+                    />
+                  ) : (
+                    <View style={styles.noDataContainer}>
+                      <Text style={styles.noDataText}>No workout data yet</Text>
+                      <Text style={styles.noDataSubtext}>
+                        Complete workouts with this exercise to see progress
+                      </Text>
                     </View>
-                    <View style={styles.actionButtonGroup}>
-                      <IconButton
-                        icon="delete"
-                        mode="contained"
-                        iconColor={COLORS.text}
-                        size={14}
-                        onPress={() => handleDeletePress(exercise.id)}
-                        style={styles.compactDeleteButton}
-                        containerColor={COLORS.error}
-                      />
-                      <Text style={styles.compactButtonText}>Delete Exercise</Text>
-                    </View>
+                  )}
+                </View>
+
+                {/* Action Buttons Section - Bottom Row */}
+                <View style={styles.bottomActionsSection}>
+                  <View style={styles.bottomActionButton}>
+                    <IconButton
+                      icon="flag"
+                      mode="contained"
+                      iconColor="#FFFFFF"
+                      size={16}
+                      onPress={() => {
+                        try {
+                          Sentry.addBreadcrumb({
+                            message: 'Set goal button pressed',
+                            category: 'user.interaction',
+                            level: 'info',
+                            data: {
+                              exerciseId: exercise.id,
+                              exerciseName: exercise.name,
+                              currentDataPoints: exercise.data.length,
+                              currentMaxValue: Math.max(...exercise.data.map((d) => d.value)),
+                            },
+                          });
+
+                          onSetGoal?.(exercise.id);
+                        } catch (error) {
+                          Sentry.captureException(error, {
+                            tags: {
+                              component: 'ExerciseGraphs',
+                              action: 'handleSetGoal',
+                            },
+                            extra: {
+                              exerciseId: exercise.id,
+                            },
+                          });
+                          console.error('Error in ExerciseGraphs handleSetGoal:', error);
+
+                          // Still call the original handler
+                          onSetGoal?.(exercise.id);
+                        }
+                      }}
+                      style={styles.bottomButtonIcon}
+                      containerColor="#FFD700"
+                    />
+                    <Text style={styles.bottomButtonText}>Set Goal</Text>
+                  </View>
+                  <View style={styles.bottomActionButton}>
+                    <IconButton
+                      icon="delete"
+                      mode="contained"
+                      iconColor="#FFFFFF"
+                      size={16}
+                      onPress={() => handleDeletePress(exercise.id)}
+                      style={styles.bottomButtonIcon}
+                      containerColor="#FF6B6B"
+                    />
+                    <Text style={styles.bottomButtonText}>Delete Exercise</Text>
                   </View>
                 </View>
               </View>
@@ -482,11 +585,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   graphCard: {
-    borderRadius: 12,
-    backgroundColor: 'rgba(108, 71, 255, 0.05)',
-    padding: 16,
+    borderRadius: 16,
+    backgroundColor: '#2A2D3A',
+    padding: 20,
+    marginBottom: 16,
     borderWidth: 1,
-    borderColor: 'rgba(108, 71, 255, 0.2)',
+    borderColor: 'rgba(108, 71, 255, 0.3)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.25,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
   },
   exerciseHeader: {
     flexDirection: 'row',
@@ -494,30 +609,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
+  exerciseNameContainer: {
+    flex: 1,
+  },
   exerciseName: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: COLORS.text,
-    flex: 1,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginBottom: 2,
+  },
+  dataPointsCount: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.6)',
+    fontWeight: '500',
   },
   maxValueContainer: {
     alignItems: 'center',
     minWidth: 60,
   },
   maxValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: COLORS.primary,
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#FFD700',
     marginBottom: 2,
   },
   unitText: {
-    fontSize: 14,
-    color: COLORS.secondary,
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.7)',
     marginLeft: 2,
   },
   maxLabel: {
     fontSize: 12,
-    color: COLORS.secondary,
+    color: 'rgba(255,255,255,0.6)',
+    fontWeight: '500',
   },
   prLabel: {
     fontSize: 10,
@@ -534,29 +658,67 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  chartSection: {
-    flex: 1,
+  progressInfoSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    marginVertical: 8,
+  },
+  progressItem: {
     alignItems: 'center',
-    marginRight: 16,
+    flex: 1,
+  },
+  progressValueWithIcon: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 2,
+  },
+  trendIcon: {
+    marginRight: 4,
+  },
+  progressValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#6C47FF',
+  },
+  progressLabel: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.7)',
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  chartSection: {
+    alignItems: 'center',
+    marginVertical: 12,
+    width: '100%',
   },
   noDataContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    height: 120,
+    height: 160,
     paddingHorizontal: 16,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderStyle: 'dashed',
   },
   noDataText: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
-    color: COLORS.secondary,
-    marginBottom: 4,
+    color: 'rgba(255,255,255,0.8)',
+    marginBottom: 8,
     textAlign: 'center',
   },
   noDataSubtext: {
-    fontSize: 12,
-    color: COLORS.secondary,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.6)',
     textAlign: 'center',
-    lineHeight: 16,
+    lineHeight: 18,
   },
   actionsSection: {
     flexDirection: 'column',
@@ -587,6 +749,43 @@ const styles = StyleSheet.create({
     color: COLORS.secondary,
     textAlign: 'center',
     maxWidth: 60,
+  },
+  // New bottom action section styles
+  bottomActionsSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.1)',
+    marginTop: 8,
+  },
+  bottomActionButton: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  bottomButtonIcon: {
+    borderRadius: 22,
+    marginBottom: 8,
+    width: 44,
+    height: 44,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  bottomButtonText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.95)',
+    textAlign: 'center',
+    fontWeight: '600',
   },
   // Legacy styles (keeping for backward compatibility)
   valueContainer: {

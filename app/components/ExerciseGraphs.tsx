@@ -29,7 +29,249 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
   onSetGoal,
   onDeleteExercise,
 }) => {
-  const screenWidth = Dimensions.get('window').width - 32; // Account for outer container margins
+  const windowWidth = Dimensions.get('window').width;
+  const SURFACE_MARGIN = 0; // matches styles.container marginHorizontal
+  const SURFACE_PADDING = 15; // matches styles.container padding
+  const CARD_PADDING = 20; // matches styles.graphCard padding
+  const BORDER_WIDTH = 0; // approximate, applied both sides
+  const chartWidth =
+    windowWidth - (SURFACE_MARGIN * 2 + SURFACE_PADDING * 2 + CARD_PADDING * 2 + BORDER_WIDTH * 2);
+
+  function getLabelInterval(count: number): number {
+    if (count <= 6) return 1;
+    return Math.ceil(count / 6);
+  }
+
+  function reduceByDate(data: { date: string; value: number }[]) {
+    const byDate = new Map<string, number>();
+    for (const point of data) {
+      const existing = byDate.get(point.date);
+      if (existing === undefined || point.value > existing) byDate.set(point.date, point.value);
+    }
+    return Array.from(byDate.entries()).map(([date, value]) => ({ date, value }));
+  }
+
+  function getExerciseStats(exercise: ExerciseData) {
+    const reduced = reduceByDate(exercise.data);
+    const values = reduced.map((d) => d.value);
+    const firstValue = values.length > 0 ? values[0] : 0;
+    const lastValue = values.length > 0 ? values[values.length - 1] : 0;
+    const prevValue = values.length > 1 ? values[values.length - 2] : 0;
+    const maxValue = values.length > 0 ? Math.max(...values) : 0;
+    const growthPercent = firstValue > 0 ? ((maxValue - firstValue) / firstValue) * 100 : 0;
+    const startedLabel = reduced.length > 0 ? reduced[0].date : '--';
+    return {
+      values,
+      firstValue,
+      lastValue,
+      prevValue,
+      maxValue,
+      growthPercent,
+      startedLabel,
+      reduced,
+    };
+  }
+
+  function renderExerciseCard(exercise: ExerciseData) {
+    const { lastValue, prevValue, maxValue, growthPercent, startedLabel } =
+      getExerciseStats(exercise);
+
+    return (
+      <View key={exercise.id} style={styles.graphCard}>
+        <View style={styles.exerciseHeader}>
+          <View style={styles.exerciseNameContainer}>
+            <Text style={styles.exerciseName}>{exercise.name}</Text>
+            {exercise.data.length > 0 && (
+              <Text style={styles.dataPointsCount}>
+                {exercise.data.length} workout{exercise.data.length !== 1 ? 's' : ''}
+              </Text>
+            )}
+          </View>
+          <View style={styles.maxValueContainer}>
+            {exercise.data.length > 0 ? (
+              <>
+                <Text style={styles.maxValue}>
+                  {maxValue}
+                  <Text style={styles.unitText}>{exercise.unit}</Text>
+                </Text>
+                <Text style={styles.maxLabel}>Max</Text>
+                {exercise.data.some((d) => d.date.includes('PR')) && (
+                  <Text style={styles.prLabel}>PR</Text>
+                )}
+              </>
+            ) : (
+              <>
+                <Text style={styles.maxValue}>
+                  --
+                  <Text style={styles.unitText}>{exercise.unit}</Text>
+                </Text>
+                <Text style={styles.maxLabel}>Max</Text>
+              </>
+            )}
+          </View>
+        </View>
+
+        {/* Progress Info Section */}
+        {exercise.data.length > 0 && (
+          <View style={styles.progressInfoSection}>
+            <View style={styles.progressItem}>
+              <Text style={styles.progressValue}>{growthPercent.toFixed(1)}%</Text>
+              <Text style={styles.progressLabel}>Growth</Text>
+            </View>
+            <View style={styles.progressItem}>
+              <View style={styles.progressValueWithIcon}>
+                {exercise.data.length >= 2 && (
+                  <MaterialCommunityIcons
+                    name={
+                      lastValue - prevValue > 0
+                        ? 'trending-up'
+                        : lastValue - prevValue < 0
+                          ? 'trending-down'
+                          : 'trending-neutral'
+                    }
+                    size={14}
+                    color={
+                      lastValue - prevValue > 0
+                        ? '#00FF7F'
+                        : lastValue - prevValue < 0
+                          ? '#FF6B6B'
+                          : '#6C47FF'
+                    }
+                    style={styles.trendIcon}
+                  />
+                )}
+                <Text style={styles.progressValue}>
+                  {exercise.data.length >= 2
+                    ? `${lastValue - prevValue > 0 ? '+' : ''}${lastValue - prevValue}${exercise.unit}`
+                    : '--'}
+                </Text>
+              </View>
+              <Text style={styles.progressLabel}>Last Change</Text>
+            </View>
+            <View style={styles.progressItem}>
+              <Text style={styles.progressValue}>{startedLabel}</Text>
+              <Text style={styles.progressLabel}>Started</Text>
+            </View>
+          </View>
+        )}
+
+        {/* Chart Section */}
+        <View style={styles.chartSection}>
+          {exercise.data.length > 0 ? (
+            <View style={[styles.chartClip, { width: chartWidth }]}>
+              {(() => {
+                const interval = getLabelInterval(exercise.data.length);
+                const lastIndex = exercise.data.length - 1;
+                const xLabels = exercise.data.map((d, i) => {
+                  const shouldShow = i % interval === 0 || i === lastIndex || i === 0;
+                  if (!shouldShow) return '';
+                  // Normalize to two-digit day and month (dd.mm)
+                  const parts = d.date.split('.');
+                  if (parts.length === 2) {
+                    const dd = parts[0].padStart(2, '0');
+                    const mm = parts[1].padStart(2, '0');
+                    return `${dd}.${mm}`;
+                  }
+                  return d.date;
+                });
+                const chartData = exercise.data.map((d) => ({ value: d.value, label: '' }));
+                return (
+                  <LineChart
+                    data={chartData}
+                    xAxisLabelTexts={xLabels}
+                    width={chartWidth}
+                    height={160}
+                    noOfSections={3}
+                    spacing={Math.max(16, (chartWidth - 40) / Math.max(exercise.data.length, 4))}
+                    color={COLORS.primary}
+                    thickness={3}
+                    startFillColor={COLORS.primary}
+                    startOpacity={0.25}
+                    endFillColor={COLORS.primary}
+                    endOpacity={0.05}
+                    initialSpacing={10}
+                    endSpacing={14}
+                    hideDataPoints={false}
+                    dataPointsColor="#FFFFFF"
+                    dataPointsRadius={5}
+                    focusEnabled={true}
+                    showTextOnFocus={true}
+                    textFontSize={12}
+                    textColor="#FFFFFF"
+                    textShiftY={-8}
+                    textShiftX={-10}
+                    yAxisColor="rgba(255,255,255,0.2)"
+                    xAxisColor="rgba(255,255,255,0.2)"
+                    yAxisTextStyle={{
+                      color: 'rgba(255,255,255,0.7)',
+                      fontSize: 10,
+                      fontWeight: '500',
+                    }}
+                    xAxisLabelTextStyle={{
+                      color: 'rgba(255,255,255,0.7)',
+                      fontSize: 9,
+                      fontWeight: '500',
+                      textAlign: 'center',
+                      width: 44,
+                    }}
+                    curved={true}
+                    curvature={0.35}
+                    areaChart={true}
+                    hideAxesAndRules={false}
+                    hideYAxisText={false}
+                    rulesColor="rgba(108,71,255,0.15)"
+                    rulesType="solid"
+                    pointerConfig={{
+                      pointerStripWidth: 2,
+                      pointerStripColor: 'rgba(108,71,255,0.35)',
+                      pointerColor: '#FFFFFF',
+                      radius: 5,
+                      showPointerStrip: true,
+                    }}
+                  />
+                );
+              })()}
+            </View>
+          ) : (
+            <View style={styles.noDataContainer}>
+              <Text style={styles.noDataText}>No workout data yet</Text>
+              <Text style={styles.noDataSubtext}>
+                Complete workouts with this exercise to see progress
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Action Buttons Section - Bottom Row */}
+        <View style={styles.bottomActionsSection}>
+          <View style={styles.bottomActionButton}>
+            <IconButton
+              icon="flag"
+              mode="contained"
+              iconColor="#FFFFFF"
+              size={16}
+              onPress={() => onSetGoal?.(exercise.id)}
+              style={styles.bottomButtonIcon}
+              containerColor={COLORS.primary}
+            />
+            <Text style={styles.bottomButtonText}>Set Goal</Text>
+          </View>
+          <View style={styles.bottomActionButton}>
+            <IconButton
+              icon="delete"
+              mode="contained"
+              iconColor="#FFFFFF"
+              size={16}
+              onPress={() => handleDeletePress(exercise.id)}
+              style={styles.bottomButtonIcon}
+              containerColor="#FF6B6B"
+            />
+            <Text style={styles.bottomButtonText}>Delete Exercise</Text>
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   // Track component lifecycle with Sentry
   useEffect(() => {
@@ -42,7 +284,7 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
           exerciseCount: exercises.length,
           hasExercises: exercises.length > 0,
           exerciseNames: exercises.map((e) => e.name).slice(0, 5), // First 5 exercise names
-          screenWidth,
+          chartWidth,
         },
       });
     } catch (error) {
@@ -63,7 +305,7 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
         console.warn('Failed to log Sentry breadcrumb for ExerciseGraphs unmount:', error);
       }
     };
-  }, [exercises.length, screenWidth]);
+  }, [exercises.length, chartWidth]);
 
   // Track when exercises data changes
   useEffect(() => {
@@ -261,242 +503,7 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
               </Text>
             </View>
           ) : (
-            exercises.map((exercise) => (
-              <View key={exercise.id} style={styles.graphCard}>
-                <View style={styles.exerciseHeader}>
-                  <View style={styles.exerciseNameContainer}>
-                    <Text style={styles.exerciseName}>{exercise.name}</Text>
-                    {exercise.data.length > 0 && (
-                      <Text style={styles.dataPointsCount}>
-                        {exercise.data.length} workout{exercise.data.length !== 1 ? 's' : ''}
-                      </Text>
-                    )}
-                  </View>
-                  <View style={styles.maxValueContainer}>
-                    {exercise.data.length > 0 ? (
-                      <>
-                        <Text style={styles.maxValue}>
-                          {Math.max(...exercise.data.map((d) => d.value))}
-                          <Text style={styles.unitText}>{exercise.unit}</Text>
-                        </Text>
-                        <Text style={styles.maxLabel}>Max</Text>
-                        {exercise.data.some((d) => d.date.includes('PR')) && (
-                          <Text style={styles.prLabel}>PR</Text>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <Text style={styles.maxValue}>
-                          --
-                          <Text style={styles.unitText}>{exercise.unit}</Text>
-                        </Text>
-                        <Text style={styles.maxLabel}>Max</Text>
-                      </>
-                    )}
-                  </View>
-                </View>
-
-                {/* Progress Info Section */}
-                {exercise.data.length > 0 && (
-                  <View style={styles.progressInfoSection}>
-                    <View style={styles.progressItem}>
-                      <Text style={styles.progressValue}>
-                        {(
-                          ((Math.max(...exercise.data.map((d) => d.value)) -
-                            Math.min(...exercise.data.map((d) => d.value))) /
-                            Math.min(...exercise.data.map((d) => d.value))) *
-                          100
-                        ).toFixed(1)}
-                        %
-                      </Text>
-                      <Text style={styles.progressLabel}>Growth</Text>
-                    </View>
-                    <View style={styles.progressItem}>
-                      <View style={styles.progressValueWithIcon}>
-                        {exercise.data.length >= 2 && (
-                          <MaterialCommunityIcons
-                            name={
-                              exercise.data[exercise.data.length - 1].value -
-                                exercise.data[exercise.data.length - 2].value >
-                              0
-                                ? 'trending-up'
-                                : exercise.data[exercise.data.length - 1].value -
-                                      exercise.data[exercise.data.length - 2].value <
-                                    0
-                                  ? 'trending-down'
-                                  : 'trending-neutral'
-                            }
-                            size={14}
-                            color={
-                              exercise.data[exercise.data.length - 1].value -
-                                exercise.data[exercise.data.length - 2].value >
-                              0
-                                ? '#00FF7F'
-                                : exercise.data[exercise.data.length - 1].value -
-                                      exercise.data[exercise.data.length - 2].value <
-                                    0
-                                  ? '#FF6B6B'
-                                  : '#6C47FF'
-                            }
-                            style={styles.trendIcon}
-                          />
-                        )}
-                        <Text style={styles.progressValue}>
-                          {exercise.data.length >= 2
-                            ? `${
-                                exercise.data[exercise.data.length - 1].value -
-                                  exercise.data[exercise.data.length - 2].value >
-                                0
-                                  ? '+'
-                                  : ''
-                              }${
-                                exercise.data[exercise.data.length - 1].value -
-                                exercise.data[exercise.data.length - 2].value
-                              }${exercise.unit}`
-                            : '--'}
-                        </Text>
-                      </View>
-                      <Text style={styles.progressLabel}>Last Change</Text>
-                    </View>
-                    <View style={styles.progressItem}>
-                      <Text style={styles.progressValue}>
-                        {new Date(exercise.data[0].date).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                        })}
-                      </Text>
-                      <Text style={styles.progressLabel}>Started</Text>
-                    </View>
-                  </View>
-                )}
-
-                {/* Chart Section */}
-                <View style={styles.chartSection}>
-                  {exercise.data.length > 0 ? (
-                    <LineChart
-                      data={exercise.data.map((d) => ({
-                        value: d.value,
-                        label: new Date(d.date).toLocaleDateString('en-US', {
-                          month: '2-digit',
-                          day: '2-digit',
-                        }),
-                        dataPointText: `${d.value}`,
-                      }))}
-                      width={screenWidth - 80}
-                      height={160}
-                      noOfSections={3}
-                      spacing={Math.max(
-                        20,
-                        (screenWidth - 120) / Math.max(exercise.data.length, 4),
-                      )}
-                      color="#6C47FF"
-                      thickness={3}
-                      startFillColor="#6C47FF"
-                      startOpacity={0.6}
-                      endFillColor="#6C47FF"
-                      endOpacity={0.05}
-                      initialSpacing={20}
-                      endSpacing={20}
-                      hideDataPoints={false}
-                      dataPointsColor="#FFFFFF"
-                      dataPointsRadius={5}
-                      focusEnabled={true}
-                      showTextOnFocus={true}
-                      textFontSize={12}
-                      textColor="#FFFFFF"
-                      textShiftY={-8}
-                      textShiftX={-10}
-                      yAxisColor="rgba(255,255,255,0.3)"
-                      xAxisColor="rgba(255,255,255,0.3)"
-                      yAxisTextStyle={{
-                        color: 'rgba(255,255,255,0.7)',
-                        fontSize: 10,
-                        fontWeight: '500',
-                      }}
-                      xAxisLabelTextStyle={{
-                        color: 'rgba(255,255,255,0.7)',
-                        fontSize: 9,
-                        fontWeight: '500',
-                        width: 60,
-                        textAlign: 'center',
-                      }}
-                      curved={true}
-                      curvature={0.3}
-                      areaChart={true}
-                      hideAxesAndRules={false}
-                      hideYAxisText={false}
-                      rulesColor="rgba(255,255,255,0.1)"
-                      rulesType="solid"
-                    />
-                  ) : (
-                    <View style={styles.noDataContainer}>
-                      <Text style={styles.noDataText}>No workout data yet</Text>
-                      <Text style={styles.noDataSubtext}>
-                        Complete workouts with this exercise to see progress
-                      </Text>
-                    </View>
-                  )}
-                </View>
-
-                {/* Action Buttons Section - Bottom Row */}
-                <View style={styles.bottomActionsSection}>
-                  <View style={styles.bottomActionButton}>
-                    <IconButton
-                      icon="flag"
-                      mode="contained"
-                      iconColor="#FFFFFF"
-                      size={16}
-                      onPress={() => {
-                        try {
-                          Sentry.addBreadcrumb({
-                            message: 'Set goal button pressed',
-                            category: 'user.interaction',
-                            level: 'info',
-                            data: {
-                              exerciseId: exercise.id,
-                              exerciseName: exercise.name,
-                              currentDataPoints: exercise.data.length,
-                              currentMaxValue: Math.max(...exercise.data.map((d) => d.value)),
-                            },
-                          });
-
-                          onSetGoal?.(exercise.id);
-                        } catch (error) {
-                          Sentry.captureException(error, {
-                            tags: {
-                              component: 'ExerciseGraphs',
-                              action: 'handleSetGoal',
-                            },
-                            extra: {
-                              exerciseId: exercise.id,
-                            },
-                          });
-                          console.error('Error in ExerciseGraphs handleSetGoal:', error);
-
-                          // Still call the original handler
-                          onSetGoal?.(exercise.id);
-                        }
-                      }}
-                      style={styles.bottomButtonIcon}
-                      containerColor="#FFD700"
-                    />
-                    <Text style={styles.bottomButtonText}>Set Goal</Text>
-                  </View>
-                  <View style={styles.bottomActionButton}>
-                    <IconButton
-                      icon="delete"
-                      mode="contained"
-                      iconColor="#FFFFFF"
-                      size={16}
-                      onPress={() => handleDeletePress(exercise.id)}
-                      style={styles.bottomButtonIcon}
-                      containerColor="#FF6B6B"
-                    />
-                    <Text style={styles.bottomButtonText}>Delete Exercise</Text>
-                  </View>
-                </View>
-              </View>
-            ))
+            exercises.map(renderExerciseCard)
           )}
         </View>
       </Surface>
@@ -630,7 +637,7 @@ const styles = StyleSheet.create({
   maxValue: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#FFD700',
+    color: COLORS.primary,
     marginBottom: 2,
   },
   unitText: {
@@ -648,7 +655,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: COLORS.primary,
     marginTop: 2,
-    backgroundColor: 'rgba(255, 193, 7, 0.2)',
+    backgroundColor: 'rgba(108, 71, 255, 0.15)',
     paddingHorizontal: 6,
     paddingVertical: 1,
     borderRadius: 3,
@@ -695,6 +702,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginVertical: 12,
     width: '100%',
+  },
+  chartClip: {
+    overflow: 'hidden',
+    alignSelf: 'center',
   },
   noDataContainer: {
     alignItems: 'center',

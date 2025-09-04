@@ -44,7 +44,7 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
       CARD_BORDER * 2 +
       CHART_SECTION_PADDING * 2 +
       CHART_CLIP_PADDING * 2) -
-    20; // Additional buffer for 4 wider labels
+    0; // Additional buffer for 4 wider labels
 
   // getLabelInterval removed; buildXAxisLabels handles label spacing
 
@@ -121,9 +121,12 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
     const timeDiff = lastDate.getTime() - firstDate.getTime();
     const middleDate = new Date(firstDate.getTime() + timeDiff / 2);
 
-    // Position labels at specific positions to align with graph edges and center
-    labels[0] = exerciseData[0].date; // First position = left edge where graph starts
-    labels[exerciseData.length - 1] = exerciseData[exerciseData.length - 1].date; // Last position = right edge where graph ends
+    // Position labels slightly inward from edges to prevent cutoff, but maintain alignment
+    const startIndex = exerciseData.length > 3 ? 0 : 0; // Slightly inward for longer datasets
+    const endIndex = exerciseData.length > 3 ? exerciseData.length - 2 : exerciseData.length - 1; // Slightly inward for longer datasets
+
+    labels[startIndex] = exerciseData[0].date; // Start date positioned near left edge
+    labels[endIndex] = exerciseData[exerciseData.length - 1].date; // End date positioned near right edge
 
     // Middle position = center of graph
     const middleIndex = Math.floor(exerciseData.length / 2);
@@ -262,7 +265,7 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
                     noOfSections={4}
                     spacing={Math.min(
                       35,
-                      Math.max(15, (chartWidth - 40) / Math.max(exercise.data.length - 1, 1)),
+                      Math.max(15, (chartWidth - 50) / Math.max(exercise.data.length - 1, 1)),
                     )}
                     color={COLORS.primary}
                     thickness={4}
@@ -270,8 +273,8 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
                     startOpacity={0.4}
                     endFillColor={COLORS.gradientEnd}
                     endOpacity={0.1}
-                    initialSpacing={10}
-                    endSpacing={10}
+                    initialSpacing={5}
+                    endSpacing={5}
                     hideDataPoints={false}
                     dataPointsColor={COLORS.primary}
                     dataPointsColor1={COLORS.gradientStart}

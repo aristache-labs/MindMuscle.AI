@@ -175,8 +175,11 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
     // Always use positions 1, 2, 3, 4 but only show labels we have
     const maxPositions = Math.min(4, strategicDates.length);
 
-    // Adjust label positions - move the last label slightly left to prevent cutoff
+    // Adjust label positions - move the first label right and last label left
     const tickValues = Array.from({ length: maxPositions }, (_, i) => {
+      if (i === 0) {
+        return 1.1; // Move the first date label slightly right
+      }
       if (i === maxPositions - 1 && maxPositions === 4) {
         return 3.9; // Move the last date label slightly left
       }

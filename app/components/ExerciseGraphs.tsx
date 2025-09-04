@@ -33,7 +33,7 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
   const windowWidth = Dimensions.get('window').width;
   const SURFACE_MARGIN = 8; // container margins
   const CARD_MARGIN = 4; // card horizontal margins
-  const CARD_BORDER = 1; // card border width
+  const CARD_BORDER = 0; // card border width
   const CHART_SECTION_PADDING = 4; // SPACING.xs
   const CHART_CLIP_PADDING = 1; // reduced padding for more chart space
   // Chart width calculation accounting for all margins and padding
@@ -122,7 +122,7 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
     const middleDate = new Date(firstDate.getTime() + timeDiff / 2);
 
     // Position labels slightly inward from edges to prevent cutoff, but maintain alignment
-    const startIndex = exerciseData.length > 3 ? 0 : 0; // Slightly inward for longer datasets
+    const startIndex = exerciseData.length > 0 ? 0 : 0; // Slightly inward for longer datasets
     const endIndex = exerciseData.length > 3 ? exerciseData.length - 2 : exerciseData.length - 1; // Slightly inward for longer datasets
 
     labels[startIndex] = exerciseData[0].date; // Start date positioned near left edge
@@ -262,13 +262,13 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
                     xAxisLabelTexts={positionedDateLabels}
                     width={chartWidth}
                     height={160}
-                    noOfSections={4}
+                    noOfSections={5}
                     spacing={Math.min(
-                      35,
-                      Math.max(15, (chartWidth - 50) / Math.max(exercise.data.length - 1, 1)),
+                      30,
+                      Math.max(15, (chartWidth - 75) / Math.max(exercise.data.length - 2, 0)),
                     )}
                     color={COLORS.primary}
-                    thickness={4}
+                    thickness={3}
                     startFillColor={COLORS.gradientStart}
                     startOpacity={0.4}
                     endFillColor={COLORS.gradientEnd}

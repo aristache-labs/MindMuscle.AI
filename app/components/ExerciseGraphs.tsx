@@ -2,8 +2,17 @@ import React, { useEffect } from 'react';
 import { StyleSheet, View, Alert, Platform, ScrollView, Dimensions } from 'react-native';
 import { Text, IconButton, Surface, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { LineChart } from 'react-native-gifted-charts';
+import {
+  VictoryChart,
+  VictoryLine,
+  VictoryArea,
+  VictoryAxis,
+  VictoryScatter,
+  VictoryLabel,
+  VictoryTooltip,
+} from 'victory-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { parse } from 'date-fns';
 import * as Sentry from '@sentry/react-native';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../constants/theme';
 
@@ -35,7 +44,7 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
   const CARD_MARGIN = 4; // card horizontal margins
   const CARD_BORDER = 0; // card border width
   const CHART_SECTION_PADDING = 4; // SPACING.xs
-  const CHART_CLIP_PADDING = 1; // reduced padding for more chart space
+  const CHART_CLIP_PADDING = 0; // no padding for maximum chart space
   // Chart width calculation accounting for all margins and padding
   const chartWidth =
     windowWidth -
@@ -52,9 +61,20 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
     const byDate = new Map<string, number>();
     for (const point of data) {
       const existing = byDate.get(point.date);
-      if (existing === undefined || point.value > existing) byDate.set(point.date, point.value);
+      // Keep the highest weight for each date (Personal Record for that day)
+      if (existing === undefined || point.value > existing) {
+        byDate.set(point.date, point.value);
+      }
     }
-    return Array.from(byDate.entries()).map(([date, value]) => ({ date, value }));
+    return Array.from(byDate.entries())
+      .map(([date, value]) => ({ date, value }))
+      .sort((a, b) => {
+        // Sort by date to ensure proper chronological order (dd.MM format)
+        const currentYear = new Date().getFullYear();
+        const dateA = parse(a.date + '.' + currentYear, 'dd.MM.yyyy', new Date());
+        const dateB = parse(b.date + '.' + currentYear, 'dd.MM.yyyy', new Date());
+        return dateA.getTime() - dateB.getTime();
+      });
   }
 
   function getExerciseStats(exercise: ExerciseData) {
@@ -66,6 +86,12 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
     const maxValue = values.length > 0 ? Math.max(...values) : 0;
     const growthPercent = firstValue > 0 ? ((maxValue - firstValue) / firstValue) * 100 : 0;
     const startedLabel = reduced.length > 0 ? reduced[0].date : '--';
+
+    // Calculate progress change with proper formatting
+    const progressChange = lastValue - prevValue;
+    const progressChangeText =
+      values.length >= 2 ? `${progressChange > 0 ? '+' : ''}${progressChange}kg` : '--';
+
     return {
       values,
       firstValue,
@@ -75,6 +101,7 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
       growthPercent,
       startedLabel,
       reduced,
+      progressChangeText,
     };
   }
 
@@ -92,68 +119,83 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
     return 'minus';
   }
 
-  // Helper function to generate 4 actual exercise dates from user's workout data
-  function generatePositionedDateLabels(exerciseData: { date: string; value: number }[]): string[] {
+  // Get 4 strategic dates from the exercise data
+  function getStrategicDates(exerciseData: { date: string; value: number }[]) {
     if (exerciseData.length === 0) return [];
     if (exerciseData.length === 1) return [exerciseData[0].date];
     if (exerciseData.length === 2) return [exerciseData[0].date, exerciseData[1].date];
+    if (exerciseData.length === 3)
+      return [exerciseData[0].date, exerciseData[1].date, exerciseData[2].date];
 
-    // Create array with same length as data points, filled with empty strings
-    const labels = new Array(exerciseData.length).fill('');
-
-    // Select 4 actual exercise dates from the user's workout data
     const dataLength = exerciseData.length;
+    const firstIndex = 0;
+    const lastIndex = dataLength - 1;
+    const middleIndex1 = Math.round(dataLength / 3) - 1;
+    const middleIndex2 = Math.round((dataLength * 2) / 3) - 1;
 
-    // Calculate which actual exercise dates to show
-    const firstDataIndex = 0; // First exercise
-    const lastDataIndex = dataLength - 1; // Last exercise
-    const firstMiddleDataIndex = Math.floor(dataLength / 3); // Exercise at ~1/3 position
-    const secondMiddleDataIndex = Math.floor((dataLength * 2) / 3); // Exercise at ~2/3 position
-
-    // Position labels to show 4 actual exercise dates with slight inward positioning to prevent cutoff
-    const startIndex = dataLength > 4 ? 1 : 0; // Slightly inward for longer datasets
-    const endIndex = dataLength > 4 ? dataLength - 2 : dataLength - 1; // Slightly inward for longer datasets
-
-    labels[startIndex] = exerciseData[firstDataIndex].date; // First actual exercise date
-    labels[endIndex] = exerciseData[lastDataIndex].date; // Last actual exercise date
-
-    // Position the two middle actual exercise dates
-    const firstMiddleIndex = Math.floor(dataLength / 3); // 1/3 position in chart
-    const secondMiddleIndex = Math.floor((dataLength * 2) / 3); // 2/3 position in chart
-
-    labels[firstMiddleIndex] = exerciseData[firstMiddleDataIndex].date; // Actual exercise date from ~1/3 position
-    labels[secondMiddleIndex] = exerciseData[secondMiddleDataIndex].date; // Actual exercise date from ~2/3 position
-
-    return labels;
+    return [
+      exerciseData[firstIndex].date, // First date
+      exerciseData[middleIndex1].date, // 1/3 date
+      exerciseData[middleIndex2].date, // 2/3 date
+      exerciseData[lastIndex].date, // Last date
+    ];
   }
 
-  // Helper function to create data point with PR styling
-  function createChartDataPoint(
-    d: { date: string; value: number },
-    index: number,
-    prIndex: number,
-    showPR: boolean,
-  ) {
-    const isPR = index === prIndex && showPR;
-    return {
-      value: d.value,
-      label: '',
-      dataPointText: isPR ? 'PR' : '',
-      textShiftY: isPR ? -10 : undefined,
-      textShiftX: isPR ? -2 : undefined,
-      textColor: isPR ? COLORS.success : undefined,
-      textFontSize: isPR ? FONT_SIZES.xs : undefined,
-      showTextOnFocus: false,
-      dataPointColor: isPR ? COLORS.success : COLORS.primary,
-      dataPointRadius: isPR ? 6 : 3,
-      dataPointHeight: isPR ? 6 : 3,
-      dataPointWidth: isPR ? 6 : 3,
-    };
+  // Map each data point to the closest strategic position (1, 2, 3, or 4)
+  function getDataPointPosition(dataIndex: number, totalDataPoints: number) {
+    if (totalDataPoints === 1) return 1;
+    if (totalDataPoints === 2) return dataIndex === 0 ? 1 : 2;
+    if (totalDataPoints === 3) return dataIndex + 1;
+
+    // For 4+ data points, map to 4 fixed positions
+    const progress = dataIndex / (totalDataPoints - 1); // 0 to 1
+
+    if (progress <= 0.33) return 1;
+    if (progress <= 0.66) return 2;
+    if (progress <= 0.99) return 3;
+    return 4;
+  }
+
+  // Transform data for Victory charts with fixed X positions
+  function transformDataForVictory(exerciseData: { date: string; value: number }[]) {
+    return exerciseData.map((point, index) => ({
+      x: getDataPointPosition(index, exerciseData.length), // Fixed positions: 1, 2, 3, or 4
+      y: point.value,
+      date: point.date,
+      index,
+    }));
+  }
+
+  // Get fixed axis labels for positions 1, 2, 3, 4 with adjusted label positions
+  function getFixedAxisLabels(exerciseData: { date: string; value: number }[]) {
+    const strategicDates = getStrategicDates(exerciseData);
+
+    // Always use positions 1, 2, 3, 4 but only show labels we have
+    const maxPositions = Math.min(4, strategicDates.length);
+
+    // Adjust label positions - move the last label slightly left to prevent cutoff
+    const tickValues = Array.from({ length: maxPositions }, (_, i) => {
+      if (i === maxPositions - 1 && maxPositions === 4) {
+        return 3.9; // Move the last date label slightly left
+      }
+      return i + 1;
+    });
+
+    const tickLabels = strategicDates.slice(0, maxPositions);
+
+    return { tickValues, tickLabels };
   }
 
   function renderExerciseCard(exercise: ExerciseData) {
-    const { lastValue, prevValue, maxValue, growthPercent, startedLabel } =
-      getExerciseStats(exercise);
+    const {
+      lastValue,
+      prevValue,
+      maxValue,
+      growthPercent,
+      startedLabel,
+      reduced,
+      progressChangeText,
+    } = getExerciseStats(exercise);
 
     return (
       <View key={exercise.id} style={styles.graphCard}>
@@ -237,9 +279,7 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
                     },
                   ]}
                 >
-                  {exercise.data.length >= 2
-                    ? `${lastValue - prevValue > 0 ? '+' : ''}${lastValue - prevValue}${exercise.unit}`
-                    : '--'}
+                  {progressChangeText}
                 </Text>
               </View>
               <Text style={styles.progressLabel}>Last Session</Text>
@@ -264,85 +304,131 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
 
         {/* Chart Section */}
         <View style={styles.chartSection}>
-          {exercise.data.length > 0 ? (
+          {reduced.length > 0 ? (
             <View style={[styles.chartClip, { width: chartWidth }]}>
               {(() => {
-                // Find PR (Personal Record) - highest value and its index
-                const maxValue = Math.max(...exercise.data.map((d) => d.value));
-                const prIndex = exercise.data.findIndex((d) => d.value === maxValue);
-                const showPR = exercise.data.length > 1; // Only show PR if more than 1 workout
+                // Use reduced data for better chart display (no duplicate dates)
+                const chartData = transformDataForVictory(reduced);
+                const maxDataValue = Math.max(...reduced.map((d) => d.value));
+                // Find PR index in the transformed chart data (which has fixed x positions)
+                const prDataPoint = reduced.find((d) => d.value === maxDataValue);
+                const prIndex = chartData.findIndex((d) => d.date === prDataPoint?.date);
+                const showPR = reduced.length > 1;
 
-                // Prepare chart data with PR marking
-                const chartData = exercise.data.map((d, index) =>
-                  createChartDataPoint(d, index, prIndex, showPR),
-                );
-
-                // Generate 4 actual exercise dates from user's workout data
-                const positionedDateLabels = generatePositionedDateLabels(exercise.data);
+                // Get fixed axis labels for positions 1, 2, 3, 4
+                const { tickValues, tickLabels } = getFixedAxisLabels(reduced);
 
                 return (
-                  <LineChart
-                    data={chartData}
-                    xAxisLabelTexts={positionedDateLabels}
+                  <VictoryChart
                     width={chartWidth}
                     height={190}
-                    noOfSections={5}
-                    spacing={Math.min(
-                      35,
-                      Math.max(15, (chartWidth - 75) / Math.max(exercise.data.length - 2, 0)),
+                    padding={{ left: 45, top: 20, right: 15, bottom: 40 }}
+                    domain={{ x: [1, 4], y: [0, maxDataValue * 1.1] }}
+                  >
+                    {/* Area gradient fill */}
+                    <VictoryArea
+                      data={chartData}
+                      style={{
+                        data: {
+                          fill: COLORS.gradientStart,
+                          fillOpacity: 0.3,
+                          stroke: COLORS.primary,
+                          strokeWidth: 3,
+                        },
+                      }}
+                      interpolation="cardinal"
+                    />
+
+                    {/* Main line chart */}
+                    <VictoryLine
+                      data={chartData}
+                      style={{
+                        data: {
+                          stroke: COLORS.primary,
+                          strokeWidth: 3,
+                        },
+                      }}
+                      interpolation="cardinal"
+                    />
+
+                    {/* Data points with PR highlighting */}
+                    <VictoryScatter
+                      data={chartData}
+                      size={(data) => {
+                        const dataIndex = data.index as number;
+                        return dataIndex === prIndex ? 6 : 3;
+                      }}
+                      style={{
+                        data: {
+                          fill: (data) => {
+                            const dataIndex = data.index as number;
+                            return dataIndex === prIndex ? COLORS.success : COLORS.primary;
+                          },
+                        },
+                      }}
+                      labelComponent={
+                        <VictoryTooltip
+                          flyoutStyle={{
+                            stroke: COLORS.primary,
+                            fill: 'rgba(42, 45, 58, 0.95)',
+                          }}
+                          style={{
+                            fill: COLORS.text,
+                            fontSize: FONT_SIZES.xs,
+                          }}
+                        />
+                      }
+                      labels={({ datum }) => `${datum.y}kg\n${datum.date}`}
+                    />
+
+                    {/* PR Label for highest value */}
+                    {showPR && (
+                      <VictoryScatter
+                        data={[chartData[prIndex]]}
+                        labelComponent={
+                          <VictoryLabel
+                            style={{
+                              fill: COLORS.success,
+                              fontSize: FONT_SIZES.xs,
+                              fontWeight: 'bold',
+                            }}
+                            dy={-15}
+                          />
+                        }
+                        labels={() => 'PR'}
+                      />
                     )}
-                    color={COLORS.primary}
-                    thickness={3}
-                    startFillColor={COLORS.gradientStart}
-                    startOpacity={0.4}
-                    endFillColor={COLORS.gradientEnd}
-                    endOpacity={0.1}
-                    initialSpacing={5}
-                    endSpacing={5}
-                    hideDataPoints={false}
-                    dataPointsColor={COLORS.primary}
-                    dataPointsColor1={COLORS.gradientStart}
-                    dataPointsRadius={3}
-                    dataPointsHeight={3}
-                    dataPointsWidth={3}
-                    focusEnabled={true}
-                    showTextOnFocus={false}
-                    showValuesAsDataPointsText={false}
-                    yAxisColor="rgba(255,255,255,0.15)"
-                    xAxisColor="rgba(255,255,255,0.15)"
-                    yAxisTextStyle={{
-                      color: 'rgba(255,255,255,0.8)',
-                      fontSize: FONT_SIZES.xs,
-                      fontWeight: '600',
-                    }}
-                    xAxisLabelTextStyle={{
-                      color: 'rgba(255,255,255,0.8)',
-                      fontSize: FONT_SIZES.xs - 1,
-                      fontWeight: '600',
-                      textAlign: 'center',
-                      width: 35,
-                    }}
-                    curved={true}
-                    curvature={0.25}
-                    areaChart={true}
-                    hideAxesAndRules={false}
-                    hideYAxisText={false}
-                    hideRules={true}
-                    rulesColor="transparent"
-                    rulesType="solid"
-                    showStripOnFocus={true}
-                    stripHeight={160}
-                    stripColor="rgba(139,109,255,0.15)"
-                    stripOpacity={0.8}
-                    pointerConfig={{
-                      pointerStripWidth: 3,
-                      pointerStripColor: COLORS.primary,
-                      pointerColor: COLORS.text,
-                      radius: 8,
-                      showPointerStrip: true,
-                      strokeDashArray: [5, 5],
-                    }}
-                  />
+
+                    {/* Y-axis */}
+                    <VictoryAxis
+                      dependentAxis
+                      tickFormat={(t) => `${t}kg`}
+                      style={{
+                        axis: { stroke: 'rgba(255,255,255,0.15)' },
+                        tickLabels: {
+                          fill: 'rgba(255,255,255,0.8)',
+                          fontSize: FONT_SIZES.xs,
+                          fontWeight: '600',
+                        },
+                        grid: { stroke: 'rgba(255,255,255,0.1)' },
+                      }}
+                    />
+
+                    {/* X-axis with fixed date labels */}
+                    <VictoryAxis
+                      tickValues={tickValues}
+                      tickFormat={(x, i) => tickLabels[i] || ''}
+                      style={{
+                        axis: { stroke: 'rgba(255,255,255,0.15)' },
+                        tickLabels: {
+                          fill: 'rgba(255,255,255,0.8)',
+                          fontSize: FONT_SIZES.xs - 1,
+                          fontWeight: '600',
+                          angle: 0, // Horizontal labels since they're now fixed
+                        },
+                      }}
+                    />
+                  </VictoryChart>
                 );
               })()}
             </View>

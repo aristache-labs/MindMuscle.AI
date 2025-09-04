@@ -92,49 +92,37 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
     return 'minus';
   }
 
-  // Helper function to generate 4 date labels positioned at graph edges and two middle points
+  // Helper function to generate 4 actual exercise dates from user's workout data
   function generatePositionedDateLabels(exerciseData: { date: string; value: number }[]): string[] {
     if (exerciseData.length === 0) return [];
     if (exerciseData.length === 1) return [exerciseData[0].date];
     if (exerciseData.length === 2) return [exerciseData[0].date, exerciseData[1].date];
 
-    // Parse date format (assuming dd.mm)
-    const parseDate = (dateStr: string) => {
-      const [day, month] = dateStr.split('.').map(Number);
-      return new Date(2024, month - 1, day); // Assuming current year
-    };
-
-    const formatDate = (date: Date) => {
-      const day = date.getDate().toString().padStart(2, '0');
-      const month = (date.getMonth() + 1).toString().padStart(2, '0');
-      return `${day}.${month}`;
-    };
-
     // Create array with same length as data points, filled with empty strings
     const labels = new Array(exerciseData.length).fill('');
 
-    // Get first and last exercise dates
-    const firstDate = parseDate(exerciseData[0].date);
-    const lastDate = parseDate(exerciseData[exerciseData.length - 1].date);
+    // Select 4 actual exercise dates from the user's workout data
+    const dataLength = exerciseData.length;
 
-    // Calculate two middle dates (1/3 and 2/3 between first and last)
-    const timeDiff = lastDate.getTime() - firstDate.getTime();
-    const firstMiddleDate = new Date(firstDate.getTime() + timeDiff / 3); // 1/3 point
-    const secondMiddleDate = new Date(firstDate.getTime() + (timeDiff * 2) / 3); // 2/3 point
+    // Calculate which actual exercise dates to show
+    const firstDataIndex = 0; // First exercise
+    const lastDataIndex = dataLength - 1; // Last exercise
+    const firstMiddleDataIndex = Math.floor(dataLength / 3); // Exercise at ~1/3 position
+    const secondMiddleDataIndex = Math.floor((dataLength * 2) / 3); // Exercise at ~2/3 position
 
-    // Position labels to show 4 dates with slight inward positioning to prevent cutoff
-    const startIndex = exerciseData.length > 4 ? 1 : 0; // Slightly inward for longer datasets
-    const endIndex = exerciseData.length > 4 ? exerciseData.length - 2 : exerciseData.length - 1; // Slightly inward for longer datasets
+    // Position labels to show 4 actual exercise dates with slight inward positioning to prevent cutoff
+    const startIndex = dataLength > 4 ? 1 : 0; // Slightly inward for longer datasets
+    const endIndex = dataLength > 4 ? dataLength - 2 : dataLength - 1; // Slightly inward for longer datasets
 
-    labels[startIndex] = exerciseData[0].date; // Start date positioned near left edge
-    labels[endIndex] = exerciseData[exerciseData.length - 1].date; // End date positioned near right edge
+    labels[startIndex] = exerciseData[firstDataIndex].date; // First actual exercise date
+    labels[endIndex] = exerciseData[lastDataIndex].date; // Last actual exercise date
 
-    // Calculate positions for the two middle dates
-    const firstMiddleIndex = Math.floor(exerciseData.length / 3); // 1/3 position
-    const secondMiddleIndex = Math.floor((exerciseData.length * 2) / 3); // 2/3 position
+    // Position the two middle actual exercise dates
+    const firstMiddleIndex = Math.floor(dataLength / 3); // 1/3 position in chart
+    const secondMiddleIndex = Math.floor((dataLength * 2) / 3); // 2/3 position in chart
 
-    labels[firstMiddleIndex] = formatDate(firstMiddleDate); // First middle date
-    labels[secondMiddleIndex] = formatDate(secondMiddleDate); // Second middle date
+    labels[firstMiddleIndex] = exerciseData[firstMiddleDataIndex].date; // Actual exercise date from ~1/3 position
+    labels[secondMiddleIndex] = exerciseData[secondMiddleDataIndex].date; // Actual exercise date from ~2/3 position
 
     return labels;
   }
@@ -257,7 +245,7 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
               {(() => {
                 const chartData = exercise.data.map((d) => ({ value: d.value, label: '' }));
 
-                // Generate 4 date labels positioned at graph edges and two middle points
+                // Generate 4 actual exercise dates from user's workout data
                 const positionedDateLabels = generatePositionedDateLabels(exercise.data);
 
                 return (

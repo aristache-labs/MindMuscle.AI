@@ -1,15 +1,13 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Alert, Platform, ScrollView, Dimensions } from 'react-native';
 import { Text, IconButton, Surface, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   VictoryChart,
-  VictoryLine,
   VictoryArea,
   VictoryAxis,
   VictoryScatter,
   VictoryLabel,
-  VictoryTooltip,
 } from 'victory-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { parse } from 'date-fns';
@@ -33,12 +31,22 @@ interface ExerciseGraphsProps {
   onDeleteExercise?: (exerciseId: string) => void;
 }
 
+interface SelectedDataPoint {
+  exerciseId: string;
+  dataIndex: number;
+  date: string;
+  weight: number;
+  x: number;
+  y: number;
+}
+
 const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
   exercises,
   onAddExercise,
   onSetGoal,
   onDeleteExercise,
 }) => {
+  const [selectedDataPoint, setSelectedDataPoint] = useState<SelectedDataPoint | null>(null);
   const windowWidth = Dimensions.get('window').width;
   const SURFACE_MARGIN = 8; // container margins
   const CARD_MARGIN = 4; // card horizontal margins
@@ -299,139 +307,7 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
         {/* Chart Section */}
         <View style={styles.chartSection}>
           {reduced.length > 0 ? (
-            <View style={[styles.chartClip, { width: chartWidth }]}>
-              {(() => {
-                // Use ALL exercise data (not reduced) to show every workout session
-                const chartData = transformDataForVictory(exercise.data);
-                const maxDataValue = Math.max(...exercise.data.map((d) => d.value));
-                // Find PR index in the transformed chart data
-                const prDataPoint = exercise.data.find((d) => d.value === maxDataValue);
-                const prIndex = chartData.findIndex((d) => d.date === prDataPoint?.date);
-                const showPR = exercise.data.length > 1;
-
-                // Get fixed axis labels for positions 1, 2, 3, 4 (based on strategic dates)
-                const { tickValues, tickLabels } = getFixedAxisLabels(reduced);
-
-                return (
-                  <VictoryChart
-                    width={chartWidth}
-                    height={190}
-                    padding={{ left: 45, top: 20, right: 15, bottom: 40 }}
-                    domain={{ x: [1, 4], y: [0, maxDataValue * 1.1] }}
-                  >
-                    {/* Area gradient fill */}
-                    <VictoryArea
-                      data={chartData}
-                      style={{
-                        data: {
-                          fill: COLORS.gradientStart,
-                          fillOpacity: 0.3,
-                          stroke: COLORS.primary,
-                          strokeWidth: 3,
-                        },
-                      }}
-                      interpolation="cardinal"
-                    />
-
-                    {/* Main line chart */}
-                    <VictoryLine
-                      data={chartData}
-                      style={{
-                        data: {
-                          stroke: COLORS.primary,
-                          strokeWidth: 3,
-                        },
-                      }}
-                      interpolation="cardinal"
-                    />
-
-                    {/* Data points with PR highlighting */}
-                    <VictoryScatter
-                      data={chartData}
-                      size={(data) => {
-                        const dataIndex = data.index as number;
-                        return dataIndex === prIndex ? 6 : 3;
-                      }}
-                      style={{
-                        data: {
-                          fill: (data) => {
-                            const dataIndex = data.index as number;
-                            return dataIndex === prIndex ? COLORS.success : COLORS.primary;
-                          },
-                        },
-                      }}
-                      labelComponent={
-                        <VictoryTooltip
-                          flyoutStyle={{
-                            stroke: COLORS.primary,
-                            fill: 'rgba(42, 45, 58, 0.95)',
-                          }}
-                          style={{
-                            fill: COLORS.text,
-                            fontSize: FONT_SIZES.xs,
-                          }}
-                        />
-                      }
-                      labels={({ datum }) => `${datum.y}kg\n${datum.date}`}
-                    />
-
-                    {/* PR Label for highest value */}
-                    {showPR && (
-                      <VictoryScatter
-                        data={[chartData[prIndex]]}
-                        labelComponent={
-                          <VictoryLabel
-                            style={{
-                              fill: COLORS.success,
-                              fontSize: FONT_SIZES.xs,
-                              fontWeight: 'bold',
-                            }}
-                            dy={-15}
-                          />
-                        }
-                        labels={() => 'PR'}
-                      />
-                    )}
-
-                    {/* Y-axis */}
-                    <VictoryAxis
-                      dependentAxis
-                      tickFormat={(t) => `${Math.round(t)}kg`}
-                      domain={[0, maxDataValue * 1.1]}
-                      tickValues={(() => {
-                        const maxValue = maxDataValue * 1.1;
-                        const step = maxValue / 4; // 5 values = 4 intervals
-                        return [0, step, step * 2, step * 3, maxValue];
-                      })()}
-                      style={{
-                        axis: { stroke: 'rgba(255,255,255,0.15)' },
-                        tickLabels: {
-                          fill: 'rgba(255,255,255,0.8)',
-                          fontSize: FONT_SIZES.xs,
-                          fontWeight: '600',
-                        },
-                        grid: { stroke: 'rgba(255,255,255,0.1)' },
-                      }}
-                    />
-
-                    {/* X-axis with fixed date labels */}
-                    <VictoryAxis
-                      tickValues={tickValues}
-                      tickFormat={(x, i) => tickLabels[i] || ''}
-                      style={{
-                        axis: { stroke: 'rgba(255,255,255,0.15)' },
-                        tickLabels: {
-                          fill: 'rgba(255,255,255,0.8)',
-                          fontSize: FONT_SIZES.xs - 1,
-                          fontWeight: '600',
-                          angle: 0, // Horizontal labels since they're now fixed
-                        },
-                      }}
-                    />
-                  </VictoryChart>
-                );
-              })()}
-            </View>
+            <View style={[styles.chartClip, { width: chartWidth }]}>{renderChart(exercise)}</View>
           ) : (
             <View style={styles.noDataContainer}>
               <Text style={styles.noDataText}>No workout data yet</Text>
@@ -554,6 +430,180 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
       }
     }
   }, [exercises]);
+
+  // Helper function to render chart for an exercise
+  const renderChart = (exercise: ExerciseData) => {
+    const chartData = transformDataForVictory(exercise.data);
+    const maxDataValue = Math.max(...exercise.data.map((d) => d.value));
+    const prDataPoint = exercise.data.find((d) => d.value === maxDataValue);
+    const prIndex = chartData.findIndex((d) => d.date === prDataPoint?.date);
+    const showPR = exercise.data.length > 1;
+    const { tickValues, tickLabels } = getFixedAxisLabels(exercise.data);
+
+    return (
+      <>
+        <VictoryChart
+          domain={{ x: [1, 4], y: [-maxDataValue * 0.15, maxDataValue * 1.3] }}
+          padding={{ left: 45, top: 20, right: 15, bottom: 40 }}
+          height={250}
+          width={chartWidth}
+        >
+          <VictoryArea
+            data={chartData}
+            style={{
+              data: {
+                fill: COLORS.gradientStart,
+                fillOpacity: 0.3,
+                stroke: COLORS.primary,
+                strokeWidth: 3,
+              },
+            }}
+            interpolation="cardinal"
+          />
+
+          {/* Invisible larger touch targets */}
+          <VictoryScatter
+            data={chartData}
+            size={20}
+            style={{
+              data: {
+                fill: 'transparent',
+                stroke: 'transparent',
+              },
+            }}
+            events={[
+              {
+                target: 'data',
+                eventHandlers: {
+                  onPress: (_event, props) => {
+                    const dataIndex = props.index as number;
+                    const datum = props.datum;
+                    if (
+                      selectedDataPoint?.exerciseId === exercise.id &&
+                      selectedDataPoint?.dataIndex === dataIndex
+                    ) {
+                      setSelectedDataPoint(null);
+                    } else {
+                      setSelectedDataPoint({
+                        exerciseId: exercise.id,
+                        dataIndex,
+                        date: datum.date,
+                        weight: datum.y,
+                        x: datum.x,
+                        y: datum.y,
+                      });
+                    }
+                    return null;
+                  },
+                },
+              },
+            ]}
+          />
+
+          {/* Visible data points */}
+          <VictoryScatter
+            data={chartData}
+            size={(data) => {
+              const dataIndex = data.index as number;
+              const isSelected =
+                selectedDataPoint?.exerciseId === exercise.id &&
+                selectedDataPoint?.dataIndex === dataIndex;
+              if (isSelected) return 6;
+              return dataIndex === prIndex ? 5 : 3;
+            }}
+            style={{
+              data: {
+                fill: (data) => {
+                  const dataIndex = data.index as number;
+                  const isSelected =
+                    selectedDataPoint?.exerciseId === exercise.id &&
+                    selectedDataPoint?.dataIndex === dataIndex;
+                  if (isSelected) return COLORS.warning;
+                  return dataIndex === prIndex ? COLORS.success : COLORS.primary;
+                },
+                stroke: (data) => {
+                  const dataIndex = data.index as number;
+                  const isSelected =
+                    selectedDataPoint?.exerciseId === exercise.id &&
+                    selectedDataPoint?.dataIndex === dataIndex;
+                  if (isSelected) return COLORS.warning;
+                  return dataIndex === prIndex ? COLORS.success : COLORS.primary;
+                },
+                strokeWidth: 3,
+                cursor: 'pointer',
+              },
+            }}
+          />
+
+          {showPR && (
+            <VictoryScatter
+              data={[chartData[prIndex]]}
+              labelComponent={
+                <VictoryLabel
+                  style={{
+                    fill: COLORS.success,
+                    fontSize: FONT_SIZES.xs,
+                    fontWeight: 'bold',
+                  }}
+                  dy={-15}
+                />
+              }
+              labels={() => 'PR'}
+            />
+          )}
+
+          <VictoryAxis
+            dependentAxis
+            tickFormat={(t) => `${Math.round(t)}kg`}
+            domain={[-maxDataValue * 1.15, maxDataValue * 1.1]}
+            tickValues={(() => {
+              const maxValue = maxDataValue * 1.1;
+              const step = maxValue / 4;
+              return [0, step, step * 2, step * 3, maxValue];
+            })()}
+            style={{
+              axis: { stroke: 'rgba(255,255,255,0.15)' },
+              tickLabels: {
+                fill: 'rgba(255,255,255,0.8)',
+                fontSize: FONT_SIZES.xs,
+                fontWeight: '600',
+              },
+              grid: { stroke: 'rgba(255,255,255,0.1)' },
+            }}
+          />
+
+          <VictoryAxis
+            tickValues={tickValues}
+            tickFormat={(x, i) => tickLabels[i] || ''}
+            style={{
+              axis: { stroke: 'rgba(255,255,255,0.15)' },
+              tickLabels: {
+                fill: 'rgba(255,255,255,0.8)',
+                fontSize: FONT_SIZES.xs,
+                fontWeight: '600',
+                angle: 0,
+              },
+            }}
+          />
+        </VictoryChart>
+
+        {selectedDataPoint?.exerciseId === exercise.id && selectedDataPoint && (
+          <View
+            style={[
+              styles.customTooltip,
+              {
+                left: ((selectedDataPoint.x - 1) / 3) * (chartWidth - 60) + 45 - 40,
+                top: 25,
+              },
+            ]}
+          >
+            <Text style={styles.tooltipDate}>{selectedDataPoint.date}</Text>
+            <Text style={styles.tooltipWeight}>{selectedDataPoint.weight}kg</Text>
+          </View>
+        )}
+      </>
+    );
+  };
 
   const handleDeletePress = (exerciseId: string) => {
     try {
@@ -1119,6 +1169,38 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  customTooltip: {
+    position: 'absolute',
+    backgroundColor: 'rgba(42, 45, 58, 0.95)',
+    borderRadius: BORDER_RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 80,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    zIndex: 1000,
+  },
+  tooltipDate: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.text,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  tooltipWeight: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.primary,
+    fontWeight: 'bold',
   },
 });
 

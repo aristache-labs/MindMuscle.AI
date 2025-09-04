@@ -306,7 +306,8 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
                     areaChart={true}
                     hideAxesAndRules={false}
                     hideYAxisText={false}
-                    rulesColor="rgba(139,109,255,0.2)"
+                    hideRules={true}
+                    rulesColor="transparent"
                     rulesType="solid"
                     showStripOnFocus={true}
                     stripHeight={160}
@@ -933,7 +934,7 @@ const styles = StyleSheet.create({
   chartClip: {
     overflow: 'hidden',
     alignSelf: 'center',
-    backgroundColor: 'rgba(255,255,255,0.02)',
+    backgroundColor: 'transparent',
     borderRadius: BORDER_RADIUS.xs,
     paddingHorizontal: 1,
     paddingVertical: 1,

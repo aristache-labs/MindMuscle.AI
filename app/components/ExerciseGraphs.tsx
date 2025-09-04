@@ -92,7 +92,7 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
     return 'minus';
   }
 
-  // Helper function to generate date labels positioned at graph edges and center
+  // Helper function to generate 4 date labels positioned at graph edges and two middle points
   function generatePositionedDateLabels(exerciseData: { date: string; value: number }[]): string[] {
     if (exerciseData.length === 0) return [];
     if (exerciseData.length === 1) return [exerciseData[0].date];
@@ -117,20 +117,24 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
     const firstDate = parseDate(exerciseData[0].date);
     const lastDate = parseDate(exerciseData[exerciseData.length - 1].date);
 
-    // Calculate middle date (halfway between first and last)
+    // Calculate two middle dates (1/3 and 2/3 between first and last)
     const timeDiff = lastDate.getTime() - firstDate.getTime();
-    const middleDate = new Date(firstDate.getTime() + timeDiff / 2);
+    const firstMiddleDate = new Date(firstDate.getTime() + timeDiff / 3); // 1/3 point
+    const secondMiddleDate = new Date(firstDate.getTime() + (timeDiff * 2) / 3); // 2/3 point
 
-    // Position labels slightly inward from edges to prevent cutoff, but maintain alignment
-    const startIndex = exerciseData.length > 0 ? 0 : 0; // Slightly inward for longer datasets
-    const endIndex = exerciseData.length > 3 ? exerciseData.length - 2 : exerciseData.length - 1; // Slightly inward for longer datasets
+    // Position labels to show 4 dates with slight inward positioning to prevent cutoff
+    const startIndex = exerciseData.length > 4 ? 1 : 0; // Slightly inward for longer datasets
+    const endIndex = exerciseData.length > 4 ? exerciseData.length - 2 : exerciseData.length - 1; // Slightly inward for longer datasets
 
     labels[startIndex] = exerciseData[0].date; // Start date positioned near left edge
     labels[endIndex] = exerciseData[exerciseData.length - 1].date; // End date positioned near right edge
 
-    // Middle position = center of graph
-    const middleIndex = Math.floor(exerciseData.length / 2);
-    labels[middleIndex] = formatDate(middleDate); // Calculated middle date at graph center
+    // Calculate positions for the two middle dates
+    const firstMiddleIndex = Math.floor(exerciseData.length / 3); // 1/3 position
+    const secondMiddleIndex = Math.floor((exerciseData.length * 2) / 3); // 2/3 position
+
+    labels[firstMiddleIndex] = formatDate(firstMiddleDate); // First middle date
+    labels[secondMiddleIndex] = formatDate(secondMiddleDate); // Second middle date
 
     return labels;
   }
@@ -253,7 +257,7 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
               {(() => {
                 const chartData = exercise.data.map((d) => ({ value: d.value, label: '' }));
 
-                // Generate date labels positioned at graph edges and center
+                // Generate 4 date labels positioned at graph edges and two middle points
                 const positionedDateLabels = generatePositionedDateLabels(exercise.data);
 
                 return (
@@ -264,7 +268,7 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
                     height={160}
                     noOfSections={5}
                     spacing={Math.min(
-                      30,
+                      35,
                       Math.max(15, (chartWidth - 75) / Math.max(exercise.data.length - 2, 0)),
                     )}
                     color={COLORS.primary}

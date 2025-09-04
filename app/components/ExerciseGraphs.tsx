@@ -141,25 +141,19 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
     ];
   }
 
-  // Map each data point to the closest strategic position (1, 2, 3, or 4)
+  // Map each data point proportionally across the full range (1 to 4)
   function getDataPointPosition(dataIndex: number, totalDataPoints: number) {
     if (totalDataPoints === 1) return 1;
-    if (totalDataPoints === 2) return dataIndex === 0 ? 1 : 2;
-    if (totalDataPoints === 3) return dataIndex + 1;
 
-    // For 4+ data points, map to 4 fixed positions
+    // For multiple data points, distribute them evenly across positions 1 to 4
     const progress = dataIndex / (totalDataPoints - 1); // 0 to 1
-
-    if (progress <= 0.33) return 1;
-    if (progress <= 0.66) return 2;
-    if (progress <= 0.99) return 3;
-    return 4;
+    return 1 + progress * 3; // Maps 0-1 to 1-4 range
   }
 
-  // Transform data for Victory charts with fixed X positions
+  // Transform data for Victory charts with proportional X positions
   function transformDataForVictory(exerciseData: { date: string; value: number }[]) {
     return exerciseData.map((point, index) => ({
-      x: getDataPointPosition(index, exerciseData.length), // Fixed positions: 1, 2, 3, or 4
+      x: getDataPointPosition(index, exerciseData.length), // Proportional positions across 1-4 range
       y: point.value,
       date: point.date,
       index,
@@ -307,15 +301,15 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
           {reduced.length > 0 ? (
             <View style={[styles.chartClip, { width: chartWidth }]}>
               {(() => {
-                // Use reduced data for better chart display (no duplicate dates)
-                const chartData = transformDataForVictory(reduced);
-                const maxDataValue = Math.max(...reduced.map((d) => d.value));
-                // Find PR index in the transformed chart data (which has fixed x positions)
-                const prDataPoint = reduced.find((d) => d.value === maxDataValue);
+                // Use ALL exercise data (not reduced) to show every workout session
+                const chartData = transformDataForVictory(exercise.data);
+                const maxDataValue = Math.max(...exercise.data.map((d) => d.value));
+                // Find PR index in the transformed chart data
+                const prDataPoint = exercise.data.find((d) => d.value === maxDataValue);
                 const prIndex = chartData.findIndex((d) => d.date === prDataPoint?.date);
-                const showPR = reduced.length > 1;
+                const showPR = exercise.data.length > 1;
 
-                // Get fixed axis labels for positions 1, 2, 3, 4
+                // Get fixed axis labels for positions 1, 2, 3, 4 (based on strategic dates)
                 const { tickValues, tickLabels } = getFixedAxisLabels(reduced);
 
                 return (
@@ -402,7 +396,13 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
                     {/* Y-axis */}
                     <VictoryAxis
                       dependentAxis
-                      tickFormat={(t) => `${t}kg`}
+                      tickFormat={(t) => `${Math.round(t)}kg`}
+                      domain={[0, maxDataValue * 1.1]}
+                      tickValues={(() => {
+                        const maxValue = maxDataValue * 1.1;
+                        const step = maxValue / 4; // 5 values = 4 intervals
+                        return [0, step, step * 2, step * 3, maxValue];
+                      })()}
                       style={{
                         axis: { stroke: 'rgba(255,255,255,0.15)' },
                         tickLabels: {

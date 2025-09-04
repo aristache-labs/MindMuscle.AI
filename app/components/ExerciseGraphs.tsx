@@ -127,6 +127,30 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
     return labels;
   }
 
+  // Helper function to create data point with PR styling
+  function createChartDataPoint(
+    d: { date: string; value: number },
+    index: number,
+    prIndex: number,
+    showPR: boolean,
+  ) {
+    const isPR = index === prIndex && showPR;
+    return {
+      value: d.value,
+      label: '',
+      dataPointText: isPR ? 'PR' : '',
+      textShiftY: isPR ? -10 : undefined,
+      textShiftX: isPR ? -2 : undefined,
+      textColor: isPR ? COLORS.success : undefined,
+      textFontSize: isPR ? FONT_SIZES.xs : undefined,
+      showTextOnFocus: false,
+      dataPointColor: isPR ? COLORS.success : COLORS.primary,
+      dataPointRadius: isPR ? 6 : 3,
+      dataPointHeight: isPR ? 6 : 3,
+      dataPointWidth: isPR ? 6 : 3,
+    };
+  }
+
   function renderExerciseCard(exercise: ExerciseData) {
     const { lastValue, prevValue, maxValue, growthPercent, startedLabel } =
       getExerciseStats(exercise);
@@ -243,7 +267,15 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
           {exercise.data.length > 0 ? (
             <View style={[styles.chartClip, { width: chartWidth }]}>
               {(() => {
-                const chartData = exercise.data.map((d) => ({ value: d.value, label: '' }));
+                // Find PR (Personal Record) - highest value and its index
+                const maxValue = Math.max(...exercise.data.map((d) => d.value));
+                const prIndex = exercise.data.findIndex((d) => d.value === maxValue);
+                const showPR = exercise.data.length > 1; // Only show PR if more than 1 workout
+
+                // Prepare chart data with PR marking
+                const chartData = exercise.data.map((d, index) =>
+                  createChartDataPoint(d, index, prIndex, showPR),
+                );
 
                 // Generate 4 actual exercise dates from user's workout data
                 const positionedDateLabels = generatePositionedDateLabels(exercise.data);
@@ -253,7 +285,7 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
                     data={chartData}
                     xAxisLabelTexts={positionedDateLabels}
                     width={chartWidth}
-                    height={160}
+                    height={190}
                     noOfSections={5}
                     spacing={Math.min(
                       35,
@@ -274,11 +306,8 @@ const ExerciseGraphs: React.FC<ExerciseGraphsProps> = ({
                     dataPointsHeight={3}
                     dataPointsWidth={3}
                     focusEnabled={true}
-                    showTextOnFocus={true}
-                    textFontSize={FONT_SIZES.sm}
-                    textColor={COLORS.text}
-                    textShiftY={-12}
-                    textShiftX={-15}
+                    showTextOnFocus={false}
+                    showValuesAsDataPointsText={false}
                     yAxisColor="rgba(255,255,255,0.15)"
                     xAxisColor="rgba(255,255,255,0.15)"
                     yAxisTextStyle={{
